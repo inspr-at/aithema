@@ -29,7 +29,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
   for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
     let baseline;
-    for (const state of ['in-call', 'reconciling', 'low', 'full-hold']) {
+    for (const state of ['in-call', 'reconciling', 'reconciling-blocked', 'low', 'full-hold']) {
       await shadow(page, async (c, { locale, state }) => {
         const { session } = await (await fetch(`/fixture?state=${state}`)).json();
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -47,13 +47,20 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
       }, { locale, state });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.trim() !== '…');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
-      if (state === 'reconciling') {
+      if (state.startsWith('reconciling')) {
         await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
         await until(page, () => /abgeglichen|reconciled/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent));
       }
       await settle(page);
       const targets = ['.composer-shell', '.display-foot', '.host-credits', '.audio-rail', '.host-credits__amount'];
-      if (width < 960) await shadow(page, c => c.shadowRoot.querySelector('.composer-dock').scrollIntoView({ block: 'end' }));
+      const capture = await shadow(page, (c, width) => {
+        const root = c.shadowRoot;
+        const gap = () => root.querySelector('.display-foot').getBoundingClientRect().top - root.querySelector('.composer-actions').getBoundingClientRect().bottom;
+        let oldCaptureGapPx = null;
+        if (width < 960) { root.querySelector('.composer-dock').scrollIntoView({ block: 'end' }); oldCaptureGapPx = gap();
+          root.querySelector('.composer-dock').scrollIntoView({ block: 'center' }); }
+        return { oldCaptureGapPx, composerFooterGapPx: gap(), scrollY: window.scrollY };
+      }, width);
       await settle(page);
       const rects = await boxes(page, targets); baseline ??= rects;
       for (const theme of ['light', 'dark']) {
@@ -69,19 +76,46 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
           numericStyle: getComputedStyle(c.shadowRoot.querySelector('.host-credits__amount')).fontVariantNumeric,
           usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
         assert.equal(view.low, state === 'low' ? 'true' : 'false', `${locale}/${width}/${state}: ${JSON.stringify(view)}`);
-        assert.equal(view.usedUp, false); assert.equal(view.ending, false);
+        assert.equal(view.usedUp, state === 'reconciling-blocked'); assert.equal(view.ending, false);
         if (state !== 'low') { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), state === 'full-hold' ? '0' : '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
         else assert.match(view.rail, locale === 'de' ? /wenig/u : /low/u);
         const reconciliation = locale === 'de' ? 'Kosten werden noch abgeglichen' : 'Costs are still being reconciled';
-        assert.equal(view.title, state === 'reconciling' ? reconciliation : null);
-        assert.equal(view.description, state === 'reconciling' ? reconciliation : null);
+        assert.equal(view.title, state.startsWith('reconciling') ? reconciliation : null);
+        assert.equal(view.description, state.startsWith('reconciling') ? reconciliation : null);
         assert.equal(view.footer.includes(reconciliation), false, 'reconciliation has no visible footer hint');
         assert.match(view.numericStyle, /tabular-nums/u);
-        if (state === 'reconciling') assert.match(view.rail, locale === 'de' ? /Kosten werden noch abgeglichen/u : /Costs are still being reconciled/u);
+        if (state.startsWith('reconciling')) assert.match(view.rail, locale === 'de' ? /Kosten werden noch abgeglichen/u : /Costs are still being reconciled/u);
+        if (state.startsWith('reconciling')) {
+          const admission = await shadow(page, c => ({ disabled: c.shadowRoot.querySelector('textarea').disabled,
+            sendDisabled: c.shadowRoot.querySelector('.send').disabled,
+            reason: c.shadowRoot.querySelector('.composer-reason').textContent, overview: c.shadowRoot.querySelector('.features').textContent }));
+          assert.equal(admission.disabled, state === 'reconciling-blocked');
+          assert.equal(admission.sendDisabled, state === 'reconciling-blocked');
+          assert.doesNotMatch(admission.reason + admission.overview, /nach dem Anruf|after the call/u);
+          if (state === 'reconciling') {
+            await shadow(page, c => c.shadowRoot.querySelector('textarea').focus());
+            await page.keyboard.type('Typed while costs reconcile.');
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), 'Typed while costs reconcile.');
+            await shadow(page, c => { c.shadowRoot.querySelector('textarea').value = ''; });
+          }
+        }
+        const controls = await shadow(page, c => {
+          const root = c.shadowRoot, visible = selector => getComputedStyle(root.querySelector(selector)).visibility !== 'hidden';
+          return { state: root.querySelector('.audio-rail').dataset.state, call: root.querySelector('.audio-rail').dataset.call,
+            pauseVisible: visible('.pause'), pauseBackground: getComputedStyle(root.querySelector('.pause')).backgroundColor,
+            micVisible: visible('.voice-input'), startVisible: visible('.voice-start'), stopVisible: visible('.voice-close') };
+        });
+        if (state.startsWith('reconciling')) { assert.equal(controls.call, 'none'); assert.equal(controls.micVisible, false);
+          assert.equal(controls.startVisible, true); assert.equal(controls.stopVisible, false); }
+        if (width === 390 && state === 'reconciling') {
+          const fit = await shadow(page, c => { const r = c.shadowRoot.querySelector('.composer-shell').getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom, footerTop: c.shadowRoot.querySelector('.display-foot').getBoundingClientRect().top }; });
+          assert.ok(fit.top >= 0 && fit.bottom <= fit.footerTop, `390 composer fully visible: ${JSON.stringify(fit)}`);
+        }
         const after = await boxes(page, targets), shift = Math.max(...baseline.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
-        const pass = { head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
-        console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; footer tooltip=${view.title ?? "none"}; shift=${shift}px`);
+        const pass = { ...capture, controls, head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
+        console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; footer tooltip=${view.title ?? "none"}; shift=${shift}px; composer gap=${capture.composerFooterGapPx}px; old capture gap=${capture.oldCaptureGapPx ?? 'n/a'}px`);
         if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
       }
       if (state === 'reconciling') {

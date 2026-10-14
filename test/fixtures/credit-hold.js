@@ -7,7 +7,7 @@ import { createDemoHost } from '../../demo/host-ports.js';
 import { mockConsent } from '../helpers.js';
 import { listen } from '../../packages/server/src/http.js';
 
-export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000 } = {}) {
+export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000, exposureMicro = 60_000_000 } = {}) {
   let time = 1_000;
   const storage = new SQLiteStorage(), owner = 'credit-hold-visitor';
   const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100_000_000, visitorCapMicro: 100_000_000, now: () => time });
@@ -17,6 +17,10 @@ export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_9
   storage.append(session.id, 'turn.final', { id: 'u1', role: 'user', content: 'Ich möchte eine Website.' });
   storage.append(session.id, 'turn.final', { id: 'a1', role: 'assistant', content: 'Welche Ziele haben Sie?' });
   const runtime = createPluginRuntime({ storage, budget: ledger, consent: mockConsent });
+  runtime.matrix = async current => ({ best: { text: {
+    available: ledger.canAdmit(current.id, 200_000) && host.wallet(owner).canAdmit({ maxMicro: 200_000 }),
+    reason: ledger.canAdmit(current.id, 200_000) && host.wallet(owner).canAdmit({ maxMicro: 200_000 }) ? null : 'budget denied',
+  }, analysis: { available: true }, voice: { available: true }, uploads: { available: true } } });
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, consent: mockConsent });
   const request = (lane, maxMicro, extra = {}) => ({ sessionId: session.id, lane, maxMicro,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
@@ -25,7 +29,7 @@ export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_9
   ledger.settle(prior.claimId, { attemptId: spent.attemptId, outcome: 'completed', chargedMicro: settledMicro,
     usage: { inputTokens: 0, outputTokens: 0 } });
   const admitted = await admitCredits(ledger, request('voice', holdMicro, { maxVisitorMicro: holdMicro,
-    voiceExposure: { maxMicro: 60_000_000, maxVisitorMicro: 60_000_000 },
+    voiceExposure: { maxMicro: exposureMicro, maxVisitorMicro: exposureMicro },
     voiceEstimate: { upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 } }), host.wallet(owner));
   if (!admitted.ok) throw new Error('Fixture voice admission refused');
   const claim = ledger.claim(admitted.admission.attemptId); claim.consume(); time += 60_000;
@@ -49,12 +53,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (path === '/fixture') {
       await fixture.close();
       const state = new URL(request.url).searchParams.get('state') ?? 'in-call';
-      fixture = await creditHoldFixture(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : {});
+      fixture = await creditHoldFixture(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : state === 'reconciling' ? { exposureMicro: 5_900_000 } : {});
       if (state === 'full-hold') {
         const { attemptId } = fixture.ledger.admit(fixture.request('reaction', 9_900_000));
         fixture.ledger.claim(attemptId).consume();
       }
-      if (state === 'reconciling') fixture.ledger.retainVoiceExposure(fixture.claim.attemptId);
+      if (state.startsWith('reconciling')) fixture.ledger.retainVoiceExposure(fixture.claim.attemptId);
       return Response.json({ session: fixture.storage.get(fixture.session.id), owner: fixture.owner });
     }
     if (path === '/reconcile') {

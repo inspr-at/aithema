@@ -173,3 +173,13 @@ for (const lane of ['voice', 'reaction']) test(`AIT-173 round 2: estimated recei
   else f.ledger.reconcileCost(attemptId, { chargedMicro: 100_000, estimated: false });
   assert.equal((await credits(f)).reconciling, false);
 });
+
+for (const covered of [true, false]) test(`AIT-173 round 3: text admission after the retained closing maximum (covered ${covered})`, async t => {
+  const f = await creditHoldFixture({ exposureMicro: covered ? 5_900_000 : 60_000_000 }); t.after(() => f.close());
+  f.ledger.retainVoiceExposure(f.claim.attemptId);
+  const maximum = 200_000;
+  assert.equal(f.host.wallet(f.owner).canAdmit({ maxMicro: maximum }), covered);
+  const result = await admitCredits(f.ledger, f.request('reaction', maximum), f.host.wallet(f.owner));
+  assert.equal(result.ok, covered);
+  assert.equal((await credits(f)).reconciling, true);
+});
