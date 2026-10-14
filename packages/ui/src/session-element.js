@@ -365,7 +365,7 @@ export class AithemaSession extends HTMLElement {
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
-        if (this.isConnected) void this.#refreshFeatures();
+        if (this.isConnected && this.#options.host?.credits && !this.#rail?.unloading) void this.#refreshFeatures();
       },
       onPause: paused => {
         this.#session.paused = paused; this.#clearNotice();
@@ -1607,7 +1607,9 @@ export class AithemaSession extends HTMLElement {
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
       this.#session.featureMatrix = session.featureMatrix;
-      if (session.voiceLifecycle) this.#rail.receiveState(session.voiceLifecycle);
+      // A credit read can beat the close acknowledgement. Its older waiting
+      // projection cannot undo the visitor's local terminal intent.
+      if (session.voiceLifecycle && session.voiceLifecycle.callId !== this.#rail.endedCall?.callId) this.#rail.receiveState(session.voiceLifecycle);
       if (session.engine) this.#session.engine = session.engine;
       // A changed visuals choice can switch between images and drafts, and their cost.
       if (session.conceptVisualKind) this.#session.conceptVisualKind = session.conceptVisualKind;
