@@ -381,7 +381,8 @@ export class AithemaSession extends HTMLElement {
         if (this.#rail?.endedCall) this.#postCallMatrix = this.#session.featureMatrix;
         this.#render('composer'); this.#render('features'); this.#render('aside');
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
-        if (this.isConnected && !this.#rail?.unloading) void this.#refreshFeatures();
+        // Journal invalidation refreshes after applying its event; do not read its older snapshot here.
+        if (this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor) void this.#refreshFeatures();
       },
       onPause: paused => {
         this.#session.paused = paused; this.#clearNotice();
@@ -939,7 +940,7 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!reconciling && !this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available && !reconciling ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
