@@ -5,6 +5,7 @@ import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createVoiceHand
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { qualifyStartBinding } from '../../../demo/processing-consent.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
+import { listen } from '../../../packages/server/src/http.js';
 import { createLocalVoiceProvider } from '../../fake-voice/src/server.js';
 
 function fixture(t, { allowance = 100_000, status = 200, onPost, voiceRate = 0, sessionCapMicro = 10_000_000 } = {}) {
@@ -162,4 +163,19 @@ for (const stop of ['error', 'abort', 'Stop']) test(`AIT-154 round 2: synthesis 
   release.resolve(); await checked;
   const next = await f.runtime.speakText({ session: f.session, turnId: 'reply-a' });
   assert.equal(next.kind, stop === 'error' ? 'text' : 'audio');
+});
+
+test('AIT-154 round 2: finishing the HTTP response keeps the server lease throughout playback', async t => {
+  const f = fixture(t), handlers = createVoiceHandlers({ storage: f.storage, runtime: f.runtime, secrets: createFacadeSecrets(),
+    ownership: { token: () => 'tenant-a' }, readBody: async r => new Uint8Array(await r.arrayBuffer()), publish() {}, onTurn() {} });
+  const { server, url } = await listen(request => handlers.handle(request));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await handlers.close(); });
+  const post = body => fetch(`${url}/api/sessions/${f.session.id}/voice/replay`, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json());
+  assert.equal((await post({ turnId: 'reply-a', replayId: 'playing' })).kind, 'audio');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(await post({ turnId: 'reply-a', replayId: 'second-tab' }), { kind: 'busy' });
+  assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 1);
+  assert.deepEqual(await post({ stop: true, replayId: 'playing' }), { stopped: true });
+  assert.equal((await post({ turnId: 'reply-a', replayId: 'after-stop' })).kind, 'audio');
+  assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 2);
 });
