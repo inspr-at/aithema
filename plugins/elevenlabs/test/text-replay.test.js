@@ -179,3 +179,30 @@ test('AIT-154 round 2: finishing the HTTP response keeps the server lease throug
   assert.equal((await post({ turnId: 'reply-a', replayId: 'after-stop' })).kind, 'audio');
   assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 2);
 });
+
+
+test('AIT-154 round 3: an aborted request cannot release a newer lease with the same replayId', async t => {
+  const f = fixture(t), firstEntered = Promise.withResolvers(), secondEntered = Promise.withResolvers();
+  const firstRelease = Promise.withResolvers(), secondRelease = Promise.withResolvers();
+  t.after(() => { firstRelease.resolve(); secondRelease.resolve(); f.runtime.stopReplyReplays(); });
+  const original = f.plugin.ports.serverAdapter.quoteSpeakText;
+  let quotes = 0;
+  f.plugin.ports.serverAdapter.quoteSpeakText = async (...args) => {
+    const number = ++quotes;
+    if (number === 1) { firstEntered.resolve(); await firstRelease.promise; }
+    if (number === 2) { secondEntered.resolve(); await secondRelease.promise; }
+    return original(...args);
+  };
+  const controller = new AbortController();
+  const first = f.runtime.speakText({ session: f.session, turnId: 'reply-a', options: { replayId: 'reused', signal: controller.signal } });
+  const rejected = assert.rejects(first, { name: 'AbortError' });
+  await firstEntered.promise; controller.abort();
+  const second = f.runtime.speakText({ session: f.session, turnId: 'reply-a', options: { replayId: 'reused' } }).catch(error => error);
+  await secondEntered.promise;
+  firstRelease.resolve(); await rejected;
+  const third = await f.runtime.speakText({ session: f.session, turnId: 'reply-a', options: { replayId: 'third' } });
+  secondRelease.resolve(); const audio = await second;
+  assert.deepEqual(third, { kind: 'busy' }, 'the aborted request must leave the newer in-flight lease intact');
+  assert.equal(audio.kind, 'audio');
+  assert.equal(quotes, 2); assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 1);
+});

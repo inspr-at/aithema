@@ -737,12 +737,12 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       assertButtonPosition(loneReply);
       await shot('lone-incomplete-button', label);
       await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply > span').textContent), wording.notice);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), wording.notice);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').title), copy.voiceReplyUnavailable);
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unacknowledged reply reserves its space`);
-      await noticeLayout('unacknowledged-reply');
+      assertButtonPosition(await noticeLayout('unacknowledged-reply'));
       await shot('unacknowledged-reply', label);
       await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
       const geometry = await shadow(page, c => {

@@ -102,11 +102,11 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
   });
 }
 
-test('AIT-138 c: unknown playback without a complete reply hides the button', async t => {
+test('AIT-138 c: unknown playback without a complete reply keeps the button visibly disabled', async t => {
   const f = await fixture(t, de);
   await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });
   const button = f.root.querySelector('.voice-repeat');
-  assert.equal(button.hidden, true); assert.equal(button.disabled, true); assert.equal(button.title, de.voiceReplyUnavailable);
+  assert.equal(button.hidden, false); assert.equal(button.disabled, true); assert.equal(button.title, de.voiceReplyUnavailable);
   button.click(); await tick(); assert.deepEqual(f.replays, []);
 });
 
