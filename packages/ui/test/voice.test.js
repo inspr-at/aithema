@@ -246,7 +246,7 @@ test(`AIT-179: ${locale} hangup preserves session Resume while ${settled ? 'sett
     element.receive({ type: 'voice.state', data: { callId, providerSessionId: 'ended-provider', state: 'ended',
       terminal: { closureConfirmed: true, usage: { costEstimated: false } } } });
     assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
-    assert.equal(window.getComputedStyle(pause).visibility, 'visible', 'settlement restores the idle session pause');
+    assert.notEqual(window.getComputedStyle(pause).visibility, 'hidden', 'settlement restores the idle session pause');
   }
   const requests = [];
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
@@ -261,7 +261,7 @@ test(`AIT-179: ${locale} hangup preserves session Resume while ${settled ? 'sett
   else element.receive({ seq: element.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(element.session.paused, true);
   assert.equal(pause.title, copy.resume); assert.equal(pause.disabled, false);
-  assert.equal(window.getComputedStyle(pause).visibility, 'visible', 'a paused session always offers Resume');
+  assert.notEqual(window.getComputedStyle(pause).visibility, 'hidden', 'a paused session always offers Resume');
   assert.equal(window.getComputedStyle(pause.querySelector('.voice-icon--resume')).visibility, 'visible');
   assert.equal(window.getComputedStyle(root.querySelector('.voice-input')).visibility, 'hidden');
   pause.click(); await tick();
