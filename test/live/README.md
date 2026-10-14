@@ -33,6 +33,14 @@ offline; missing voices fail setup (do not download them). Chrome opens the WAV
 with `--use-file-for-fake-audio-capture`, captures it through `getUserMedia`, and
 gates it with Web Audio. A meter proves non-silent capture and speech overlap.
 
+This dedicated test browser disables **only AudioServiceSandbox** so the macOS
+audio utility can read the generated WAV; renderer/browser sandboxing stays on.
+Chromium documents the [macOS fake-audio file access restriction](https://chromium.googlesource.com/chromium/src.git/+/167f34ae932ed8f702d9127339acbff246b4eb47)
+and the separate [audio-service sandbox feature](https://chromium.googlesource.com/chromium/src/+/9cab8b5d5e4ad574122eb8f78b98c02fccc9ee99/content/public/common/content_features.cc).
+Use only the isolated test origin/profile. A non-silent capture preflight must
+pass before the harness starts any call. A device-free audio sink keeps the
+meter running without a physical output device.
+
 Fake voice has no ASR, TTS or reasoning callbacks: the script also presses its
 existing Speak/Barge-in controls. Its client timings and recovery/receipt counts
 are real simulator observations; server token metrics remain unavailable. This

@@ -63,6 +63,7 @@ export async function runSoak(input = {}) {
       userDataDir: config.mode === 'live' ? config.profile : join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: directory },
       args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`,
+        '--disable-features=AudioServiceSandbox',
         '--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling', '--mute-audio'] });
     page = await browser.newPage(); page.setDefaultTimeout(15_000);
     if (config.mode === 'fake') {
