@@ -7,7 +7,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // AIT-177: four jobs, longest-file-first, using PR #150 CI per-file medians
 // (38592417042, 38610111325, 38616918321). Split the integrated display
 // matrix at its original B1–B8/r2/r3 describe blocks; retain every assertion.
-// Visitor DE/EN after render waits: 128.99/130.48 s on mbp2606 with all 524
+// Visitor DE/EN after render waits: 129.16/130.48 s on mbp2606 with all 524
 // viewport screenshots. Allow 20% runner uplift for the first CI calibration.
 // These are file-work estimates; whole-job times must include setup/upload.
 export const browserShards = [
