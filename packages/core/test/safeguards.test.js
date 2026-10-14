@@ -86,3 +86,24 @@ test('AIT-178 in-scope content and cards remain untouched', async () => {
   const reply = await collectPurposeReply(input, async function* () { yield JSON.stringify(expected); });
   assert.deepEqual(reply, expected);
 });
+
+// Realistic reply-lane envelope, rather than the fake model's guaranteed scope.
+// OPS observed the fallback for both in-scope languages on 0a7a8a7; raw output
+// was deliberately not captured. This reproduces the missing-scope failure path.
+for (const [locale, content] of [
+  ['de', 'Sie möchten die Auftragsbearbeitung vereinfachen. Wo entsteht heute der größte Aufwand?'],
+  ['en', 'You want to simplify order processing. Where does your team spend the most time today?'],
+]) test(`AIT-181 regression: ${locale} in-scope model content survives missing scope`, async () => {
+  const input = request(locale);
+  input.messages.push({ role: 'user', content: locale === 'de'
+    ? 'Wir möchten die manuelle Auftragsbearbeitung in unserem Betrieb vereinfachen.'
+    : 'We want to simplify manual order processing in our business.' });
+  let calls = 0;
+  const reply = await collectPurposeReply(input, async function* () {
+    calls++;
+    yield JSON.stringify({ content, question_short: null, options: [] });
+  });
+  assert.equal(reply.content, content);
+  assert.equal(reply.scope, 'unclear');
+  assert.equal(calls, 1);
+});
