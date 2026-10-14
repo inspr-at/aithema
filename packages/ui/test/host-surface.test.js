@@ -48,16 +48,17 @@ const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'tu
 
 for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
   const { voiceEvents } = await import('../../core/src/live-voice.js');
-  const events = voiceEvents(); let ended = false;
-  const matrix = () => ({ best: { text: { available: ended && covered, reason: ended && covered ? null : 'budget denied' },
+  const events = voiceEvents(); let ended = false, settled = false;
+  const matrix = () => ({ best: { text: { available: ended && (covered || settled), reason: ended && (covered || settled) ? null : 'budget denied' },
     voice: { available: true }, analysis: { available: true } } });
   const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'closing-provider', events,
     async setInput() {}, async setOutput() {}, async updateContext() {},
     async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
-  const { c, root } = setup(t, { copy, voiceClient, host: { credits: true },
+  const { c, root, calls } = setup(t, { copy, voiceClient, host: { credits: true },
     session: { demo: false, featureMatrix: matrix(), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
       'GET ': () => Response.json({ ...c.session, featureMatrix: matrix() }),
-      'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended }),
+      'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended && !settled }),
+      'POST /turns': body => Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'after-hangup', role: 'user', content: body.content } }),
     } });
   await tick(8); root.querySelector('.voice-start').click(); await tick(8);
   assert.equal(root.querySelector('.composer-reason').textContent, copy === de ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call', 'during-call copy remains scoped to a live call');
@@ -73,7 +74,18 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
     const input = root.querySelector('textarea'); input.value = 'A typed follow-up'; input.dispatchEvent(new window.Event('input'));
     assert.equal(input.value, 'A typed follow-up');
     assert.equal(input.placeholder, copy.placeholder);
-  } else assert.equal(root.querySelector('.composer-reason').textContent, copy.voiceStates.usedUp);
+  } else {
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.voiceStates.usedUp);
+    settled = true; c.receive({ type: 'voice.state', data: { state: 'ended', callId: 'ended-call', providerSessionId: 'closing-provider',
+      terminal: { closureConfirmed: true, usage: { costEstimated: false } } } });
+    await tick(12);
+    assert.equal(root.querySelector('textarea').disabled, false, 'a provider settlement refreshes admission immediately');
+  }
+  const input = root.querySelector('textarea'); input.value = 'A typed follow-up';
+  root.querySelector('.send').click(); await tick(12);
+  const posted = calls.find(call => call.path === '/turns');
+  assert.equal(posted?.body.content, 'A typed follow-up');
+  assert.equal(posted.body.voiceCallId, undefined, 'after-call typing uses the normal text path');
 });
 
 test('AIT-135 a host without an owner guard displays credits with a hidden, empty countdown', async t => {
