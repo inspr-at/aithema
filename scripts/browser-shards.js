@@ -16,6 +16,7 @@ export const browserShards = [
   ['test/browser/visitor-credit-tiers.test.js'],
   // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
   // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
+  // AIT-169 adds ~157s for the admin matrix on mbp2606, keeping this shard under 480s.
   // PR 3 keeps demo teardown separate from the display matrix in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',

@@ -43,6 +43,8 @@ function section(id) {
 function paint(id, mode, at) {
   const s = section(id); if (!s) return;
   s.el.dataset.mode = mode;
+  if (at !== undefined) s.el.dataset.messageAt = String(at);
+  at ??= s.el.dataset.messageAt ?? state.settings.updatedAt;
   s.inputs.forEach((i, k) => {
     const box = i.type === 'checkbox' ? i.closest('.ad-check') : i.closest('.ad-fld');
     box.classList.toggle('dirty', s.vals[k] !== s.base[k]); box.classList.toggle('bad', mode === 'invalid' && s.bad === k);

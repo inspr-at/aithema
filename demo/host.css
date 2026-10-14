@@ -248,11 +248,11 @@ body.admin-page { margin:0; min-height:100svh; background-color:var(--paper); co
   background-image:radial-gradient(ellipse 60% 50% at 88% 4%,rgba(18,144,140,.14),transparent 70%),
   radial-gradient(ellipse 50% 45% at 6% 18%,rgba(255,180,94,.16),transparent 70%),radial-gradient(ellipse 70% 60% at 40% 100%,rgba(244,124,91,.07),transparent 70%);
   background-attachment:fixed; }
-body.admin-page button, body.admin-page input { font:inherit; color:inherit; }
+:where(body.admin-page) button, :where(body.admin-page) input { font:inherit; color:inherit; }
 body.admin-page button, body.admin-page a, body.admin-page input, body.admin-page label { -webkit-tap-highlight-color:transparent; }
 body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .ad-page .sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0; }
-.ad-page svg.i { display:block; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+:where(.ad-page) svg.i { display:block; flex:none; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 
 /* ---------- /admin: band, header ---------- */
 .ad-page { display:flex; flex-direction:column; min-height:100svh; }

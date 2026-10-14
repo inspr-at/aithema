@@ -26,5 +26,5 @@ export async function adminFixture({ configured = true, delivery = true, origin 
     ...(input === undefined ? {} : { body: typeof input === 'string' ? input : JSON.stringify(input) }), ...options,
   }));
   return { storage, host, store, sessions, provider, spendCap, admin, cookie, origin, call, now,
-    advance: ms => { time += ms; }, close: () => storage.close() };
+    setTime: at => { time = at; }, advance: ms => { time += ms; }, close: () => storage.close() };
 }

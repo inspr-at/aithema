@@ -35,6 +35,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   catch (error) { server.server.closeAllConnections(); await new Promise(resolve => server.server.close(resolve)); await rm(dir, { recursive: true, force: true }); throw error; }
   t.after(async () => { await browser?.close(); server.server.closeAllConnections(); await new Promise(resolve => server.server.close(resolve)); f.close(); await rm(dir, { recursive: true, force: true }); });
   const seed = () => {
+    f.setTime(Date.parse('2026-10-14T20:00:00Z'));
     f.storage.db.prepare('DELETE FROM operator_grants').run();
     f.store.issue('g'.repeat(43), f.provider.sessionNamespace, { name: 'Ada', subject: 'verified-subject' }, f.now() + 8 * 60 * 60_000);
     f.storage.db.prepare('UPDATE visitor_credit_settings SET anonymous_micro=10123456,email_given_micro=15654321,email_confirmed_micro=24999999,confirmation_enabled=1,mail_cap_hour=30,mail_cap_day=200,mail_ip_cap_hour=5,mail_ip_cap_day=20 WHERE id=1').run();
@@ -91,6 +92,11 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width);
         assert.equal(await page.$$eval('[style],style,script:not([src])', ns => ns.length), 0);
         assert.equal(await page.$$eval('.voice-rail', ns => ns.length), 0);
+        if (!['signed-out', 'expired'].includes(state)) {
+          assert.equal(await page.$eval('.ad-btn', n => getComputedStyle(n).color), 'rgb(255, 255, 255)');
+          assert.equal(await page.$eval('#f-emailGiven', n => getComputedStyle(n).fontSize), '15px');
+          assert.ok(await page.$eval('.ad-btn', n => n.getBoundingClientRect().height >= 44));
+        }
         if (state === 'no-delivery') assert.equal(await page.$eval('#f-confirm', n => n.disabled), true);
         if (state === 'latched') { const text = await page.$eval('[data-sec=prov]', n => n.textContent); assert.ok(text.includes(locale === 'de' ? 'Gesperrt · Grund:' : 'Locked · Reason:')); assert.ok(text.includes(locale === 'de' ? 'keine neuen Anfragen' : 'no new requests')); }
         if (state === 'signed-out' || state === 'expired') { assert.equal(await page.$$eval('.ad-sec', ns => ns.length), 0); assert.equal(await page.$eval('.ad-login', n => n.getAttribute('href')), '/api/operator/login/?return=admin'); }
