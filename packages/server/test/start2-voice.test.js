@@ -331,9 +331,19 @@ for (const scope of ['in', 'off']) test(`AIT-174 typed input during a custom-LLM
   assert.equal((await h.route('/turns', { clientEventId: 'typed-source', content, voiceCallId: call.callId, providerSessionId: call.providerSessionId })).status, 200);
   await h.handlers.idle(); assert.equal(h.upstream.length, 0, 'the custom LLM owns the reply and scope, including a pending typed echo');
   const response = await h.callback(call.facadeCallId, 'local-callback-fixture', { messages: [{ role: 'user', content }] });
-  assert.equal(response.status, 200); await response.text(); await h.handlers.idle();
+  assert.equal(response.status, 200); const reply = await response.json(); await h.handlers.idle();
   assert.equal(h.upstream.filter(request => request.stream).length, 1);
   assert.equal(h.upstream.filter(request => !request.stream).length, scope === 'in' ? 1 : 0);
   assert.equal(h.storage.voiceOperations(h.session.id).length, 1);
   assert.equal(h.storage.safeguards(h.session.id).offTopicTurns, scope === 'in' ? 0 : 1);
+  const turnId = call.providerSessionId + ':heard-scope';
+  assert.equal((await h.route('/voice/' + call.callId + '/events', { providerSessionId: call.providerSessionId,
+    event: { type: 'final', role: 'assistant', callId: call.callId, turnId, text: reply.choices[0].message.content, replyId: reply.id } })).status, 200);
+  await h.handlers.idle();
+  assert.equal((await h.route('/voice/' + call.callId + '/events', { providerSessionId: call.providerSessionId,
+    event: { type: 'heard', callId: call.callId, turnId, prefix: 'What Augmentoring project' } })).status, 200);
+  await h.handlers.idle();
+  assert.equal(h.upstream.filter(request => !request.stream).length, scope === 'in' ? 2 : 0, 'heard-prefix correction carries the existing scope gate without reclassifying or charging another reply');
+  assert.equal(h.upstream.filter(request => request.stream).length, 1);
+  assert.equal(h.storage.voiceOperations(h.session.id).length, 1);
 });
