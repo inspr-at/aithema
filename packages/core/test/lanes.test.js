@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionLanes, createMockReasoning, createSession, applyEvent, inputRevision } from '../src/index.js';
+import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
 function harness(plugin = createMockReasoning(), options = {}, laneOptions = {}) {
   let session = createSession({ demo: true, ...options }); const published = [], partials = [];
@@ -94,3 +95,41 @@ test('invalid structured output cannot damage a previous understanding', async (
   const h = harness({ ...createMockReasoning(), async structured() { return { summary: 'Invalid' }; } }); h.turn('Hello');
   await assert.rejects(h.lanes.run(h.session.id, 'understanding'), /Invalid understanding/); assert.equal(h.published.length, 0);
 });
+
+for (const phase of ['before attempt 1', 'during admission', 'between attempts', 'mid-stream', 'mid-stream with abort']) {
+  test(`AIT-183 superseded reply ${phase} returns stale without fallback or output`, async () => {
+    const diagnostics = [], admissions = [], settlements = [], streams = [], guards = [], scopes = [];
+    const plugin = { ...createMockReasoning(), async *stream() {
+      streams.push(streams.length);
+      if (phase.startsWith('mid-stream')) {
+        yield '{"content":"Private partial';
+        h.turn('Replacement input');
+        if (phase.endsWith('with abort')) h.lanes.supersede(h.session.id);
+      }
+      yield '{invalid';
+    } };
+    const h = harness(plugin, {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+      guardDirection: (_, reply) => { guards.push(reply); return reply; }, onScope: (...args) => scopes.push(args),
+      async admit() {
+        const attempt = admissions.length;
+        admissions.push(attempt);
+        if (phase === 'during admission') h.turn('Replacement input');
+        return { plugin, async finish(result) {
+          settlements.push({ attempt, ...result });
+          if (phase === 'between attempts') h.turn('Replacement input');
+        } };
+      },
+    });
+    // Advance during the request snapshot, after the lane's initial freshness check.
+    if (phase === 'before attempt 1') h.lanes.offTopicTurns = () => { h.turn('Replacement input'); return 0; };
+    h.turn('First input');
+    assert.equal(await h.lanes.run(h.session.id, 'reaction'), 'stale');
+    assert.deepEqual(diagnostics, []);
+    assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+    assert.deepEqual(guards, []); assert.deepEqual(scopes, []);
+    const count = phase === 'before attempt 1' ? 0 : 1;
+    assert.equal(admissions.length, count); assert.equal(settlements.length, count);
+    assert.equal(streams.length, phase === 'during admission' ? 0 : count);
+    assert.equal(new Set(settlements.map(item => item.attempt)).size, count);
+  });
+}

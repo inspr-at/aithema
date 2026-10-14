@@ -375,3 +375,23 @@ test('AIT-181 round2 schema compatibility counter reaches OPS under fresh prompt
   assert.doesNotMatch(JSON.stringify(snapshot), /fallback|attemptCount|provider-4xx/u);
   assert.doesNotMatch(JSON.stringify(logs), /Private project|Safe model reply/u);
 });
+
+test('AIT-183 superseded retry never increments the OPS fallback counter', async t => {
+  const logs = [];
+  const f = fixture(t, { log: event => logs.push(event), outputs: () => '{invalid-private-output' });
+  const originalAdmit = f.handlers.lanes.admit;
+  f.handlers.lanes.admit = async args => {
+    const admitted = await originalAdmit(args);
+    return { ...admitted, async finish(result) {
+      await admitted.finish(result);
+      f.storage.changeLocale(f.session.id, 'de', { ownerToken: testToken });
+    } };
+  };
+  await f.send('Private project evidence');
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(logs.filter(event => event.event === 'reply.fallback'), []);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, 0);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+  assert.doesNotMatch(JSON.stringify(logs), /Private project|invalid-private-output/u);
+});
