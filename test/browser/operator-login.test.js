@@ -29,6 +29,14 @@ const geometry = page => shadow(page, c => {
   return ['dialog.settings', '.operator-section', '.operator-row', '.operator-notice', '.settings__footer'].map(s => box(r.querySelector(s)));
 });
 // Session SSE remains open; navigation waits for the document, then explicit UI readiness.
+const emailLayout = page => shadow(page, c => {
+  const r = c.shadowRoot, e = r.querySelector('#email'), body = r.querySelector('.settings__body');
+  const selectors = ['.general', '#email', '#email h3', '.m-stack', '.m-form', '[data-view=mail]', '[data-view=confirm]', '.m-delete-message', '.m-mail-tier', '.operator-section'];
+  return { mode: { ...e.dataset }, scroll: [body.scrollTop, body.scrollHeight, body.clientHeight], nodes: selectors.map(selector => {
+    const n = r.querySelector(selector), b = n.getBoundingClientRect(), s = getComputedStyle(n);
+    return { selector, box: [b.x,b.y,b.width,b.height], font: s.font, lineHeight: s.lineHeight, display: s.display, marginBottom: s.marginBottom, minHeight: s.minHeight };
+  }) };
+});
 const openGeneral = async page => {
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   // Compare operator navigation with the same known-tier reservation at each
@@ -69,7 +77,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
         await page.goto(configured.url, { waitUntil: 'domcontentloaded' }); await openGeneral(page);
-        const before = await geometry(page);
+        const before = await geometry(page), beforeEmail = await emailLayout(page);
         const info = await shadow(page, c => {
           const s = c.shadowRoot, section = s.querySelector('.operator-section'), link = s.querySelector('.operator-login'), b = link.getBoundingClientRect();
           return { last: section === section.parentElement.lastElementChild, headings: section.querySelectorAll('h2,h3,h4').length,
@@ -111,7 +119,13 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
           assert.ok(Math.max(...gaps) - Math.min(...gaps) <= 0.5, `all four dot gaps must agree within 0.5 px: ${gaps}`);
         });
         assert.deepEqual(await page.evaluate(async () => (await (await fetch('/demo/config')).json()).operator), { name: 'Ada' });
-        assert.deepEqual(await geometry(page), before, 'sign-in: 0 px shift');
+        const after = await geometry(page);
+        if (JSON.stringify(after) !== JSON.stringify(before)) {
+          const diagnostic = { before: beforeEmail, after: await emailLayout(page) };
+          t.diagnostic('AIT-171 operator layout mismatch: ' + JSON.stringify(diagnostic));
+          if (evidence) await writeFile(join(evidence, 'ait-171-operator-layout-mismatch.json'), JSON.stringify(diagnostic, null, 2));
+        }
+        assert.deepEqual(after, before, 'sign-in: 0 px shift');
         const form = await shadow(page, c => ({ method: c.shadowRoot.querySelector('.operator-signed-in').method,
           height: c.shadowRoot.querySelector('.operator-logout').getBoundingClientRect().height }));
         assert.equal(form.method, 'post'); assert.ok(form.height >= 44);
