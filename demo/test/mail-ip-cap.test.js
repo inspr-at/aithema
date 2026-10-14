@@ -83,6 +83,9 @@ for (const enabled of [false, true]) test(`AIT-168 confirmation ${enabled ? 'ena
   const f = await fixture(t);
   f.host.visitorCredits.saveSettings({ baseRevision: f.settings().revision, confirmationEnabled: enabled }, actor);
   const owner = 'confirmation-gate', session = f.storage.create({ ownerToken: owner });
+  // AIT-164 saves the address before asking for a link. Pending-only API
+  // identities intentionally do not grant the independently saved tier.
+  f.host.saveEmail(owner, { address: `${owner}@example.test`, noticeVersion: 'ait-135-v1' });
   for (const [i, command] of ['request', 'resend', 'change'].entries()) {
     f.at(1_000 + i * 60_000);
     const address = command === 'change' ? 'changed@example.test' : `${owner}@example.test`;
