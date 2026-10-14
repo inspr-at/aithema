@@ -10,7 +10,7 @@ import { createDemoHost } from '../host-ports.js';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
 const execute = promisify(execFile);
 
-test('AIT-135 OPS socket is private, owns the audit actor, reports the cap read-only and returns 409 on replay', async t => {
+test('AIT-135 OPS socket is private, owns the audit actor, reports the cap and returns 409 on replay', async t => {
   const { listenAdmin, adminRequest } = await import('../admin-socket.js');
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   const host = createDemoHost({ storage, demo: false }), spendCap = createSpendCap({ storage, account: 'fixture', capMicro: 100 });
@@ -32,7 +32,7 @@ test('AIT-135 OPS socket is private, owns the audit actor, reports the cap read-
   assert.deepEqual(Object.fromEntries(['capMicro', 'confirmedMicro', 'reservedMicro', 'uncertainMicro', 'remainingMicro', 'breached'].map(k => [k, cap.body[k]])),
     { capMicro: 100, confirmedMicro: 9, reservedMicro: 11, uncertainMicro: 12, remainingMicro: 68, breached: false });
   assert.match(cap.body.recovery, /reconcil/iu);
-  assert.equal((await adminRequest(path, 'set-provider-cap', { capMicro: 1000 })).status, 404);
+  assert.equal((await adminRequest(path, 'set-provider-cap', { capMicro: 1000 })).status, 400);
   const breached = spendCap.reserve(1); spendCap.settle(breached, 2);
   assert.equal((await adminRequest(path, 'provider-cap')).body.breached, true);
 });

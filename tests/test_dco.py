@@ -30,8 +30,11 @@ class DCOTests(unittest.TestCase):
     def commit(self, message, author=AUTHOR):
         self.git("commit", "-q", "--allow-empty", "--author", author, "-m", message)
 
-    def result(self, base=None, head="HEAD"):
-        return subprocess.run(["python3", "-I", str(CHECKER), base or self.base, head],
+    def result(self, base=None, head="HEAD", merge_group=False):
+        args = ["python3", "-I", str(CHECKER), base or self.base, head]
+        if merge_group:
+            args.append("--merge-group")
+        return subprocess.run(args,
                               cwd=self.cwd, env=self.env, text=True, capture_output=True)
 
     def test_signed_contribution_ignores_unsigned_history(self):
@@ -130,6 +133,71 @@ class DCOTests(unittest.TestCase):
         self.git("checkout", "-q", "main")
         self.git("merge", "--no-ff", "feature", "-m", "Unsigned branch merge")
         self.assertEqual(self.result().returncode, 1)
+
+    def queue_merge(self, branch, message):
+        self.git("checkout", "-q", "main")
+        self.git("merge", "--no-ff", branch, "-m", message)
+
+    def test_queue_synthetic_merge_passes_but_pr_mode_still_rejects_it(self):
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit("Signed PR\n\nSigned-off-by: " + AUTHOR)
+        self.queue_merge("feature", "Unsigned queue merge")
+        result = self.result(merge_group=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("all 1 contribution commits", result.stdout)
+        self.assertEqual(self.result().returncode, 1)
+
+    def test_queue_does_not_hide_unsigned_pr_ancestor(self):
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit("Unsigned PR ancestor")
+        self.commit("Signed PR tip\n\nSigned-off-by: " + AUTHOR)
+        self.queue_merge("feature", "Unsigned queue merge")
+        self.assertEqual(self.result(merge_group=True).returncode, 1)
+
+    def test_queue_checks_all_prs_and_exempts_each_synthetic_merge(self):
+        for branch in ["first-pr", "second-pr"]:
+            self.git("checkout", "-q", "-b", branch, self.base)
+            self.commit(branch + "\n\nSigned-off-by: " + AUTHOR)
+            self.queue_merge(branch, "Unsigned queue merge " + branch)
+        result = self.result(merge_group=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("all 2 contribution commits", result.stdout)
+
+    def test_queue_checks_unsigned_commit_in_earlier_pr(self):
+        for branch in ["unsigned-pr", "signed-pr"]:
+            self.git("checkout", "-q", "-b", branch, self.base)
+            self.commit(branch + ("\n\nSigned-off-by: " + AUTHOR if branch == "signed-pr" else ""))
+            self.queue_merge(branch, "Unsigned queue merge " + branch)
+        self.assertEqual(self.result(merge_group=True).returncode, 1)
+
+    def test_queue_does_not_exempt_contributor_merge_commits(self):
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit("Signed PR\n\nSigned-off-by: " + AUTHOR)
+        self.git("checkout", "-q", "-b", "side", self.base)
+        self.commit("Signed side\n\nSigned-off-by: " + AUTHOR)
+        self.git("checkout", "-q", "feature")
+        self.git("merge", "--no-ff", "side", "-m", "Unsigned contributor merge")
+        self.queue_merge("feature", "Unsigned queue merge")
+        self.assertEqual(self.result(merge_group=True).returncode, 1)
+
+    def test_queue_rejects_non_merge_heads_and_wrong_bases(self):
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit("Signed PR\n\nSigned-off-by: " + AUTHOR)
+        feature = self.git("rev-parse", "HEAD").strip()
+        self.assertEqual(self.result(merge_group=True).returncode, 2)
+        self.queue_merge("feature", "Unsigned queue merge")
+        self.assertEqual(self.result(base=feature, merge_group=True).returncode, 2)
+
+    def test_queue_rejects_empty_or_shallow_ranges(self):
+        self.assertEqual(self.result(merge_group=True).returncode, 2)
+        self.git("checkout", "-q", "-b", "feature")
+        self.commit("Signed PR\n\nSigned-off-by: " + AUTHOR)
+        self.queue_merge("feature", "Unsigned queue merge")
+        clone = tempfile.TemporaryDirectory()
+        self.addCleanup(clone.cleanup)
+        self.git("clone", "-q", "--no-local", "--depth", "2", self.cwd, clone.name)
+        self.cwd = clone.name
+        self.assertEqual(self.result(merge_group=True).returncode, 2)
 
 
 if __name__ == "__main__":

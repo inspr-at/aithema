@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { ensureAgent, AGENT_NAME } from '../src/ensure-agent.js';
-import { createVoiceHost } from '../../../demo/start2-voice-host.js';
+import { createVoiceHost, START2_VOICE_OPENERS } from '../../../demo/start2-voice-host.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { temporaryDb } from '../../../test/helpers.js';
 import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
@@ -282,10 +282,10 @@ test('AIT-127: each locale gets only its own AI notice, with an enabled first-me
     const host = await createVoiceHost(options(storage, fake)); assert.ok(host.binding);
     const created = writes(fake).find(r => r.path.endsWith('/agents/create')).body;
     assert.equal(created.conversation_config.agent.language, language);
-    assert.equal(created.conversation_config.agent.first_message, aiNoticeText(language));
+    assert.equal(created.conversation_config.agent.first_message, START2_VOICE_OPENERS[language]);
     assert.equal(fake.agents[0].platform_settings.overrides.conversation_config_override.agent.first_message, true);
     for (const locale of ['de', 'en']) {
-      const expected = { agent: { language: locale, firstMessage: aiNoticeText(locale) } };
+      const expected = { agent: { language: locale, firstMessage: START2_VOICE_OPENERS[locale] } };
       assert.deepEqual(host.presentation(locale), expected);
       assert.doesNotMatch(expected.agent.firstMessage, locale === 'de' ? /You are talking/ : /Sie sprechen/);
     }

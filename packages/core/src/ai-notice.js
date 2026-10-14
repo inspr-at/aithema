@@ -5,6 +5,10 @@ export const AI_NOTICE = Object.freeze({
   de: Object.freeze({ text: 'Sie sprechen mit einer KI-Assistenz.', voice: 'Gesprochene Antworten nutzen eine synthetische Stimme.' }),
 });
 const filled = value => typeof value === 'string' && value.trim() ? value.trim() : null;
+const SPOKEN_OPENER = Object.freeze({
+  en: 'Hello, this is an AI assistant. How can I help you?',
+  de: 'Hallo, hier ist die KI-Assistenz. Wie kann ich Ihnen helfen?',
+});
 
 /** A host may reword the notice, never remove it: an empty or missing part falls back to the default. */
 export function aiNotice(locale, override) {
@@ -12,8 +16,8 @@ export function aiNotice(locale, override) {
   return { text: filled(override?.text) ?? base.text, voice: filled(override?.voice) ?? base.voice };
 }
 
-/** The notice as one line: both sentences with voice, else only the first. */
+/** Spoken first contact uses a host's opener or a neutral AI disclosure; visual copy stays separate. */
 export function aiNoticeText(locale, override, { voice = true } = {}) {
-  const notice = aiNotice(locale, override);
-  return voice ? `${notice.text} ${notice.voice}` : notice.text;
+  if (!voice) return aiNotice(locale, override).text;
+  return filled(override?.opener) ?? SPOKEN_OPENER[Object.hasOwn(SPOKEN_OPENER, locale ?? '') ? locale : 'en'];
 }

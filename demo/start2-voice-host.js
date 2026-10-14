@@ -5,8 +5,17 @@ import { AI_NOTICE, aiNoticeText } from '../packages/core/src/ai-notice.js';
 import { manifest } from '../plugins/elevenlabs/src/manifest.js';
 import { voiceCostConfig } from './voice-cost-config.js';
 
+export const START2_VOICE_OPENERS = Object.freeze({
+  de: 'Hallo, hier ist die KI-Assistenz von Augmentoring. Wie kann ich Ihnen helfen?',
+  en: "Hello, this is Augmentoring's AI assistant. How can I help you?",
+});
+
 export async function createVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
-  apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env, random = Math.random } = {}) {
+  apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env, random = Math.random,
+  spokenOpeners = START2_VOICE_OPENERS } = {}) {
+  // Snapshot host configuration so startup/read-back and subsequent calls always agree.
+  spokenOpeners = Object.freeze(Object.fromEntries(Object.keys(AI_NOTICE).map(locale =>
+    [locale, aiNoticeText(locale, { opener: spokenOpeners?.[locale] })])));
   const stop = new AbortController(), listeners = new Set();
   let timer, inFlight, backoff = 30_000, costs;
   let availability = { state: 'starting', disabledReason: null, transient: false };
@@ -24,7 +33,7 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
     },
     // These ports exist while off so the server can keep its handlers alive.
     presentation: locale => Object.hasOwn(AI_NOTICE, locale)
-      ? { agent: { language: locale, firstMessage: aiNoticeText(locale) } } : undefined,
+      ? { agent: { language: locale, firstMessage: spokenOpeners[locale] } } : undefined,
     async closeOrphan(call, { signal }) {
       if (!host.binding) throw new AgentEnsureError(host.disabledReason);
       const binding = host.binding;
@@ -54,7 +63,7 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
     try {
       const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, usdPerCredit } = costs;
       const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
-        templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, signal: stop.signal });
+        templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, spokenOpeners, signal: stop.signal });
       if (stop.signal.aborted) return;
       const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
         endpoint, accountRef: 'start2-elevenlabs', secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),

@@ -563,18 +563,37 @@ over the bundle. Each part that is missing, empty or only whitespace falls back,
 first to the bundle, then to the default for the session language. The defaults
 live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
 
-The start2 voice host speaks `aiNoticeText(session.locale)` as its first message
-(AIT-127): German or English only, matching the component's notice word for word.
-The host supplies `presentation(locale)` as `voice.presentation` to
-`createHandlers`: `{agent: {language: locale, firstMessage: aiNoticeText(locale)}}`.
-[ElevenLabs documents both overrides](https://elevenlabs.io/docs/eleven-agents/customization/personalization/overrides).
-The plugin accepts a first message only when it exactly matches that locale's
-fixed AI notice; model, prompt and credential overrides remain refused.
-Startup enables `agent.language` and `agent.first_message` on the owned
-`aithema-start2` agent, clears language presets and checks the exact read-back.
-Its fallback first message matches its DE/EN base language. START's template is
-read only. **Unverified live:** the provider speaking this notice before all
-other output must be checked by the coordinator's live smoke below.
+The spoken opener is separate from the visual notice (AIT-175). The neutral core
+`aiNoticeText(locale)` default says "Hello, this is an AI assistant. How can I
+help you?" or "Hallo, hier ist die KI-Assistenz. Wie kann ich Ihnen helfen?".
+Hosts supply `aiNoticeText(locale, {opener})`; blank or missing openers fall back
+to the neutral default. `{voice: false}` still returns the visual notice text.
+The visual notice, footer "KI-Assistenz · synthetische Stimme" and consent copy
+remain unchanged.
+
+The built-in start2 host's `spokenOpeners` defaults to:
+- DE: "Hallo, hier ist die KI-Assistenz von Augmentoring. Wie kann ich Ihnen helfen?"
+- EN: "Hello, this is Augmentoring's AI assistant. How can I help you?"
+
+`createVoiceHost({..., spokenOpeners: {de, en}})` lets a host configure both
+languages. The host snapshots this configuration and supplies the same text to
+`ensureAgent({..., spokenOpeners})` and `presentation(locale)` as
+`{agent: {language: locale, firstMessage}}`. The plugin accepts DE/EN host
+openers up to 1000 characters containing the matching disclosure "KI-Assistenz"
+or "AI assistant", without the other language's disclosure. Hosts are responsible
+for the meaning of their copy; this structural check is not a semantic guarantee.
+Silent continuations still use `firstMessage: ''`. Model, prompt and credential
+overrides remain refused.
+Startup enables `agent.language` and `agent.first_message` on the receipt-owned
+`aithema-start2` agent, clears language presets and checks exact read-back against
+the configured opener in its DE/EN base language. START's template is GET-only.
+**OPS deploy:** deploy the pinned AIT-175 image and restart the existing start2
+service with its existing database/WAL and ownership receipts. Normal startup
+ensure PATCHes the owned agent's stored `first_message` and GETs it back before
+enabling voice; no separate migration or manual agent edit is needed. Do not
+write START's template or discard ownership receipts. A mismatch disables voice.
+The coordinator's live smoke below must verify that the provider actually speaks
+the configured opener before other output; the builder uses only stub providers.
 
 The language selector updates an empty current conversation through the
 owner-authenticated `POST /api/sessions/:id/locale` route with `{locale: "de"|"en"}`.
@@ -2358,6 +2377,10 @@ docker exec --user node start2 node /app/demo/admin-cli.js settings
 docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
 docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+docker exec --user node start2 node /app/demo/admin-cli.js set-provider-cap --base-revision 1 --usd 100
+# Restore the configured cap using the latest provider-cap revision:
+docker exec --user node start2 node /app/demo/admin-cli.js reset-provider-cap --base-revision 2
+docker exec --user node start2 node /app/demo/admin-cli.js provider-cap-audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js mail-cap
 docker exec --user node start2 node /app/demo/admin-cli.js set-mail-cap --base-revision 2 --hour 30 --day 200
 # AIT-163: preview existing uncertain reasoning/voice rows; output is counts and microUSD only.
@@ -2369,21 +2392,55 @@ docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain -
 Use the revision returned by `settings`; the example's `1` applies only before
 the first OPS save. Local usage is `node demo/admin-cli.js --socket /absolute/path
 settings`, with `--socket` before the command. Audit pagination returns
-`nextAfter`; pass it as `--after` for the next page. Provider status is read-only:
+`nextAfter`; pass it as `--after` for the next page. Provider status reports:
 `capMicro`, `confirmedMicro`, `reservedMicro`, `uncertainMicro`, `remainingMicro`
-and `breached`, plus OPS recovery instructions. A host without a provider cap
+and `breached`, plus OPS recovery instructions and the provider cap's own
+`revision`, `storedCapMicro`, `configuredCapMicro`, `minimumMicro`,
+`maximumMicro` and `updatedAt`. A host without a provider cap
 returns `available:false` and null totals. Remaining subtracts all commitments.
+`set-provider-cap --base-revision N --usd USD` changes the running account cap
+without a deployment. Use the revision from `provider-cap`, independently of
+visitor settings. Until the first save, the stored cap is null and the host uses
+today's configured cap; after a save, the override survives restart and later
+deployment configuration changes. `reset-provider-cap --base-revision N`
+clears that override and restores the current deploy-time configured cap, even
+if an emergency lower puts it below committed spend. This reset is audited,
+advances the revision, and makes later deployment configuration changes effective
+again. It does not clear historical reservation-overrun latches.
+Signed decimal USD strings (at most six fractional digits, 200 characters) are
+parsed exactly. Saves below confirmed + reserved + uncertain spend return 422
+with `cap cannot go below spend already committed; current cap unchanged`; the
+cap, revision and breach state stay unchanged and the refusal is audited. No save
+implicitly raises the cap to committed spend. Zero is allowed when there are
+no liabilities.
+Requests above `max(configured cap × 10, configured cap + $1,000)` return 422
+with the limit and an instruction to use `--allow-large`. The configured cap,
+not a saved override, determines this typo bound.
+`set-provider-cap --base-revision N --usd USD --allow-large` explicitly bypasses
+the typo bound and records that override in the audit. The safe integer limit of
+9,007,199,254.740991 USD in microUSD still applies: larger explicit overrides
+are clamped to that accounting maximum and audited. Malformed input is rejected.
+The cap, revision increment and audit row commit together. Stale revisions
+return 409 with current cap settings; reload after an uncertain response.
+`provider-cap-audit` uses its own `--after`/`--limit` cursor and records every
+save, reset and refusal's source, socket-owned actor, requested USD, before/after
+settings, operation (`set` or `reset`), outcome (`saved` or `refused`),
+`allowLarge`, refusal reason, and clamp reason/bounds (or null). Refusals append
+audit history without changing the settings revision. The existing visitor audit
+command keeps its contract. The `/admin` provider section stays read-only and
+displays the effective cap; it has no cap editing control.
 Historical reservation overruns remain latched after restart or a cap raise:
 OPS investigates receipts, reconciles liabilities and fixes the cause, then
 performs an approved, audited maintenance recovery preserving history and
-carrying confirmed and unresolved liabilities forward. No reset command exists.
+carrying confirmed and unresolved liabilities forward. The cap-configuration
+reset does not perform that maintenance recovery.
 
 With the next start2 deployment, OPS sets `AITHEMA_OPENROUTER_CAP_USD=100`.
 This deployment-wide lifetime ceiling covers OpenRouter text and Claude HTML;
 it excludes voice, which has separate optional `AITHEMA_VOICE_CAP_MINUTES` and
 `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` ceilings in addition to each visitor wallet.
 Replacing the visitor cookie can still obtain a fresh anonymous allowance.
-The runtime-editable provider cap and abuse tracking are deferred.
+Abuse tracking is deferred.
 
 The visitor API uses the existing ownership cookie/token:
 
@@ -2785,9 +2842,9 @@ from backup or resolve that ownership first; do not delete an active secret.
 Template prompts, personas, first messages, knowledge bases and tools are excluded.
 The host's custom LLM has an empty prompt and no tools or knowledge base;
 Aithema rebuilds the trusted session prompt at each callback. Its greeting is
-Aithema's own fixed spoken AI notice (see "AI notice" above), never START's, and
+the host's configured spoken AI opener (see "AI notice" above), never START's, and
 its language presets are cleared. Only the per-conversation `language` and
-matching AI-notice `first_message` overrides are enabled
+host-supplied AI-opener `first_message` overrides are enabled
 (`platform_settings.overrides.conversation_config_override.agent`, the shape
 verified on START's agent by read-only GET 2026-10-09).
 After every agent create or PATCH, startup GETs the owned agent and verifies
@@ -2796,7 +2853,7 @@ origin's host (including any port), the extra-body override, explicit
 conversation override flags (`agent.language` exactly `true`,
 `agent.first_message` exactly `true`, every other flag exactly `false`; an
 omitted, null or string flag disables voice), a first message equal to the
-notice in its exact DE/EN base language, `language_presets` exactly `{}`
+configured opener in its exact DE/EN base language, `language_presets` exactly `{}`
 (omitted or null disables voice),
 `custom-llm` selection, callback URL, owned secret id and every copied
 privacy field.
@@ -2975,10 +3032,10 @@ Coordinator live smoke, after its Claude approval gate:
    Observe durable turns and authenticated final provider usage; no per-call agent
    PATCH occurs. Withdraw consent mid-call and confirm later callbacks cannot reason.
    **AI notice (AIT-119, unverified until this step):** in an English and a German
-   conversation, verify live that the spoken greeting is the notice, word for
-   word, before anything else is said; the agent GET shows the first-message
+   conversation, verify live that the spoken greeting is the configured AIT-175 opener, word
+   for word, before anything else is said; the agent GET shows the first-message
    and language overrides enabled, and no language presets. Verify the greeting
-   contains only the conversation language, matching `aiNoticeText(locale)`.
+   contains only the conversation language, matching `START2_VOICE_OPENERS[locale]` from the built-in host.
 5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
    streaming reaction costs sum; missing usage retains uncertain estimated spend. Restart
    and confirm totals persist. On an isolated small-cap test database, once the
