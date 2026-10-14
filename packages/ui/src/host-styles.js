@@ -209,9 +209,11 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-stack > .m-view { grid-area:1/1; min-width:0; visibility:hidden; align-content:start; }
 .m-stack > .m-view.on { visibility:visible; }
 /* Keep at most one notice line before the next Settings section. */
-.general .host-mail[data-email-mode="mail"] { margin-bottom:-.5rem; }
+.general .host-mail[data-email-reservation="mail"] { margin-bottom:-.5rem; }
 /* Mail can show its own view, delete confirmation and the privacy fallback. */
-[data-email-mode="mail"] .m-stack > :is([data-view="capture"],[data-view="saved"]) { display:none; }
+[data-email-reservation="mail"] .m-stack > :is([data-view="capture"],[data-view="saved"]) { display:none; }
+/* Unknown tiers keep the full union, including space for later tier copy. */
+[data-email-reservation="union"] .m-form .m-lead { min-height:2lh; }
 /* A wrapped delete action may be taller: keep the mail notice at the cell end. */
 [data-email-mode="mail"] .m-stack > [data-view="mail"] { grid-template-rows:auto auto minmax(44px,1fr) auto; }
 /* The two-line delete error is a reachable state, including with Linux fonts. */

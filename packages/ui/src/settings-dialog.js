@@ -171,6 +171,7 @@ export class SettingsDialog {
   }
   #wire() {
     const dialog = this.#dialog;
+    dialog.addEventListener('close', () => { if (!dialog.open) this.#ports.closed?.(); });
     dialog.addEventListener('cancel', event => { event.preventDefault(); this.close(); });
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Escape') return;
@@ -369,6 +370,7 @@ export class SettingsDialog {
       if (chosen && focus) button.focus();
     }
     for (const panel of this.#all('[data-panel]')) panel.hidden = panel.dataset.panel !== tab;
+    if (tab === 'general' && this.#dialog.open) this.#ports.generalShown?.();
     if (tab === 'local') this.#ports.connector?.mount(this.#q('.local-host'));
     if (tab === 'local' && !this.#ports.connector) {
       const note = document.createElement('p'); note.className = 'note'; note.textContent = this.#copy.local.unavailableHost;
