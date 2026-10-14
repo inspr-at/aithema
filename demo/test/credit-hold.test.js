@@ -102,3 +102,29 @@ test('AIT-173: the optional display projection supports a class-based owner wall
   assert.equal((await response.json()).balance.owner.availableMicro, 6_000_000);
   assert.equal(wallet.canAdmit({ maxMicro: 200_001 }), false, 'display wrapping does not alter the class wallet');
 });
+
+
+test('AIT-173 round 2: uncertain replay without an estimate displays the charged quote', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const before = (await credits(f)).balance.owner.availableMicro;
+  const { attemptId } = f.ledger.admit(f.request('voice', 200_000));
+  const replay = f.ledger.claim(attemptId); replay.consume();
+  f.ledger.settleVoice(replay.claimId, { attemptId, outcome: 'uncertain', closureConfirmed: false });
+  assert.equal(f.ledger.get(attemptId).settled_micro, 200_000);
+  assert.equal((await credits(f)).balance.owner.availableMicro, before - 200_000);
+});
+
+test('AIT-173 round 2: an exactly full hold blocks admission without showing used-up', async t => {
+  const f = await creditHoldFixture({ settledMicro: 0, holdMicro: 100_000 }); t.after(() => f.close());
+  const { attemptId } = f.ledger.admit(f.request('reaction', 9_900_000));
+  const hold = f.ledger.claim(attemptId); hold.consume();
+  const view = await credits(f);
+  assert.equal(f.host.wallet(f.owner).canAdmit({ maxMicro: 1 }), false);
+  assert.equal(view.balance.owner.availableMicro, 0);
+  assert.equal(view.exhausted, false);
+  assert.equal(view.fullHold, true);
+  f.ledger.settle(hold.claimId, { attemptId, outcome: 'completed', chargedMicro: 9_900_000, usage: { inputTokens: 0, outputTokens: 0 } });
+  f.ledger.settleVoice(f.claim.claimId, { attemptId: f.claim.attemptId, outcome: 'completed', closureConfirmed: true, usage: { providerSeconds: 60, providerMinutes: 1,
+    visitorSeconds: 60, pausedSeconds: 0, upstreamMicro: 100_000, visitorMicro: 100_000, costEstimated: false } });
+  assert.equal((await credits(f)).exhausted, true, 'charged spend really prevents a minimal next admission');
+});
