@@ -23,10 +23,16 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
   if (evidence) await mkdir(evidence, { recursive: true });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  const page = await browser.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
+  const page = await browser.newPage(), errors = [], loadErrors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => { if (response.status() >= 400) loadErrors.push(`${response.status()} ${response.url()}`); });
+  page.on('requestfailed', request => loadErrors.push(`${request.failure()?.errorText} ${request.url()}`));
+  const moduleResponse = await fetch(`${fixture.url}/packages/ui/src/session-element.js`);
+  assert.equal(moduleResponse.status, 200, `Fixture UI module: ${await moduleResponse.text()}`);
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   // Surface a failed module load directly instead of a registry polling timeout.
-  await page.evaluate(() => import('/packages/ui/src/session-element.js'));
+  try { await page.evaluate(() => import('/packages/ui/src/session-element.js')); }
+  catch (cause) { throw new Error(`Fixture module startup: ${JSON.stringify({ errors, loadErrors })}`, { cause }); }
   await until(page, () => Boolean(document.querySelector('aithema-session')?.shadowRoot));
   for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
