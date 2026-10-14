@@ -247,7 +247,8 @@ export class HostSurface {
       if (this.#credits?.reconciling) button.setAttribute(attribute, c.reconciling);
       else button.removeAttribute(attribute);
     }
-    amount.style.setProperty('--credit-digits', String(owner ? format(reservedLimit, locale).length : 1));
+    // Use the exact formatted width: separators are narrower than a tabular digit.
+    amount.setAttribute('data-credit-measure', owner ? format(reservedLimit, locale) : '…');
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
     line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));
@@ -264,7 +265,7 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__measure-low-short'), owner && Number.isSafeInteger(warningLimit) ? fill(c.lowShort, { available: format(warningLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__used-up-full'), c.usedUp); setText(line.querySelector('.host-credits__used-up-short'), c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
-    setText(amount, owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
+    setText(amount.querySelector('.host-credits__value'), owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
     const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
     setText(scope, balance); button.setAttribute('aria-label', balance);
