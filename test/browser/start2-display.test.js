@@ -873,6 +873,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.evaluateOnNewDocument(() => {
+    localStorage.setItem('aithema-demo-locale', 'en');
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => { window.ait105Copied = value; } } });
   });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -893,20 +894,52 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const visibleVersion = coordinate && (coordinate.children.length ? [...coordinate.children].filter(n => n.getBoundingClientRect().width > 0).map(n => n.textContent).join('') : coordinate.textContent);
     const value = row?.querySelector('.version-value'), feedback = row?.querySelector('.version-feedback');
     const valueVisibility = value && getComputedStyle(value).visibility;
+    const rgb = color => {
+      const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+      ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1);
+      return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    };
+    const luminance = channels => channels.map(n => n / 255).map(n => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4)
+      .reduce((sum, n, i) => sum + n * [.2126, .7152, .0722][i], 0);
+    const surface = luminance(rgb(style.backgroundColor));
+    const text = n => {
+      const colour = getComputedStyle(n).color, light = luminance(rgb(colour));
+      return { colour, contrast: (Math.max(light, surface) + .05) / (Math.min(light, surface) + .05) };
+    };
+    const legal = c.querySelector('[slot="legal"]'), notes = c.querySelector('[slot="footer"]');
+    const textLines = { notice: text(root.querySelector('#ai-notice')), version: text(value),
+      build: text(build.querySelector('.build-label')), link: text(legal.querySelector('a')), notes: text(notes) };
+    const versionColours = [...value.querySelectorAll('span')].filter(n => n.getBoundingClientRect().width > 0)
+      .map(n => ({ colour: getComputedStyle(n).color, opacity: getComputedStyle(n).opacity }));
+    const gap = (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
+    const rhythm = [gap(root.querySelector('#ai-notice'), build), gap(row, build.querySelector('.build-label')),
+      gap(build, legal), gap(legal, notes)];
+    const rowStyle = getComputedStyle(row);
+    const ring = rowStyle.outlineStyle !== 'none' && parseFloat(rowStyle.outlineWidth) > 0;
+
     const visibleText = row && (valueVisibility === 'hidden' ? feedback?.innerText : 'Version ' + visibleVersion);
     return { background: style.backgroundColor, opacity: style.opacity, visibility: style.visibility,
       notice: box(root.querySelector('#ai-notice')), popup: box(popup), row: row && box(row),
       build: build.querySelector('.build-label')?.textContent, product: root.querySelector('.display-version').textContent,
       first: build.firstChild?.className, text: visibleText, valueVisibility,
       feedbackPosition: feedback && getComputedStyle(feedback).position, feedbackBox: feedback && !feedback.hidden ? box(feedback) : null,
-      version: visibleVersion, title: build.title };
+      version: visibleVersion, title: build.title, textLines, versionColours, rhythm, ring,
+      cursor: rowStyle.cursor, rowTint: rowStyle.backgroundColor, legal: [...legal.querySelectorAll('a')].map(n => n.textContent), notes: notes.textContent };
   });
   const capture = async (locale, theme, width, state, metrics) => {
     const file = `ait105-version-${locale}-${theme}-${width}-${state}.png`;
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
     passLines.push({ head: evidenceCommit, locale, theme, width, state, pass: true, displacementPx: 0, file, ...metrics });
-    t.diagnostic(`PASS AIT-105 ${locale}/${theme}/${width}/${state}: opaque popup; ordered version/build rows; canonical tooltip/copy; 0 px shift`);
+    t.diagnostic(`PASS AIT-105 ${locale}/${theme}/${width}/${state}: opaque popup; ${Object.entries(metrics.textLines).map(([line, data]) => `${line} ${data.colour} ${data.contrast.toFixed(2)}:1`).join('; ')}; ring ${metrics.ring ? 'on' : 'off'}; 0 px shift`);
   };
+  await t.test('round 3 EN slots on first load and after switching', async () => {
+    const strings = () => page.evaluate(() => ['#demo-license', '#demo-legal-source', '#demo-footer'].map(selector => document.querySelector(selector).textContent));
+    assert.deepEqual(await strings(), [en.host.slots.license, en.host.slots.legalSource, en.host.slots.footer], 'first EN load');
+    await configure('de'); await configure('en');
+    assert.deepEqual(await strings(), [en.host.slots.license, en.host.slots.legalSource, en.host.slots.footer]);
+    await configure('de');
+    assert.deepEqual(await strings(), [de.host.slots.license, de.host.slots.legalSource, de.host.slots.footer], 'switch to DE');
+  });
   await configure('de');
   await page.setViewport({ width: 1440, height: 1000 });
   await page.select('#theme', 'dark');
@@ -920,6 +953,59 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
     assert.equal(metrics.version, '26.10.14 · 08:00');
     assert.ok(metrics.row[1] >= metrics.notice[1] + metrics.notice[3]);
+  });
+  await t.test('round 3 every text line reaches 4.5:1 in both themes', async () => {
+    const failures = [];
+    for (const theme of ['light', 'dark']) {
+      await page.select('#theme', theme);
+      for (const [line, data] of Object.entries((await popupMetrics()).textLines)) {
+        if (data.contrast < 4.5) failures.push(`${theme}/${line}: ${data.colour} ${data.contrast.toFixed(2)}:1`);
+      }
+    }
+    assert.deepEqual(failures, []);
+  });
+  await t.test('round 3 build uses the notes muted colour', async () => {
+    const { textLines } = await popupMetrics(); assert.equal(textLines.build.colour, textLines.notes.colour);
+  });
+  await t.test('round 3 primary version colour, pointer and subtle hover tint', async () => {
+    const before = await popupMetrics();
+    assert.ok(before.versionColours.every(n => n.colour === before.textLines.version.colour && n.opacity === '1'), JSON.stringify(before.versionColours));
+    assert.equal(before.cursor, 'pointer');
+    await page.hover('aithema-session >>> #build-info .version-row');
+    assert.notEqual((await popupMetrics()).rowTint, before.rowTint);
+    await notice.hover();
+  });
+  await t.test('round 3 four groups with 8 px gaps and version/build 2 px', async () => {
+    assert.deepEqual((await popupMetrics()).rhythm, [8, 2, 8, 8]);
+  });
+  await t.test('round 3 copied ring only for keyboard focus', async () => {
+    await configure('de'); await notice.hover();
+    await page.click('aithema-session >>> #build-info .version-row');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-copy-state="copied"]'));
+    assert.equal((await popupMetrics()).ring, false, 'mouse copy');
+    await configure('de'); await notice.focus();
+    await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-copy-state="copied"]'));
+    assert.equal((await popupMetrics()).ring, true, 'keyboard copy');
+  });
+  await t.test('round 3 failed clipboard and execCommand replace the value with 0 px shift', async () => {
+    await configure('de'); await notice.hover(); const before = await popupMetrics();
+    await page.evaluate(() => {
+      window.ait105Clipboard = navigator.clipboard; window.ait105Exec = document.execCommand;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied'); } } });
+      document.execCommand = () => false;
+    });
+    try {
+      await page.click('aithema-session >>> #build-info .version-row');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-copy-state="error"]'));
+      const failed = await popupMetrics();
+      assert.equal(failed.valueVisibility, 'hidden'); assert.deepEqual(failed.row, before.row); assert.deepEqual(failed.popup, before.popup);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.version-feedback input').value), '261014080000.0.0');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), '');
+    } finally {
+      await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: window.ait105Clipboard }); document.execCommand = window.ait105Exec; });
+      await configure('de'); await notice.hover();
+    }
   });
   await t.test('copy replaces version in the same slot for 1.2 s without an overlay', async () => {
     const before = await popupMetrics(), coordinate = await page.$('aithema-session >>> #build-info .coordinate');
@@ -946,7 +1032,12 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       else { await notice.focus(); await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift'); await page.keyboard.press('Tab');
         assert.equal(await notice.evaluate(n => n.getRootNode().activeElement === n && n.matches(':focus-visible')), true); }
       await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
-      const metrics = await popupMetrics(); assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
+      const metrics = await popupMetrics();
+      for (const data of Object.values(metrics.textLines)) assert.ok(data.contrast >= 4.5);
+      assert.deepEqual(metrics.rhythm, [8, 2, 8, 8]);
+      const copy = locale === 'de' ? de : en;
+      assert.deepEqual(metrics.legal, [copy.host.slots.license, copy.host.slots.legalSource]); assert.equal(metrics.notes, copy.host.slots.footer);
+      assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
       assert.equal(metrics.background, 'rgb(16, 43, 66)');
       const viewportPaint = pixels(Buffer.from(await page.screenshot({ fullPage: false })));
       const surfaceOffset = ((Math.floor(metrics.popup[1]) + 4) * viewportPaint.width + Math.floor(metrics.popup[0]) + 14) * viewportPaint.channels;
@@ -966,14 +1057,24 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       assert.equal(copied.valueVisibility, 'hidden'); assert.equal(copied.feedbackPosition, 'static');
       assert.equal(copied.feedbackBox[1], copied.row[1]);
       assert.deepEqual(copied.row, before.row); assert.deepEqual(copied.popup, before.popup);
+      assert.equal(copied.ring, true);
       await capture(locale, theme, width, 'copied', copied);
       await new Promise(resolve => setTimeout(resolve, 1300));
       assert.equal((await popupMetrics()).text, 'Version 26.10.14 · 08:00');
     }
+    if (locale === 'de' && theme === 'light' && width === 1440) {
+      await shadow(page, c => c.shadowRoot.activeElement?.blur()); await notice.hover();
+      const before = await popupMetrics(); await page.click('aithema-session >>> #build-info .version-row');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-copy-state="copied"]'));
+      const copied = await popupMetrics(); assert.equal(copied.ring, false);
+      assert.deepEqual(copied.row, before.row); assert.deepEqual(copied.popup, before.popup);
+      await capture(locale, theme, width, 'copied-mouse', copied);
+      await new Promise(resolve => setTimeout(resolve, 1300));
+    }
     const originalColor = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color);
     await shadow(page, c => { c.style.setProperty('--aithema-accent', '#a52233'); });
     await configure(locale);
-    assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color), originalColor);
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color), originalColor, 'popup primary version does not inherit host accent overrides');
     await shadow(page, c => c.style.removeProperty('--aithema-accent'));
     await configure(locale, 'semver');
     const reduced = await page.$('aithema-session >>> #build-info .coordinate');
