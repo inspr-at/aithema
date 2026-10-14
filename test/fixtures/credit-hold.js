@@ -8,13 +8,13 @@ import { createDemoHost } from '../../demo/host-ports.js';
 import { mockConsent } from '../helpers.js';
 import { listen } from '../../packages/server/src/http.js';
 
-export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000, exposureMicro = 60_000_000, mockReasoning = false } = {}) {
+export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000, exposureMicro = 60_000_000, mockReasoning = false, locale = 'de' } = {}) {
   let time = 1_000;
   const storage = new SQLiteStorage(), owner = 'credit-hold-visitor';
   const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100_000_000, visitorCapMicro: 100_000_000, now: () => time });
   const host = createDemoHost({ storage, now: () => time, ownerGuard, privacyDocumentConfigured: () => true });
   host.visitorCredits.saveSettings({ baseRevision: host.visitorCredits.settings().revision, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
-  const session = storage.create({ ownerToken: owner, locale: 'de', demo: mockReasoning });
+  const session = storage.create({ ownerToken: owner, locale, demo: mockReasoning });
   storage.append(session.id, 'turn.final', { id: 'u1', role: 'user', content: 'Ich möchte eine Website.' });
   storage.append(session.id, 'turn.final', { id: 'a1', role: 'assistant', content: 'Welche Ziele haben Sie?' });
   const runtime = createPluginRuntime({ storage, budget: ledger, consent: mockConsent });
@@ -67,19 +67,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (path === '/fixture') {
       await fixture.close();
       const state = new URL(request.url).searchParams.get('state') ?? 'in-call';
-      fixture = await creditHoldFixture({ mockReasoning: true, ...(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : state === 'reconciling' ? { exposureMicro: 5_900_000 } : {}) });
+      const locale = new URL(request.url).searchParams.get('locale') ?? 'de';
+      fixture = await creditHoldFixture({ mockReasoning: true, locale, ...(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : state === 'reconciling' ? { exposureMicro: 5_900_000 } : {}) });
       if (state === 'full-hold') {
         const { attemptId } = fixture.ledger.admit(fixture.request('reaction', 9_900_000));
         fixture.ledger.claim(attemptId).consume();
       }
       if (state.startsWith('reconciling')) fixture.ledger.retainVoiceExposure(fixture.claim.attemptId);
       const current = fixture.storage.get(fixture.session.id);
-      const locale = new URL(request.url).searchParams.get('locale') ?? 'de';
       fixture.storage.append(current.id, 'understanding.updated', reduceUnderstanding(current.understanding, {
         summary: locale === 'de' ? 'Eine Website für das Unternehmen.' : 'A website for the business.',
         signals: ['Website'], openQuestions: [locale === 'de' ? 'Wann soll die Website starten?' : 'When should the website launch?'],
         constraints: {}, progress: { talk: { value: .3 }, build: { value: .1 } },
-      }, { transcript: current.transcript, inputRevision: inputRevision(current), draft: true }));
+      }, { transcript: current.transcript, inputRevision: inputRevision(current), locale, draft: true }));
       return Response.json({ session: fixture.storage.get(fixture.session.id), owner: fixture.owner });
     }
     if (path === '/reconcile') {

@@ -59,7 +59,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         const { session } = await (await fetch(`/fixture?state=${state}&locale=${locale}`)).json();
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const { voiceEvents } = await import('/packages/core/src/live-voice.js');
-        session.locale = locale; session.demo = false; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
+        session.demo = false; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
         const verdict = state === 'reconciling-blocked' ? { available: false, reason: 'budget denied' } : { available: true };
         session.featureMatrix = { best: { text: verdict, analysis: { available: true }, voice: { available: true } } };
         const voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
