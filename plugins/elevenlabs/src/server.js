@@ -6,6 +6,7 @@ import { manifest } from './manifest.js';
 import { usdCostMicro } from '../../../packages/core/src/cost.js';
 import { voiceOverrides, elevenLabsMediaGrant, elevenLabsComponents } from './options.js';
 import { elevenLabsCallbackPort } from './callbacks.js';
+import { createTextSpeech } from './text-speech.js';
 import { createElevenLabsConfig, elevenLabsConfig, bridgeElevenLabsConfig, normalizeElevenLabsDurationBinding } from './config.js';
 export { createElevenLabsConfig } from './config.js';
 export { createElevenLabsReplyExecutor } from './reply.js';
@@ -368,6 +369,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
   };
   adapter.ports = Object.freeze({ serverAdapter: Object.freeze({
     ...elevenLabsCallbackPort,
+    ...createTextSpeech({ binding, fetchImpl, resolveSecret, readJson }),
     config: binding.adapterConfig,
     validateConfig: createElevenLabsConfig,
     normalizeBinding: normalizeElevenLabsDurationBinding,

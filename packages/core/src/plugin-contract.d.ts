@@ -46,7 +46,7 @@ export interface LiveVoiceDeclaration {
   capabilities: Record<'sendText' | 'updateContext' | 'setInput' | 'setOutput' | 'pause' | 'resume' | 'interrupt' | 'heard', VoiceCapability>;
   billing: { visitor: string; upstream: string };
   ownership?: Record<'stt' | 'tts' | 'turnTaking', 'provider' | 'server' | 'browser'>;
-  optionalCapabilities?: Partial<Record<'forceInterrupt' | 'alignment' | 'playbackRetry' | 'metering', VoiceCapability>>;
+  optionalCapabilities?: Partial<Record<'forceInterrupt' | 'alignment' | 'playbackRetry' | 'metering' | 'speakText', VoiceCapability>>;
 }
 export type VoiceEvent = { callId: string; providerSessionId?: string; generation?: string | number; epoch?: number } & (
   { type: 'listening' | 'speaking' | 'recovering' | 'recovered' } |
@@ -85,6 +85,9 @@ export interface VoiceSession {
   updateContext(context: object | string, options: VoiceCommandOptions): Promise<void>;
   interrupt(options: VoiceCommandOptions): Promise<void>;
   retryPlayback?(options: VoiceCommandOptions): Promise<void>;
+  readonly replaying?: boolean;
+  replayLastReply?(options?: VoiceCommandOptions): Promise<{ kind: 'text' | 'audio'; text: string }>;
+  stopReplay?(): Promise<void>;
   heartbeat(options: VoiceCommandOptions): Promise<{ acknowledged: true; browserLivenessDeadlineAt: number }>;
 }
 // Joined contract: server consumes authority; browser receives only a short-lived credential.
@@ -134,11 +137,15 @@ export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: s
   startSegment(request: StartRequest, options: VoiceStartOptions): Promise<Segment>;
   stopSegment(segment: Segment, options: VoiceCommandOptions & { reason?: string; outcome?: 'completed' | 'cancelled' }): Promise<VoiceReconciliationEvidence['terminal']>;
   reconciliationEvidence(request: { call: object; maxMicro: number; outcome?: 'completed' | 'cancelled' }, options: VoiceCommandOptions): Promise<VoiceReconciliationEvidence>;
+  quoteSpeakText?(request: { text: string }, options: VoiceCommandOptions): Promise<VoiceTextQuote>;
+  speakText?(request: { text: string; quote: VoiceTextQuote }, options: VoiceStartOptions): Promise<VoiceTextAudio>;
   // Provider request authentication must precede the generic operation boundary.
   callbackRoutes?: readonly VoiceCallbackRoute[];
   // Bind server-owned operations and host-private callback configuration once.
   bindCallbacks?(ports: object): VoiceServerCallbacks;
 }
+export interface VoiceTextQuote { maxMicro: number; opaque?: unknown }
+export interface VoiceTextAudio { audio: { format: 'pcm_16000'; data: string }; usage?: VoiceUsage & { characters: number } }
 export interface VoicePresentation {
   label: string;
   translations?: { locale: string; label: string;

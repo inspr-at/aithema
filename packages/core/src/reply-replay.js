@@ -1,0 +1,44 @@
+import { PluginError } from './invocation.js';
+import { voiceOperation } from './live-voice.js';
+
+/** Playback has its own lifetime; it never blocks pause, hangup or turn delivery. */
+export function createReplyReplay({ current, synthesize, playAudio, onState = () => {} }) {
+  let active;
+  const stop = () => {
+    const previous = active; active = null;
+    if (!previous) return;
+    previous.controller.abort(); previous.player?.stop(); onState(false);
+  };
+  return { stop, get active() { return Boolean(active); },
+    async replay(reply, options = {}) {
+      if (!reply || !current(reply)) throw new PluginError('unavailable');
+      stop();
+      const entry = { controller: new AbortController() }; active = entry;
+      const valid = () => active === entry && current(reply);
+      const signal = options.signal ? AbortSignal.any([entry.controller.signal, options.signal]) : entry.controller.signal;
+      const aborted = () => { if (active === entry) stop(); };
+      signal.addEventListener('abort', aborted, { once: true });
+      try {
+        const result = await voiceOperation({ ...options, signal }, async bounded => {
+          let result;
+          try { result = await synthesize?.(reply, bounded); }
+          catch (error) {
+            if (signal.aborted || !valid() || ['not-admitted', 'already-claimed', 'voice-ownership-lost', 'cancelled', 'deadline'].includes(error.code)) throw error;
+          }
+          if (!valid()) throw new PluginError('unavailable');
+          if (result?.kind !== 'audio' || !playAudio) return { kind: 'text', text: reply.text };
+          let player;
+          try { player = await playAudio(result.audio, { ...bounded, current: valid }); }
+          catch (error) { if (signal.aborted || !valid()) throw error; return { kind: 'text', text: reply.text }; }
+          if (!valid()) { player?.stop(); throw new PluginError('cancelled'); }
+          entry.player = player; onState(true);
+          Promise.resolve(player.finished).finally(() => { if (active === entry) stop(); }).catch(() => {});
+          return { kind: 'audio', text: reply.text };
+        });
+        if (result.kind === 'text' && active === entry) stop();
+        return result;
+      } catch (error) { if (active === entry) stop(); throw error; }
+      finally { if (!active || active !== entry) signal.removeEventListener('abort', aborted); }
+    },
+  };
+}

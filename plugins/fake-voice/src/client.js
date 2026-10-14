@@ -2,9 +2,11 @@ import { PluginError } from '../../../packages/core/src/invocation.js';
 import { assertVoiceMediaGrant, assertVoiceSession, voiceEvents, voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { createVoiceLifecycleController } from '../../../packages/core/src/voice-lifecycle-controller.js';
 import { manifest, fakeMediaGrant } from './manifest.js';
+import { createReplyReplay } from '../../../packages/core/src/reply-replay.js';
+import { playReplyAudio } from '../../../packages/ui/src/reply-audio.js';
 
 /** Browser simulator: canonical events and host control, no SDK or physical media. */
-export function createFakeVoice({ control, persistEvent, copy, document = globalThis.document }) {
+export function createFakeVoice({ control, persistEvent, copy, document = globalThis.document, playAudio = playReplyAudio }) {
   if (!control?.start || !control.close || !control.pause || !control.resume || !control.heartbeat || typeof persistEvent !== 'function') throw new TypeError('Voice control and persistence required');
   const words = () => typeof copy === 'function' ? copy() : copy;
   let current;
@@ -44,7 +46,10 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           if (cancellation.signal.aborted) return;
           if (['final', 'heard'].includes(event.type)) await persist(event);
           if (event.type === 'final' && event.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: event.turnId, sequence: ++sequence });
-          if (event.type === 'final' && event.role === 'assistant') lifecycle.dispatch({ type: 'reply', replyId: event.turnId });
+          if (event.type === 'final' && event.role === 'assistant') {
+            lastAssistant = { turnId: event.turnId, text: event.text };
+            lifecycle.dispatch({ type: 'reply', replyId: event.turnId });
+          }
           if (event.type === 'heard') lifecycle.dispatch({ type: 'heard', prefix: event.prefix });
           events.push(event);
         }).catch(error => {
@@ -57,10 +62,12 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         if (!open || ended || paused || blocked || role === 'user' && !input) return;
         const eventId = ++sequence, turnId = `${receipt.providerSessionId}:${role}:${eventId}`;
         emit({ type: role === 'assistant' ? 'speaking' : 'listening' });
-        if (role === 'assistant') { interrupted = false; lastAssistant = { turnId, text }; lifecycle.dispatch({ type: 'heard', prefix: null }); }
+        replay.stop();
+        if (role === 'assistant') { interrupted = false; lifecycle.dispatch({ type: 'heard', prefix: null }); }
         emit({ type: 'final', role, text, turnId, event_id: eventId, ...(role === 'user' ? { userTurnOrdinal: ++ordinal } : {}) });
       };
       const stopMedia = reason => {
+        replay.stop();
         blocked = true; open = false;
         if (['sleep', 'wake', 'ownership-lost', 'server-restart', 'browser-liveness-deadline'].includes(reason)) { paused = true; pauseRevision++; }
       };
@@ -124,12 +131,17 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         persistWaiting: ({ reason, attempts }) => voiceOperation({ deadlineAt: Date.now() + 5000 },
           opts => control.close({ ...identity(), reason, recoveryAttempts: attempts }, opts)),
       });
+      const replay = createReplyReplay({ current: reply => open && !ended && !paused && !blocked && output && !lifecycle.state.holds.length &&
+        reply.turnId === lastAssistant?.turnId && reply.text === lastAssistant?.text,
+      synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId }, opts),
+      playAudio: (audio, opts) => playAudio(audio, { ...opts, document }),
+      onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); } });
       const cancel = () => { void close(options.signal?.reason === 'ownership-lost' ? 'recovery-failed' : 'cancelled',
         { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
       const hold = () => {
         if (ended) return;
         if (options.holdSignal?.reason === 'ownership-lost') lifecycle.ownershipLost();
-        else { paused = true; pauseRevision++; lifecycle.pause('hide'); }
+        else { paused = true; pauseRevision++; lifecycle.pause('hide'); replay.stop(); }
       };
       const freeze = () => lifecycle.sleep(), wake = () => lifecycle.wake(), visible = () => { if (!document.hidden) wake(); };
       const command = (fn, duringRecovery = false) => opts => {
@@ -178,6 +190,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           close: opts => close(opts?.reason ?? 'closed', opts),
           pause(opts) {
             paused = true; pauseRevision++; lifecycle.pause();
+            replay.stop();
             return command(async bounded => {
               const ack = await pauseControl(true, bounded);
               if (ack?.acknowledged !== true || ack.paused !== true) throw new PluginError('invalid-output'); return ack;
@@ -196,7 +209,8 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
             }, true)(opts);
           },
           setInput: (on, opts) => command(() => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); input = on; })(opts),
-          setOutput: (on, opts) => command(() => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); output = on; })(opts),
+          setOutput: (on, opts) => { if (on === false) { output = false; replay.stop(); }
+            return command(() => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); output = on; })(opts); },
           sendText: (text, opts) => command(() => {
             if (paused || blocked) throw new PluginError('not-admitted');
             if (typeof text !== 'string' || !text.trim() || text.length > 16_384) throw new PluginError('limit');
@@ -218,10 +232,12 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
               });
             } finally { interruptionWaiters.delete(waiter); bounded.signal.removeEventListener('abort', aborted); }
           })(opts),
-          replayLastReply: opts => command(() => {
-            if (paused || blocked || !output || !lastAssistant) throw new PluginError('unavailable');
-            return { kind: 'text', text: lastAssistant.text };
-          })(opts),
+          get replaying() { return replay.active; },
+          stopReplay() { replay.stop(); return Promise.resolve(); },
+          replayLastReply: opts => {
+            const reply = lastAssistant && { ...lastAssistant };
+            return command(bounded => replay.replay(reply, bounded))(opts);
+          },
           heartbeat: opts => lifecycle.heartbeat(opts),
           receiveState(state) {
             if (state.callId !== request.callId || state.epoch < receipt.epoch) return;
@@ -233,6 +249,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         const bargeIn = (prefix = words().fakeVoiceHeard) => {
           if (!open || ended || paused || blocked || !input || !lastAssistant?.text.startsWith(prefix)) return;
           interrupted = true;
+          replay.stop();
           for (const waiter of interruptionWaiters) waiter();
           emit({ type: 'heard', turnId: lastAssistant.turnId, prefix }); emit({ type: 'listening' });
         };

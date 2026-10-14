@@ -7,7 +7,7 @@ import { createVoiceDiagnostics, voiceReconciliationAge } from './voice-observab
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
-const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover))?$`, 'u');
+const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover|replay)|/(replay))?$`, 'u');
 // Route declarations are adapter-owned; parameter syntax is shared by the mount.
 const matchesCallback = (route, path) => {
   const declared = route.path.split('/'), actual = path.split('/');
@@ -426,7 +426,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (methodNotAllowedStatus) return json({ error: methodNotAllowedStatus === 404 ? 'not-found' : 'method-not-allowed' }, methodNotAllowedStatus);
       const match = routes.exec(path); if (!match) return null;
       try {
-        const [, sessionId, callId, action] = match, ownerToken = ownership.token(request);
+        const [, sessionId, callId, callAction, pageAction] = match, action = callAction ?? pageAction, ownerToken = ownership.token(request);
         storage.authorize(sessionId, ownerToken);
         if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
         const bytes = await readBody(request, 65_536), body = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
@@ -434,6 +434,22 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (body.tabId !== undefined && (typeof body.tabId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.tabId)) ||
           body.epoch !== undefined && (!Number.isSafeInteger(body.epoch) || body.epoch < 0)) throw new TypeError('Invalid tab authority');
         if (action === 'recover' && body.explicit !== undefined && typeof body.explicit !== 'boolean') throw new TypeError('Invalid recovery intent');
+        if (action === 'replay') {
+          if (typeof body.turnId !== 'string' || !body.turnId || body.turnId.length > 256) throw new TypeError('Reply identity required');
+          const entry = callId && calls.get(callId);
+          const current = () => {
+            const logical = storage.voiceLifecycle(sessionId);
+            if (!callId) return !logical || ['idle', 'ended'].includes(logical.state);
+            return entry?.sessionId === sessionId && entry.ownerToken === ownerToken && !entry.closing && !entry.call?.signal.aborted &&
+              logical?.callId === callId && logical.state === 'active' && !logical.holds.length && !logical.needsRecovery &&
+              logical.providerSessionId === body.providerSessionId && logical.epoch === entry.epoch &&
+              (!logical.controllingTabId || logical.controllingTabId === body.tabId && logical.epoch === body.epoch);
+          };
+          if (!current()) throw new PluginError('unavailable');
+          const signal = entry ? AbortSignal.any([request.signal, entry.controller.signal, entry.authority.signal]) : request.signal;
+          return json(await runtime.speakText({ session: storage.get(sessionId), turnId: body.turnId,
+            options: { ...options(request), signal, current } }));
+        }
         if (!action) {
           const current = storage.voiceLifecycle(sessionId);
           if (current?.state !== 'ended' && current?.controllingTabId && current.controllingTabId !== body.tabId) {

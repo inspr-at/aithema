@@ -73,6 +73,7 @@ export const en = {
   voiceTakeover: 'Resume here', voiceMoved: 'Call is open in another tab',
   voiceResumeHereFirst: 'Resume here first', voiceInAnotherTab: 'In another tab',
   voiceReplayClose: 'Close',
+  voiceReplayStop: 'Stop replay',
   voiceReplyUnavailable: 'The complete reply is not available yet.',
   voiceReplayTextOnly: 'The full text of the last reply, word for word.',
   voiceClosureUncertain: 'Call ended. Costs are still being reconciled.', voiceEnded: 'Call ended.',

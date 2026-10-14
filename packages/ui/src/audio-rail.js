@@ -29,7 +29,10 @@ export class AudioRail {
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
     if (!noticesRoot) { noticesRoot = root.ownerDocument.createElement('div'); noticesRoot.className = 'voice-notices'; root.append(noticesRoot); }
     this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean(this.session && !this.paused && !this.busy && this.output &&
-      !['recovering', 'waiting'].includes(this.state)), replay: () => this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText } });
+      !['recovering', 'waiting'].includes(this.state)), stopReplay: () => this.session?.stopReplay?.(), replay: async () => {
+        try { return await (this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText }); }
+        catch (error) { if (error.code === 'not-admitted' && error.reason === 'host-limit') { this.failure(error); this.render(); } throw error; }
+      } });
     for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
       const help = root.ownerDocument.createElement('span'); help.className = 'voice-waiting-help'; help.id = `voice-${name}-waiting-help`;
       help.setAttribute('role', 'tooltip'); root.querySelector(`.voice-cell--${cell}`).append(help);
@@ -398,6 +401,7 @@ export class AudioRail {
       for await (const event of session.events) {
         if (!this.current(session, generation) || event.callId !== session.callId) return;
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
+        if (event.replay && event.type === 'listening') { this.notices.playing = false; this.notices.interrupted = true; }
         if (event.type === 'partial') { this.root.querySelector('.voice-caption').textContent = event.text; this.onPartial?.(event); }
         if (event.type === 'final') this.root.querySelector('.voice-caption').textContent = '';
         if (['partial', 'final'].includes(event.type)) this.notices.clear();

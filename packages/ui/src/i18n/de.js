@@ -79,6 +79,7 @@ export const de = {
   voiceTakeover: 'Hier fortsetzen', voiceMoved: 'Gespräch läuft in einem anderen Tab',
   voiceResumeHereFirst: 'Erst hier fortsetzen', voiceInAnotherTab: 'In einem anderen Tab',
   voiceReplayClose: 'Schließen',
+  voiceReplayStop: 'Wiederholung stoppen',
   voiceReplyUnavailable: 'Die vollständige Antwort ist noch nicht verfügbar.',
   voiceReplayTextOnly: 'Der vollständige Text der letzten Antwort, Wort für Wort.',
   voiceClosureUncertain: 'Anruf beendet. Kosten werden noch abgeglichen.', voiceEnded: 'Anruf beendet.',
