@@ -3075,7 +3075,11 @@ input identities, a boolean counter contribution and the assessment revision.
 Receipt retries and voice operation replays do not count twice. Off-topic input
 skips understanding. At the limit, the composer explains the locked pause and
 invites a new conversation; further turns, Resume and Retry cannot dispatch models.
-Voice pauses after the accepted redirect has crossed the callback output boundary.
+During a simulator call, normal input is classified privately before understanding
+without adding a duplicate assistant reply. The custom LLM still owns live replies,
+including typed input echoed through voice; matching prompt input never supplies
+a paid operation identity or ordinal. Voice pauses after the accepted redirect
+has crossed the callback output boundary.
 Rule C still owns callback identity, ordinal, replay, admission and settlement.
 
 With `outputCheck: true`, the complete reply is buffered before text or TTS can

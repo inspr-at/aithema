@@ -158,6 +158,7 @@ test('AIT-174 local voice: typed input is classified privately before assessment
   await f.handlers.handle(req(f.session.id, 'turns', { clientEventId: 'typed-in-call', content: 'Customers order bread online the day before.', voiceCallId: call.callId, providerSessionId: call.providerSessionId })); await f.handlers.idle();
   assert.equal(f.calls.length, 1); assert.equal(f.assessments.length, 1);
   assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'assistant').length, 0, 'the simulator owns its normal spoken reply; classification adds no duplicate reply');
+  await f.handlers.handle(req(f.session.id, 'retry', {})); await f.handlers.idle(); assert.equal(f.calls.length, 1, 'private classification is cached even without a text reply');
   await f.send('Give me a recipe.', 'typed-off-in-call');
   assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 1);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
