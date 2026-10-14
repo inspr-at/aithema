@@ -203,6 +203,21 @@ test('AIT-174 round2 direction question is emitted at most once even if the mode
   assert.equal(replies.filter(turn => turn.content.includes(purposePolicy.directionQuestion.en)).length, 1);
   assert.equal(replies[2].content, purposePolicy.directionQuestion.en);
 });
+for (const field of ['question_short', 'option']) test(`AIT-174 round2 direction copy cannot enter ${field} buttons even with in scope`, async t => {
+  for (const locale of ['en', 'de']) {
+    const f = fixture(t, { outputs: request => JSON.stringify({ content: 'What should improve first?', scope: 'in',
+      question_short: field === 'question_short' ? purposePolicy.directionQuestion[request.locale] : 'Next?',
+      options: [{ text: field === 'option' ? purposePolicy.directionQuestion[request.locale] : 'A new solution' }, { text: 'Our processes' }] }) });
+    f.storage.changeLocale(f.session.id, locale, { ownerToken: testToken });
+    for (let i = 0; i < 4; i++) {
+      await f.send('We need a new solution.', `card-${i}`);
+      const last = f.storage.get(f.session.id).transcript.at(-1);
+      assert.equal(last.question_short, null); assert.deepEqual(last.options, []);
+    }
+    assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+    assert.equal(f.storage.get(f.session.id).paused, false);
+  }
+});
 test('AIT-174 round2 unclear options are cleared; direction question is text only, late, once in both locales and across restart', async t => {
   for (const locale of ['en', 'de']) {
     const f = fixture(t, { outputs: request => JSON.stringify({ content: purposePolicy.directionQuestion[request.locale], scope: 'unclear', question_short: 'Choose', options: [{ text: 'A solution' }, { text: 'Our processes' }] }) });
