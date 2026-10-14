@@ -113,6 +113,9 @@ svg { display:block; flex:none; }
 .audio-rail:is([data-call="none"]) .voice-input, .audio-rail[data-call="active"] .voice-start,
 .audio-rail[data-call="none"] .voice-close, .audio-rail[data-call="active"] .voice-retry, .audio-rail:not([data-state="failed"]) .voice-retry,
 .audio-rail[data-playback-blocked] .voice-output, .audio-rail:not([data-playback-blocked]) .voice-playback { visibility:hidden; }
+/* A locally ended call keeps the idle controls while only its status reconciles.
+   Reserve the pause cell; hide its icons too, since Resume explicitly sets visibility. */
+.audio-rail[data-call-ended] :is(.pause, .voice-pause, .voice-icon) { visibility:hidden; }
 /* A purpose pause presents once in the composer. The rail keeps its idle
    speaker and Start call in their normal cells, both disabled. */
 .audio-rail[data-purpose-paused] :is(.pause, .voice-pause, .voice-playback, .voice-close, .voice-retry, .voice-input) { visibility:hidden; }
