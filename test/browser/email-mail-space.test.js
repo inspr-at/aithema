@@ -96,13 +96,15 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
   };
   const comparePixels = async (page, mainPage, clip, label) => {
     // Each tab must be foreground and painted when its focused pixels are read.
+    for (const p of [page, mainPage]) await shadow(p, c => { c.shadowRoot.querySelector('#email-notice').style.visibility = 'hidden'; });
     await frame(page); const actual = await page.screenshot({ clip });
     await frame(mainPage); const expected = await mainPage.screenshot({ clip });
     if (!actual.equals(expected) && evidence) {
       await writeFile(join(evidence, `ait-171-${evidenceCommit}-${label}-save-current-mismatch.png`), actual);
       await writeFile(join(evidence, `ait-171-${evidenceCommit}-${label}-save-main-mismatch.png`), expected);
     }
-    assert.ok(actual.equals(expected), `${label}: save pixels match main ${baseline.sourceHead}`);
+    for (const p of [page, mainPage]) await shadow(p, c => { c.shadowRoot.querySelector('#email-notice').style.visibility = ''; });
+    assert.ok(actual.equals(expected), `${label}: save pixels outside the privacy line match main ${baseline.sourceHead}`);
   };
   for (const locale of ['de', 'en']) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -309,4 +311,48 @@ test('AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440;
     await browser.close(); browser = null;
   }
   if (evidence) await writeFile(join(evidence, 'ait-171-status-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, rows, shots }, null, 2));
+});
+
+
+test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels', { timeout: 120_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-email-privacy-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser; t.after(async () => { await browser?.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  const baseline = JSON.parse(await readFile(new URL('../fixtures/email-privacy-baseline.json', import.meta.url), 'utf8'));
+  const rows = [], shots = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) {
+    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(), main = await browser.newPage();
+    await main.setRequestInterception(true);
+    main.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });
+    for (const p of [page, main]) {
+      await p.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
+      await p.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(p, () => document.querySelector('aithema-session')?.session);
+    }
+    for (const width of [390, 1440]) for (const [mode, delivery, confirm] of [['save', false, false], ['confirmation-off', true, false], ['mail', true, true]]) {
+      const label = `${locale}-light-${width}-${mode}`;
+      for (const p of [page, main]) {
+        await p.setViewport({ width, height: width === 390 ? 844 : 1000 }); await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+        await fixture(p, locale, delivery, confirm);
+        await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(p);
+      }
+      const expected = locale === 'de' ? mode === 'mail' ? 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
+      const selectors = ['#email', '.m-stack', mode === 'mail' ? '.m-mail-notice' : '#email-notice', mode === 'mail' ? '.verify-entry' : '.m-save', '.operator-section', '.settings__footer'];
+      const metrics = p => shadow(p, (c, selectors) => selectors.map(s => { const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }), selectors);
+      await t.test(label, async () => {
+        assert.equal(await shadow(page, (c, s) => c.shadowRoot.querySelector(s + ' .m-notice-text').textContent, selectors[2]), expected);
+        assert.deepEqual(await metrics(page), await metrics(main), '0 px shift against main');
+        if (mode === 'mail') {
+          await frame(page); const actual = await page.screenshot({ fullPage: false });
+          await frame(main); assert.ok(actual.equals(await main.screenshot({ fullPage: false })), 'mail viewport pixel-identical to main');
+        }
+      });
+      rows.push({ head: evidenceCommit, label, surface: 'settings', shiftPx: 0, mailPixelIdentical: mode === 'mail', text: expected });
+      t.diagnostic(`PASS AIT-172 ${label}/settings: 0 px shift${mode === 'mail' ? '; mail pixels identical to main' : ''}`);
+      if (evidence) { const name = `ait-172-${evidenceCommit}-${label}-settings.png`; await frame(page); await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name); }
+    }
+    await browser.close(); browser = null;
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-172-settings-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, baseline: baseline.sourceHead, rows, shots }, null, 2));
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -300,4 +300,52 @@ test('AIT-168: Settings saves only with confirmation disabled and saves plus req
     }
   }
   assert.deepEqual(errors, []);
+});
+
+
+test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels', { timeout: 120_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-ask-privacy-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser; t.after(async () => { await browser?.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  const baseline = JSON.parse(await readFile(new URL('../fixtures/email-privacy-baseline.json', import.meta.url), 'utf8'));
+  const rows = [], shots = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) {
+    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(), main = await browser.newPage();
+    await main.setRequestInterception(true);
+    main.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });
+    for (const p of [page, main]) {
+      await p.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
+      await p.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(p, () => document.querySelector('aithema-session')?.session);
+    }
+    for (const width of [390, 1440]) for (const [mode, delivery, confirmationEnabled] of [['save', false, false], ['confirmation-off', true, false], ['mail', true, true]]) {
+      const label = `${locale}-light-${width}-${mode}`;
+      for (const p of [page, main]) {
+        await p.setViewport({ width, height: width === 390 ? 844 : 1000 }); await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+        await fixture(p, locale, { delivery, confirmationEnabled });
+        await shadow(p, c => c.setAttribute('theme', 'light'));
+        await p.evaluate(() => window.ait164.reply()); await gateReady(p); await settle(p);
+      }
+      const expected = locale === 'de' ? mode === 'mail' ? 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
+      await t.test(label, async () => {
+        // All notice consumers, including the hidden lock form and confirmation dialog.
+        const texts = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.m-notice-text')].map(n => n.textContent));
+        assert.ok(texts.length >= 5); assert.ok(texts.every(text => text === expected), JSON.stringify(texts));
+        const targets = ['.email-ask', '#email-ask-input', '#email-ask-notice', '.email-ask__actions', ...fixed];
+        assert.deepEqual(await boxes(page, targets), await boxes(main, targets), '0 px shift against main');
+        if (mode === 'mail') {
+          // Compare the ask itself: conversation IDs and unrelated demo chrome differ per session.
+          const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('.email-ask').getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; });
+          await page.bringToFront(); await settle(page); const actual = await page.screenshot({ clip });
+          await main.bringToFront(); await settle(main); assert.ok(actual.equals(await main.screenshot({ clip })), 'mail ask pixel-identical to main');
+        }
+      });
+      rows.push({ head: evidenceCommit, label, surface: 'email-ask', shiftPx: 0, mailPixelIdentical: mode === 'mail', text: expected });
+      t.diagnostic(`PASS AIT-172 ${label}/email-ask: 0 px shift${mode === 'mail' ? '; mail pixels identical to main' : ''}`);
+      if (evidence) { const name = `ait-172-${evidenceCommit}-${label}-email-ask.png`; await page.bringToFront(); await settle(page); await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name); }
+    }
+    await browser.close(); browser = null;
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-172-email-ask-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, baseline: baseline.sourceHead, rows, shots }, null, 2));
 });

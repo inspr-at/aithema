@@ -36,3 +36,34 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
     });
   }
 }
+
+const saveNotices = {
+  de: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
+  en: 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.',
+};
+for (const [locale, copy] of [['de', de], ['en', en]]) {
+  for (const [name, delivery, canConfirm] of [['no delivery', false, true], ['confirmation off', true, false], ['mail', true, true]]) {
+    test(`AIT-172 privacy: ${locale}, ${name}, all consumers and Settings latch`, t => {
+      const window = new Window({ url: 'http://localhost/' }), host = window.document.createElement('div');
+      window.document.body.append(host);
+      host.innerHTML = '<a slot="legal" data-aithema-privacy href="/privacy">Privacy</a>';
+      const root = host.attachShadow({ mode: 'open' }), entry = window.document.createElement('section'); root.append(entry);
+      const email = new VisitorEmail({ root, entry, copy, delivery, privacyDocumentConfigured: true });
+      t.after(() => { email.destroy(); window.happyDOM.abort(); });
+      email.set({ tiers: { canConfirm } });
+      const expected = delivery && canConfirm ? copy.hostSurface.email.noticeMail : saveNotices[locale];
+      assert.equal(copy.hostSurface.email.noticeSave, saveNotices[locale]);
+      for (const notice of entry.querySelectorAll('.m-notice')) assert.equal(notice.querySelector('.m-notice-text').textContent, expected);
+      // Conversation ask, verification dialog and assessment lock share this painter.
+      const other = window.document.createElement('p'); other.className = 'm-notice';
+      other.innerHTML = '<span class="m-notice-text"></span> <a class="m-pp"></a>';
+      email.paintNotice(other); assert.equal(other.querySelector('.m-notice-text').textContent, expected);
+      email.beginSettings(); email.set({ delivery: true, tiers: { canConfirm: !(delivery && canConfirm) } });
+      assert.equal(email.noticeText(), expected, 'the mode at Settings open owns the privacy copy');
+      email.endSettings();
+      assert.equal(email.noticeText(), delivery && canConfirm ? saveNotices[locale] : copy.hostSurface.email.noticeMail);
+      email.set({ handover: true });
+      assert.ok(email.noticeText().endsWith(copy.hostSurface.email.noticeHandover), 'handover copy remains unchanged');
+    });
+  }
+}
