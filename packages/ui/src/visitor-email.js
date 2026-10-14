@@ -113,8 +113,8 @@ export class VisitorEmail {
     for (const view of this.entry.querySelectorAll('.m-stack > .m-view')) { const shown = view.dataset.view === state; view.classList.toggle('on', shown); view.inert = !shown; view.setAttribute('aria-hidden', String(!shown)); }
     this.q('.m-form').classList.toggle('editing', this.ui.editing);
     const givenRaises = this.tiers?.allowancesMicro?.emailGiven > this.tiers?.allowancesMicro?.anonymous;
-    setTierText(this.q('.m-lead-save'), this.tiers ? givenRaises ? e.leadSave : e.tier : this.#settings?.unknown ? e.leadSave : '', { ...n, tier: n.email });
-    setTierText(this.q('.m-lead-edit'), this.tiers || this.#settings?.unknown ? e.leadEdit : '', n);
+    setTierText(this.q('.m-lead-save'), this.tiers ? givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
+    setTierText(this.q('.m-lead-edit'), this.tiers ? e.leadEdit : '', n);
     setText(this.q('.m-label'), v.label); this.q('#email-input').placeholder = v.placeholder;
     this.q('#email-input').setAttribute('aria-invalid', String(this.ui.invalid));
     for (const [selector, key] of [['.m-save', 'save'], ['.m-cancel', 'cancel'], ['.m-change', 'change'], ['.m-delete', 'delete'], ['.m-q', 'deleteQuestion'], ['.m-del', 'deleteConfirm'], ['.m-keep', 'cancel'], ['.m-change-mail', 'change'], ['.m-delete-mail', 'delete'], ['.m-unavailable', 'unavailable']]) setText(this.q(selector), e[key]);
