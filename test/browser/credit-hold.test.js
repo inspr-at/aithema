@@ -101,6 +101,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
             await page.keyboard.type(typed);
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), typed);
             textAdmission.typed = typed;
+            await settle(page);
           }
         }
         const controls = await shadow(page, c => {
@@ -120,7 +121,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
         const pass = { ...capture, controls, textAdmission, head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
         console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; footer tooltip=${view.title ?? "none"}; shift=${shift}px; composer gap=${capture.composerFooterGapPx}px; old capture gap=${capture.oldCaptureGapPx ?? 'n/a'}px`);
-        if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
+        if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false, captureBeyondViewport: false });
       }
       if (state === 'reconciling') {
         const before = await boxes(page, targets);
