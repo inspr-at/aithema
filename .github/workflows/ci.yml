@@ -20,6 +20,15 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Read the exact shared presentation source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: inspr-at/inspr
+          ref: bd0a13816f728ad91c36d849f88168bcac4fdc6e
+          path: .inspr-versioning
+          persist-credentials: false
+      - name: Reproduce the pinned closure with the upstream bundle CLI
+        run: node release/verify-upstream-presentation.mjs .inspr-versioning
       - run: npm run test:browser-shards
       - name: Pack twice and verify without upload
         run: node release/dry-run.mjs
