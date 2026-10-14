@@ -57,7 +57,7 @@ function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) 
 export { createFacadeSecrets } from '../elevenlabs-compat.js';
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
-  publish, onTurn, onClose, onActivity, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
+  publish, onTurn, onClose, onActivity, onAssessment, purposePolicy, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
@@ -270,7 +270,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   function buildVoiceRequest(session, messages, call) {
     const latestInput = unrecordedVoiceInput(session, messages, call);
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true });
+    const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
+    const normalize = text => text?.trim().replace(/\s+/gu, ' ');
+    // This recognizes prompt input covered by the canonical typed revision.
+    // It never supplies an operation key, ordinal, claim or paid state (Rule C).
+    const typedEcho = person?.voiceCallId === call.callId && person.voiceProviderId === call.providerSessionId &&
+      latestInput.length > 0 && normalize(person.content) === normalize(latestInput.at(-1).content);
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true, purposePolicy });
     // Focus is derived by the asynchronous understanding lane. It is usable
     // only once that final assessment covers every input in this reply request.
     const currentFocus = !latestInput.length && !session.understanding.draft &&
@@ -278,7 +284,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       session.understanding.openQuestions?.includes(session.focusedQuestion);
     // The session owns history, including typed turns, withdrawals and heard
     // prefixes. Provider text supplies only the newest unrecorded person input.
-    return { ...trusted, system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
+    return { ...trusted, ...(purposePolicy && (!latestInput.length || typedEcho) ? { safeguardRevision: inputRevision(session) } : {}), system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
       ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
       ...latestInput] };
   }
@@ -296,13 +302,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (!entry?.call || entry.closing || sessions.get(entry.sessionId) !== entry) return null;
       try { sessionFor(entry); } catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
       return { ...entry.call.snapshot(), ...entry.callbackContext?.details,
+        ...(purposePolicy && storage.safeguards(entry.sessionId).offTopicTurns >= purposePolicy.offTopicLimit ? { paused: true } : {}),
         signal: entry.authority.signal, readerCurrent: () => controlsEpoch(entry) };
     },
     buildRequest({ callId, messages }) {
       const entry = calls.get(callId);
       return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry }) {
+    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry, safeguardRetry }) {
       const entry = calls.get(callId);
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
@@ -312,6 +319,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
           const request = buildVoiceRequest(session, messages, entry.call);
+          if (safeguardRetry) request.system += '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.';
           beforeAdmission?.();
           const beforeDispatch = () => {
             try {
@@ -327,7 +335,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
             await admission.finish({ failed: true });
             throw new PluginError('not-admitted', 'Call ownership or context revoked');
           }
-          return { ...admission, request };
+          return { ...admission, request, guardDirection: reply => {
+            sessionFor(entry);
+            return storage.guardPurposeDirection(entry.sessionId, reply, purposePolicy,
+              // This counts unclear inputs only; Rule C still owns paid identity.
+              request.safeguardRevision ? undefined : JSON.stringify(['voice', callId, messages.filter(message => message.role === 'user').length]));
+          } };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before
           // considering a retry. Only append-only finals are benign at dispatch.
@@ -345,12 +358,30 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
       }
     },
-    onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal }) {
+    onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal, scope, safeguardRevision }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
       entry.produced ??= [];
       entry.produced.push({ replyId, content, textOrigin, engine, userTurnOrdinal });
+      if (purposePolicy) {
+        const session = sessionFor(entry);
+        const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
+        const revision = person?.callId === callId && person.providerSessionId === providerSessionId &&
+          person.userTurnOrdinal === userTurnOrdinal && Number.isSafeInteger(userTurnOrdinal) ? inputRevision(session) : safeguardRevision;
+        storage.recordSafeguard(entry.sessionId, `voice:${callId}:${providerSessionId}:${userTurnOrdinal ?? replyId}`,
+          revision, scope === 'off', purposePolicy.offTopicLimit, { pause: false });
+        if (scope !== 'off' && revision) onAssessment?.(entry.sessionId);
+      }
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
+    },
+    onDelivered({ callId }) {
+      const entry = calls.get(callId);
+      if (!purposePolicy || !entry) return;
+      const event = storage.pauseForPurpose(entry.sessionId, purposePolicy.offTopicLimit);
+      if (event) {
+        publish(entry.sessionId, event);
+        void close(entry, 'purpose', 'cancelled');
+      }
     },
   };
   const boundCallbacks = new WeakMap();
@@ -381,6 +412,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   return {
     active: id => sessions.has(id),
+    delegatesReply: id => Boolean(sessions.get(id)?.callbackContext?.request),
     snapshot(id) {
       const logical = storage.voiceLifecycle(id);
       if (!logical || logical.state === 'idle') return null;
@@ -437,6 +469,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (body.tabId !== undefined && (typeof body.tabId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.tabId)) ||
           body.epoch !== undefined && (!Number.isSafeInteger(body.epoch) || body.epoch < 0)) throw new TypeError('Invalid tab authority');
         if (action === 'recover' && body.explicit !== undefined && typeof body.explicit !== 'boolean') throw new TypeError('Invalid recovery intent');
+        // Purpose pause is terminal for paid voice, including recovery paths that
+        // deliberately allow a manually paused conversation to reconnect.
+        if (purposePolicy && storage.get(sessionId).pauseReason === 'purpose' && action !== 'close') {
+          return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
+        }
         if (action === 'replay') {
           if (body.replayId !== undefined && (typeof body.replayId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.replayId))) throw new TypeError('Invalid replay identity');
           if (body.stop === true) {
@@ -584,6 +621,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
                 userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
+            if (purposePolicy && result.event.type === 'turn.corrected' && result.event.data.role === 'assistant') {
+              storage.carrySafeguardRevision(sessionId, inputRevision(fresh), inputRevision(storage.get(sessionId)));
+            }
+            if (purposePolicy && body.event.role === 'user' && Number.isSafeInteger(result.event?.data.userTurnOrdinal)) {
+              storage.bindSafeguard(sessionId, `voice:${callId}:${entry.call.providerSessionId}:${result.event.data.userTurnOrdinal}`, inputRevision(storage.get(sessionId)));
+            }
             publish(sessionId, result.event); onTurn(sessionId, result.event);
             if (body.event.type === 'final' && body.event.role === 'user') storage.transitionVoiceLifecycle(sessionId, callId,
               { type: 'accepted', turnId: body.event.turnId });
