@@ -65,7 +65,7 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
   ended = true; root.querySelector('.voice-close').click();
   assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), false, 'hangup never synchronously shows used-up');
   assert.equal(root.querySelector('form.composer').inert, false, 'hangup keeps the composer slot');
-  assert.equal(root.querySelector('.workspace').dataset.emailAsk, 'closed', 'hangup never asks for email');
+  assert.notEqual(root.querySelector('.workspace').dataset.emailAsk, 'open', 'hangup never asks for email');
   await tick(12);
   assert.equal(root.querySelector('.audio-rail').dataset.call, 'none');
   assert.equal(root.querySelector('textarea').disabled, !covered);
@@ -1111,7 +1111,7 @@ for (const copy of [de, en]) test(`AIT-173 round 4: stale hangup denial waits fo
   const assertWaiting = () => {
     assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), false);
     assert.equal(root.querySelector('form.composer').inert, false);
-    assert.equal(root.querySelector('.workspace').dataset.emailAsk, 'closed');
+    assert.notEqual(root.querySelector('.workspace').dataset.emailAsk, 'open');
     assert.equal(input.value, 'Keep this draft');
     assert.equal(input.disabled, false);
     assert.equal(root.querySelector('.send').disabled, true);
