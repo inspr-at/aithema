@@ -9,7 +9,7 @@ import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
 const click = (page, selector) => shadow(page, (c, s) => c.shadowRoot.querySelector(s).click(), selector);
-const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+const frame = async page => { await page.bringToFront(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); };
 const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, entry = r.querySelector('#email'), stack = entry.querySelector('.m-stack');
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
