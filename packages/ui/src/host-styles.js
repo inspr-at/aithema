@@ -212,6 +212,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .general .host-mail[data-email-mode="mail"] { margin-bottom:-.5rem; }
 /* Mail can show its own view, delete confirmation and the privacy fallback. */
 [data-email-mode="mail"] .m-stack > :is([data-view="capture"],[data-view="saved"]) { display:none; }
+/* A wrapped delete action may be taller: keep the mail notice at the cell end. */
+[data-email-mode="mail"] .m-stack > [data-view="mail"] { grid-template-rows:auto auto minmax(44px,1fr) auto; }
+/* The two-line delete error is a reachable state, including with Linux fonts. */
+[data-email-mode="mail"] .m-delete-message { min-height:2lh; }
 .m-view { display:grid; gap:.45rem; }
 .m-lead { font-size:.85rem; line-height:1.45; color:var(--aithema-ink); margin:0; font-variant-numeric:tabular-nums; }
 .m-two { display:grid; } .m-two > * { grid-area:1/1; }
