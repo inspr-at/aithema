@@ -113,6 +113,10 @@ svg { display:block; flex:none; }
 .audio-rail:is([data-call="none"]) .voice-input, .audio-rail[data-call="active"] .voice-start,
 .audio-rail[data-call="none"] .voice-close, .audio-rail[data-call="active"] .voice-retry, .audio-rail:not([data-state="failed"]) .voice-retry,
 .audio-rail[data-playback-blocked] .voice-output, .audio-rail:not([data-playback-blocked]) .voice-playback { visibility:hidden; }
+/* Reserve the pause cell only while the ended call reconciles. A paused session
+   still offers Resume; hide descendants of unpaused controls because icons set visibility. */
+.audio-rail[data-call-reconciling] :is(.pause, .voice-pause):not([aria-pressed="true"]),
+.audio-rail[data-call-reconciling] :is(.pause, .voice-pause):not([aria-pressed="true"]) .voice-icon { visibility:hidden; }
 /* A purpose pause presents once in the composer. The rail keeps its idle
    speaker and Start call in their normal cells, both disabled. */
 .audio-rail[data-purpose-paused] :is(.pause, .voice-pause, .voice-playback, .voice-close, .voice-retry, .voice-input) { visibility:hidden; }

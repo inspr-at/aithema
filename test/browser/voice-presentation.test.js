@@ -113,3 +113,146 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
   if (evidence && passLines.length) await writeFile(join(evidence, 'voice-pixel-diff.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain, passLines }, null, 2));
   t.diagnostic(`AIT-102 voice presentation: ${files.length} viewport shots.`);
 });
+
+test('AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ended-rail-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
+    ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue());
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await page.evaluate(() => {
+    globalThis.endedRailSeed = document.querySelector('aithema-session').session;
+    const fetch = window.fetch.bind(window);
+    window.fetch = (url, options = {}) => {
+      const c = document.querySelector('aithema-session');
+      // The fake voice client owns this presentation fixture; admission refreshes
+      // must not replace it with the no-provider server's voice-off snapshot.
+      const path = new URL(url, location.href).pathname;
+      if (options.method === 'POST' && path === `/api/sessions/${c.session.id}/pause`) {
+        const { paused } = JSON.parse(options.body);
+        globalThis.endedRailPauseRequests.push(paused);
+        return Promise.resolve(Response.json({ event: { seq: c.session.seq + 1, type: 'session.paused', data: { paused } } }));
+      }
+      if ((options.method ?? 'GET') === 'GET' && path === `/api/sessions/${c.session.id}`)
+        return Promise.resolve(Response.json(c.session));
+      return fetch(url, options);
+    };
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    const label = `${width}-${theme}-${locale}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+      const { voiceEvents } = await import('/packages/core/src/live-voice.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
+      const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.endedRailSeed);
+      session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
+      session.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
+      session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true }]));
+      session.transcript = [{ id: 'fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
+      const events = voiceEvents(); globalThis.endedRailTerminal = Promise.withResolvers(); globalThis.endedRailPauseRequests = [];
+      c.configure({ copy, session, voicePresentation: manifest.presentation, voiceClient: { manifest, async start({ callId }) {
+        globalThis.endedRailCallId = callId;
+        return { callId, providerSessionId: 'ended-provider', events,
+          async setInput() {}, async setOutput() {}, async updateContext() {},
+          close() { events.end(); return globalThis.endedRailTerminal.promise; } };
+      } } });
+      globalThis.readEndedRail = () => {
+        const root = c.shadowRoot, rail = root.querySelector('.audio-rail');
+        const visible = selector => getComputedStyle(root.querySelector(selector)).visibility === 'visible';
+        return { state: rail.dataset.state, call: rail.dataset.call, text: root.querySelector('.voice-state').textContent,
+          start: visible('.voice-start'), startEnabled: !root.querySelector('.voice-start').disabled,
+          liveMic: visible('.voice-input'), pauseGlyph: visible('.pause .voice-icon:not(.voice-icon--resume)'),
+          pause: visible('.pause'), resumeGlyph: visible('.pause .voice-icon--resume'),
+          pauseEnabled: !root.querySelector('.pause').disabled, pauseTitle: root.querySelector('.pause').title,
+          sessionPaused: c.session.paused, stop: visible('.voice-close'),
+          boxes: ['.band', '.audio-rail', '.voice-cell--output', '.voice-signal', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'].map(selector => {
+            const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+          }) };
+      };
+      c.shadowRoot.querySelector('.voice-start').click();
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await page.mouse.move(0, 500); await settle();
+    const live = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(live.pause, true, `${label}: live pause unchanged`); assert.equal(live.liveMic, true);
+    const ended = await page.evaluate(() => {
+      document.querySelector('aithema-session').shadowRoot.querySelector('.voice-close').click();
+      return globalThis.readEndedRail(); // Same task: no frame, timer, microtask or network response can intervene.
+    });
+    const assertIdle = (value, reconciling = true) => {
+      assert.equal(value.state, 'idle'); assert.equal(value.call, 'none');
+      assert.equal(value.pauseGlyph, !reconciling, `${label}: session pause returns after settlement`); assert.equal(value.pause, !reconciling);
+      assert.equal(value.liveMic, false, `${label}: no live mic`); assert.equal(value.stop, false);
+      assert.equal(value.start, true, `${label}: idle start control`); assert.equal(value.startEnabled, true, `${label}: start remains admitted: ${JSON.stringify(value)}`);
+    };
+    assertIdle(ended);
+    assert.equal(ended.text, locale === 'de' ? 'Anruf beendet. Kosten werden noch abgeglichen.' : 'Call ended. Costs are still being reconciled.');
+    await page.evaluate(async () => { globalThis.endedRailTerminal.resolve({ closureConfirmed: false, reconciliationPending: true }); });
+    await settle();
+    const reconciling = await page.evaluate(() => globalThis.readEndedRail());
+    assertIdle(reconciling); assert.equal(reconciling.text, ended.text);
+    const files = [];
+    const capture = async state => {
+      const file = `ait-179-${state}-${label}.png`; files.push(file);
+      if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+    };
+    await capture('reconciling');
+    const clickPause = async () => {
+      const point = await shadow(page, c => {
+        const r = c.shadowRoot.querySelector('.pause').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2];
+      });
+      await page.mouse.click(...point); await settle();
+    };
+    // A durable session hold during reconciliation must still offer a usable Resume.
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }));
+    await settle();
+    const reconcilePaused = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(reconcilePaused.pause, true); assert.equal(reconcilePaused.resumeGlyph, true);
+    assert.equal(reconcilePaused.pauseEnabled, true); assert.equal(reconcilePaused.liveMic, false);
+    await clickPause();
+    assert.equal(await shadow(page, c => c.session.paused), false, `${label}: Resume works during reconcile`);
+    assertIdle(await page.evaluate(() => globalThis.readEndedRail()));
+    await page.evaluate(() => document.querySelector('aithema-session').receive({ type: 'voice.state', data: {
+      callId: globalThis.endedRailCallId, providerSessionId: 'ended-provider', state: 'ended',
+      terminal: { closureConfirmed: true, usage: { costEstimated: false } },
+    } }));
+    await settle();
+    const idle = await page.evaluate(() => globalThis.readEndedRail()); assertIdle(idle, false);
+    assert.equal(idle.text, locale === 'de' ? 'Anruf beendet.' : 'Call ended.');
+    for (const value of [reconciling, idle]) assert.deepEqual(value.boxes, ended.boxes, `${label}: 0 px layout shift`);
+    await capture('settled-idle');
+    await clickPause();
+    const pausedAfterCall = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(pausedAfterCall.sessionPaused, true); assert.equal(pausedAfterCall.pause, true);
+    assert.equal(pausedAfterCall.resumeGlyph, true); assert.equal(pausedAfterCall.pauseGlyph, false);
+    assert.equal(pausedAfterCall.pauseEnabled, true); assert.equal(pausedAfterCall.liveMic, false);
+    assert.equal(pausedAfterCall.pauseTitle, locale === 'de' ? 'Fortsetzen' : 'Resume');
+    await page.mouse.move(0, 500); await settle(); await capture('paused-after-call');
+    await clickPause();
+    const resumed = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(resumed.sessionPaused, false); assertIdle(resumed, false);
+    assert.deepEqual(await page.evaluate(() => globalThis.endedRailPauseRequests), [false, true, false]);
+    for (const value of [reconcilePaused, pausedAfterCall, resumed]) assert.deepEqual(value.boxes, ended.boxes, `${label}: pause/resume shifts 0 px`);
+    checks.push({ width, theme, locale, synchronous: true, ended, reconciling, reconcilePaused, idle, pausedAfterCall, resumed,
+      resumeWorks: true, layoutShiftPx: 0, files, pass: true });
+    t.diagnostic(`PASS AIT-179 ${evidenceCommit} ${label}: no pause glyph or live mic during reconcile; settled idle Pause visible; paused-session Resume visible and works; 0 px`);
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-179-pass-lines.json'), JSON.stringify({ ticket: 'AIT-179', head: evidenceCommit,
+    createdAt: new Date().toISOString(), capture: 'viewport', checks }, null, 2));
+});

@@ -155,6 +155,7 @@ export class AudioRail {
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
+    this.root.toggleAttribute('data-call-reconciling', Boolean(this.endedCall && !this.endedCall.settled) && !active && state === 'idle');
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
     this.root.toggleAttribute('data-moved', Boolean(this.moved));
     this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
@@ -538,7 +539,8 @@ export class AudioRail {
     if (this.session || !ended || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
       data.terminal?.closureConfirmed !== true || !data.terminal.usage || data.terminal.usage.costEstimated === true) return;
     ended.settled = true;
-    if (this.errorKey === 'voiceClosureUncertain') { this.errorKey = 'voiceEnded'; this.render(); }
+    if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';
+    this.render();
   }
   close(reason) {
     this.client?.stopReplay?.();
@@ -570,7 +572,10 @@ export class AudioRail {
       try {
         const terminal = await session?.close({ deadlineAt: Date.now() + 45_000, reason: reason ?? 'closed' });
         if (generation !== this.generation) return;
-        if (session) this.journal?.clear();
+        if (session) {
+          this.journal?.clear();
+          this.settlement({ callId: session.callId, providerSessionId: session.providerSessionId, terminal });
+        }
         if (session && !reason?.includes('deadline') && !this.endedCall?.settled) this.errorKey =
           terminal?.closureConfirmed && !terminal.usage?.costEstimated ? 'voiceEnded' : 'voiceClosureUncertain';
       } catch { /* Local hangup is complete; the durable server lease and journal retain unresolved closure. */ }
