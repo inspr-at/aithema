@@ -13,6 +13,7 @@
     "test": "node --test packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
     "test:browser": "node scripts/test-browser.js",
     "test:browser-shards": "node scripts/browser-shards.js",
+    "test:voice-soak": "node scripts/voice-soak.js",
     "demo": "node demo/server.js",
     "release:dry-run": "node release/dry-run.mjs",
     "release:pack": "node release/pack.mjs pack",
