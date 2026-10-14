@@ -992,6 +992,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     assert.equal((await popupMetrics()).ring, true, 'keyboard copy');
     await page.click('aithema-session >>> #build-info .version-row');
     assert.equal((await popupMetrics()).ring, false, 'mouse copy after keyboard focus');
+    await page.keyboard.press('Enter'); assert.equal((await popupMetrics()).ring, true, 'keyboard styling returns after mouse copy');
   });
   await t.test('round 3 failed clipboard and execCommand replace the value with 0 px shift', async () => {
     await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover(); const before = await popupMetrics();
@@ -1006,7 +1007,12 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       const failed = await popupMetrics();
       assert.equal(failed.valueVisibility, 'hidden'); assert.deepEqual(failed.row, before.row); assert.deepEqual(failed.popup, before.popup);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.version-feedback input').value), '261014080000.0.0');
-      assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), '');
+      assert.deepEqual(await shadow(page, c => {
+        const field = c.shadowRoot.querySelector('.version-feedback input');
+        return { focused: c.shadowRoot.activeElement === field, selected: field.value.slice(field.selectionStart, field.selectionEnd),
+          description: field.getAttribute('aria-description') };
+      }), { focused: true, selected: '261014080000.0.0',
+        description: 'Kopieren nicht verfügbar. Die Version ist markiert: mit ⌘C oder Strg+C kopieren.' });
     } finally {
       await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: window.ait105Clipboard }); document.execCommand = window.ait105Exec; });
       await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
