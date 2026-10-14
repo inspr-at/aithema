@@ -77,6 +77,8 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #postCallMatrix = null;
+  #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
+  #deferredAnalysis = null; #analysisRecovery = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
@@ -107,6 +109,7 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
+    this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
@@ -150,9 +153,10 @@ export class AithemaSession extends HTMLElement {
     this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
-    this.#observePanes();
+    this.#observePanes(); this.#syncReconciling();
   }
   disconnectedCallback() {
+    this.#stopReconciling();
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#questionCard?.destroy();
@@ -377,7 +381,7 @@ export class AithemaSession extends HTMLElement {
         if (this.#rail?.endedCall) this.#postCallMatrix = this.#session.featureMatrix;
         this.#render('composer'); this.#render('features'); this.#render('aside');
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
-        if (this.isConnected && this.#options.host?.credits && !this.#rail?.unloading) void this.#refreshFeatures();
+        if (this.isConnected && !this.#rail?.unloading) void this.#refreshFeatures();
       },
       onPause: paused => {
         this.#session.paused = paused; this.#clearNotice();
@@ -687,7 +691,72 @@ export class AithemaSession extends HTMLElement {
   }
   #restoreFailure() {
     const operations = this.#session.operations;
-    this.#failure = operations?.inputRevision === inputRevision(this.#session) && Boolean(operations.lastFailure);
+    const failure = operations?.inputRevision === inputRevision(this.#session) ? operations.lastFailure : null;
+    this.#recordFailure(failure);
+  }
+  #recordFailure(failure) {
+    const reconciling = failure && (failure.reason === 'budget reconciling' ||
+      this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.analysis?.reason === 'budget reconciling');
+    if (reconciling) {
+      if (this.#analysisRecovery !== inputRevision(this.#session)) this.#deferredAnalysis = inputRevision(this.#session);
+      this.#failure = false;
+    } else {
+      this.#failure = Boolean(failure);
+      if (failure) this.#analysisRecovery = null;
+    }
+  }
+  #stopReconciling() {
+    clearInterval(this.#reconcilingPoll); this.#reconcilingPoll = null;
+    clearTimeout(this.#reconcilingLongTimer); this.#reconcilingLongTimer = null;
+  }
+  #syncReconciling() {
+    const revision = inputRevision(this.#session);
+    if (this.#deferredAnalysis !== null && this.#deferredAnalysis !== revision) this.#deferredAnalysis = null;
+    if (this.#analysisRecovery !== null && this.#analysisRecovery !== revision) this.#analysisRecovery = null;
+    const blocked = this.#feature('text').reason === 'budget reconciling';
+    const analysisBlocked = this.#feature('analysis').reason === 'budget reconciling';
+    const understanding = this.#session.understanding;
+    if (analysisBlocked && this.#analysisRecovery !== revision && (understanding.inputRevision !== revision || understanding.draft)) this.#deferredAnalysis = revision;
+    const waiting = blocked || analysisBlocked || this.#deferredAnalysis !== null;
+    if (!this.isConnected || !waiting) this.#stopReconciling();
+    else {
+      // Admission belongs to the session, including hosts that do not display credits.
+      if (!this.#reconcilingPoll) {
+        let reading = false;
+        this.#reconcilingPoll = setInterval(async () => {
+          if (reading || this.ownerDocument.visibilityState === 'hidden') return;
+          reading = true;
+          try { await this.#refreshFeatures(); } finally { reading = false; }
+        }, 15_000);
+        this.#reconcilingPoll.unref?.();
+      }
+      if (blocked && !this.#reconcilingLong && !this.#reconcilingLongTimer) {
+        this.#reconcilingLongTimer = setTimeout(() => {
+          this.#reconcilingLongTimer = null; this.#reconcilingLong = true; this.#render('composer');
+        }, 60_000);
+        this.#reconcilingLongTimer.unref?.();
+      }
+    }
+    if (!blocked) {
+      clearTimeout(this.#reconcilingLongTimer); this.#reconcilingLongTimer = null; this.#reconcilingLong = false;
+    }
+  }
+  async #resumeDeferredAnalysis() {
+    const revision = this.#deferredAnalysis;
+    if (revision === null || !this.isConnected || !this.#feature('analysis').available) return;
+    this.#deferredAnalysis = null;
+    if (revision !== inputRevision(this.#session)) return;
+    const sessionId = this.#session.id;
+    this.#analysisRecovery = revision; this.#failure = false;
+    try {
+      const response = await postJson(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
+      if (!response.ok) throw new Error();
+    } catch {
+      // A transport refusal stays deferred; the next admission check can retry safely.
+      if (sessionId === this.#session.id && revision === inputRevision(this.#session)) this.#deferredAnalysis = revision;
+    } finally {
+      if (sessionId === this.#session.id) { this.#render('aside'); this.#render('composer'); }
+    }
   }
   #render(part) {
     if (['features', 'transcript', 'aside'].includes(part)) { this.#anchored(() => this.#paint(part)); return; }
@@ -738,6 +807,7 @@ export class AithemaSession extends HTMLElement {
       if (className) node.className = className; return node;
     };
     if (part === 'composer') {
+      this.#syncReconciling();
       const text = this.#feature('text', true), input = root.querySelector('textarea');
       input.disabled = !text.available && text.rawReason !== 'budget reconciling';
       // Invite speech only while the call can listen; held calls invite the next typed message.
@@ -748,7 +818,7 @@ export class AithemaSession extends HTMLElement {
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       // An upload refusal stands until the person types or attaches again.
-      const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.reason;
+      const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
@@ -843,7 +913,8 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
-    const cached = (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
+    const reconciling = analysis.rawReason === 'budget reconciling';
+    const cached = reconciling || (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
     for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
       node.style.minHeight = ''; delete node.dataset.redacted;
     }
@@ -868,14 +939,14 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    if (!reconciling && !this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
     const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
-    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn &&
+    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || Boolean(running) || !(this.#failure || hasPersonTurn &&
       (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
@@ -1614,7 +1685,10 @@ export class AithemaSession extends HTMLElement {
         const row = [...this.shadowRoot.querySelectorAll('.turn')].find(n => n.dataset.id === event.data.id);
         if (row) { row.style.minHeight = `${row.getBoundingClientRect().height}px`; row.querySelector('span').textContent = event.data.content; }
       }
-      if (event.type === 'understanding.updated' && this.#session.operations?.lastFailure?.lane !== 'reaction') this.#failure = false;
+      if (event.type === 'understanding.updated') {
+        this.#deferredAnalysis = null; this.#analysisRecovery = null;
+        if (this.#session.operations?.lastFailure?.lane !== 'reaction') this.#failure = false;
+      }
       this.#host?.receive(event);
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
@@ -1635,7 +1709,7 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
-      this.#failure = true; this.#partials.clear();
+      this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
     }
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#rail.render();
   }
@@ -1648,6 +1722,7 @@ export class AithemaSession extends HTMLElement {
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
+      if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.
       if (session.voiceLifecycle && session.voiceLifecycle.callId !== this.#rail.endedCall?.callId) this.#rail.receiveState(session.voiceLifecycle);
@@ -1655,6 +1730,7 @@ export class AithemaSession extends HTMLElement {
       // A changed visuals choice can switch between images and drafts, and their cost.
       if (session.conceptVisualKind) this.#session.conceptVisualKind = session.conceptVisualKind;
       if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
+      void this.#resumeDeferredAnalysis();
       this.#rail.reconcileAdmission();
       this.#renderMode(); this.#rail.render(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');

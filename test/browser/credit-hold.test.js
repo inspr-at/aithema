@@ -14,7 +14,7 @@ const settle = page => shadow(page, async c => {
   await new Promise(requestAnimationFrame);
 });
 
-test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift', { timeout: 120_000 }, async t => {
+test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift', { timeout: process.env.AITHEMA_EVIDENCE_DIR ? 600_000 : 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-credit-hold-'));
   const fixture = await startChild(new URL('../fixtures/credit-hold.js', import.meta.url), join(directory, 'unused.sqlite'));
   let browser;
@@ -24,11 +24,23 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), errors = [], loadErrors = [];
-  // Accelerate only the ordinary credit poll; unit coverage verifies its real 15 s cadence.
-  await page.evaluateOnNewDocument(() => {
+  // Accelerate the 15 s credit/admission polls; unit coverage verifies their real cadence.
+  await page.evaluateOnNewDocument(realLongWait => {
     const interval = window.setInterval.bind(window);
     window.setInterval = (callback, ms, ...args) => interval(callback, ms === 15_000 ? 1000 : ms, ...args);
-  });
+    const timeout = window.setTimeout.bind(window);
+    window.__longWait = null;
+    window.setTimeout = (callback, ms, ...args) => {
+      if (ms === 60_000) {
+        let timer;
+        window.__reconcilingStarted = Date.now();
+        window.__longWait = () => { window.clearTimeout(timer); callback(...args); };
+        timer = timeout(realLongWait ? window.__longWait : () => {}, 60_000);
+        return timer;
+      }
+      return timeout(callback, ms, ...args);
+    };
+  }, Boolean(evidence));
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (response.status() >= 400) loadErrors.push(`${response.status()} ${response.url()}`); });
   page.on('requestfailed', request => loadErrors.push(`${request.failure()?.errorText} ${request.url()}`));
@@ -44,12 +56,12 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
     let baseline;
     for (const state of ['in-call', 'reconciling', 'reconciling-blocked', 'low', 'full-hold']) {
       await shadow(page, async (c, { locale, state }) => {
-        const { session } = await (await fetch(`/fixture?state=${state}`)).json();
+        const { session } = await (await fetch(`/fixture?state=${state}&locale=${locale}`)).json();
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const { voiceEvents } = await import('/packages/core/src/live-voice.js');
         session.locale = locale; session.demo = false; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
         const verdict = state === 'reconciling-blocked' ? { available: false, reason: 'budget denied' } : { available: true };
-        session.featureMatrix = { best: { text: verdict, analysis: verdict, voice: { available: true } } };
+        session.featureMatrix = { best: { text: verdict, analysis: { available: true }, voice: { available: true } } };
         const voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
           async start(request) { const events = voiceEvents(); return { callId: request.callId, providerSessionId: 'hold-fixture', events,
             async setInput() {}, async setOutput() {}, async heartbeat() {}, async updateContext() {},
@@ -75,6 +87,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         assert.equal(immediate.shift, 0, 'synchronous hangup preserves the slot height');
         await until(page, () => /abgeglichen|reconciled/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent));
       }
+      if (state === 'reconciling-blocked') await until(page, () => document.querySelector('aithema-session').session.featureMatrix.best.text.reason === 'budget reconciling');
       await settle(page);
       const targets = ['.composer-shell', '.display-foot', '.host-credits', '.audio-rail', '.host-credits__amount'];
       const capture = await shadow(page, (c, width) => {
@@ -121,6 +134,14 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
             assert.equal(admission.reason, locale === 'de' ? 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.' : "One moment, the call's costs are still being reconciled.");
             assert.doesNotMatch(admission.reason + admission.overview + admission.features, /aufgebraucht|used up/iu);
           }
+          if (state === 'reconciling-blocked') {
+            const overview = await shadow(page, c => ({ summary: c.shadowRoot.querySelector('.summary-text').textContent,
+              slider: getComputedStyle(c.shadowRoot.querySelector('.readiness')).visibility,
+              sectionHidden: c.shadowRoot.querySelector('.summary').hidden, retry: c.shadowRoot.querySelector('.retry').hidden }));
+            assert.ok(overview.summary.length > 0, 'the overview retains its last summary');
+            assert.equal(overview.slider, 'visible'); assert.equal(overview.sectionHidden, false); assert.equal(overview.retry, true);
+            assert.doesNotMatch(admission.overview, /Einen Moment|One moment|nicht verfügbar|unavailable/iu);
+          }
           textAdmission = admission;
           if (state.startsWith('reconciling')) {
             const typed = locale === 'de' ? 'Ich tippe während des Kostenabgleichs.' : 'Typed while costs reconcile.';
@@ -151,16 +172,45 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; no used-up wording or email ask while reconciling; footer tooltip=${view.title ?? "none"}; shift=${shift}px; composer gap=${capture.composerFooterGapPx}px; old capture gap=${capture.oldCaptureGapPx ?? 'n/a'}px`);
         if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false, captureBeyondViewport: false });
       }
+      if (state === 'reconciling-blocked') {
+        const before = await boxes(page, targets);
+        if (evidence && width !== 1024) {
+          await page.waitForFunction(() => /noch nicht bestätigt|aren't confirmed yet/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent), { polling: 100, timeout: 65_000 });
+        } else await page.evaluate(() => window.__longWait());
+        await settle(page);
+        const long = await shadow(page, c => {
+          const reason = c.shadowRoot.querySelector('.composer-reason'), range = document.createRange(); range.selectNodeContents(reason);
+          const lines = new Set([...range.getClientRects()].map(r => r.top));
+          return { text: reason.textContent, elapsedMs: Date.now() - window.__reconcilingStarted, lines: lines.size, scrollHeight: reason.scrollHeight, clientHeight: reason.clientHeight,
+            overview: c.shadowRoot.querySelector('.notice').textContent, retry: c.shadowRoot.querySelector('.retry').hidden };
+        });
+        assert.equal(long.text, locale === 'de' ? 'Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.' : "The call's costs aren't confirmed yet. Your text is kept.");
+        if (evidence && width !== 1024) assert.ok(long.elapsedMs >= 60_000, `real long wait elapsed ${long.elapsedMs}ms`);
+        if (width === 390) { assert.ok(long.lines <= 2, `long wait has ${long.lines} lines`); assert.ok(long.scrollHeight <= long.clientHeight + 1, 'the long-wait text fits without scrolling'); }
+        assert.doesNotMatch(long.overview, /nicht verfügbar|unavailable|bestätigt|confirmed/iu); assert.equal(long.retry, true);
+        const after = await boxes(page, targets), shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
+        assert.equal(shift, 0);
+        for (const theme of ['light', 'dark']) {
+          await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme); await settle(page);
+          passes.push({ head: evidenceCommit, locale, width, theme, state: 'long-wait', ...long, layoutShiftPx: shift, real60Seconds: Boolean(evidence && width !== 1024), pass: true });
+          if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-long-wait.png`), fullPage: false, captureBeyondViewport: false });
+        }
+        console.log(`AIT-173 PASS ${locale} ${width} long wait: exact copy; ${long.lines} lines; overview kept; no error or retry; shift=${shift}px`);
+      }
       if (state.startsWith('reconciling')) {
         const before = await boxes(page, targets);
         const draft = await shadow(page, c => c.shadowRoot.querySelector('textarea').value);
-        // Only change the server ledger. The ordinary credit poll must restore admission.
+        // Only change the server ledger. Polling must restore admission without a close/end signal.
         await page.evaluate(() => fetch('/reconcile'));
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.trim() === '595');
         await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled, 25_000);
         await settle(page);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), draft, 'settlement keeps the draft');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').hasAttribute('title')), false);
+        const overview = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
+          retry: c.shadowRoot.querySelector('.retry').hidden, summary: c.shadowRoot.querySelector('.summary-text').textContent }));
+        assert.doesNotMatch(overview.notice, /nicht verfügbar|unavailable/iu); assert.equal(overview.retry, true, 'settlement offers no manual retry');
+        assert.ok(overview.summary.length > 0);
         const after = await boxes(page, targets), shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}: settlement shifted the credit number by ${shift}px`);
         for (const theme of ['light', 'dark']) {
@@ -168,7 +218,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
           passes.push({ head: evidenceCommit, locale, width, theme, state: `${state}-settled`, draftKept: true, sendReenabled: true, layoutShiftPx: shift, pass: true });
           if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}-settled.png`), fullPage: false, captureBeyondViewport: false });
         }
-        console.log(`AIT-173 PASS ${locale} ${width} ${state} settled: draft kept; send re-enabled automatically; tooltip cleared; shift=${shift}px`);
+        console.log(`AIT-173 PASS ${locale} ${width} ${state} settled: draft kept; send re-enabled automatically; overview kept; no error or retry; tooltip cleared; shift=${shift}px`);
       }
     }
   }

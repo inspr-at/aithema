@@ -420,6 +420,7 @@ export const de = {
       systems: 'An welche Systeme soll die Lösung angebunden werden?', reach: 'Nur im deutschsprachigen Raum oder auch international?',
       requirements: 'Gibt es Auflagen, die wir kennen sollten?' },
   },
+  reconcilingLong: "Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.",
   reasons: {
     'session paused': 'Gespräch pausiert', 'current processing consent required': 'Einwilligung zur Verarbeitung erforderlich',
     'consent port unavailable': 'Einwilligung kann nicht geprüft werden', 'not configured': 'Nicht eingerichtet',

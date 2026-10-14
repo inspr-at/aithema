@@ -417,6 +417,7 @@ export const en = {
       requirements: 'Are there additional requirements?' },
   },
   // Server feature verdicts are stable machine reasons; show them in the page language.
+  reconcilingLong: "The call's costs aren't confirmed yet. Your text is kept.",
   reasons: {
     'session paused': 'Session paused', 'current processing consent required': 'Processing consent required',
     'consent port unavailable': 'Consent check unavailable', 'not configured': 'Not configured',

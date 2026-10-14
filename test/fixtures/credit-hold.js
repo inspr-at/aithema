@@ -2,18 +2,19 @@
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createHandlers } from '../../packages/server/src/index.js';
+import { inputRevision, reduceUnderstanding, PluginError } from '../../packages/core/src/index.js';
 import { admitCredits } from '../../packages/core/src/credits.js';
 import { createDemoHost } from '../../demo/host-ports.js';
 import { mockConsent } from '../helpers.js';
 import { listen } from '../../packages/server/src/http.js';
 
-export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000, exposureMicro = 60_000_000 } = {}) {
+export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000, exposureMicro = 60_000_000, mockReasoning = false } = {}) {
   let time = 1_000;
   const storage = new SQLiteStorage(), owner = 'credit-hold-visitor';
   const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100_000_000, visitorCapMicro: 100_000_000, now: () => time });
   const host = createDemoHost({ storage, now: () => time, ownerGuard, privacyDocumentConfigured: () => true });
   host.visitorCredits.saveSettings({ baseRevision: host.visitorCredits.settings().revision, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
-  const session = storage.create({ ownerToken: owner, locale: 'de' });
+  const session = storage.create({ ownerToken: owner, locale: 'de', demo: mockReasoning });
   storage.append(session.id, 'turn.final', { id: 'u1', role: 'user', content: 'Ich möchte eine Website.' });
   storage.append(session.id, 'turn.final', { id: 'a1', role: 'assistant', content: 'Welche Ziele haben Sie?' });
   const runtime = createPluginRuntime({ storage, budget: ledger, consent: mockConsent });
@@ -26,6 +27,14 @@ export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_9
     const verdict = { available, reason: available ? null : onlyReconciling ? 'budget reconciling' : 'budget denied' };
     return { best: { text: verdict, analysis: verdict, voice: { available: true }, uploads: { available: true } } };
   };
+  if (mockReasoning) {
+    const admit = runtime.admit.bind(runtime);
+    runtime.admit = async args => {
+      const verdict = (await runtime.matrix(args.session)).best[args.lane === 'understanding' ? 'analysis' : 'text'];
+      if (!verdict.available) throw new PluginError('not-admitted', verdict.reason);
+      return admit(args);
+    };
+  }
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, consent: mockConsent });
   const request = (lane, maxMicro, extra = {}) => ({ sessionId: session.id, lane, maxMicro,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
@@ -58,12 +67,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (path === '/fixture') {
       await fixture.close();
       const state = new URL(request.url).searchParams.get('state') ?? 'in-call';
-      fixture = await creditHoldFixture(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : state === 'reconciling' ? { exposureMicro: 5_900_000 } : {});
+      fixture = await creditHoldFixture({ mockReasoning: true, ...(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : state === 'reconciling' ? { exposureMicro: 5_900_000 } : {}) });
       if (state === 'full-hold') {
         const { attemptId } = fixture.ledger.admit(fixture.request('reaction', 9_900_000));
         fixture.ledger.claim(attemptId).consume();
       }
       if (state.startsWith('reconciling')) fixture.ledger.retainVoiceExposure(fixture.claim.attemptId);
+      const current = fixture.storage.get(fixture.session.id);
+      const locale = new URL(request.url).searchParams.get('locale') ?? 'de';
+      fixture.storage.append(current.id, 'understanding.updated', reduceUnderstanding(current.understanding, {
+        summary: locale === 'de' ? 'Eine Website für das Unternehmen.' : 'A website for the business.',
+        signals: ['Website'], openQuestions: [locale === 'de' ? 'Wann soll die Website starten?' : 'When should the website launch?'],
+        constraints: {}, progress: { talk: { value: .3 }, build: { value: .1 } },
+      }, { transcript: current.transcript, inputRevision: inputRevision(current), draft: true }));
       return Response.json({ session: fixture.storage.get(fixture.session.id), owner: fixture.owner });
     }
     if (path === '/reconcile') {

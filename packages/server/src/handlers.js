@@ -203,10 +203,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (inputRevision(storage.get(id)) === revision && failure?.inputRevision === revision && failure.lane === lane) {
               failures.delete(id);
             }
-          } catch {
+          } catch (error) {
             // Work superseded by new input or a changed processing choice reruns instead of failing.
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
-              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true };
+              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true,
+                ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
               failures.set(id, failure);
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }

@@ -1138,7 +1138,7 @@ for (const copy of [de, en]) test(`AIT-173 round 5: blocked overview keeps conte
   } });
   userTurn(c);
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
-    { summary: 'A preorder app', signals: ['Orders'], openQuestions: ['When?'] },
+    { summary: 'A preorder app', signals: ['Orders'], openQuestions: ['When?'], readinessAssessed: true },
     { transcript: c.session.transcript, inputRevision: inputRevision(c.session) }) });
   const before = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
   blocked = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(8);
@@ -1174,6 +1174,7 @@ for (const copy of [de, en]) test(`AIT-173 round 5: no-credit host polls settlem
   assert.equal(calls.filter(call => call.path === '/retry').length, 1);
   assert.notEqual(root.querySelector('.notice').textContent, copy.reasoningFailed);
   assert.equal(root.querySelector('.retry').hidden, true);
-  t.mock.timers.tick(60_000); await tick(8);
+  const reads = calls.length; t.mock.timers.tick(60_000); await tick(8);
   assert.equal(calls.filter(call => call.path === '/retry').length, 1, 'settlement retries once');
+  assert.equal(calls.length, reads, 'settled hosts stop the admission re-check timer');
 });
