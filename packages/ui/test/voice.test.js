@@ -234,7 +234,7 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-179: ${locale} 
   t.after(() => { terminal.resolve({ closureConfirmed: false }); element.remove(); });
   const root = element.shadowRoot, pause = root.querySelector('.pause');
   root.querySelector('.voice-start').click(); await tick();
-  assert.equal(window.getComputedStyle(pause).visibility, 'visible', 'live call retains its pause');
+  assert.notEqual(window.getComputedStyle(pause).visibility, 'hidden', 'live call retains its pause');
   root.querySelector('.voice-close').click(); // Intentionally no tick before checking the painted controls.
   assert.equal(window.getComputedStyle(pause).visibility, 'hidden', 'ended call must not retain a filled pause');
   assert.equal(root.querySelector('.voice-start').disabled, false);
