@@ -212,7 +212,7 @@ export type LaneBindings = { reaction: PrivateBinding; understanding: PrivateBin
 /** Trusted host authentication, independent of visitor identity and ownership. */
 export interface OperatorSessionPort {
   handle(request: Request): Promise<Response | null>;
-  session(request: Request): { name: string } | null;
+  session(request: Request): { name: string; subject: string } | null;
   entry(): { provider: string; url: string; logoutUrl: string };
 }
 export interface OperatorIdentityProvider {

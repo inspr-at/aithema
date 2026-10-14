@@ -9,7 +9,7 @@ export class OperatorSettings {
       <a class="operator-view operator-login" href="/api/operator/login/">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M14 4h6v16h-6M3 12h12m-4-4 4 4-4 4"/></svg><span></span></a>
       <form class="operator-view operator-signed-in" method="post" action="/api/operator/logout/">
-        <span class="operator-name"></span><span class="operator-separator" aria-hidden="true"> · </span><button type="submit" class="operator-logout"></button></form>
+        <span class="operator-name"></span><span class="operator-separator" aria-hidden="true"> · </span><a class="operator-admin" href="/admin"></a><span class="operator-separator" aria-hidden="true"> · </span><button type="submit" class="operator-logout"></button></form>
       </div><div class="operator-notice"><p class="m-notice operator-error" role="status" aria-live="polite"></p>
         <p class="m-notice operator-error-measure" aria-hidden="true"></p></div>`;
     this.element = section; parent.append(section); this.paint();
@@ -25,6 +25,7 @@ export class OperatorSettings {
     }
     s.querySelector('.operator-login span').textContent = c.operatorLogin.replace('{provider}', this.operator.provider);
     s.querySelector('.operator-name').textContent = c.operatorName.replace('{name}', this.operator.name ?? '');
+    s.querySelector('.operator-admin').textContent = c.operatorAdmin;
     s.querySelector('.operator-logout').textContent = c.operatorLogout;
     s.querySelector('.operator-error').textContent = this.operator.error && !signedIn ? c.operatorError : '';
     s.querySelector('.operator-error-measure').textContent = c.operatorError;

@@ -33,6 +33,7 @@ import { VISITOR_CREDIT_CEILING_MICRO } from './visitor-credits.js';
 import { listenAdmin } from './admin-socket.js';
 import { smtpConfig, createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createConfirmationPage } from './confirmation-page.js';
+import { createAdminHTTP } from './admin-http.js';
 
 const deployment = deploymentConfig();
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
@@ -161,11 +162,13 @@ const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options =>
   join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();
+const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin: deployment.publicOrigin });
 let allowedHosts = new Set();
 async function handle(request, context) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
+  const adminResponse = await adminHTTP.handle(request); if (adminResponse) return adminResponse;
   const operatorResponse = await operatorSessions?.handle(request); if (operatorResponse) return operatorResponse;
   if (/^\/api\/operator(?:\/|$)/u.test(new URL(request.url).pathname)) return new Response(null, { status: 404 });
   const confirmationResponse = await confirmationPage?.handle(request); if (confirmationResponse) return confirmationResponse;
@@ -180,7 +183,7 @@ async function handle(request, context) {
   if (url.pathname === '/demo/config') {
     const operator = operatorSessions?.session(request);
     return Response.json({
-    ...(operatorSessions ? { operatorLogin: operatorSessions.entry() } : {}), ...(operator ? { operator } : {}), label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
+    ...(operatorSessions ? { operatorLogin: operatorSessions.entry() } : {}), ...(operator ? { operator: { name: operator.name } } : {}), label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
     voicePresentation: voiceHost?.voicePresentation ?? voicePlugin?.manifest.presentation,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
     htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
@@ -196,7 +199,7 @@ async function handle(request, context) {
   }
   const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {

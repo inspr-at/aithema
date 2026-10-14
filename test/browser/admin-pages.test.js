@@ -11,7 +11,7 @@ import { browserPath, evidenceCommit } from './start2-display-helpers.js';
 const states = ['overview', 'editing', 'saved', 'conflict', 'invalid', 'confirmation-off', 'no-delivery', 'cap-near', 'latched', 'audit-end', 'audit-empty', 'signed-out', 'expired'];
 const geometry = page => page.evaluate(() => {
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height]; };
-  return [...document.querySelectorAll('.ad-sec,.ad-save,.ad-btn,.ad-discard,.ad-status,.ad-tier,.ad-sub')].map(box);
+  return [...document.querySelectorAll('.ad-sec:not([data-sec=log]),#h-log,.ad-save,.ad-btn,.ad-discard,.ad-status,.ad-tier,.ad-sub')].map(box);
 });
 const edit = (page, value) => page.$eval('#f-emailGiven', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, value);
 
@@ -20,7 +20,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   let f, held, responseMode = 'ok', browser;
   const server = await listen(async request => {
     const path = new URL(request.url).pathname;
-    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
+    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
       return new Response(await readFile(new URL('../../' + path.slice(1), import.meta.url)), { headers: { 'content-type': path.endsWith('.css') ? 'text/css' : 'text/javascript' } });
     }
     if (request.method === 'POST' && path.endsWith('/settings')) {
@@ -31,7 +31,8 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     }
     return await f.admin.handle(request) ?? new Response(null, { status: 404 });
   });
-  f = await adminFixture({ origin: server.url });
+  try { f = await adminFixture({ origin: server.url }); }
+  catch (error) { server.server.closeAllConnections(); await new Promise(resolve => server.server.close(resolve)); await rm(dir, { recursive: true, force: true }); throw error; }
   t.after(async () => { await browser?.close(); server.server.closeAllConnections(); await new Promise(resolve => server.server.close(resolve)); f.close(); await rm(dir, { recursive: true, force: true }); });
   const seed = () => {
     f.storage.db.prepare('DELETE FROM operator_grants').run();
@@ -52,6 +53,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     const page = await browser.newPage(); page.setDefaultTimeout(15_000);
     page.on('pageerror', e => errors.push(e.message));
+    page.on('dialog', dialog => void dialog.accept());
     page.on('request', r => { if (!r.url().startsWith(server.url) && !r.url().startsWith('data:')) external.push(r.url()); });
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     const open = async () => {

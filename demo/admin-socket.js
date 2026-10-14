@@ -4,9 +4,8 @@ import { mkdir, chmod, lstat, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import { userInfo } from 'node:os';
 
-export const CAP_RECOVERY = 'Investigate provider receipts, reconcile confirmed and unresolved liabilities, and fix the overrun cause. '
-  + 'OPS then performs an approved, audited maintenance recovery, preserving historical evidence and carrying confirmed and unresolved liabilities forward. '
-  + 'Restarting or raising the deployment cap cannot clear a historical reservation breach; there is no routine reset command.';
+import { readAdminSettings, readAdminMailCap, readProviderCap } from './admin-read.js';
+export { CAP_RECOVERY } from './admin-read.js';
 
 /** Dedicated local transport. It is never mounted on the public host listener. */
 export async function listenAdmin({ host, spendCap, socketPath, reconcileUncertain }) {
@@ -37,21 +36,14 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
     const send = (body, status = 200) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (url.pathname === '/settings' && req.method === 'GET') return send(host.visitorCredits.settings());
-      if (url.pathname === '/mail-cap' && req.method === 'GET') return send(host.confirmation.mailCap());
+      if (url.pathname === '/settings' && req.method === 'GET') return send(readAdminSettings(host));
+      if (url.pathname === '/mail-cap' && req.method === 'GET') return send(readAdminMailCap(host));
       if (url.pathname === '/audit' && req.method === 'GET') {
         if ([...url.searchParams.keys()].some(key => !['after', 'limit'].includes(key))) throw new TypeError('Invalid audit page');
         const items = host.visitorCredits.audit({ after: Number(url.searchParams.get('after') ?? 0), limit: Number(url.searchParams.get('limit') ?? 100) });
         return send({ items, nextAfter: items.at(-1)?.id ?? Number(url.searchParams.get('after') ?? 0) });
       }
-      if (url.pathname === '/provider-cap' && req.method === 'GET') {
-        if (!spendCap) return send({ available: false, capMicro: null, confirmedMicro: null, reservedMicro: null,
-          uncertainMicro: null, remainingMicro: null, breached: null, recovery: CAP_RECOVERY });
-        const cap = spendCap.snapshot();
-        return send({ available: true, capMicro: cap.capMicro, confirmedMicro: cap.spentMicro, reservedMicro: cap.reservedMicro,
-          uncertainMicro: cap.uncertainMicro, remainingMicro: Math.max(0, cap.capMicro - cap.spentMicro - cap.reservedMicro - cap.uncertainMicro),
-          breached: cap.breached, recovery: CAP_RECOVERY });
-      }
+      if (url.pathname === '/provider-cap' && req.method === 'GET') return send(readProviderCap(spendCap));
       if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 16_384) { send({ error: 'body-too-large' }, 413); req.destroy(); return; } chunks.push(chunk); }
