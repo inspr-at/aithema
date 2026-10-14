@@ -5,7 +5,7 @@ import { createMockReasoning, reasoningRequest, createSession, PluginRegistry } 
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
-import { purposePolicy, safeguardsCorpus, safeguardsActionCorpus } from '../../../test/safeguards-corpus.js';
+import { purposePolicy, safeguardsCorpus, safeguardsActionCorpus, safeguardsReplyCorpus } from '../../../test/safeguards-corpus.js';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { createPluginRuntime, mockPresets } from '../src/index.js';
 import { deflateSync } from 'node:zlib';
@@ -270,4 +270,14 @@ test('AIT-174 round2 purpose pause cleanly ends an active voice call', async t =
   const lifecycle = f.storage.voiceLifecycle(f.session.id, call.callId);
   assert.equal(lifecycle.state, 'ended'); assert.equal(lifecycle.terminalReason, 'purpose');
   assert.ok(f.storage.voiceCalls(f.session.id).find(record => record.callId === call.callId).endedAt);
+});
+
+for (const item of safeguardsReplyCorpus.filter(item => item.locale)) test(`AIT-174 round3 ${item.id}: in-scope prose stays uncounted over three turns`, async t => {
+  const f = fixture(t, { outputs: request => item.output(request, content => envelope(content, 'in')) });
+  f.storage.changeLocale(f.session.id, item.locale, { ownerToken: testToken });
+  for (let i = 0; i < 3; i++) assert.equal((await f.send('Was macht Augmentoring für unser Unternehmen?', `prose-${i}`)).status, 200);
+  assert.equal(f.calls.length, 3); assert.equal(f.assessments.length, 3);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+  assert.equal(f.storage.get(f.session.id).paused, false);
+  if (item.content) assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, item.content);
 });

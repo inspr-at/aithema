@@ -4,9 +4,9 @@ import { collectPurposeReply, reasoningRequest, createSession, PluginError, unsa
 import { purposePolicy, safeguardsReplyCorpus } from '../../../test/safeguards-corpus.js';
 
 const wire = (content, scope = 'in', extra = {}) => JSON.stringify({ content, scope, question_short: null, options: [], ...extra });
-const request = () => reasoningRequest(createSession(), 'reaction', false, 'Private host guidance: Follow the visitor project through evidence and clarify their needs before making any recommendation.', { purposePolicy });
+const request = (locale = 'en') => reasoningRequest(createSession({ locale }), 'reaction', false, 'Private host guidance: Follow the visitor project through evidence and clarify their needs before making any recommendation.', { purposePolicy });
 for (const item of safeguardsReplyCorpus) test(`AIT-174 round2 reply corpus ${item.id}`, async () => {
-  const input = request(); let calls = 0;
+  const input = request(item.locale); let calls = 0;
   const reply = await collectPurposeReply(input, async function* () { calls++; yield item.output(input, wire); });
   assert.equal(reply.scope, item.scope);
   assert.equal(calls, item.calls);
@@ -46,4 +46,12 @@ for (const content of [
   'We print (labels and invoices) for our customers. What should improve?',
 ]) test(`AIT-174 round2 ordinary prose stays safe: ${content}`, () => {
   const input = request(); assert.equal(unsafeReplyOutput(wire(content), input.purposePolicy, input.system), false);
+});
+
+test('AIT-174 round3 host-public copy is safe even when included in the system prompt', async () => {
+  const content = 'Our public welcome invites companies to describe their project and explore improvements for their teams.';
+  const input = reasoningRequest(createSession(), 'reaction', false, content, { purposePolicy });
+  let calls = 0;
+  const reply = await collectPurposeReply(input, async function* () { calls++; yield wire(content); });
+  assert.equal(calls, 1); assert.equal(reply.scope, 'in'); assert.equal(reply.content, content);
 });

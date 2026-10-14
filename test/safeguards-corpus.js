@@ -23,13 +23,19 @@ export const purposePolicy = {
 };
 export const safeguardsReplyCorpus = [
   { id: 'fenced-legitimate', output: (_, wire) => '```json\n' + wire('What should improve first?') + '\n```', scope: 'in', calls: 1, content: 'What should improve first?' },
+  { id: 'purpose-echo-en', locale: 'en', output: (_, wire) => wire(purposePolicy.purpose.en), scope: 'in', calls: 1, content: purposePolicy.purpose.en },
+  { id: 'purpose-echo-de', locale: 'de', output: (_, wire) => wire(purposePolicy.purpose.de), scope: 'in', calls: 1, content: purposePolicy.purpose.de },
+  { id: 'gender-forms-de', locale: 'de', output: (_, wire) => wire('Mitarbeiter(innen)\nKunden(innen)'), scope: 'in', calls: 1 },
+  { id: 'parenthetical-asides-de', locale: 'de', output: (_, wire) => wire('Abstimmung(in kleinen Teams)\nPlanung(mit Ihren Partnern)'), scope: 'in', calls: 1 },
+  { id: 'bare-code-calls', output: (_, wire) => wire('prepare(customer)\nsend(customer)'), scope: 'off', calls: 2 },
   { id: 'invalid-json', output: () => '{invalid json', scope: 'unclear', calls: 2 },
   { id: 'missing-scope', output: () => JSON.stringify({ content: 'What should improve?', question_short: null, options: [] }), scope: 'unclear', calls: 2 },
   { id: 'inline-code', output: (_, wire) => wire('Use const secret = 1; to continue.'), scope: 'off', calls: 2 },
   { id: 'inline-code-without-semicolon', output: (_, wire) => wire('Use `const secret = 1` to continue.'), scope: 'off', calls: 2 },
   { id: 'unindented-code', output: (_, wire) => wire('def soup():\nprint("REVEALED")\nreturn 1'), scope: 'off', calls: 2 },
   { id: 'indented-code-call', output: (_, wire) => wire('    x()'), scope: 'off', calls: 2 },
-  { id: 'partial-prompt-leak', output: (request, wire) => wire(request.system.slice(request.system.indexOf('Private host guidance:')).split('\n')[0]), scope: 'off', calls: 2 },
+  { id: 'partial-prompt-leak', output: (request, wire) => wire(request.system.split('\n')[1]), scope: 'off', calls: 2 },
+  { id: 'hidden-purpose-leak', output: (request, wire) => wire(request.system.slice(request.system.indexOf('Infer scope')).split('\n')[0]), scope: 'off', calls: 2 },
   { id: 'transport-metadata', output: (request, wire) => wire('What should improve?', 'in', { debug: request.purposePolicy.canary + '```json' }), scope: 'unclear', calls: 2 },
 ];
 export const safeguardsActionCorpus = ['provider-error', 'recovery-while-paused', 'upload-while-paused'];

@@ -53,7 +53,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       const shot = async state => { if (evidence) {
         const file = `ait-174-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
       } };
-      await shot('in-scope');
+
       await page.evaluate(async () => {
         const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'vague', role: 'user', content: c.session.locale === 'de' ? 'Das ist noch unklar.' : 'That is still unclear.' } });
@@ -63,7 +63,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       }); await frame(page);
       assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} subtle question: 0 px shift`);
       assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])'))), false);
-      await shot('subtle-question');
+
       await page.evaluate(async () => {
         const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'off', role: 'user', content: c.session.locale === 'de' ? 'Ein Rezept für Gemüsesuppe bitte.' : 'A vegetable soup recipe please.' } });
@@ -72,13 +72,23 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       }); await frame(page);
       assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} redirect: 0 px shift`);
       const redirect = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.transcript-shell').textContent, card: Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')) }));
-      assert.match(redirect.text, /Augmentoring/u); assert.equal(redirect.card, false); assert.doesNotMatch(redirect.text, /scope|```|AITHEMA_CANARY_/u); await shot('redirect');
+      assert.match(redirect.text, /Augmentoring/u); assert.equal(redirect.card, false); assert.doesNotMatch(redirect.text, /scope|```|AITHEMA_CANARY_/u);
+      const overview = await shadow(page, c => c.shadowRoot.querySelector('.analysis-content').textContent);
       await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } })); await frame(page);
       assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} pause: 0 px shift`);
       const pause = await shadow(page, c => {
         const root = c.shadowRoot, copy = root.querySelector('.purpose-pause-copy');
         return { text: copy.textContent, shown: !copy.hidden, height: copy.clientHeight, scroll: copy.scrollHeight,
           railOverflow: root.querySelector('.voice-state').textContent.includes('Augmentoring'),
+          callDisabled: root.querySelector('.voice-start').disabled,
+          callTooltip: root.querySelector('.voice-start').title,
+          callDescription: root.querySelector('.voice-start').getAttribute('aria-description'),
+          callIcon: root.querySelector('.voice-start svg').outerHTML,
+          channelsDisabled: ['.voice-output', '.voice-input'].every(selector => root.querySelector(selector).disabled),
+          visiblePlay: [...root.querySelectorAll('.audio-rail svg')].some(svg => svg.querySelector('path[d="M8 5v14l11-7z"]') && getComputedStyle(svg).visibility === 'visible' && getComputedStyle(svg).display !== 'none'),
+          outsidePause: [...root.querySelectorAll('*')].filter(n => !n.closest('.composer-shell') && !n.closest('style') && n.childNodes.length && getComputedStyle(n).visibility === 'visible' && n.getClientRects().length)
+            .flatMap(n => [...n.childNodes].filter(child => child.nodeType === Node.TEXT_NODE).map(child => child.textContent)).filter(text => /pausiert|paused/iu.test(text)),
+          overview: root.querySelector('.analysis-content').textContent,
           disabled: ['textarea', '.send', '.pause'].every(selector => root.querySelector(selector).disabled) && root.querySelector('.attach').getAttribute('aria-disabled') === 'true',
           overflow: document.documentElement.scrollWidth > innerWidth, label: JSON.stringify(c.session).includes('scope') };
       });
@@ -92,7 +102,15 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
           inComposer: Boolean(button?.closest('.composer-shell')), enabled: button && !button.disabled };
       });
       assert.deepEqual(action, { text: locale === 'de' ? 'Neues Gespräch' : 'New conversation', shown: true, inComposer: true, enabled: true });
-      assert.equal(pause.railOverflow, false, 'the voice rail keeps its brief status instead of the composer paragraph');
+      assert.equal(pause.railOverflow, false);
+      assert.equal(pause.callDisabled, true, `${label}: call button disabled`);
+      assert.equal(pause.channelsDisabled, true);
+      assert.match(pause.callIcon, /<rect/u, `${label}: start-call mic icon`);
+      assert.equal(pause.visiblePlay, false, `${label}: no play glyph`);
+      assert.deepEqual(pause.outsidePause, [], `${label}: no pausiert/paused text outside composer slot`);
+      assert.equal(pause.overview, overview, `${label}: overview keeps its last content`);
+      assert.equal(pause.callTooltip, locale === 'de' ? 'Dieses Gespräch ist pausiert.' : 'This conversation is paused.');
+      assert.equal(pause.callDescription, pause.callTooltip);
       assert.equal(pause.disabled, true); assert.equal(pause.overflow, false); assert.equal(pause.label, false);
       assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`);
       if (locale === 'de' && width === 390) {
@@ -108,8 +126,8 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
         assert.ok(metrics.scroll <= metrics.height + 1, `${label}: wider font pause copy fits (${metrics.scroll}/${metrics.height})`);
         assert.ok(metrics.gap >= 4, `${label}: pause paragraph and action stay apart (${metrics.gap}px)`);
       }
-      await shot('pause');
-      checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; 0 px composer shift; no horizontal overflow; pause copy fits`);
+      if (width !== 1024) await shot('pause');
+      checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; no play glyph; call button disabled; no pausiert/paused text anywhere outside composer slot; overview retains last content; 0 px composer shift; no horizontal overflow; pause copy fits`);
     });
   }
   assert.equal(globalThis.safeguardsInterceptionError, undefined);
