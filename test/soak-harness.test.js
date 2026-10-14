@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { percentile, summarize, stopReason, disruptionAt, schedule, validateOptions } from './live/soak-model.js';
+import { percentile, summarize, stopReason, spendGuard, diagnosticRecords, disruptionAt, schedule, validateOptions } from './live/soak-model.js';
 
 test('AIT-139: nearest-rank report percentiles preserve zero and empty samples', () => {
   assert.equal(percentile([], .95), null);
@@ -46,6 +46,26 @@ test('AIT-139: disruption windows have exact boundaries and recover to normal', 
   assert.equal(disruptionAt(plan, 15), null);
   assert.equal(disruptionAt(plan, 20), plan[1]);
   assert.equal(disruptionAt(plan, 30), null);
+});
+
+test('AIT-139: hard cap invokes abort once and arms a deadline independent of wallet requests', () => {
+  const reasons = [], timers = [], cleared = [];
+  const config = { maxDurationMs: 3_600_000, capMicro: 8_000_000, stopReserveMicro: 250_000, rateMicroPerMinute: 1_000_000 };
+  const guard = spendGuard(config, { abort: reason => reasons.push(reason),
+    setTimer: (fn, ms) => { timers.push({ fn, ms }); return 42; }, clearTimer: id => cleared.push(id) });
+  assert.equal(timers[0].ms, 465_000);
+  guard.check({ elapsedMs: 10, confirmedMicro: 7_750_000, uncertainMicro: 0 });
+  timers[0].fn();
+  assert.deepEqual(reasons, ['cost-cap']);
+  guard.dispose(); assert.deepEqual(cleared, [42]);
+});
+
+test('AIT-139: diagnostic projection refuses other calls and drops private/free-form data', () => {
+  const hash = 'a'.repeat(64);
+  const records = diagnosticRecords(JSON.stringify({ event: 'voice.turn.first-token', callHash: hash,
+    firstTokenMs: 42, text: 'private', cause: 'private', url: 'private' }) + '\n'
+    + JSON.stringify({ event: 'voice.turn.retry', callHash: 'b'.repeat(64) }) + '\nnot json', hash);
+  assert.deepEqual(records, [{ event: 'voice.turn.first-token', callHash: hash, firstTokenMs: 42 }]);
 });
 
 test('AIT-139: 5/60-minute plans fit the cap, contain turns, barge-in and both disruptions', () => {
