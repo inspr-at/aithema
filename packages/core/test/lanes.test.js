@@ -183,3 +183,23 @@ for (const code of ['invalid-output', 'provider']) test(`AIT-183 supersession du
   assert.deepEqual(settlements, [{ index: 0, failed: false }, { index: 1, failed: true }]);
   assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
 });
+
+for (const kind of ['deadline', 'cancel']) test(`AIT-183 current reply ${kind} retains cancellation error and settles once`, async () => {
+  const entered = deferred(), release = deferred(), diagnostics = [], settlements = [];
+  const controller = new AbortController();
+  const plugin = { ...createMockReasoning(), async *stream() { entered.resolve(); await release.promise; yield '{invalid'; } };
+  const h = harness(plugin, {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    admit: async () => ({ plugin, finish: result => settlements.push(result) }),
+  });
+  h.lanes.deadlineMs = kind === 'deadline' ? 50 : 1000;
+  h.turn('First input');
+  const pending = h.lanes.run(h.session.id, 'reaction', { signal: controller.signal });
+  const rejected = assert.rejects(pending, error => error.name === (kind === 'deadline' ? 'TimeoutError' : 'AbortError'));
+  try {
+    await entered.promise;
+    if (kind === 'cancel') controller.abort(new DOMException('User cancelled', 'AbortError'));
+    await rejected;
+  } finally { release.resolve(); await pending.catch(() => {}); }
+  assert.deepEqual(settlements, [{ failed: true }]);
+  assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+});
