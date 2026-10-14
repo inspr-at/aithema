@@ -3119,14 +3119,21 @@ without adding a duplicate assistant reply. The custom LLM still owns live repli
 including typed input echoed through voice; matching prompt input never supplies
 a paid operation identity or ordinal. Voice ends cleanly after the accepted redirect
 has crossed the callback output boundary. Purpose pause also refuses paid recovery
-and uploads. The composer keeps its size, shows the fixed pause copy and offers New conversation.
+and uploads. Only the composer presents the purpose pause: it keeps its size, shows
+the fixed pause copy and offers New conversation. The rail shows disabled Start call,
+speaker and microphone controls, with the brief localized pause description on Start call.
+The overview retains its last content and the footer keeps its normal connection status.
+An AIT-138 voice-call pause retains its Resume behaviour.
 Rule C still owns callback identity, ordinal, replay, admission and settlement.
 
 With `outputCheck: true`, the complete reply is buffered before text or TTS can
 receive it. The server rejects canary leakage (including JSON escapes), Markdown
 fences, code syntax (including inline and unindented code) and HTML pre/code blocks,
-including card strings. Normalized overlaps of 12 consecutive words with the trusted
-system/guidance text are also blocked. Checks inspect decoded visible strings;
+including card strings. Normalized overlaps of 12 consecutive words with known hidden
+guidance are also blocked. Purpose text and host copy are excluded from these spans,
+so an in-scope explanation of the host purpose is accepted without counting. Bare-call
+checks require code identifiers and argument syntax, preserving German gender forms
+and parenthetical prose. Checks inspect decoded visible strings;
 wrapping JSON fences are accepted as transport syntax.
 Only guarded reply requests carry the private canary; understanding retains its
 existing untrusted-data framing behind the scope gate. A rejected output is regenerated once
