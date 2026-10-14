@@ -1,0 +1,32 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { packRelease, verifyRelease, rollbackArtifact, releasePaths } from '../release/pack.mjs';
+const root = new URL('../', import.meta.url);
+test('dry-run pack repeats identical bytes and manifest, pins dependencies, and binds rollback to exact bytes', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'aithema-pack-'));
+  for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
+  const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  git('init'); git('add', '.'); git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture');
+  const a = packRelease({ root: fixture, output: join(fixture, 'out-a'), dryRun: true });
+  const b = packRelease({ root: fixture, output: join(fixture, 'out-b'), dryRun: true });
+  assert.deepEqual(readFileSync(a.artifactPath), readFileSync(b.artifactPath)); assert.deepEqual(a.manifest, b.manifest);
+  assert.equal(a.manifest.mode, 'dry-run'); assert.equal(a.manifest.source.commit, git('rev-parse', 'HEAD'));
+  assert.ok(a.manifest.artifacts[0].sha256.startsWith('sha256:'));
+  assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-ui'));
+  assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-plugin-elevenlabs'));
+  verifyRelease(a.directory);
+  assert.equal(rollbackArtifact(a.directory, { ...a.manifest, mode: 'release' }, a.manifest.artifacts[0].coordinate).sha256, a.manifest.artifacts[0].sha256);
+  assert.throws(() => rollbackArtifact(a.directory, a.manifest, a.manifest.artifacts[0].coordinate), /dry-run/i);
+  const extracted = join(fixture, 'extracted'); mkdirSync(extracted); execFileSync('tar', ['-xzf', a.artifactPath, '-C', extracted]);
+  const pkg = JSON.parse(readFileSync(join(extracted, 'package/packages/server/package.json')));
+  assert.equal(pkg.version, a.manifest.version); assert.equal(pkg.dependencies['@inspr/aithema-core'], a.manifest.version);
+  const lock = JSON.parse(readFileSync(join(extracted, 'package/package-lock.json')));
+  assert.equal(lock.packages['packages/server'].version, pkg.version);
+  assert.equal(lock.packages['packages/server'].dependencies['@inspr/aithema-core'], pkg.version);
+  writeFileSync(a.artifactPath, 'tampered'); assert.throws(() => verifyRelease(a.directory), /digest/i);
+  assert.throws(() => packRelease({ root: fixture, output: join(fixture, 'real-release'), dryRun: false, ref: 'refs/tags/v0.10.1' }), /reserved/i);
+});
