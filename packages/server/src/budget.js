@@ -74,7 +74,10 @@ export class SQLiteBudgetLedger {
       // An uncertain call keeps its frozen estimate even if it never reconciles.
       // Its full exposure remains an admission hold, not a confirmed charge.
       if (row.state !== 'settled' || frozenVoice) costs.pendingHoldMicro += row.state === 'settled' ? row.settled_micro : row.max_micro;
-      if (frozenVoice || row.voice_closing && row.state !== 'settled' || row.state === 'settled' && row.provider_cost_json && !row.cost_reconciliation_json) costs.reconciling = true;
+      const estimatedReceipt = row.state === 'settled' && (row.voice_estimate_json && JSON.parse(row.usage ?? 'null')?.costEstimated === true ||
+        JSON.parse(row.cost_reconciliation_json ?? 'null')?.estimated === true);
+      if (frozenVoice || estimatedReceipt || row.voice_closing && row.state !== 'settled' ||
+        row.state === 'settled' && row.provider_cost_json && !row.cost_reconciliation_json) costs.reconciling = true;
       let expected = row.state === 'settled' ? row.settled_micro : row.max_micro;
       if (row.lane === 'voice' && (row.state !== 'settled' || frozenVoice)) {
         const estimate = JSON.parse(row.voice_estimate_json ?? 'null'), usage = JSON.parse(row.usage ?? 'null');
