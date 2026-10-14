@@ -13,6 +13,7 @@ test('AIT-139: five-minute fake voice soak, actual WAV capture, CDP disruption a
   assert.ok(report.client.turns >= 10);
   assert.ok(report.client.bargeIns >= 1);
   assert.ok(report.client.speechSamples > 0);
+  assert.ok(report.client.overlapSamples > 0);
   assert.ok(report.server.recoveries >= 1);
   assert.equal(report.offlineRequestFailed, true);
   assert.equal(report.cost.confirmedMicro, 0);

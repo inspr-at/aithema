@@ -180,7 +180,7 @@ export async function runSoak(input = {}) {
       missingResponses: turns.filter(t => !Number.isFinite(t.firstResponseMs) || t.firstResponseMs > config.firstTokenMs).length,
       bargeIns: events.filter(e => e.type === 'heard').length,
       bargeAttempts: turns.filter(t => t.bargeAttempted).length };
-    report.status = report.stopReason === 'max-duration' && report.cost.reconciled && report.client.speechSamples > 0
+    report.status = report.stopReason === 'max-duration' && report.cost.reconciled && report.client.speechSamples > 0 && report.client.overlapSamples > 0
       && report.client.bargeIns > 0 && report.server.recoveries > 0 && report.offlineRequestFailed
       && report.disruptions.some(d => d.latencyMs > 0)
       && !report.externalRequestsBlocked && !report.client.missingResponses
