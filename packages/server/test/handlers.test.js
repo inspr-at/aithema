@@ -263,7 +263,7 @@ test('AIT-183 revoke during reply settle broadcasts no lane.failed or fallback',
   const reasoning = { ...createMockReasoning(), async *stream() { yield '{invalid'; } };
   const runtime = instrumentedMockRuntime(storage, reasoning);
   const handlers = createHandlers({ storage, reasoning, purposePolicy, log: event => diagnostics.push(event),
-    pluginRuntime: { ...runtime, async admit(args) {
+    pluginRuntime: { ...runtime, selectionKey: () => 'settle-regression', async admit(args) {
       const admitted = await runtime.admit(args);
       return { ...admitted, async finish(result) {
         settlements.push(result); entered.resolve(); await release.promise; await admitted.finish(result);
