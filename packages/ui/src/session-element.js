@@ -241,7 +241,7 @@ export class AithemaSession extends HTMLElement {
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
-                <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div></div>
+                <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
         <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
@@ -322,6 +322,7 @@ export class AithemaSession extends HTMLElement {
     });
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
+    root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); void this.#send(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -722,11 +723,14 @@ export class AithemaSession extends HTMLElement {
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
       input.style.visibility = purposePause.hidden ? '' : 'hidden';
+      const newConversation = root.querySelector('.purpose-new');
+      newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
+      root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
       if (this.#session.pauseReason === 'purpose') {
         const pause = root.querySelector('.pause'); if (pause) { pause.disabled = true; pause.title = copy.purposePaused; }
       }
       this.#paintAttach();
-      const out = root.querySelector('.composer-out'), usedUp = Boolean(this.#host?.usedUp) && !this.#creditEnding;
+      const out = root.querySelector('.composer-out'), usedUp = Boolean(this.#host?.usedUp) && !this.#creditEnding && purposePause.hidden;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
@@ -1340,7 +1344,7 @@ export class AithemaSession extends HTMLElement {
     const zone = this.shadowRoot.querySelector('.conversation'), feature = this.#feature('uploads', true);
     if (on) {
       if (feature.available) void this.#loadLimits();
-      setText(zone.querySelector('.drop-overlay strong'), feature.available ? this.#copy.uploads.dropActive : this.#copy.uploads.unavailable.replace('{reason}', feature.reason));
+      setText(zone.querySelector('.drop-overlay strong'), this.#session.pauseReason === 'purpose' ? this.#copy.purposePaused : feature.available ? this.#copy.uploads.dropActive : this.#copy.uploads.unavailable.replace('{reason}', feature.reason));
       setText(zone.querySelector('.drop-overlay span'), feature.available ? dropText(this.#copy, this.#limits, this.#session.locale) : '');
     }
     zone.toggleAttribute('data-dropping', on);
@@ -1349,6 +1353,7 @@ export class AithemaSession extends HTMLElement {
   // every way in (the button, the picker's files, a drop) is refused by it before anything is sent.
   #attachRefusal() {
     const copy = this.#copy, feature = this.#feature('uploads', true);
+    if (this.#session.pauseReason === 'purpose') return copy.purposePaused;
     if (!feature.available) return copy.uploads.unavailable.replace('{reason}', feature.reason);
     if (this.#uploading) return copy.uploads.busy;
     return uploadsPossible(this.#limits) ? '' : copy.uploads.impossible;
@@ -1357,7 +1362,7 @@ export class AithemaSession extends HTMLElement {
   #paintAttach() {
     const root = this.shadowRoot, attach = root.querySelector('.attach'), feature = this.#feature('uploads', true);
     const limits = limitsText(this.#copy, this.#limits, this.#session.locale);
-    const unavailable = feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
+    const unavailable = this.#session.pauseReason === 'purpose' ? this.#copy.purposePaused : feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
     attach.setAttribute('aria-disabled', String(Boolean(this.#attachRefusal())));
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
@@ -1425,6 +1430,7 @@ export class AithemaSession extends HTMLElement {
       for (const event of body.events ?? []) this.receive(event);
       return '';
     }
+    if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;
     if (response.status === 429) return copy.uploads.busy;
     if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason));

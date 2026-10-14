@@ -36,6 +36,7 @@ export class SQLiteStorage {
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
         input_key TEXT NOT NULL, revision TEXT, off_topic INTEGER NOT NULL, analysis_off INTEGER NOT NULL, PRIMARY KEY(session_id,input_key));
+      CREATE TABLE IF NOT EXISTS safeguard_direction (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -157,6 +158,29 @@ export class SQLiteStorage {
       this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
         .run(key, JSON.stringify(result.state));
       return { ...result, events: result.events.map(e => this.#append(this.get(id), e.type, e.data)) };
+    });
+  }
+  // Claim the fixed direction question before text or TTS output. Private memory
+  // survives locale changes, transcript withdrawal and server restart.
+  guardPurposeDirection(id, reply, policy, inputKey) {
+    if (!policy.directionQuestion) return reply;
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      const row = this.db.prepare('SELECT record FROM safeguard_direction WHERE session_id=?').get(id);
+      const state = row ? JSON.parse(row.record) : { asked: false, unclear: [], lastInput: null };
+      const key = inputKey ?? session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn)?.id;
+      if (key && state.lastInput !== key) {
+        state.lastInput = key;
+        state.unclear = reply.scope === 'unclear' ? [...state.unclear, key].slice(-3) : [];
+      }
+      let content = reply.content;
+      for (const copy of Object.values(policy.directionQuestion)) content = content.replaceAll(copy, '').trim();
+      const ask = !state.asked && reply.scope === 'unclear' && state.unclear.length >= 3 && session.pauseReason !== 'purpose';
+      if (ask) { content = policy.directionQuestion[session.locale]; state.asked = true; }
+      this.db.prepare('INSERT INTO safeguard_direction VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET record=excluded.record')
+        .run(id, JSON.stringify(state));
+      return { ...reply, content: content || (session.locale === 'de' ? 'Woran arbeiten Sie gerade?' : 'What are you working on?'),
+        ...(reply.scope === 'unclear' ? { question_short: null, options: [] } : {}) };
     });
   }
   // Scope is consumed internally; retain only the counter contribution and assessment gate.
@@ -615,6 +639,7 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
+      this.db.prepare('DELETE FROM safeguard_direction WHERE session_id=?').run(id);
       this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date().toISOString(), id);
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });

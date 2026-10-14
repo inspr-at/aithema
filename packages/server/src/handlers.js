@@ -78,6 +78,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   };
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
+    if (event.type === 'session.paused' && event.data.reason === 'purpose') voiceHandlers?.stopSession(id, 'purpose');
   };
   const operations = session => {
     const revision = inputRevision(session), failure = failures.get(session.id);
@@ -101,6 +102,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
+    guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
     scopeKnown: (id, revision) => storage.safeguards(id, revision).assessed,
     replyVisible: session => !voiceHandlers?.active(session.id),

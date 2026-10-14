@@ -3096,13 +3096,14 @@ visitor route guards and the AIT-151 privacy gate remain authoritative.
 `createHandlers({ purposePolicy })` opts a host into a requirements-only conversation.
 The default `offTopicLimit: 0` leaves existing hosts' prompts, streaming, lane scheduling
 and replies unchanged. An enabled policy supplies `purpose` (a string or `{ de, en }`),
-`offTopicLimit` (positive integer), `outputCheck` (boolean), and optional `redirect`
-(localized strings or a locale function). start2 supplies Augmentoring's purpose,
-a limit of 3, the output check and the placeholder DE/EN redirect copy.
+`offTopicLimit` (positive integer), `outputCheck` (boolean), optional `redirect`
+(localized strings or a locale function), and optional `directionQuestion` (`{ de, en }`).
+start2 supplies Augmentoring's purpose, a limit of 3, the output check and Tick's final DE/EN copy.
 
 Scope is inferred, never a chosen product/consulting track. It can overlap or change.
-Unclear beginnings receive normal clarification; after a few turns the model asks
-one subtle question if needed. Off-topic requests and role-change/prompt-reveal
+Unclear beginnings receive normal clarification without buttons. After three distinct
+unclear person turns the server supplies the fixed subtle question as text, at most once.
+Private SQLite memory retains this across locale changes, withdrawal and restart. Off-topic requests and role-change/prompt-reveal
 attempts receive a brief redirect and no requested work product. All transcript
 and uploaded text, hidden text and filenames remain untrusted evidence.
 
@@ -3116,18 +3117,23 @@ invites a new conversation; further turns, Resume and Retry cannot dispatch mode
 During a simulator call, normal input is classified privately before understanding
 without adding a duplicate assistant reply. The custom LLM still owns live replies,
 including typed input echoed through voice; matching prompt input never supplies
-a paid operation identity or ordinal. Voice pauses after the accepted redirect
-has crossed the callback output boundary.
+a paid operation identity or ordinal. Voice ends cleanly after the accepted redirect
+has crossed the callback output boundary. Purpose pause also refuses paid recovery
+and uploads. The composer keeps its size, shows the fixed pause copy and offers New conversation.
 Rule C still owns callback identity, ordinal, replay, admission and settlement.
 
 With `outputCheck: true`, the complete reply is buffered before text or TTS can
 receive it. The server rejects canary leakage (including JSON escapes), Markdown
-fences, indented code blocks and HTML pre/code blocks, including card strings.
+fences, code syntax (including inline and unindented code) and HTML pre/code blocks,
+including card strings. Normalized overlaps of 12 consecutive words with the trusted
+system/guidance text are also blocked. Checks inspect decoded visible strings;
+wrapping JSON fences are accepted as transport syntax.
 Only guarded reply requests carry the private canary; understanding retains its
-existing untrusted-data framing behind the scope gate. Malformed or missing scope
-fails closed. A rejected output is regenerated once
-under a fresh admitted and settled model attempt; a second rejection produces
-host fallback copy. This check is a deterministic backstop, not a semantic proof
+existing untrusted-data framing behind the scope gate. A rejected output is regenerated once
+under a fresh admitted and settled model attempt. Only an explicit off classification
+or an output-check violation counts toward the pause. Invalid JSON, missing scope and
+provider faults produce a neutral reply or the normal error path without counting.
+A second unsafe rejection produces host redirect copy. This check is a deterministic backstop, not a semantic proof
 of model obedience. The fake-model red-team tests verify framing, extraction,
 counting, replay and non-disclosure; only a live evaluation can assess real models.
 

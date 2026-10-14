@@ -208,7 +208,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             } finally { await disposeIterator(stream); }
           } catch (error) { failed = true; throw error; }
           finally { if (attempt) await selected.finish({ failed }); }
-        });
+        }, { guardDirection: initialAdmission.guardDirection });
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
         beforeOutput?.();
         const guarded = stripThanksOpener(safe.content, admittedRequest.locale);

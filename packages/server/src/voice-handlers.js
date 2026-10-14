@@ -335,7 +335,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
             await admission.finish({ failed: true });
             throw new PluginError('not-admitted', 'Call ownership or context revoked');
           }
-          return { ...admission, request };
+          return { ...admission, request, guardDirection: reply => {
+            sessionFor(entry);
+            return storage.guardPurposeDirection(entry.sessionId, reply, purposePolicy,
+              // This counts unclear inputs only; Rule C still owns paid identity.
+              request.safeguardRevision ? undefined : JSON.stringify(['voice', callId, messages.filter(message => message.role === 'user').length]));
+          } };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before
           // considering a retry. Only append-only finals are benign at dispatch.
@@ -375,8 +380,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const event = storage.pauseForPurpose(entry.sessionId, purposePolicy.offTopicLimit);
       if (event) {
         publish(entry.sessionId, event);
-        storage.transitionVoiceLifecycle(entry.sessionId, callId, { type: 'pause' });
-        void changePause(entry, true);
+        void close(entry, 'purpose', 'cancelled');
       }
     },
   };
@@ -465,6 +469,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (body.tabId !== undefined && (typeof body.tabId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.tabId)) ||
           body.epoch !== undefined && (!Number.isSafeInteger(body.epoch) || body.epoch < 0)) throw new TypeError('Invalid tab authority');
         if (action === 'recover' && body.explicit !== undefined && typeof body.explicit !== 'boolean') throw new TypeError('Invalid recovery intent');
+        // Purpose pause is terminal for paid voice, including recovery paths that
+        // deliberately allow a manually paused conversation to reconnect.
+        if (purposePolicy && storage.get(sessionId).pauseReason === 'purpose' && action !== 'close') {
+          return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
+        }
         if (action === 'replay') {
           if (body.replayId !== undefined && (typeof body.replayId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.replayId))) throw new TypeError('Invalid replay identity');
           if (body.stop === true) {
@@ -566,7 +575,6 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           if (body.background === true) return json({ closureConfirmed: false, reconciliationPending: true }, 202);
           return json(await pending);
         }
-        if (purposePolicy && storage.get(sessionId).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         if (action === 'pause') {
           runtime.stopReplyReplay?.(sessionId);
           if (body.pauseRequestId !== undefined && (typeof body.pauseRequestId !== 'string' ||
