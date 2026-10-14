@@ -297,6 +297,8 @@ export class AithemaSession extends HTMLElement {
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
+      generalShown: () => this.#host?.verification?.email.beginSettings?.(),
+      closed: () => this.#host?.verification?.email.endSettings?.(),
       catalog: () => this.#loadCatalog(), save: body => this.#saveSettings(body),
       endCall: () => this.#rail.close(), connector: this.#connector,
       newConversation: detail => this.#newConversation(detail), consent: (reason, features) => this.#requestConsent(reason, features),

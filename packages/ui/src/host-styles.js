@@ -208,8 +208,20 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-stack { display:grid; max-width:36rem; }
 .m-stack > .m-view { grid-area:1/1; min-width:0; visibility:hidden; align-content:start; }
 .m-stack > .m-view.on { visibility:visible; }
+/* Keep at most one notice line before the next Settings section. */
+.general .host-mail[data-email-reservation="mail"] { margin-bottom:-.5rem; }
+/* Mail can show its own view, delete confirmation and the privacy fallback. */
+[data-email-reservation="mail"] .m-stack > :is([data-view="capture"],[data-view="saved"]) { display:none; }
+/* Unknown tiers keep the full union, including space for later tier copy. */
+[data-email-reservation="union"] .m-form .m-lead { min-height:3lh; }
+[data-email-reservation="union"] .m-mail-tier { min-height:2lh; }
+/* A wrapped delete action may be taller: keep the mail notice at the cell end. */
+[data-email-mode="mail"] .m-stack > [data-view="mail"] { grid-template-rows:auto auto minmax(44px,1fr) auto; }
+/* The two-line delete error is a reachable state, including with Linux fonts. */
+[data-email-mode="mail"] .m-delete-message { min-height:2lh; }
 .m-view { display:grid; gap:.45rem; }
 .m-lead { font-size:.85rem; line-height:1.45; color:var(--aithema-ink); margin:0; font-variant-numeric:tabular-nums; }
+.m-credit-status { color:var(--aithema-muted); }
 .m-two { display:grid; } .m-two > * { grid-area:1/1; }
 .m-lead-edit,.m-delete-over,.verify__lead-reconfirm { visibility:hidden; }
 .m-form.editing .m-lead-save,.m-cons.over .m-delete-normal,.verify__lead.reconfirm .verify__lead-mail { visibility:hidden; }
@@ -243,6 +255,12 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 /* The separator sits in the middle of the 24 px between the two button boxes. */
 .m-dot { flex:none; display:flex; justify-content:center; width:0; margin-inline:-12px; color:var(--aithema-muted); opacity:.6; }
 .m-mail-tier { gap:0; white-space:pre-wrap; }
+.m-mail-tier-state { display:flex; align-items:center; }
+.m-mail-tier-measure { display:none; }
+[data-email-mode="mail"] .m-mail-tier { display:grid; }
+[data-email-mode="mail"] .m-mail-tier > * { grid-area:1/1; }
+[data-email-mode="mail"] .m-mail-tier-measure { display:block; visibility:hidden; }
+[data-email-mode="mail"] [data-address="false"] .m-mail-tier-state { visibility:hidden; }
 .host-mail .verify-entry-state { display:block; }
 .m-q { font-size:.95rem; font-weight:600; margin:0; min-height:1.5rem; }
 .m-cons { font-size:.85rem; line-height:1.45; margin:0; max-width:34rem; }

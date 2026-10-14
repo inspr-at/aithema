@@ -209,9 +209,11 @@ export class HostSurface {
   async #loadCredits() {
     const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current;
     this.#creditsReads++;
+    this.#verification?.setCreditsState('loading');
     try {
       const response = await this.#call(this.#sessionPath('credits'));
-      if (!this.#alive || load !== this.#creditsLoad || !response.ok) return;
+      if (!this.#alive || load !== this.#creditsLoad) return;
+      if (!response.ok) { this.#verification?.setCreditsState('failed'); return; }
       this.#credits = response.body;
       const allowanceChanged = Boolean(previous && (previous.balance?.owner?.limitMicro !== this.#credits?.balance?.owner?.limitMicro ||
         JSON.stringify(previous.tiers) !== JSON.stringify(this.#credits?.tiers)));
@@ -222,7 +224,10 @@ export class HostSurface {
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
       this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged });
       this.#emailAsk?.setCredits(this.#credits);
-    } catch { /* The last acknowledged values stay until the next read. */ }
+    } catch {
+      // Keep acknowledged tiers; only an unresolved lead needs a failure status.
+      if (this.#alive && load === this.#creditsLoad) this.#verification?.setCreditsState('failed');
+    }
     finally { this.#creditsReads--; }
   }
   #paintCredits() {

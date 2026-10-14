@@ -945,3 +945,39 @@ for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} exhau
   assert.equal(requests[1].callId, callId); assert.equal(requests[1].epoch, 3);
   assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
 });
+
+
+for (const copy of [de, en]) for (const delivery of [true, false]) for (const result of ['loaded', 'http-failed', 'transport-failed']) {
+  test(`AIT-171 status: ${copy.display.locale}/${delivery ? 'mail' : 'save'}/${result} replaces pending copy without repeated announcements`, async t => {
+    let finish;
+    const response = new Promise(resolve => { finish = resolve; });
+    const { c, root, calls } = setup(t, { copy, session: { identity: identity() }, host: { verification: { delivery }, credits: true }, routes: {
+      'GET /credits': async () => { await response; if (result === 'transport-failed') throw new Error('fixture unavailable');
+        return result === 'http-failed' ? Response.json({}, { status: 503 }) : Response.json({ balance, limitSlot: null,
+          tiers: { canConfirm: delivery, allowancesMicro: a2Allowances, current: 'anonymous' } }); },
+    } });
+    await tick(); c.openSettings(undefined, { tab: 'general', anchor: '#email' }); await tick();
+    const lead = root.querySelector(delivery ? '.m-lead-mail' : '.m-lead-save');
+    const loading = copy === de ? 'Guthaben wird geladen …' : 'Loading credit …';
+    const failed = copy === de ? 'Guthaben gerade nicht verfügbar.' : "Credit isn't available right now.";
+    const mailHint = copy === de ? ' Sie können die Adresse trotzdem bestätigen.' : ' You can still confirm your address.';
+    const saveHint = copy === de ? ' Sie können die Adresse trotzdem speichern.' : ' You can still save your address.';
+    assert.equal(lead.textContent, loading);
+    assert.equal(lead.getAttribute('role'), 'status'); assert.equal(lead.getAttribute('aria-live'), 'polite');
+    assert.ok(lead.classList.contains('m-credit-status'));
+    const repaint = () => { for (let i = 0; i < 2; i++) root.querySelector('#email-input').dispatchEvent(new window.Event('input')); };
+    let mutations = 0; const observer = new window.MutationObserver(() => { mutations++; });
+    observer.observe(lead, { childList: true, characterData: true, subtree: true }); t.after(() => observer.disconnect());
+    repaint(); await tick(); assert.equal(mutations, 0, 'pending paints do not rewrite the live region');
+    finish(); await tick(12);
+    if (result === 'loaded') {
+      assert.match(lead.textContent, copy === de ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);
+      assert.equal(lead.hasAttribute('role'), false); assert.equal(lead.classList.contains('m-credit-status'), false);
+    } else {
+      assert.equal(lead.textContent, failed + (delivery ? mailHint : saveHint));
+      assert.equal(lead.getAttribute('aria-live'), 'polite'); assert.ok(lead.classList.contains('m-credit-status'));
+    }
+    mutations = 0; repaint(); await tick(); assert.equal(mutations, 0, 'settled paints do not reannounce');
+    assert.equal(calls.filter(call => call.path === '/credits').length, 1, 'status adds no credit requests');
+  });
+}

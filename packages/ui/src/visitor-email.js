@@ -1,4 +1,4 @@
-// AIT-135: Settings owns one reserved cell for every acknowledged visitor-address state.
+// Settings reserves only the acknowledged visitor-address states reachable in each mode.
 import { setText, fill } from './dom.js';
 import { formatCredits } from './display.js';
 const CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
@@ -18,6 +18,7 @@ export function setTierText(container, template, values) {
 /** Identity is the verification evidence; visitor is the owner-wide saved address. */
 export class VisitorEmail {
   #delivery = true;
+  #settings = null;
   constructor({ root, entry, copy, request, openDialog, changed, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale }) {
     Object.assign(this, { root, entry, copy, request, openDialog, changed, demo, delivery, privacyDocumentConfigured, handover, locale });
     this.alive = true; this.ui = { editing: false, deleting: false, busy: false, message: '', invalid: false, failed: false };
@@ -38,7 +39,7 @@ export class VisitorEmail {
         <p class="m-delete-message" role="status"></p></div>
       <div class="m-view" data-view="mail"><div class="m-mail-stack">
         <p class="m-lead m-lead-mail"></p><p class="verify-entry-state m-addr"><span class="m-sent-prefix"></span><span class="verify-entry-address"></span></p></div>
-        <p class="m-tier m-mail-tier"><span class="verify-done">${CHECK}<span></span></span><span class="m-mail-tier-text"></span></p>
+        <p class="m-tier m-mail-tier"><span class="m-mail-tier-state"><span class="verify-done">${CHECK}<span></span></span><span class="m-mail-tier-text"></span></span><span class="m-mail-tier-measure" aria-hidden="true"></span></p>
         <span class="verify-entry-status sr-only"></span><div class="m-acts"><button class="m-act verify-entry" type="button" aria-haspopup="dialog"></button>
           <button class="m-act m-change-mail" type="button" aria-haspopup="dialog"></button><span class="m-dot m-mail-dot" aria-hidden="true">·</span><button class="m-act m-delete-mail" type="button"></button></div>
         <p class="m-notice m-mail-notice"><span class="m-notice-text"></span> <a class="m-pp" target="_blank" rel="noopener"></a></p>
@@ -51,7 +52,7 @@ export class VisitorEmail {
     this.q('.m-change').addEventListener('click', () => { if (!this.canCollect || this.ui.busy) return; this.ui.editing = true; this.ui.message = ''; this.paint(); const input = this.q('#email-input'); input.value = this.address; input.focus({ preventScroll: true }); input.select(); });
     this.q('.m-cancel').addEventListener('click', () => { if (this.ui.busy) return; this.ui.editing = false; this.ui.message = ''; this.paint(); this.q('.m-change').focus({ preventScroll: true }); });
     for (const selector of ['.m-delete', '.m-delete-mail']) this.q(selector).addEventListener('click', () => { this.ui.deleting = true; this.ui.message = ''; this.paint(); this.q('.m-keep').focus({ preventScroll: true }); });
-    this.q('.m-keep').addEventListener('click', () => { if (this.ui.busy) return; this.ui.deleting = false; this.ui.message = ''; this.paint(); this.q(this.delivery ? '.m-delete-mail' : '.m-delete').focus({ preventScroll: true }); });
+    this.q('.m-keep').addEventListener('click', () => { if (this.ui.busy) return; this.ui.deleting = false; this.ui.message = ''; this.paint(); this.q(this.viewDelivery ? '.m-delete-mail' : '.m-delete').focus({ preventScroll: true }); });
     this.q('.m-del').addEventListener('click', () => void this.remove());
     for (const selector of ['.verify-entry', '.m-change-mail']) this.q(selector).addEventListener('click', event => this.openDialog(event.currentTarget));
     this.legalSlot = root.querySelector('slot[name="legal"]');
@@ -77,29 +78,52 @@ export class VisitorEmail {
   // assessment lock keeps its fake-outbox flow, independent of credit tiers.
   get delivery() { return this.#delivery && (this.demo && this.identity?.verificationRequired === true || this.tiers?.canConfirm !== false); }
   set delivery(value) { this.#delivery = value; }
+  get viewDelivery() { return this.#settings?.delivery ?? this.delivery; }
+  /** General's first visit owns its mode and grid reservation until Settings closes. */
+  beginSettings() {
+    if (this.#settings) return;
+    this.#settings = { delivery: this.delivery, unknown: !this.tiers };
+    this.paint();
+  }
+  endSettings() {
+    if (!this.#settings) return;
+    this.#settings = null; this.paint();
+  }
   get canCollect() { return this.demo || this.privacyDocumentConfigured === true && Boolean(this.privacyLink); }
-  get state() { return this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.delivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }
+  get state() { return this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.viewDelivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }
   set(values) { Object.assign(this, values); this.paint(); }
   format(value) { return Number.isFinite(value) ? formatCredits(value, this.locale?.() ?? this.copy.display.locale) : ''; }
   get numbers() { const a = this.tiers?.allowancesMicro; return { base: this.format(a?.anonymous), email: this.format(a?.emailGiven), confirmed: this.format(a?.emailConfirmed) }; }
-  noticeText() { return [this.delivery ? this.e.noticeMail : this.e.notice, this.handover ? this.e.noticeHandover : ''].filter(Boolean).join(' '); }
+  noticeText() { return [this.viewDelivery ? this.e.noticeMail : this.e.notice, this.handover ? this.e.noticeHandover : ''].filter(Boolean).join(' '); }
   paintNotice(container) {
     setText(container.querySelector('.m-notice-text'), this.noticeText());
     const link = container.querySelector('.m-pp'), href = this.privacyLink;
     setText(link, this.e.privacy); link.hidden = !href;
     if (href) link.setAttribute('href', href); else link.removeAttribute('href');
   }
+  paintLead(selector, template, values) {
+    const lead = this.q(selector), status = !this.tiers && ['loading', 'failed'].includes(this.creditsState);
+    if (lead.classList.contains('m-credit-status') !== status) lead.classList.toggle('m-credit-status', status);
+    for (const [attribute, value] of [['role', 'status'], ['aria-live', 'polite']]) {
+      if (status) { if (lead.getAttribute(attribute) !== value) lead.setAttribute(attribute, value); }
+      else if (lead.hasAttribute(attribute)) lead.removeAttribute(attribute);
+    }
+    const failure = this.canCollect ? this.viewDelivery ? this.e.creditFailedMail : this.e.creditFailedSave : this.e.creditFailed;
+    // The guarded text writer preserves the live region across repeated paints.
+    setTierText(lead, status ? this.creditsState === 'failed' ? failure : this.e.creditLoading : template, values);
+  }
   paint() {
     const e = this.e, v = this.copy.hostSurface.verify, state = this.state, n = this.numbers;
     this.entry.dataset.emailState = state === 'mail' ? this.identity?.status === 'verified' ? 'confirmed' : this.address ? 'pending' : 'mailnone' : state;
-    this.entry.dataset.emailMode = this.delivery ? 'mail' : 'save';
-    this.entry.dataset.emailHelp = !this.canCollect && !this.address ? 'general' : this.address && (!this.delivery || this.identity?.status === 'verified') ? 'generalEmailManage' : this.delivery ? 'generalEmail' : 'generalEmailSave';
+    this.entry.dataset.emailMode = this.viewDelivery ? 'mail' : 'save';
+    this.entry.dataset.emailReservation = this.#settings?.unknown ? 'union' : this.viewDelivery ? 'mail' : 'save';
+    this.entry.dataset.emailHelp = !this.canCollect && !this.address ? 'general' : this.address && (!this.viewDelivery || this.identity?.status === 'verified') ? 'generalEmailManage' : this.viewDelivery ? 'generalEmail' : 'generalEmailSave';
     setText(this.q('h3'), v.section);
     for (const view of this.entry.querySelectorAll('.m-stack > .m-view')) { const shown = view.dataset.view === state; view.classList.toggle('on', shown); view.inert = !shown; view.setAttribute('aria-hidden', String(!shown)); }
     this.q('.m-form').classList.toggle('editing', this.ui.editing);
     const givenRaises = this.tiers?.allowancesMicro?.emailGiven > this.tiers?.allowancesMicro?.anonymous;
-    setTierText(this.q('.m-lead-save'), this.tiers ? givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
-    setTierText(this.q('.m-lead-edit'), this.tiers ? e.leadEdit : '', n);
+    this.paintLead('.m-lead-save', this.tiers ? givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
+    this.paintLead('.m-lead-edit', this.tiers ? e.leadEdit : '', n);
     setText(this.q('.m-label'), v.label); this.q('#email-input').placeholder = v.placeholder;
     this.q('#email-input').setAttribute('aria-invalid', String(this.ui.invalid));
     for (const [selector, key] of [['.m-save', 'save'], ['.m-cancel', 'cancel'], ['.m-change', 'change'], ['.m-delete', 'delete'], ['.m-q', 'deleteQuestion'], ['.m-del', 'deleteConfirm'], ['.m-keep', 'cancel'], ['.m-change-mail', 'change'], ['.m-delete-mail', 'delete'], ['.m-unavailable', 'unavailable']]) setText(this.q(selector), e[key]);
@@ -117,12 +141,14 @@ export class VisitorEmail {
     this.paintNotice(this.q('#email-notice')); this.paintNotice(this.q('.m-mail-notice'));
     const verified = this.identity?.status === 'verified', pending = this.identity?.status === 'verification-pending';
     this.q('[data-view="mail"]').dataset.address = String(Boolean(this.address));
-    setTierText(this.q('.m-lead-mail'), this.tiers ? this.tiers.canConfirm ? e.leadMail : givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
+    this.paintLead('.m-lead-mail', this.tiers ? this.tiers.canConfirm ? e.leadMail : givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
     setText(this.q('.m-sent-prefix'), pending ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
     setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
     setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;
     setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? ' · ' + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
-    const button = this.q('.verify-entry'); button.hidden = !this.delivery || !this.canCollect || verified;
+    // Reserve the pending tier even before an address exists or after confirmation.
+    setText(this.q('.m-mail-tier-measure'), this.viewDelivery && this.tiers ? fill(e.pendingTier, n) : '');
+    const button = this.q('.verify-entry'); button.hidden = !this.viewDelivery || !this.canCollect || verified;
     setText(button, pending ? v.resendOrChange : v.entry);
     this.q('.m-change-mail').hidden = !verified || !this.canCollect;
     this.q('.m-delete-mail').hidden = !this.address; this.q('.m-mail-dot').hidden = !this.address;

@@ -12,7 +12,7 @@ const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" strok
 export const POLL_MS = 4000;
 
 export class Verification {
-  #email; #creditsChanged; #identityGeneration = 0;
+  #email; #creditsChanged; #dialogDelivery = true; #identityGeneration = 0;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
@@ -72,13 +72,14 @@ export class Verification {
       }
     } catch { /* Hosts without the optional visitor port keep verification. */ }
   }
-  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner }); this.#paint(); }
+  setCreditsState(creditsState) { this.#email.set({ creditsState }); }
+  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner, creditsState: 'loaded' }); this.#paint(); }
   focusEntry() { this.#email.focus(); }
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
   get email() { return this.#email; }
   /** A2 save acknowledgement precedes C1/C2. A failed link keeps the saved tier. */
-  async saveAndConfirm(address) {
+  async saveAndConfirm(address, { delivery } = {}) {
     if (!this.#email.notice?.version) await this.load();
     if (!this.#alive) return { ok: false };
     this.#identityGeneration++;
@@ -87,7 +88,7 @@ export class Verification {
     if (this.#identity?.address !== saved.body.visitor.address) this.set({ ...this.#identity, address: saved.body.visitor.address, status: 'guest' }, { quiet: true });
     await this.#creditsChanged?.();
     this.#onChange?.({ saved: true });
-    if (!this.#alive || !this.delivery) return { ...saved, sent: false };
+    if (!this.#alive || !(delivery ?? this.delivery)) return { ...saved, sent: false };
     const command = this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change';
     let link;
     try { link = await this.#request(`identity/${command}`, { address }); } catch { /* Saved credit is retained. */ }
@@ -125,8 +126,12 @@ export class Verification {
   disconnect() { this.#connected = false; clearTimeout(this.#poll); this.#poll = null; }
   destroy() { this.#alive = false; this.#email.destroy(); this.disconnect(); clearInterval(this.#tick); this.#tick = null; if (this.#dialog.open) this.#dialog.close(); }
   async openDialog(opener = this.#entry.querySelector('button')) {
-    if (!this.enabled || !this.canCollect || !this.#email.delivery) return;
+    if (!this.enabled || !this.canCollect || !this.#email.viewDelivery) return;
+    const delivery = this.#email.viewDelivery;
     if (await this.#beforeOpen?.() === false || !this.#alive || !this.enabled) return;
+    // Keep the action chosen in Settings across its close and the live tier refresh.
+    // AIT-168 suppresses delivery server-side with the same acknowledgement.
+    this.#dialogDelivery = delivery;
     this.#ui.editing = this.#identity?.status === 'verified' || opener?.classList.contains('m-change-mail');
     const form = this.#forms.find(f => f.root.closest('dialog'));
     if (this.#ui.editing && form) form.input.value = this.#identity?.address ?? '';
@@ -212,7 +217,7 @@ export class Verification {
     // Hosts with visitor tiers must never skip saving while the notice loads.
     if (this.#email.tiers || this.#email.notice?.version) {
       this.#ui = { ...this.#ui, busy: true, message: this.#copy.hostSurface.email.saving, error: false }; this.#paint();
-      const response = await this.saveAndConfirm(address);
+      const response = await this.saveAndConfirm(address, { delivery: entry.root.closest('dialog') ? this.#dialogDelivery : undefined });
       if (!this.#alive) return;
       this.#ui.busy = false;
       if (!response?.ok) { this.#ui.message = response?.status === 400 ? v.invalid : this.#copy.hostSurface.email.failed; this.#ui.error = true; this.#paint(); return; }
