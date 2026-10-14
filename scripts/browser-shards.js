@@ -4,49 +4,45 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// AIT-177 measured per-file seconds: PR #150 ci run 38590273870 at 2d9c1b9.
-// Include every top-level test, including the dynamically named DE/EN orb tests.
-// Main 27dbafb (38580264760) and PR #145 (38585047142) corroborate the
-// heavy files. Main whole jobs: 428 / 475 / 447 / 456 s; PR #145 shard 3:
-// 498 s. Keep four shared-runner jobs and the complete test/evidence matrix.
-// Visitor DE/EN split at the existing language boundary: all 12 combinations;
-// independently measured 195.18 / 197.84 s (no assertion or scenario removed).
-// This PR's prior jobs: 438 / 462 / 423 / 421 s. Move 29.87s audio replay
-// from 2 to 3, then the measured journey file from 3 to 4 for ~10% headroom.
-// Main b47a7fb adds safeguards: 3.94s in PR #145 (38585047142), in shard 2.
+// AIT-177 measured per-file seconds: PR #150 ci run 38592417042 at da0dbe9.
+// Previous whole jobs: 446 / 454 / 408 / 414 s (480 s headroom budget).
+// Assign largest files first to the lightest shard: ~413 s of tests per job,
+// plus ~18 s of measured setup/upload overhead targets ~10% headroom.
+// Keep all scenarios and four shared-runner jobs; no file split is needed.
+// operator-login remains isolated by scripts/test-browser.js in its own worker.
 export const browserShards = [
-  // 417.46s; per-file seconds: 218.83, 94.24, 43.89, 39.43, 12.48, 8.59
+  // 413.79s; per-file seconds: 220.22, 99.91, 41.48, 24.92, 19.24, 8.01
   [
     'test/browser/email-ask.test.js',
-    'test/browser/confirmation-design.test.js',
+    'test/browser/orb-reveal.test.js',
     'test/browser/voice-presentation.test.js',
-    'test/browser/operator-login.test.js',
-    'test/browser/footer-width-sweep.test.js',
-    'test/browser/html-preview.test.js',
+    'test/browser/start-look.test.js',
+    'test/browser/audio-replay.test.js',
+    'test/browser/host-surface.test.js',
   ],
-  // 419.01s; per-file seconds: 197.84, 115.57, 86.26, 15.39, 3.94
+  // 412.60s; per-file seconds: 199.16, 104.76, 96.05, 12.64
   [
     'test/browser/visitor-credit-tiers-en.test.js',
-    'test/browser/start2-display-continuity.test.js',
-    'test/browser/orb-reveal.test.js',
-    'test/browser/question-card.test.js',
-    'test/browser/safeguards.test.js',
-  ],
-  // 417.73s; per-file seconds: 195.18, 106.42, 46.27, 39.99, 29.87
-  [
-    'test/browser/visitor-credit-tiers.test.js',
+    'test/browser/confirmation-design.test.js',
     'test/browser/email-mail-space.test.js',
+    'test/browser/footer-width-sweep.test.js',
+  ],
+  // 413.37s; per-file seconds: 193.27, 117.84, 42.80, 40.30, 14.35, 4.82
+  [
+    'test/browser/start2-display-matrix.test.js',
+    'test/browser/start2-display-continuity.test.js',
     'test/browser/demo.test.js',
     'test/browser/admin-pages.test.js',
-    'test/browser/audio-replay.test.js',
-  ],
-  // 415.91s; per-file seconds: 165.25, 192.72, 25.15, 17.78, 15.02
-  [
-    'test/browser/start2-display.test.js',
-    'test/browser/start2-display-matrix.test.js',
-    'test/browser/start-look.test.js',
-    'test/browser/host-surface.test.js',
     'test/browser/start-journey.test.js',
+    'test/browser/safeguards.test.js',
+  ],
+  // 412.81s; per-file seconds: 189.97, 157.70, 40.71, 15.99, 8.43
+  [
+    'test/browser/visitor-credit-tiers.test.js',
+    'test/browser/start2-display.test.js',
+    'test/browser/operator-login.test.js',
+    'test/browser/question-card.test.js',
+    'test/browser/html-preview.test.js',
   ],
 ];
 
