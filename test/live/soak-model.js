@@ -5,13 +5,14 @@ export function percentile(samples, fraction) {
 }
 
 export function summarize({ records = [], events = [], firstTokenMs = 5000, totalMs = 30_000 }) {
-  const attempts = new Map();
+  const attempts = new Map(), closures = new Set();
   for (const record of records) {
     if (!record.turnHash || !record.attemptHash) continue;
-    const key = JSON.stringify([record.callHash, record.generationHash, record.turnHash, record.attemptHash]);
-    const attempt = attempts.get(key) ?? {};
+    const turnKey = JSON.stringify([record.callHash, record.generationHash, record.turnHash]);
+    const key = JSON.stringify([turnKey, record.attemptHash]);
+    const attempt = attempts.get(key) ?? { turnKey };
     if (record.event === 'voice.turn.admission') attempt.admitted = true;
-    if (record.event === 'voice.turn.closure' && record.closureConfirmed === true) attempt.closed = true;
+    if (record.event === 'voice.turn.closure' && record.closureConfirmed === true) closures.add(turnKey);
     if (record.event === 'voice.turn.first-token' && nonnegative(record.firstTokenMs)) attempt.first = record.firstTokenMs;
     if (record.event === 'voice.turn.completion') {
       if (nonnegative(record.totalMs)) attempt.total = record.totalMs;
@@ -30,7 +31,7 @@ export function summarize({ records = [], events = [], firstTokenMs = 5000, tota
     reconciliationRetries: records.filter(r => r.event === 'voice.reconciliation-retry').length,
     reconnects: records.filter(r => r.event === 'voice.segment.reconnect').length,
     recoveries: events.filter(e => e.type === 'recovered').length,
-    unclosed: admitted.filter(a => !a.closed).length,
+    unclosed: admitted.filter(a => !closures.has(a.turnKey)).length,
     failed: admitted.filter(a => a.outcome === 'failed').length };
 }
 
