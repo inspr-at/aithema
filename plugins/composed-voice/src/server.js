@@ -28,7 +28,8 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
       stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,
-      maxMicro: 0, exposureMicro: 0, pauses: [] }, closing;
+      maxMicro: 0, exposureMicro: 0, pauses: [] }, closing, mutations = Promise.resolve(), holdRevision = 0;
+    const serial = action => { const job = mutations.then(action); mutations = job.catch(() => {}); return job; };
     const save = (next, opts) => storage.saveVoiceCall(request.sessionId, next, { ...opts, guard: { ...opts?.guard, ownerToken: request.ownerToken } });
     function terminal(outcome = 'completed') {
       const providerSeconds = Math.max(0, now() - record.startedAt) / 1000;
@@ -52,17 +53,28 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     }
     const cancel = () => { void close('cancelled', 'cancelled').catch(() => {}); };
     coordinator.signal.addEventListener('abort', cancel, { once: true });
-    async function hold(paused, opts) {
-      if (paused) await coordinator.pause();
-      const next = { ...record, ...coordinator.snapshot(), paused };
-      next.pauses = structuredClone(record.pauses);
-      if (record.paused !== paused) {
-        if (paused) next.pauses.push({ from: now(), to: null }); else if (next.pauses.length) next.pauses.at(-1).to = now();
-      }
-      const ack = await voiceOperation(opts, command => save(next, { ...command, paused }));
-      if (ack?.acknowledged !== true || ack.paused !== paused) throw new PluginError('invalid-output');
-      if (!paused) await coordinator.resume();
-      record = next; return { acknowledged: true, paused };
+    function hold(paused, opts) {
+      if (closing) return Promise.reject(new PluginError('unavailable'));
+      if (paused) holdRevision++;
+      const physicalHold = paused ? coordinator.pause() : Promise.resolve();
+      physicalHold.catch(() => {});
+      const revision = holdRevision;
+      return serial(async () => {
+        if (closing) throw new PluginError('unavailable');
+        await physicalHold;
+        const next = { ...record, ...coordinator.snapshot(), paused };
+        next.pauses = structuredClone(record.pauses);
+        if (record.paused !== paused) {
+          if (paused) next.pauses.push({ from: now(), to: null }); else if (next.pauses.length) next.pauses.at(-1).to = now();
+        }
+        const ack = await voiceOperation(opts, command => save(next, { ...command, paused }));
+        if (ack?.acknowledged !== true || ack.paused !== paused) throw new PluginError('invalid-output');
+        if (!paused) {
+          if (revision !== holdRevision) throw new PluginError('cancelled', 'Resume superseded by a hold');
+          await coordinator.resume();
+        }
+        record = next; return { acknowledged: true, paused };
+      });
     }
     const segment = { ...coordinator, signal: coordinator.signal, providerSessionId, grant: relay.grant,
       spendDeadlineAt: end, browserLivenessDeadlineAt: record.browserLivenessDeadlineAt, close,

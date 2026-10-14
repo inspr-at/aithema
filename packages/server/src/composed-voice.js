@@ -21,14 +21,14 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     [admitComponent, authorize, commitUtterance, relay?.audio, relay?.silence, relay?.event].some(fn => typeof fn !== 'function') ||
     !Number.isSafeInteger(epoch) || epoch < 0 || inputFormat !== 'pcm_s16le' ||
     ![endpointMs, maxUtteranceMs, maxPendingTurns, maxTextCharacters, fragmentCharacters].every(n => Number.isSafeInteger(n) && n > 0) ||
-    endpointMs > maxUtteranceMs || maxUtteranceMs > 60_000 || fragmentCharacters > 1000 || maxPendingTurns > 16) {
+    endpointMs > maxUtteranceMs || maxUtteranceMs > 60_000 || fragmentCharacters < 2 || fragmentCharacters > 1000 || maxPendingTurns > 16) {
     throw new TypeError('Composed coordinator requires trusted, bounded host ports');
   }
   const startedAt = now();
   spendDeadlineAt = Math.min(spendDeadlineAt ?? Infinity, startedAt + callDurationSeconds({ host, maxDurationSeconds }) * 1000);
   if (!Number.isFinite(browserLivenessDeadlineAt) || Math.min(spendDeadlineAt, browserLivenessDeadlineAt) <= now()) throw new PluginError('deadline');
   let state = { ...createVoiceLifecycle(callId), epoch }, input = true, output = true, utterance,
-    sequence = 0, playbackRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve();
+    sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve();
   const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), commits = new Map();
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); };
@@ -38,6 +38,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const event = value => relay.event({ ...value, ...stamp() });
   const lifetime = voiceLifetime({ spendDeadlineAt, browserLivenessDeadlineAt, now, onExpire: reason => {
     if (reason === 'browser-liveness-deadline') {
+      holdRevision++;
       silence(reason); discardInput(); dispatch({ type: 'lease-expired' }); event({ type: 'waiting', reason });
     } else close(reason);
   } });
@@ -125,6 +126,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     });
     track(jobs, job.catch(error => {
       if (!signal.aborted && current()) {
+        holdRevision++;
         silence('component-failed'); discardInput(); dispatch({ type: 'recovery-exhausted' });
         event({ type: 'waiting', reason: error?.code ?? 'provider' });
       }
@@ -211,13 +213,16 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     receiveAudio,
     interrupt() { silence(); return Promise.resolve(); },
     async pause() {
+      holdRevision++;
       silence('pause'); discardInput(); dispatch({ type: 'pause' }); pauseController.abort();
       return { acknowledged: true, paused: true };
     },
     async resume() {
       if (state.state === 'ended') throw new PluginError('unavailable');
       if (state.needsRecovery) throw new PluginError('unavailable', 'A fresh server segment is required');
+      const revision = holdRevision;
       if (await voiceOperation(options(cancellation.signal), bounded => authorize({ ...stamp(), sessionId }, bounded)) !== true) throw new PluginError('not-admitted');
+      if (revision !== holdRevision) throw new PluginError('cancelled', 'Resume superseded by a hold');
       if (state.state === 'ended') throw new PluginError('unavailable');
       if (now() >= Math.min(spendDeadlineAt, state.browserLivenessDeadlineAt)) throw new PluginError('deadline');
       pauseController = new AbortController(); dispatch({ type: 'resume-acknowledged' }); event({ type: 'listening' });

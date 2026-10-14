@@ -147,3 +147,11 @@ test('AIT-160: lease expiry waits; the independent absolute spend deadline still
   at += 90; t.mock.timers.tick(90);
   assert.equal(h.coordinator.state.state, 'ended');
 });
+
+test('AIT-160: pause during pending server authorization cannot be cleared by a stale Resume', async t => {
+  const ready = Promise.withResolvers(), release = Promise.withResolvers();
+  const h = fixture(t, { authorize: async () => { ready.resolve(); await release.promise; return true; } });
+  await h.coordinator.pause(); const pending = h.coordinator.resume(); await ready.promise;
+  await h.coordinator.pause(); release.resolve();
+  await assert.rejects(pending, { code: 'cancelled' }); assert.equal(h.coordinator.state.state, 'paused');
+});

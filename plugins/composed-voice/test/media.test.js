@@ -93,6 +93,7 @@ test('AIT-160: composed server persists acknowledged holds and settles only its 
     attempt: { attemptId: 'offline-parent', claimId: 'offline-parent-claim', maxMicro: 0, consume() {} }, report: value => reports.push(value) });
   await call.pause(); await call.resume();
   const result = await call.close(); await call.close();
+  await assert.rejects(call.pause(), { code: 'unavailable' });
   assert.equal(result.chargedMicro, 0); assert.equal(reports.length, 1);
   assert.equal(storage.voiceCalls(session.id)[0].terminal.chargedMicro, 0);
 });
@@ -140,4 +141,17 @@ test('AIT-160: a hold during pending Resume acknowledgement keeps capture stoppe
   await session.pause(); const pending = session.resume(); await ready.promise;
   hold.abort('hide'); resume.resolve({ acknowledged: true, paused: false });
   await assert.rejects(pending, { code: 'cancelled' }); assert.equal(captures, 1);
+});
+
+test('AIT-160: a hide during explicit generation recovery supersedes the pending Resume', async t => {
+  const a = relayFixture(), b = relayFixture('generation-2'), hold = new AbortController();
+  const ready = Promise.withResolvers(), release = Promise.withResolvers(); let captures = 0;
+  const media = createComposedBrowserMedia({ openRelay: grant => (grant.providerSessionId === 'generation-1' ? a : b).relay.connect(grant),
+    control: { recover: async () => { ready.resolve(); await release.promise; return b.relay.grant; } },
+    capture: async () => { captures++; return { stop() {} }; }, player: { play() {}, stop() {} } });
+  const session = await media.connect(a.relay.grant, { holdSignal: hold.signal }); t.after(() => session.close());
+  await session.pause(); a.relay.close(); await tick();
+  const pending = session.resume(); await ready.promise;
+  hold.abort('hide'); release.resolve(); await assert.rejects(pending, { code: 'cancelled' });
+  assert.equal(captures, 1); assert.deepEqual(b.commands, []);
 });
