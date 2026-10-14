@@ -14,7 +14,7 @@ const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, entry = r.querySelector('#email'), stack = entry.querySelector('.m-stack');
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
   const mail = entry.querySelector('[data-view=mail]'), notice = mail.querySelector('.m-notice');
-  return { boxes: ['#email', '.operator-section', '.settings__footer'].map(s => box(r.querySelector(s))),
+  return { mailAction: box(mail.querySelector('.verify-entry')), boxes: ['#email', '.operator-section', '.settings__footer'].map(s => box(r.querySelector(s))),
     stackHeight: stack.getBoundingClientRect().height, mailHeight: notice.getBoundingClientRect().bottom - mail.getBoundingClientRect().top,
     reservationGap: stack.getBoundingClientRect().bottom - notice.getBoundingClientRect().bottom,
     hairlineGap: r.querySelector('.operator-section').getBoundingClientRect().top - notice.getBoundingClientRect().bottom,
@@ -214,10 +214,11 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
         } else await refresh(page, !initialMail);
         await frame(page);
         const after = await geometry(page), shiftPx = shift(before, after);
+        const actionShiftPx = initialMail ? Math.max(...before.mailAction.map((v, i) => Math.abs(v - after.mailAction[i]))) : 0;
         const mode = await shadow(page, c => c.shadowRoot.querySelector('#email').dataset.emailMode);
-        rows.push({ head: evidenceCommit, label, scenario, shiftPx, beforeHeight: before.stackHeight, afterHeight: after.stackHeight, mode });
-        t.diagnostic(`${shiftPx === 0 && mode === initialMode ? 'PASS' : 'FAIL'} AIT-171 ${label}/${scenario}: shift=${shiftPx} px; mode=${mode}; height=${before.stackHeight}/${after.stackHeight}`);
-        await t.test(`${label}/${scenario}: latched mode and 0 px shift`, () => { assert.equal(mode, initialMode); assert.equal(shiftPx, 0); });
+        rows.push({ head: evidenceCommit, label, scenario, shiftPx, actionShiftPx, beforeHeight: before.stackHeight, afterHeight: after.stackHeight, mode });
+        t.diagnostic(`${shiftPx === 0 && actionShiftPx === 0 && mode === initialMode ? 'PASS' : 'FAIL'} AIT-171 ${label}/${scenario}: shift=${shiftPx} px; action=${actionShiftPx} px; mode=${mode}; height=${before.stackHeight}/${after.stackHeight}`);
+        await t.test(`${label}/${scenario}: latched mode and 0 px shift`, () => { assert.equal(mode, initialMode); assert.equal(shiftPx, 0); assert.equal(actionShiftPx, 0, 'mail action stays under the pointer'); });
         await t.test(`${label}/${scenario}: measure remains aria-hidden`, async () => assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.m-mail-tier-measure').getAttribute('aria-hidden')), 'true'));
         await click(page, 'dialog.settings .done');
         await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
