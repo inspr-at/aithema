@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createFacadeSecrets } from '../src/index.js';
-import { createMockReasoning, reasoningRequest, createSession, PluginRegistry } from '@inspr/aithema-core';
+import { createMockReasoning, reasoningRequest, createSession, PluginRegistry, PluginError } from '@inspr/aithema-core';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
@@ -17,7 +17,7 @@ const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessio
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {} } = {}) {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
     calls.push(request);
@@ -35,7 +35,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
     const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log: () => {} });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log });
   const session = storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
@@ -318,4 +318,60 @@ for (const locale of ['de', 'en']) test(`AIT-178 ${locale} in-scope turns preser
   await f.send('Ein Rezept');
   assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, start2Redirects[locale][1]);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 2);
+});
+
+for (const locale of ['de', 'en']) test(`AIT-181 ${locale}: model reply reaches transcript, scope stays private, missing scope never counts`, async t => {
+  const content = locale === 'de' ? 'Wo entsteht bei Ihren Aufträgen heute der größte Aufwand?'
+    : 'Where does your team spend the most time when processing orders?';
+  const f = fixture(t, { policy: start2PurposePolicy, outputs: () => JSON.stringify({ content, question_short: null, options: [], debug: 'discarded' }) });
+  f.storage.changeLocale(f.session.id, locale, { ownerToken: testToken });
+  for (let index = 0; index < 2; index++) await f.send(locale === 'de'
+    ? 'Wir möchten unsere Auftragsbearbeitung vereinfachen.' : 'We want to simplify order processing.', `project-${index}`);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.equal(snapshot.transcript.at(-1).content, content);
+  assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 2);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0); assert.equal(snapshot.paused, false);
+  assert.equal(JSON.stringify(snapshot).includes('scope'), false); assert.equal(JSON.stringify(snapshot).includes('discarded'), false);
+});
+
+test('AIT-181 round2 fallback and constrained missing-scope counters reach OPS but stay out of snapshots', async t => {
+  const logs = []; let unusable = true;
+  const f = fixture(t, { log: event => logs.push(event), outputs: () => unusable ? '{invalid-private-output'
+    : JSON.stringify({ content: 'Safe model content', question_short: null, options: [] }) });
+  await f.send('Private project text');
+  assert.deepEqual(logs.filter(event => event.event === 'reply.fallback'), [
+    { event: 'reply.fallback', count: 1, lane: 'reaction', reason: 'invalid-output', attemptCount: 2 },
+  ]);
+  unusable = false;
+  await f.send('Private second project text');
+  assert.deepEqual(logs.filter(event => event.event === 'reply.scope-missing'), [
+    { event: 'reply.scope-missing', count: 1, lane: 'reaction', reason: 'missing-scope', attemptCount: 1 },
+  ]);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.doesNotMatch(JSON.stringify(snapshot), /fallback|attemptCount|invalid-private-output|missing-scope/u);
+  assert.doesNotMatch(JSON.stringify(logs), /Private project|Private second|Safe model|invalid-private-output/u);
+});
+
+test('AIT-181 round2 failing OPS logger cannot interrupt a fallback reply', async t => {
+  const f = fixture(t, { log() { throw new Error('logging unavailable'); }, outputs: () => '{invalid' });
+  await f.send('A project');
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, 'What are you working on?');
+});
+
+test('AIT-181 round2 schema compatibility counter reaches OPS under fresh prompt-only admission', async t => {
+  const logs = [];
+  const f = fixture(t, { log: event => logs.push(event), outputs: (_, count) => {
+    if (count === 1) throw Object.assign(new PluginError('auth'), { responseFormatUnsupported: true, providerErrorClass: '4xx' });
+    return envelope('Safe model reply', 'in');
+  } });
+  await f.send('Private project evidence');
+  assert.equal(f.calls.length, 2); assert.equal(f.calls[1].replySchemaConstrained, false);
+  assert.deepEqual(logs.filter(event => event.event === 'reply.schema-retry'), [
+    { event: 'reply.schema-retry', count: 1, lane: 'reaction', reason: 'provider-4xx', attemptCount: 1 },
+  ]);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.equal(snapshot.transcript.at(-1).content, 'Safe model reply');
+  assert.doesNotMatch(JSON.stringify(snapshot), /fallback|attemptCount|provider-4xx/u);
+  assert.doesNotMatch(JSON.stringify(logs), /Private project|Safe model reply/u);
 });

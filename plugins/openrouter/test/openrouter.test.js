@@ -279,3 +279,161 @@ test('OpenRouter passes shared conformance with usage and no silent routing fall
   assert.equal(fake.bodies[0].provider.allow_fallbacks, false);
   assert.equal(fake.bodies[0].max_tokens, 40);
 });
+
+// Provider responses below are realistic envelopes, not the scope-perfect mock.
+test('AIT-181 guarded OpenRouter reply streams send json_schema and show model content', async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  const content = 'Which step in order processing takes your team the most time?';
+  const raw = JSON.stringify({ content, question_short: null, options: [], extra: true });
+  const bodies = [], reports = [];
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      bodies.push(JSON.parse(init.body));
+      const blocks = Array.from({ length: Math.ceil(raw.length / 7) }, (_, index) => ({ choices: [{ delta: { content: raw.slice(index * 7, index * 7 + 7) } }] }));
+      return new Response(blocks.map(block => `data: ${JSON.stringify(block)}\n\n`).join('') +
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"cost":0}}\n\ndata: [DONE]\n\n');
+    } });
+  const reply = await collectPurposeReply(input, request => plugin.stream(request, options({ report: report => reports.push(report) })));
+  assert.equal(reply.content, content); assert.equal(reply.scope, 'unclear'); assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].stream, true); assert.equal(bodies[0].response_format.type, 'json_schema');
+  assert.equal(bodies[0].response_format.json_schema.name, 'reply'); assert.equal(bodies[0].response_format.json_schema.strict, true);
+  const wireSchema = bodies[0].response_format.json_schema.schema;
+  assert.deepEqual(wireSchema.properties.scope, input.schema.properties.scope);
+  assert.deepEqual(wireSchema.required, input.schema.required);
+  assert.deepEqual(wireSchema.properties.options.items.required, ['text', 'likely']);
+  assert.equal(Object.hasOwn(wireSchema.properties.options, 'contains'), false);
+  assert.equal(bodies[0].provider.require_parameters, true); assert.equal(bodies[0].provider.allow_fallbacks, false);
+  assert.equal(reports[0].outcome, 'completed');
+});
+
+for (const [kind, message] of [
+  ['http', 'response_format json_schema is not supported with streaming'],
+  ['http', 'No endpoints found that support the requested parameters'],
+  ['http', "Invalid schema for response_format 'reply': maxItems is not permitted"],
+  ['metadata', 'json_schema is unsupported by this provider'],
+  ['sse', 'Structured outputs are not supported with streaming'],
+]) {
+  test(`AIT-181 unsupported structured stream uses a separately admitted prompt-only retry: ${message}`, async () => {
+    const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+    const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+    const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+    const bodies = [], reports = [], claims = [], holds = [], settlements = [];
+    const content = 'What should improve in your order processing?';
+    const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+      spendCap: { reserve(ceiling) { const hold = Symbol('hold'); holds.push(hold); return hold; }, settle(hold) { settlements.push(hold); } },
+      fetchImpl: async (_, init) => {
+        bodies.push(JSON.parse(init.body));
+        if (bodies.length === 1) {
+          const error = kind === 'metadata' ? { message: 'Provider returned error', metadata: { raw: message } } : { message };
+          const payload = { error, usage: { cost: 0 } };
+          return kind === 'sse' ? new Response(`data: ${JSON.stringify(payload)}\n\n`)
+            : Response.json(payload, { status: 400 });
+        }
+        return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ content, scope: 'in', question_short: null, options: [] }) }, finish_reason: 'stop' }], usage: { cost: 0 } })}\n\ndata: [DONE]\n\n`);
+      } });
+    const reply = await collectPurposeReply(input, request => {
+      const opts = options({ report: report => reports.push(report) }); claims.push(opts.attempt.attemptId);
+      return plugin.stream(request, opts);
+    });
+    assert.equal(reply.content, content); assert.equal(reply.scope, 'in'); assert.equal(bodies.length, 2);
+    assert.ok(bodies[0].response_format); assert.equal(Object.hasOwn(bodies[1], 'response_format'), false);
+    assert.ok(bodies[1].messages[0].content.includes(JSON.stringify(input.schema)), 'prompt schema is retained');
+    assert.equal(new Set(claims).size, 2); assert.equal(reports.length, 2); assert.equal(holds.length, 2); assert.deepEqual(settlements, holds);
+    assert.deepEqual(reports.map(report => report.outcome), ['cancelled', 'completed']);
+    for (const sent of bodies) { assert.equal(sent.provider.require_parameters, true); assert.equal(sent.provider.allow_fallbacks, false); }
+  });
+}
+
+test('AIT-181 unrelated provider errors never downgrade the reply schema or dispatch a hidden retry', async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  let calls = 0;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async () => { calls++; return Response.json({ error: { message: 'Private provider failure' } }, { status: 500 }); } });
+  await assert.rejects(collectPurposeReply(input, request => plugin.stream(request, options())), error => error.code === 'provider' && !error.responseFormatUnsupported);
+  assert.equal(calls, 1);
+});
+
+test('AIT-181 unguarded OpenRouter streams retain their existing request format', async () => {
+  let sent;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      sent = JSON.parse(init.body);
+      return new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+    } });
+  for await (const _ of plugin.stream(request, options())) { /* consume */ }
+  assert.equal(Object.hasOwn(sent, 'response_format'), false);
+});
+
+test('AIT-181 round2 provider schema removes nonportable constraints recursively without changing host schema', async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  input.schema = structuredClone(input.schema);
+  const constraints = { pattern: 'private-pattern', format: 'email', minimum: 0, maximum: 10,
+    exclusiveMinimum: 0, exclusiveMaximum: 10, multipleOf: 2, minProperties: 1, maxProperties: 8,
+    uniqueItems: true, minItems: 0, propertyNames: { pattern: 'private-pattern' },
+    allOf: [{ type: 'object' }], not: { type: 'null' }, if: { type: 'string' }, then: { minLength: 1 }, else: { maxLength: 2 } };
+  Object.assign(input.schema.properties.options.items.properties.text, constraints);
+  input.schema.properties.pattern = { type: 'string', pattern: 'private-pattern' };
+  const original = structuredClone(input.schema); let sent;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      sent = JSON.parse(init.body);
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ content: 'Safe content', scope: 'in', question_short: null, options: [] }) }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n');
+    } });
+  await collectPurposeReply(input, request => plugin.stream(request, options()));
+  const stripped = new Set([...Object.keys(constraints), 'minLength', 'maxLength', 'maxItems', 'contains', 'minContains', 'maxContains']);
+  const inspect = shape => {
+    for (const key of Object.keys(shape)) assert.equal(stripped.has(key), false, `nonportable keyword ${key}`);
+    for (const child of Object.values(shape.properties ?? {})) inspect(child);
+    if (shape.items) inspect(shape.items);
+    for (const child of shape.anyOf ?? []) inspect(child);
+  };
+  const safe = sent.response_format.json_schema.schema; inspect(safe);
+  assert.deepEqual(safe.properties.pattern, { type: 'string' }, 'property names are preserved');
+  assert.deepEqual(safe.properties.options.items.required, ['text', 'likely']);
+  assert.ok(safe.required.includes('pattern'));
+  assert.deepEqual(input.schema, original);
+});
+
+for (const status of [400, 401, 403, 404, 408, 409, 413, 422, 429, 499]) test(`AIT-181 round2 unknown constrained HTTP ${status} retries prompt-only with fresh admission`, async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  const bodies = [], reports = [], claims = [], diagnostics = [];
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      bodies.push(JSON.parse(init.body));
+      if (bodies.length === 1) return status === 400 ? new Response('Private unrecognized non-JSON refusal', { status })
+        : Response.json({ error: { message: 'Private unrecognized provider refusal' }, usage: { cost: 0 } }, { status });
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ content: 'Safe model reply', scope: 'in', question_short: null, options: [] }) }, finish_reason: 'stop' }], usage: { cost: 0 } }) + '\n\ndata: [DONE]\n\n');
+    } });
+  const reply = await collectPurposeReply(input, request => {
+    const opts = options({ report: report => reports.push(report) }); claims.push(opts.attempt.attemptId);
+    return plugin.stream(request, opts);
+  }, { onDiagnostic: event => diagnostics.push(event) });
+  assert.equal(reply.content, 'Safe model reply'); assert.equal(bodies.length, 2);
+  assert.ok(bodies[0].response_format); assert.equal(Object.hasOwn(bodies[1], 'response_format'), false);
+  assert.equal(new Set(claims).size, 2); assert.equal(reports.length, 2);
+  assert.deepEqual(diagnostics, [{ kind: 'schema-retry', reason: 'provider-4xx', attemptCount: 1 }]);
+  assert.deepEqual(reply.fallback, { kind: 'prompt-only-retry', reason: 'provider-4xx', attemptCount: 2 });
+  assert.doesNotMatch(JSON.stringify(reply), /fallback|attemptCount/u);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /Private/u);
+});
+
+for (const failure of ['500', '503', 'network']) test(`AIT-181 round2 ${failure} retains the existing provider error path`, async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  let calls = 0;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async () => { calls++; if (failure === 'network') throw new Error('Private network error');
+      return Response.json({ error: { message: 'json_schema is unsupported' } }, { status: Number(failure) }); } });
+  await assert.rejects(collectPurposeReply(input, request => plugin.stream(request, options())), error =>
+    error.code === 'provider' && !error.responseFormatUnsupported && error.providerErrorClass === (failure === 'network' ? undefined : '5xx'));
+  assert.equal(calls, 1);
+});

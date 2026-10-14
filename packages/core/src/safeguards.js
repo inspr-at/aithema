@@ -64,9 +64,25 @@ function codeLike(text) {
 }
 export function unsafeReplyOutput(raw, policy, hiddenGuidance = '') {
   if (!policy.outputCheck) return false;
+  // A private token anywhere in the wire or decoded envelope is unsafe, even
+  // in fields that normalization discards or in an incomplete JSON response.
+  if (typeof raw === 'string') {
+    if (raw.includes(policy.canary)) return true;
+    try { raw = JSON.parse(unfenceReply(raw)); } catch { /* Keep partial wire text for visible checks. */ }
+  }
+  const pending = [raw];
+  while (pending.length) {
+    const value = pending.pop();
+    if (typeof value === 'string' && value.includes(policy.canary)) return true;
+    if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) {
+      if (key.includes(policy.canary)) return true;
+      pending.push(child);
+    }
+  }
   const visible = parseReply(raw);
   const spans = promptSpans(hiddenGuidance);
-  // Only decoded user-visible strings count. A wrapping JSON fence is transport.
+  // Code and prompt-span checks use decoded visible strings. A wrapping JSON
+  // fence is transport, while the canary check above covers every raw field.
   // Inspect every option string even if its card metadata would later be dropped.
   const options = typeof raw === 'object' && Array.isArray(raw?.options) ? raw.options : visible.options;
   return [visible.content, visible.question_short, ...options.map(o => o?.text)].some(text => {
@@ -78,11 +94,18 @@ export function unsafeReplyOutput(raw, policy, hiddenGuidance = '') {
   });
 }
 /** Buffer before any UI/TTS output. Each retry is a separately admitted invocation. */
-export async function collectPurposeReply(request, invoke, { onRejected = () => {}, guardDirection = reply => reply } = {}) {
+export async function collectPurposeReply(request, invoke, { onRejected = () => {}, onDiagnostic = () => {}, guardDirection = reply => reply } = {}) {
   const policy = request.purposePolicy;
-  let offTopic = false;
+  let offTopic = false, promptSchemaOnly = false, lastReason = 'invalid-output', schemaRetryReason;
+  const diagnostic = event => {
+    try { Promise.resolve(onDiagnostic(event)).catch(() => {}); } catch { /* Diagnostics cannot interrupt a reply. */ }
+  };
+  const markFallback = (reply, kind, reason, attemptCount) => Object.defineProperty(reply, 'fallback', {
+    value: { kind, reason, attemptCount }, enumerable: false,
+  });
   for (let attempt = 0; attempt < 2; attempt++) {
-    const input = attempt ? { ...request, system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
+    const input = attempt ? { ...request, ...(promptSchemaOnly ? { replySchemaConstrained: false } : {}),
+      system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
     let raw = '';
     try {
       for await (const delta of invoke(input, attempt)) {
@@ -90,21 +113,47 @@ export async function collectPurposeReply(request, invoke, { onRejected = () => 
         raw += delta;
       }
     } catch (error) {
-      if (error instanceof TypeError || attempt && ['provider', 'invalid-output'].includes(error.code)) continue;
+      offTopic ||= unsafeReplyOutput(raw, policy, request.hiddenGuidance);
+      // Any constrained HTTP 4xx (or explicit streamed capability refusal)
+      // consumes this attempt. Prompt-only still needs fresh admission/settlement.
+      if (input.replySchemaConstrained !== false && error.responseFormatUnsupported === true) {
+        lastReason = schemaRetryReason = error.providerErrorClass === '4xx' ? 'provider-4xx' : 'schema-unsupported';
+        promptSchemaOnly = true; onRejected(attempt);
+        if (!attempt) diagnostic({ kind: 'schema-retry', reason: lastReason, attemptCount: attempt + 1 });
+        continue;
+      }
+      if (error instanceof TypeError || error.code === 'invalid-output' || attempt && error.code === 'provider') {
+        lastReason = error.code === 'provider' ? (error.providerErrorClass === '5xx' ? 'provider-5xx' : 'provider') : 'invalid-output';
+        onRejected(attempt); continue;
+      }
       throw error;
     }
     let value;
     try { value = JSON.parse(unfenceReply(raw)); } catch { /* Fail closed without exposing wire text. */ }
-    const unsafe = value !== undefined && unsafeReplyOutput(value, policy, request.hiddenGuidance);
+    const unsafe = unsafeReplyOutput(raw, policy, request.hiddenGuidance);
     offTopic ||= value?.scope === 'off' || unsafe;
-    if (!matchesSchema(value, purposeReplySchema) || !value.content.trim() || unsafe) { onRejected(attempt); continue; }
-    const reply = { ...parseReply(value), scope: value.scope };
+    // Scope and optional card metadata must never discard usable conversation.
+    // Project known option fields before normalization, but check ALL original
+    // visible strings above, including choices that normalization would drop.
+    const options = Array.isArray(value?.options) ? value.options.map(option => option && typeof option === 'object'
+      ? { text: option.text, ...(Object.hasOwn(option, 'likely') ? { likely: option.likely } : {}) } : option) : [];
+    const base = parseReply({ content: value?.content, question_short: value?.question_short, options });
+    if (!matchesSchema(base, replySchema) || !base.content.trim() || unsafe) {
+      lastReason = unsafe ? 'unsafe-output' : 'invalid-output'; onRejected(attempt); continue;
+    }
+    if (input.replySchemaConstrained !== false && !Object.hasOwn(value, 'scope')) {
+      diagnostic({ kind: 'missing-scope', reason: 'missing-scope', attemptCount: attempt + 1 });
+    }
+    const scope = purposeReplySchema.properties.scope.enum.includes(value?.scope) ? value.scope : 'unclear';
+    const reply = { ...base, scope };
     if (offTopic) { reply.content = purposeRedirect(request); reply.scope = 'off'; }
     if (reply.scope !== 'in') { reply.question_short = null; reply.options = []; }
-    return guardDirection(reply);
+    const guarded = guardDirection(reply);
+    return promptSchemaOnly ? markFallback(guarded, 'prompt-only-retry', schemaRetryReason, attempt + 1) : guarded;
   }
   const reply = { content: offTopic ? purposeRedirect(request)
     : request.locale === 'de' ? 'Woran arbeiten Sie gerade?' : 'What are you working on?',
     question_short: null, options: [], scope: offTopic ? 'off' : 'unclear' };
-  return offTopic ? guardDirection(reply) : reply;
+  diagnostic({ kind: 'fallback', reason: lastReason, attemptCount: 2 });
+  return markFallback(offTopic ? guardDirection(reply) : reply, 'neutral', lastReason, 2);
 }

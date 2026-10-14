@@ -23,7 +23,7 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
     costEvidence: attemptId => spendCap?.evidence?.(attemptId),
     reconcileSpend: (attemptId, cost) => spendCap?.reconcileAttempt?.(attemptId, cost),
     reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),
-    ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true,
+    ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true, streamSchema: true,
     // Fallback = min(per-call maximum, ceil((input token bound * input price +
     // configured max output tokens * output price) * 1e6)). max_tokens includes
     // reasoning as well as visible output. Byte estimates stay within the
