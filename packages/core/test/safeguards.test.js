@@ -220,3 +220,12 @@ test('AIT-181 round2 constrained missing scope is diagnosed without rejection or
     assert.equal(reply.fallback, undefined);
   }
 });
+
+test('AIT-181 round2 canary evidence from an incomplete stream survives a safe retry', async () => {
+  const input = request();
+  const reply = await collectPurposeReply(input, async function* (_, attempt) {
+    if (!attempt) { yield '{"debug":"' + input.purposePolicy.canary; throw new PluginError('invalid-output'); }
+    yield wire('Safe retry content');
+  });
+  assert.equal(reply.scope, 'off'); assert.equal(reply.content, purposePolicy.redirect.en);
+});

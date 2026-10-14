@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createFacadeSecrets } from '../src/index.js';
-import { createMockReasoning, reasoningRequest, createSession, PluginRegistry } from '@inspr/aithema-core';
+import { createMockReasoning, reasoningRequest, createSession, PluginRegistry, PluginError } from '@inspr/aithema-core';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
@@ -356,5 +356,22 @@ test('AIT-181 round2 fallback and constrained missing-scope counters reach OPS b
 test('AIT-181 round2 failing OPS logger cannot interrupt a fallback reply', async t => {
   const f = fixture(t, { log() { throw new Error('logging unavailable'); }, outputs: () => '{invalid' });
   await f.send('A project');
-  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, 'Woran arbeiten Sie gerade?');
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, 'What are you working on?');
+});
+
+test('AIT-181 round2 schema compatibility counter reaches OPS under fresh prompt-only admission', async t => {
+  const logs = [];
+  const f = fixture(t, { log: event => logs.push(event), outputs: (_, count) => {
+    if (count === 1) throw Object.assign(new PluginError('auth'), { responseFormatUnsupported: true, providerErrorClass: '4xx' });
+    return envelope('Safe model reply', 'in');
+  } });
+  await f.send('Private project evidence');
+  assert.equal(f.calls.length, 2); assert.equal(f.calls[1].replySchemaConstrained, false);
+  assert.deepEqual(logs.filter(event => event.event === 'reply.schema-retry'), [
+    { event: 'reply.schema-retry', count: 1, lane: 'reaction', reason: 'provider-4xx', attemptCount: 1 },
+  ]);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.equal(snapshot.transcript.at(-1).content, 'Safe model reply');
+  assert.doesNotMatch(JSON.stringify(snapshot), /fallback|attemptCount|provider-4xx/u);
+  assert.doesNotMatch(JSON.stringify(logs), /Private project|Safe model reply/u);
 });
