@@ -10,7 +10,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // heavy files. Main whole jobs: 428 / 475 / 447 / 456 s; PR #145 shard 3:
 // 498 s. Keep four shared-runner jobs and the complete test/evidence matrix.
 // Visitor DE/EN split at the existing language boundary: all 12 combinations;
-// independently measured 196.76 / 197.84 s (no assertion or scenario removed).
+// independently measured 195.18 / 197.84 s (no assertion or scenario removed).
 // This PR's prior jobs: 438 / 462 / 423 / 421 s. Move 29.87s audio replay
 // from 2 to 3, then the measured journey file from 3 to 4 for ~10% headroom.
 export const browserShards = [
