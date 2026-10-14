@@ -30,7 +30,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   let state = { ...createVoiceLifecycle(callId), epoch }, input = true, output = true, utterance,
     sequence = 0, playbackRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve();
   const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), commits = new Map();
-  let history = [], historyBytes = 0;
+  let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); };
   dispatch({ type: 'start' });
   dispatch({ type: 'connected', providerSessionId, spendDeadlineAt, browserLivenessDeadlineAt });
@@ -90,6 +90,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     silence('barge-in');
     const turn = { id: `${providerSessionId}-${++sequence}`, sequence, queue: audioQueue(maxUtteranceMs * 32),
       controller: new AbortController(), durationMs: 0, silenceMs: 0, endpointed: false, playbackRevision };
+    const committed = Promise.withResolvers(); turn.beforeCommit = commitTail; commitTail = committed.promise;
     utterance = turn;
     const signal = AbortSignal.any([revocation.signal, pauseController.signal, turn.controller.signal]);
     const job = component('stt', { maxDurationMs: maxUtteranceMs }, signal, async opts => {
@@ -103,6 +104,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       }
       if (!turn.endpointed || final === undefined) throw new PluginError('invalid-output', 'STT must finish after server endpointing');
       if (!final.trim()) return;
+      // Finalizers may finish out of order; utterance history follows capture order.
+      await voiceOperation(opts, () => turn.beforeCommit);
       await permitted(opts);
       historyBytes += final.length;
       if (historyBytes > maxTextCharacters || history.length >= 512) throw new PluginError('limit', 'Generation history full');
@@ -111,16 +114,18 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       // Never manufacture operation keys from a receipt, or deduplicate by text.
       const envelope = deepFreeze({ source: 'server-coordinator', payload: {
         sessionId, callId, providerSessionId, stream: true,
-        callbackBody: { messages: structuredClone(history), metadata: { epoch, utteranceId: turn.id, sequence: turn.sequence } } } });
+        callbackBody: { messages: structuredClone(history), context: structuredClone(context),
+          metadata: { epoch, utteranceId: turn.id, sequence: turn.sequence } } } });
       commits.set(turn.id, envelope);
       await voiceOperation(opts, bounded => commitUtterance(envelope, bounded));
       event({ type: 'final', role: 'user', turnId: turn.id, text: final });
       dispatch({ type: 'accepted', turnId: turn.id });
+      committed.resolve();
       await reply(envelope, turn.playbackRevision, signal);
     });
     track(jobs, job.catch(error => {
       if (!signal.aborted && current()) event({ type: 'waiting', reason: error?.code ?? 'provider' });
-    }));
+    }).finally(committed.resolve));
     return turn;
   }
   async function speak(text, revision, turnSignal, replyId) {
@@ -208,6 +213,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     async resume() {
       if (state.state === 'ended') throw new PluginError('unavailable');
       if (await voiceOperation(options(cancellation.signal), bounded => authorize({ ...stamp(), sessionId }, bounded)) !== true) throw new PluginError('not-admitted');
+      if (state.state === 'ended') throw new PluginError('unavailable');
       if (now() >= Math.min(spendDeadlineAt, state.browserLivenessDeadlineAt)) throw new PluginError('deadline');
       pauseController = new AbortController(); dispatch({ type: 'resume-acknowledged' }); event({ type: 'listening' });
       return { acknowledged: true, paused: false };

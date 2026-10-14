@@ -7,18 +7,24 @@ import { manifest } from './manifest.js';
  * the browser never receives Mistral credentials or transcript authority. */
 export function createComposedBrowserMedia({ openRelay, capture, player, control, now = Date.now } = {}) {
   if (![openRelay, capture, player?.play, player?.stop].every(fn => typeof fn === 'function')) throw new TypeError('Host media ports required');
+  let mediaOwner, stopOwner;
   async function connect(grant, options = {}) {
     assertVoiceMediaGrant(grant, now());
     const events = voiceEvents(); let transport, recording, input = true, output = true, stopped = false,
-      playbackRevision = 0, hold = false, session;
-    const localStop = () => { recording?.stop(); recording = undefined; player.stop(); playbackRevision++; };
-    const mute = () => { player.stop(); playbackRevision++; };
-    const stop = () => { stopped = true; hold = true; localStop(); };
+      playbackRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0;
+    const owner = Symbol('composed-media'), pendingPlayback = new Set();
+    const stopPlayback = () => {
+      if (mediaOwner === owner) player.stop();
+      pendingPlayback.clear(); pendingPlaybackBytes = 0;
+    };
+    const localStop = () => { recording?.stop(); recording = undefined; stopPlayback(); playbackRevision++; };
+    const mute = () => { stopPlayback(); playbackRevision++; };
+    const stop = () => { if (stopped) return; stopped = true; hold = true; localStop(); };
     async function captureOn() {
       if (stopped || hold || !input || recording) return;
       const revision = playbackRevision;
       const next = await capture({ signal: options.holdSignal, format: 'pcm_s16le', sampleRateHz: 16000,
-        onAudio: audio => stopped || hold || !input ? Promise.resolve() : transport.sendAudio(audio) });
+        onAudio: audio => stopped || hold || !input || mediaOwner !== owner ? Promise.resolve() : transport.sendAudio(audio) });
       if (stopped || hold || revision !== playbackRevision) next.stop(); else recording = next;
     }
     const lifecycle = createVoiceLifecycleController({ callId: grant.callId, now,
@@ -41,10 +47,16 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       try {
         for await (const frame of source.frames) {
           if (stopped || source !== transport) break;
-          if (frame.type === 'silence') { player.stop(); playbackRevision = Math.max(playbackRevision, frame.playbackRevision); }
+          if (frame.type === 'silence') { stopPlayback(); playbackRevision = Math.max(playbackRevision, frame.playbackRevision); }
           else if (frame.type === 'audio' && !hold && output && frame.playbackRevision >= playbackRevision) {
+            if (!(frame.bytes instanceof Uint8Array) || !['pcm_f32le', 'pcm_s16le'].includes(frame.format) ||
+              pendingPlaybackBytes + frame.bytes.byteLength > 256_000) throw new PluginError('limit', 'Playback queue full');
             playbackRevision = frame.playbackRevision;
-            await player.play(frame.bytes, { format: frame.format, replyId: frame.replyId });
+            const token = { size: frame.bytes.byteLength }; pendingPlayback.add(token); pendingPlaybackBytes += token.size;
+            // A playback completion must not obstruct control frames such as silence.
+            void Promise.resolve(player.play(frame.bytes, { format: frame.format, replyId: frame.replyId }))
+              .catch(() => { if (!stopped && source === transport) { mute(); lifecycle.wait('playback-failed'); } })
+              .finally(() => { if (pendingPlayback.delete(token)) pendingPlaybackBytes -= token.size; });
           } else if (frame.type === 'event') events.push(frame.event);
         }
         if (!stopped && source === transport) await lifecycle.recover();
@@ -53,12 +65,15 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
     const abort = () => { void session?.close({ reason: 'hold' }).catch(() => {}); };
     try {
       transport = await voiceOperation(options, () => openRelay(grant));
+      stopOwner?.(); mediaOwner = owner; stopOwner = stop;
       lifecycle.connected({ providerSessionId: grant.providerSessionId, spendDeadlineAt: grant.opaque.spendDeadlineAt ?? grant.expiresAt,
         browserLivenessDeadlineAt: grant.opaque.browserLivenessDeadlineAt ?? grant.expiresAt });
       session = { callId: grant.callId, get providerSessionId() { return grant.providerSessionId; }, events,
         async close(opts) {
+          if (closing) return closing;
           stop(); lifecycle.end(opts?.reason ?? 'closed'); options.holdSignal?.removeEventListener('abort', abort);
-          events.end(); return transport.command('close', opts?.reason ?? 'closed');
+          if (mediaOwner === owner) { mediaOwner = undefined; stopOwner = undefined; }
+          events.end(); closing = Promise.resolve(transport.command('close', opts?.reason ?? 'closed')); return closing;
         },
         pause(opts) { hold = true; localStop(); lifecycle.pause(); return transport.command('pause', opts); },
         async resume(opts) { const ack = await transport.command('resume', opts); if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output');

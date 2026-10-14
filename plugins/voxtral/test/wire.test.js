@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVoxtralSTT, createVoxtralTTS, STT_FORMAT, TTS_FORMAT } from '../src/index.js';
+// Synthetic protocol fixtures, not captured provider traffic. Sources (2026-10-14):
+// https://docs.mistral.ai/studio/audio/speech_to_text/realtime_transcription
+// https://docs.mistral.ai/api/endpoint/audio/speech
+// https://github.com/mistralai/client-python/tree/main/src/mistralai/client/models
 
 const collect = async source => { const out = []; for await (const x of source) out.push(x); return out; };
 const options = reports => ({ deadlineAt: Date.now() + 5000,
@@ -31,7 +35,7 @@ test('AIT-160: Voxtral realtime encodes documented session and audio frames and 
 
 test('AIT-160: Voxtral TTS decodes fragmented SSE float32 PCM and a terminal usage event', async () => {
   const reports = [];
-  const wire = 'data: {"type":"speech.audio.delta","audio_data":"AAAAAA=="}\r\n\r\ndata: {"type":"speech.audio.done","usage":{"input_tokens":1,"output_tokens":1}}\n\n';
+  const wire = 'data: {"type":"speech.audio.delta","audio_data":"AAAAAA=="}\r\n\r\ndata: {"type":"speech.audio.done","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n';
   const tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
     fetchImpl: async (url, request) => {
       assert.equal(url, 'https://api.mistral.ai/v1/audio/speech');

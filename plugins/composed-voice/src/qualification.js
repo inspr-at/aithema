@@ -2,7 +2,7 @@ import { PluginError } from '../../../packages/core/src/invocation.js';
 
 export const QUALIFICATION_THRESHOLDS = Object.freeze({ wer: 0.08, entityAccuracy: 0.95,
   firstAudioP95Ms: 1500, bargeInStopMs: 300, capMicro: 25_000_000 });
-const words = text => text.normalize('NFC').toLocaleLowerCase('de-AT').match(/[\p{L}\p{N}@.+-]+/gu) ?? [];
+const words = text => text.normalize('NFC').toLocaleLowerCase('de-AT').match(/[\p{L}\p{N}]+/gu) ?? [];
 const entity = text => text.normalize('NFC').trim().toLocaleLowerCase('de-AT').replace(/\s+/gu, ' ');
 function distance(reference, hypothesis) {
   let row = Array.from({ length: hypothesis.length + 1 }, (_, i) => i);
