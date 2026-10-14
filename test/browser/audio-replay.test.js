@@ -78,13 +78,24 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     }, locale);
     await until(page, () => window.replayRail.notices.recovery && !window.replayRail.notices.button.disabled);
     await settle(); await page.mouse.move(0, 500);
-    const selectors = ['.audio-rail', '.voice-repeat', '.voice-read-text', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
+    const selectors = ['.audio-rail', '.voice-repeat', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
     const before = await layoutBoxes(page, selectors);
     const capture = async state => {
       await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.turn:not(.user) .turn-text')?.textContent), await page.evaluate(() => window.replayText), `${state}: assistant bubble remains in the thread`);
       const labels = locale === 'de' ? ['Antwort wiederholen', 'Wiederholung stoppen', 'Ganze Antwort lesen'] : ['Replay reply', 'Stop replay', 'Read full reply'];
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), labels[state === 'playing' ? 1 : state === 'fallback' ? 2 : 0]);
+      await t.test(`${locale}/${theme}/${width}/${state}: label`, async () => {
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), labels[state === 'playing' ? 1 : state === 'fallback' ? 2 : 0]);
+      });
+      await t.test(`${locale}/${theme}/${width}/${state}: longest label reservation`, async () => {
+        const fits = await shadow(page, (c, labels) => {
+          const button = c.shadowRoot.querySelector('.voice-repeat'), style = getComputedStyle(button);
+          const canvas = document.createElement('canvas'), context = canvas.getContext('2d'); context.font = style.font;
+          const needed = Math.max(...labels.map(label => context.measureText(label).width)) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + 2;
+          return button.getBoundingClientRect().width + .5 >= needed;
+        }, labels);
+        assert.equal(fits, true, 'button reserves the longest label before any switch');
+      });
       const after = await layoutBoxes(page, selectors); assert.deepEqual(after, before, `${locale}/${theme}/${width}/${state}: 0 px layout shift`);
       const file = `audio-replay-${state}-${width}-${theme}-${locale}.png`;
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
@@ -92,11 +103,14 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       passLines.push({ file, shiftPx: 0, pass: true }); t.diagnostic(`PASS ${file}: 0 px shift`);
     };
     await capture('idle');
-    await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').click());
-    assert.equal(await page.evaluate(() => window.replayRail.notices.dialog.open), true);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), await page.evaluate(() => window.replayText));
-    assert.equal(await page.evaluate(() => window.replayRequests.length), 0);
-    await page.evaluate(() => window.replayRail.notices.dialog.close());
+    await t.test(`${locale}/${theme}/${width}: text link`, async () => {
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text')?.textContent), locale === 'de' ? 'Text lesen' : 'Read text');
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').click());
+      assert.equal(await page.evaluate(() => window.replayRail.notices.dialog.open), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), await page.evaluate(() => window.replayText));
+      assert.equal(await page.evaluate(() => window.replayRequests.length), 0);
+      await page.evaluate(() => window.replayRail.notices.dialog.close());
+    });
     const persisted = await page.evaluate(() => window.replayPersisted.length);
     await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
     await until(page, () => window.replayRail.notices.playing && !window.replayAudio.paused);
