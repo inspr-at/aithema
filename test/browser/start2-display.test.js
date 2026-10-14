@@ -934,7 +934,9 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
-    await configure(locale); await page.mouse.move(0, 0); await settle();
+    await configure(locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await page.mouse.move(0, 0); await settle();
     const notice = await page.$('aithema-session >>> .ai-notice');
     await notice.evaluate(n => n.scrollIntoView({ block: 'center' }));
     const footerBefore = await boxes(page, ['.display-foot', '.ai-notice', '.host-credits', '.footer-right']);
