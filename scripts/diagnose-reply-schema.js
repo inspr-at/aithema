@@ -98,7 +98,7 @@ async function main() {
         return fetch(...args);
       } });
     const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(reasoning),
-      consent: { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, expiresAt: Date.now() + 60_000 }) },
+      consent: { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) },
       presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction }, policy: { endpoints: [config.reaction.endpoint] } } } });
     await runReplySchemaDiagnostics({ async *invoke(request, context) {
       const session = storage.create({ ...context, demo: true, ownerToken: 'ops-reply-diagnostic' });
