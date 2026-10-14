@@ -113,6 +113,11 @@ svg { display:block; flex:none; }
 .audio-rail:is([data-call="none"]) .voice-input, .audio-rail[data-call="active"] .voice-start,
 .audio-rail[data-call="none"] .voice-close, .audio-rail[data-call="active"] .voice-retry, .audio-rail:not([data-state="failed"]) .voice-retry,
 .audio-rail[data-playback-blocked] .voice-output, .audio-rail:not([data-playback-blocked]) .voice-playback { visibility:hidden; }
+/* A purpose pause presents once in the composer. The rail keeps three idle
+   controls: Start call in the pause cell, speaker and microphone, all disabled. */
+.audio-rail[data-purpose-paused] :is(.pause, .voice-pause, .voice-playback, .voice-close, .voice-retry) { visibility:hidden; }
+.audio-rail[data-purpose-paused] :is(.voice-start, .voice-input, .voice-output) { visibility:visible; }
+.audio-rail[data-purpose-paused] :is(.pause, .voice-pause) .voice-icon--resume { visibility:hidden; }
 /* The component's one pause stands in the pause cell: it drives the call and the conversation. */
 .conversation .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { position:relative; min-width:0; height:48px; display:grid; place-items:center; }

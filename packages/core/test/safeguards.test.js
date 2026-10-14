@@ -45,7 +45,7 @@ for (const content of [
   'return the package to the team\nreturn the customer call the next morning',
   'We print (labels and invoices) for our customers. What should improve?',
 ]) test(`AIT-174 round2 ordinary prose stays safe: ${content}`, () => {
-  const input = request(); assert.equal(unsafeReplyOutput(wire(content), input.purposePolicy, input.system), false);
+  const input = request(); assert.equal(unsafeReplyOutput(wire(content), input.purposePolicy, input.hiddenGuidance), false);
 });
 
 test('AIT-174 round3 host-public copy is safe even when included in the system prompt', async () => {

@@ -505,13 +505,14 @@ export class AithemaSession extends HTMLElement {
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
-    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
+    const voicePause = this.#session.paused && this.#session.pauseReason !== 'purpose';
+    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || (voicePause ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
     // Reserve the longest steady status in this locale; action messages use the existing popup.
     reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
     setText(status.querySelector('.status__label'), words); status.title = words;
     status.toggleAttribute('data-connected', connected);
-    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice || this.#session.paused && this.#pausePrompt));
+    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice || voicePause && this.#pausePrompt));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
     this.#timer?.setConnected(connected);
   }
@@ -675,7 +676,19 @@ export class AithemaSession extends HTMLElement {
   #syncVoicePause(rail = this.#rail) {
     const pause = this.shadowRoot.querySelector('.pause');
     if (!pause) return;
-    if (this.#session.pauseReason === 'purpose') { pause.disabled = true; pause.title = this.#copy.purposePaused; return; }
+    const purposePaused = this.#session.pauseReason === 'purpose', root = this.shadowRoot;
+    root.querySelector('.audio-rail').toggleAttribute('data-purpose-paused', purposePaused);
+    const start = root.querySelector('.voice-start'), cell = root.querySelector(purposePaused ? '.voice-cell--pause' : '.voice-cell--mic');
+    if (start.parentNode !== cell) cell.prepend(start);
+    if (purposePaused) {
+      pause.disabled = true;
+      start.disabled = true; start.title = this.#copy.purposePausedDescription;
+      start.setAttribute('aria-description', this.#copy.purposePausedDescription);
+      root.querySelector('.voice-state').textContent = '';
+      for (const name of ['input', 'output', 'playback', 'retry', 'close']) this.#rail?.button(name).setAttribute('disabled', '');
+      return;
+    }
+    start.removeAttribute('aria-description');
     if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
       const command = rail.button('pause'); pause.dataset.voiceCommand = '';
       // Waiting can stay Waiting while a takeover receipt changes its command.
@@ -726,9 +739,6 @@ export class AithemaSession extends HTMLElement {
       const newConversation = root.querySelector('.purpose-new');
       newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
       root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
-      if (this.#session.pauseReason === 'purpose') {
-        const pause = root.querySelector('.pause'); if (pause) { pause.disabled = true; pause.title = copy.purposePaused; }
-      }
       this.#paintAttach();
       const out = root.querySelector('.composer-out'), usedUp = Boolean(this.#host?.usedUp) && !this.#creditEnding && purposePause.hidden;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
@@ -757,7 +767,7 @@ export class AithemaSession extends HTMLElement {
         const value = this.#feature(feature, true);
         row.className = value.available ? '' : 'unavailable'; row.firstChild.nodeValue = copy.features[feature];
         const reason = row.querySelector('span');
-        if (value.available) reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = this.#rail?.moved ? copy.voiceInAnotherTab : value.reason;
+        if (value.available || this.#session.pauseReason === 'purpose') reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = this.#rail?.moved ? copy.voiceInAnotherTab : value.reason;
       });
       return;
     }
@@ -838,7 +848,7 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp) root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
