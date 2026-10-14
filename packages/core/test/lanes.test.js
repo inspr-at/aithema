@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SessionLanes, createMockReasoning, createSession, applyEvent, inputRevision } from '../src/index.js';
+import { SessionLanes, createMockReasoning, createSession, applyEvent, inputRevision, PluginError } from '../src/index.js';
+import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
 function harness(plugin = createMockReasoning(), options = {}, laneOptions = {}) {
   let session = createSession({ demo: true, ...options }); const published = [], partials = [];
@@ -93,4 +94,164 @@ test('cancelled lane publishes no durable result and releases its flight', async
 test('invalid structured output cannot damage a previous understanding', async () => {
   const h = harness({ ...createMockReasoning(), async structured() { return { summary: 'Invalid' }; } }); h.turn('Hello');
   await assert.rejects(h.lanes.run(h.session.id, 'understanding'), /Invalid understanding/); assert.equal(h.published.length, 0);
+});
+
+for (const phase of ['before attempt 1', 'during admission', 'between attempts', 'mid-stream', 'mid-stream with abort']) {
+  test(`AIT-183 superseded reply ${phase} returns stale without fallback or output`, async () => {
+    const diagnostics = [], admissions = [], settlements = [], streams = [], guards = [], scopes = [];
+    const plugin = { ...createMockReasoning(), async *stream() {
+      streams.push(streams.length);
+      if (phase.startsWith('mid-stream')) {
+        yield '{"content":"Private partial';
+        h.turn('Replacement input');
+        if (phase.endsWith('with abort')) h.lanes.supersede(h.session.id);
+      }
+      yield '{invalid';
+    } };
+    const h = harness(plugin, {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+      guardDirection: (_, reply) => { guards.push(reply); return reply; }, onScope: (...args) => scopes.push(args),
+      async admit() {
+        const attempt = admissions.length;
+        admissions.push(attempt);
+        if (phase === 'during admission') h.turn('Replacement input');
+        return { plugin, async finish(result) {
+          settlements.push({ attempt, ...result });
+          if (phase === 'between attempts') h.turn('Replacement input');
+        } };
+      },
+    });
+    // Advance during the request snapshot, after the lane's initial freshness check.
+    if (phase === 'before attempt 1') h.lanes.offTopicTurns = () => { h.turn('Replacement input'); return 0; };
+    h.turn('First input');
+    assert.equal(await h.lanes.run(h.session.id, 'reaction'), 'stale');
+    assert.deepEqual(diagnostics, []);
+    assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+    assert.deepEqual(guards, []); assert.deepEqual(scopes, []);
+    const count = phase === 'before attempt 1' ? 0 : 1;
+    assert.equal(admissions.length, count); assert.equal(settlements.length, count);
+    assert.equal(streams.length, phase === 'during admission' ? 0 : count);
+    assert.equal(new Set(settlements.map(item => item.attempt)).size, count);
+  });
+}
+
+for (const [code, providerErrorClass] of [
+  ['auth', '4xx'], ['rate-limit', '4xx'], ['provider', '4xx'], ['provider', '5xx'], ['provider', undefined],
+]) for (const attempt of [0, 1]) test(`AIT-183 separately settles ${code}/${providerErrorClass ?? 'network'} on attempt ${attempt + 1}`, async () => {
+  const error = Object.assign(new PluginError(code), { providerErrorClass });
+  const admissions = [], settlements = [], diagnostics = [];
+  const h = harness(createMockReasoning(), {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    async admit({ request }) {
+      const index = admissions.length;
+      admissions.push(request);
+      return { plugin: { ...createMockReasoning(), async *stream() {
+        if (index === attempt) throw error;
+        yield '{invalid';
+      } }, finish: result => settlements.push({ index, ...result }) };
+    },
+  });
+  h.turn('First input');
+  const pending = h.lanes.run(h.session.id, 'reaction');
+  const fallback = attempt && code === 'provider' && providerErrorClass !== '4xx';
+  if (fallback) assert.equal(await pending, 'completed');
+  else await assert.rejects(pending, actual => actual === error);
+  assert.equal(admissions.length, attempt + 1);
+  assert.deepEqual(settlements, attempt ? [{ index: 0, failed: false }, { index: 1, failed: true }] : [{ index: 0, failed: true }]);
+  assert.equal(h.published.length, fallback ? 1 : 0);
+  assert.equal(diagnostics.length, fallback ? 1 : 0);
+  assert.deepEqual(h.partials, []);
+});
+
+for (const code of ['invalid-output', 'provider']) test(`AIT-183 supersession during attempt-2 ${code} emits no fallback`, async () => {
+  const diagnostics = [], admissions = [], settlements = [];
+  const h = harness(createMockReasoning(), {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    async admit() {
+      const index = admissions.length;
+      admissions.push(index);
+      return { plugin: { ...createMockReasoning(), async *stream() {
+        yield '{invalid';
+        if (index) {
+          h.turn('Replacement input');
+          throw Object.assign(new PluginError(code), { providerErrorClass: '5xx' });
+        }
+      } }, finish: result => settlements.push({ index, ...result }) };
+    },
+  });
+  h.turn('First input');
+  assert.equal(await h.lanes.run(h.session.id, 'reaction'), 'stale');
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(admissions, [0, 1]);
+  assert.deepEqual(settlements, [{ index: 0, failed: false }, { index: 1, failed: true }]);
+  assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+});
+
+for (const kind of ['deadline', 'cancel']) test(`AIT-183 current reply ${kind} retains cancellation error and settles once`, async () => {
+  const entered = deferred(), release = deferred(), diagnostics = [], settlements = [];
+  const controller = new AbortController();
+  const plugin = { ...createMockReasoning(), async *stream() { entered.resolve(); await release.promise; yield '{invalid'; } };
+  const h = harness(plugin, {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    admit: async () => ({ plugin, finish: result => settlements.push(result) }),
+  });
+  h.lanes.deadlineMs = kind === 'deadline' ? 50 : 1000;
+  h.turn('First input');
+  const pending = h.lanes.run(h.session.id, 'reaction', { signal: controller.signal });
+  const rejected = assert.rejects(pending, error => error.name === (kind === 'deadline' ? 'TimeoutError' : 'AbortError'));
+  try {
+    await entered.promise;
+    if (kind === 'cancel') controller.abort(new DOMException('User cancelled', 'AbortError'));
+    await rejected;
+  } finally { release.resolve(); await pending.catch(() => {}); }
+  assert.deepEqual(settlements, [{ failed: true }]);
+  assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+});
+
+// Plain provider 4xx on attempt 2 now escapes the neutral fallback; auth and
+// rate-limit errors already escaped because they have their own error codes.
+for (const status of [400, 402, 404, 422]) for (const first of ['schema rejection', 'invalid output']) {
+  test(`AIT-183 plain provider ${status} on attempt 2 after ${first} rejects and settles both attempts`, async () => {
+    const error = Object.assign(new PluginError('provider'), { providerErrorClass: '4xx', status });
+    const admissions = [], settlements = [], diagnostics = [];
+    const h = harness(createMockReasoning(), {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+      async admit({ request }) {
+        const index = admissions.length;
+        admissions.push(request);
+        return { plugin: { ...createMockReasoning(), async *stream() {
+          if (index) throw error;
+          if (first === 'schema rejection') throw Object.assign(new PluginError('provider'), {
+            providerErrorClass: '4xx', responseFormatUnsupported: true,
+          });
+          yield '{invalid';
+        } }, finish: result => settlements.push({ index, ...result }) };
+      },
+    });
+    h.turn('First input');
+    await assert.rejects(h.lanes.run(h.session.id, 'reaction'), actual => actual === error);
+    assert.equal(admissions.length, 2);
+    assert.notEqual(admissions[0].replySchemaConstrained, false);
+    assert.equal(admissions[1].replySchemaConstrained, first === 'schema rejection' ? false : undefined);
+    assert.deepEqual(settlements, [{ index: 0, failed: first === 'schema rejection' }, { index: 1, failed: true }]);
+    assert.deepEqual(diagnostics, first === 'schema rejection'
+      ? [{ lane: 'reaction', kind: 'schema-retry', reason: 'provider-4xx', attemptCount: 1 }] : []);
+    assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+  });
+}
+
+for (const output of ['valid', 'invalid']) test(`AIT-183 revoke during ${output} reply settle returns stale exactly once`, async () => {
+  const entered = deferred(), release = deferred(), settlements = [], diagnostics = [];
+  const plugin = { ...createMockReasoning(), async *stream() {
+    yield output === 'valid' ? JSON.stringify({ content: 'Safe reply', question_short: null, options: [], scope: 'in' }) : '{invalid';
+  } };
+  const h = harness(plugin, {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    admit: async () => ({ plugin, async finish(result) {
+      settlements.push(result); entered.resolve(); await release.promise;
+    } }),
+  });
+  h.turn('First input');
+  const pending = h.lanes.run(h.session.id, 'reaction');
+  await entered.promise;
+  const cancelled = h.lanes.cancel(h.session.id);
+  release.resolve();
+  assert.equal(await pending, 'stale');
+  await cancelled;
+  assert.deepEqual(settlements, [{ failed: false }]);
+  assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
 });

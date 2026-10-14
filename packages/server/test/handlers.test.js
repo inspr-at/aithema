@@ -4,6 +4,7 @@ import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 import { createMockReasoning, inputRevision, PluginError } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
+import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const request = (path, body) => ownedRequest(`http://localhost/api/sessions/${path}`, body === undefined ? {} : {
@@ -254,4 +255,53 @@ test('AIT-173 round 5: reconciling lane denial retains only its safe reason and 
     assert.equal(after.operations.lastFailure, null);
     assert.equal(after.understanding.inputRevision, inputRevision(after));
   } finally { await handlers.close(); storage.close(); }
+});
+
+test('AIT-183 revoke during reply settle broadcasts no lane.failed or fallback', async () => {
+  const storage = new SQLiteStorage(), entered = deferred(), release = deferred();
+  const settlements = [], diagnostics = [], outcomes = [], events = [];
+  const reasoning = { ...createMockReasoning(), async *stream() { yield '{invalid'; } };
+  const runtime = instrumentedMockRuntime(storage, reasoning);
+  const handlers = createHandlers({ storage, reasoning, purposePolicy, log: event => diagnostics.push(event),
+    pluginRuntime: { ...runtime, selectionKey: () => 'settle-regression', async admit() {
+      return { plugin: reasoning, async finish(result) {
+        settlements.push(result); entered.resolve(); await release.promise;
+      } };
+    } },
+  });
+  const run = handlers.lanes.run.bind(handlers.lanes);
+  handlers.lanes.run = async (...args) => { const result = await run(...args); outcomes.push(result); return result; };
+  let reader, drained;
+  try {
+    const s = storage.create({ demo: true, ownerToken: testToken });
+    const response = await handlers.handle(request(`${s.id}/events?after=0`));
+    await handlers.idle(); outcomes.length = 0;
+    reader = response.body.getReader();
+    drained = (async () => {
+      const decoder = new TextDecoder(); let buffer = '', running = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        buffer += decoder.decode(value, { stream: true }); let index;
+        while ((index = buffer.indexOf('\n\n')) >= 0) {
+          const data = buffer.slice(0, index).split('\n').find(line => line.startsWith('data:'));
+          buffer = buffer.slice(index + 2);
+          if (!data) continue;
+          const event = JSON.parse(data.slice(5)); events.push(event);
+          if (event.type === 'lane.status') {
+            running ||= event.data.running.includes('reaction');
+            if (running && !event.data.running.length) return;
+          }
+        }
+      }
+    })();
+    await turn(handlers, s.id, 'first', 'First input'); await entered.promise;
+    const cancelled = handlers.lanes.cancel(s.id);
+    release.resolve(); await cancelled; await handlers.idle(); await drained;
+    assert.deepEqual(outcomes, ['stale']);
+    assert.deepEqual(settlements, [{ failed: false }]);
+    assert.equal(events.some(event => event.type === 'lane.failed'), false);
+    assert.equal(diagnostics.some(event => event.event === 'reply.fallback'), false);
+    assert.equal(storage.get(s.id).transcript.filter(t => t.role === 'assistant').length, 0);
+  } finally { release.resolve(); await reader?.cancel(); await drained; await handlers.close(); storage.close(); }
 });

@@ -33,6 +33,7 @@ export class SessionLanes {
   cancel(id) {
     const pending = [];
     for (const flight of this.#flights.values()) if (flight.id === id) {
+      flight.revoked = true;
       flight.controller.abort(new DOMException('Session revoked', 'AbortError'));
       pending.push(flight.promise);
     }
@@ -105,15 +106,31 @@ export class SessionLanes {
           const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy, offTopicTurns: this.offTopicTurns(id) });
           let admitted;
           const self = this;
+          // Supersession is a lane outcome, never an empty provider reply.
+          const superseded = new Error('Reply superseded');
           const reply = await collectPurposeReply(request, async function* (input) {
-            if (!current()) return;
+            if (!current()) throw superseded;
             admitted = await self.admit?.({ session: self.getSession(id), lane, operation: 'stream', request: input, options });
             let failed = false;
-            try { yield* cancellableStream((admitted?.plugin ?? self.reasoning).stream(input, admitted?.options ?? options), scope.signal); }
+            try {
+              if (!current()) throw superseded;
+              for await (const delta of cancellableStream((admitted?.plugin ?? self.reasoning).stream(input, admitted?.options ?? options), scope.signal)) {
+                if (!current()) throw superseded;
+                yield delta;
+              }
+            }
             catch (error) { failed = true; throw error; }
-            finally { await admitted?.finish({ failed }); }
+            finally {
+              await admitted?.finish({ failed });
+              scope.signal.throwIfAborted();
+              if (!current()) throw superseded;
+            }
           }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
-            onDiagnostic: event => this.onReplyDiagnostic({ lane, ...event }) });
+            onDiagnostic: event => { if (current()) this.onReplyDiagnostic({ lane, ...event }); } }).catch(error => {
+            const latest = this.getSession(id);
+            if (flight.revoked || error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
+            throw error;
+          });
           if (!current()) return 'stale';
           const guarded = stripThanksOpener(reply.content, session.locale);
           if (guarded.stripped) this.onOpenerStripped();
@@ -165,7 +182,7 @@ export class SessionLanes {
       }
       return 'completed';
     };
-    const flight = { id, lane, revision, selection, controller, promise: null };
+    const flight = { id, lane, revision, selection, controller, revoked: false, promise: null };
     const promise = Promise.resolve().then(work).finally(() => {
       scope.dispose(); signal?.removeEventListener('abort', abort);
       if (this.#flights.get(key) === flight) this.#flights.delete(key);

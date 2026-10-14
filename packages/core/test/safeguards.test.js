@@ -229,3 +229,30 @@ test('AIT-181 round2 canary evidence from an incomplete stream survives a safe r
   });
   assert.equal(reply.scope, 'off'); assert.equal(reply.content, purposePolicy.redirect.en);
 });
+
+for (const [name, code, providerErrorClass] of [
+  ['auth', 'auth', '4xx'], ['429', 'rate-limit', '4xx'], ['other 4xx', 'provider', '4xx'],
+  ['5xx', 'provider', '5xx'], ['network', 'provider', undefined],
+]) for (const attempt of [0, 1]) test(`AIT-183 ${name} on attempt ${attempt + 1} retains its error policy`, async () => {
+  const error = Object.assign(new PluginError(code), { providerErrorClass });
+  const diagnostics = [], rejected = [], inputs = [];
+  const pending = collectPurposeReply(request(), async function* (input, index) {
+    inputs.push(input);
+    if (index === attempt) throw error;
+    yield '{invalid';
+  }, { onDiagnostic: event => diagnostics.push(event), onRejected: index => rejected.push(index) });
+  if (attempt && code === 'provider' && providerErrorClass !== '4xx') {
+    const reply = await pending;
+    const reason = providerErrorClass === '5xx' ? 'provider-5xx' : 'provider';
+    assert.equal(reply.content, 'What are you working on?');
+    assert.deepEqual(reply.fallback, { kind: 'neutral', reason, attemptCount: 2 });
+    assert.deepEqual(diagnostics, [{ kind: 'fallback', reason, attemptCount: 2 }]);
+    assert.deepEqual(rejected, [0, 1]);
+  } else {
+    await assert.rejects(pending, actual => actual === error);
+    assert.deepEqual(diagnostics, []);
+    assert.deepEqual(rejected, attempt ? [0] : []);
+  }
+  assert.equal(inputs.length, attempt + 1);
+  assert.ok(inputs.every(input => input.replySchemaConstrained !== false));
+});

@@ -122,7 +122,8 @@ export async function collectPurposeReply(request, invoke, { onRejected = () => 
         if (!attempt) diagnostic({ kind: 'schema-retry', reason: lastReason, attemptCount: attempt + 1 });
         continue;
       }
-      if (error instanceof TypeError || error.code === 'invalid-output' || attempt && error.code === 'provider') {
+      if (error instanceof TypeError || error.code === 'invalid-output' ||
+        attempt && error.code === 'provider' && error.providerErrorClass !== '4xx') {
         lastReason = error.code === 'provider' ? (error.providerErrorClass === '5xx' ? 'provider-5xx' : 'provider') : 'invalid-output';
         onRejected(attempt); continue;
       }
