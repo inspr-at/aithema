@@ -123,3 +123,38 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   if (evidence) { await writeFile(join(evidence, 'ait-169-admin-pass-lines.txt'), pass.join('\n') + '\n'); await writeFile(join(evidence, 'ait-169-admin-evidence.json'), JSON.stringify({ head: evidenceCommit, shots, pass }, null, 2) + '\n'); }
   pass.forEach(line => t.diagnostic(line));
 });
+
+test('AIT-169 independent edits survive a save in another section, then each section can save with the new revision', { timeout: 45_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-admin-edits-'));
+  let f, browser;
+  const server = await listen(async request => {
+    const path = new URL(request.url).pathname;
+    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
+      return new Response(await readFile(new URL('../../' + path.slice(1), import.meta.url)), { headers: { 'content-type': path.endsWith('.css') ? 'text/css' : 'text/javascript' } });
+    }
+    return await f.admin.handle(request) ?? new Response(null, { status: 404 });
+  });
+  t.after(async () => { await browser?.close(); server.server.closeAllConnections(); await new Promise(resolve => server.server.close(resolve)); f?.close(); await rm(dir, { recursive: true, force: true }); });
+  f = await adminFixture({ origin: server.url });
+  f.host.visitorCredits.saveSettings({ baseRevision: 1, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '24' } }, { source: 'ops-cli', actor: 'ops-cli:fixture' });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const page = await browser.newPage(), errors = []; page.setDefaultTimeout(5000);
+  page.on('pageerror', e => errors.push(e.message));
+  await page.setCookie({ name: 'aithema-operator', value: 'g'.repeat(43), url: server.url });
+  await page.goto(server.url + '/admin', { waitUntil: 'networkidle0' });
+  const before = await geometry(page);
+  await edit(page, '1800');
+  await page.$eval('#f-confirm', i => { i.checked = true; i.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.click('[data-save=confirm]'); await page.waitForSelector('[data-sec=confirm][data-mode=saved]');
+  assert.equal(await page.$eval('#f-emailGiven', i => i.value.replace(/[.,\s]/gu, '')), '1800', 'other edit is preserved');
+  assert.equal(f.host.visitorCredits.settings().allowancesMicro.emailGiven, 15_000_000);
+  assert.deepEqual(await geometry(page), before, 'confirmation reachability: 0 px');
+  await page.$eval('#f-mail-hour', i => { i.value = '40'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.click('[data-save=credits]'); await page.waitForSelector('[data-sec=credits][data-mode=saved]');
+  assert.equal(await page.$eval('#f-mail-hour', i => i.value), '40');
+  await page.click('[data-save=mail]'); await page.waitForSelector('[data-sec=mail][data-mode=saved]');
+  const saved = f.host.visitorCredits.settings();
+  assert.equal(saved.allowancesMicro.emailGiven, 18_000_000); assert.equal(saved.mailCap.hour, 40); assert.equal(saved.confirmationEnabled, true);
+  assert.deepEqual(await geometry(page), before, 'three section saves: 0 px'); assert.deepEqual(errors, []);
+});
