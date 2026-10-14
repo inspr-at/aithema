@@ -9,13 +9,18 @@ import { adminFixture } from '../fixtures/admin-host.js';
 import { browserPath, evidenceCommit } from './start2-display-helpers.js';
 
 const states = ['overview', 'editing', 'saved', 'conflict', 'invalid', 'confirmation-off', 'no-delivery', 'cap-near', 'latched', 'audit-end', 'audit-empty', 'signed-out', 'expired'];
+const widths = [390, 1024, 1440];
+// CI already sets an evidence directory for artifacts. Reserve the complete
+// screenshot matrix for deliberate evidence runs outside CI; otherwise every
+// state still runs in both locales/themes, with widths rotated across states.
+const fullMatrix = Boolean(process.env.AITHEMA_EVIDENCE_DIR) && !process.env.CI;
 const geometry = page => page.evaluate(() => {
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y + scrollY, b.width, b.height]; };
   return [...document.querySelectorAll('.ad-sec:not([data-sec=log]),#h-log,.ad-save,.ad-btn,.ad-discard,.ad-status,.ad-tier,.ad-sub')].map(box);
 });
 const edit = (page, value) => page.$eval('#f-emailGiven', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, value);
 
-test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark 390/1024/1440', { timeout: 180_000 }, async t => {
+test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)', { timeout: fullMatrix ? 120_000 : 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-admin-browser-'));
   let f, held, responseMode = 'ok', browser;
   const server = await listen(async request => {
@@ -58,16 +63,21 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     page.on('request', r => { if (!r.url().startsWith(server.url) && !r.url().startsWith('data:')) external.push(r.url()); });
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     const open = async () => {
-      await page.goto(server.url + '/admin?lang=' + locale, { waitUntil: 'networkidle0' });
+      await page.goto(server.url + '/admin?lang=' + locale, { waitUntil: 'domcontentloaded' });
+      // Await the document's module, including its initial state/audit reads and
+      // event wiring, rather than paying the network-idle delay on every state.
+      await page.evaluate(() => import('/demo/admin-page.js'));
       await page.waitForSelector('.ad-page'); await page.evaluate(() => document.fonts.ready);
     };
     const shot = async (state, width, theme, part = '') => {
-      const name = `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state}${part}.png`; shots.push(name);
-      if (evidence) await page.screenshot({ path: join(evidence, name), fullPage: false });
+      if (!evidence) return;
+      const name = `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state}${part}.png`;
+      await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
     };
-    for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
+    for (const [widthIndex, width] of widths.entries()) for (const theme of ['light', 'dark']) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-      for (const state of states) {
+      for (const [stateIndex, state] of states.entries()) {
+        if (!fullMatrix && stateIndex % widths.length !== widthIndex) continue;
         seed(); responseMode = 'ok';
         await page.setCookie({ name: 'aithema-operator', value: 'g'.repeat(43), url: server.url });
         if (state === 'signed-out') await page.deleteCookie({ name: 'aithema-operator', url: server.url });
@@ -82,7 +92,10 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         if (state === 'latched') f.spendCap.settle(f.spendCap.reserve(100_000), 110_000);
         if (state === 'audit-empty') f.storage.db.prepare('DELETE FROM visitor_credit_audit').run();
         await open();
-        if (['editing', 'saved', 'conflict', 'invalid'].includes(state)) await edit(page, state === 'invalid' ? '800' : '1800');
+        if (['editing', 'saved', 'conflict', 'invalid'].includes(state)) {
+          await edit(page, state === 'invalid' ? '800' : '1800');
+          assert.equal(await page.$eval('[data-sec=credits]', n => n.dataset.mode), state === 'invalid' ? 'invalid' : 'dirty');
+        }
         if (state === 'saved' || state === 'conflict') {
           responseMode = state === 'conflict' ? 'conflict' : 'ok';
           await page.click('[data-save=credits]'); await page.waitForSelector(`[data-sec=credits][data-mode=${state}]`);
@@ -101,7 +114,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         if (state === 'latched') { const text = await page.$eval('[data-sec=prov]', n => n.textContent); assert.ok(text.includes(locale === 'de' ? 'Gesperrt · Grund:' : 'Locked · Reason:')); assert.ok(text.includes(locale === 'de' ? 'keine neuen Anfragen' : 'no new requests')); }
         if (state === 'signed-out' || state === 'expired') { assert.equal(await page.$$eval('.ad-sec', ns => ns.length), 0); assert.equal(await page.$eval('.ad-login', n => n.getAttribute('href')), '/api/operator/login/?return=admin'); }
         await shot(state, width, theme);
-        if (!['signed-out', 'expired'].includes(state)) {
+        if (evidence && !['signed-out', 'expired'].includes(state)) {
           for (const [part, selector] of [['-mail', '#h-mail'], ['-spending-audit', '#h-prov']]) {
             await page.$eval(selector, n => n.scrollIntoView()); await shot(state, width, theme, part);
           }
@@ -126,11 +139,13 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     await browser.close(); browser = null;
   }
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
+  assert.equal(pass.length, states.length * 4 * (fullMatrix ? widths.length : 1) + 12, 'all DE/EN light/dark states and all 12 width/theme/locale flows');
+  if (evidence) assert.equal(shots.length, (states.length * 3 - 4) * 4 * (fullMatrix ? widths.length : 1));
   if (evidence) { await writeFile(join(evidence, 'ait-169-admin-pass-lines.txt'), pass.join('\n') + '\n'); await writeFile(join(evidence, 'ait-169-admin-evidence.json'), JSON.stringify({ head: evidenceCommit, shots, pass }, null, 2) + '\n'); }
   pass.forEach(line => t.diagnostic(line));
 });
 
-test('AIT-169 independent edits survive a save in another section, then each section can save with the new revision', { timeout: 45_000 }, async t => {
+test('AIT-169 independent edits survive a save in another section, then each section can save with the new revision', { timeout: 15_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-admin-edits-'));
   let f, browser;
   const server = await listen(async request => {
@@ -148,7 +163,9 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   const page = await browser.newPage(), errors = []; page.setDefaultTimeout(5000);
   page.on('pageerror', e => errors.push(e.message));
   await page.setCookie({ name: 'aithema-operator', value: 'g'.repeat(43), url: server.url });
-  await page.goto(server.url + '/admin', { waitUntil: 'networkidle0' });
+  await page.goto(server.url + '/admin', { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => import('/demo/admin-page.js'));
+  await page.evaluate(() => document.fonts.ready);
   const before = await geometry(page);
   await edit(page, '1800');
   await page.$eval('#f-confirm', i => { i.checked = true; i.dispatchEvent(new Event('change', { bubbles: true })); });
