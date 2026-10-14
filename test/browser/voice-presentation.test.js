@@ -22,7 +22,12 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], passLines = [];
   // The remote builder transfers main's captured viewports here before the head run.
   // CI still captures the matrix when that separately retained baseline is absent.
-  const baseline = process.env.AITHEMA_VOICE_BASELINE_DIR ?? '/private/tmp/aithema-ait102-pr3-merge-baseline-72214a10ce';
+  const baseline = process.env.AITHEMA_VOICE_BASELINE_DIR;
+  let baselineMain = process.env.AITHEMA_VOICE_BASELINE_MAIN ?? evidenceCommit;
+  if (baseline && !process.env.AITHEMA_VOICE_BASELINE_MAIN) {
+    try { baselineMain = JSON.parse(await readFile(join(baseline, 'voice-presentation-evidence.json'), 'utf8')).head; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -84,7 +89,7 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
       assert.equal(stable, true, `${name}: stable backdrop paint`);
       if (evidence) await writeFile(join(evidence, name), captured);
       let original;
-      try { original = await readFile(join(baseline, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      try { if (baseline) original = await readFile(join(baseline, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       if (original) {
         const before = pixels(original), after = pixels(captured);
         assert.deepEqual([after.width, after.height, after.channels], [before.width, before.height, before.channels]);
@@ -104,7 +109,7 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
       files.push({ file: name, state, width, theme, locale, viewport: true });
     }
   }
-  if (evidence) await writeFile(join(evidence, 'voice-presentation-evidence.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '72214a10ce911321d439c153b7f77dca8843d71b', files }, null, 2));
-  if (evidence && passLines.length) await writeFile(join(evidence, 'voice-pixel-diff.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '72214a10ce911321d439c153b7f77dca8843d71b', passLines }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'voice-presentation-evidence.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain, files }, null, 2));
+  if (evidence && passLines.length) await writeFile(join(evidence, 'voice-pixel-diff.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain, passLines }, null, 2));
   t.diagnostic(`AIT-102 voice presentation: ${files.length} viewport shots.`);
 });
