@@ -961,6 +961,7 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
     const loading = copy === de ? 'Guthaben wird geladen …' : 'Loading credit …';
     const failed = copy === de ? 'Guthaben gerade nicht verfügbar.' : "Credit isn't available right now.";
     const mailHint = copy === de ? ' Sie können die Adresse trotzdem bestätigen.' : ' You can still confirm your address.';
+    const saveHint = copy === de ? ' Sie können die Adresse trotzdem speichern.' : ' You can still save your address.';
     assert.equal(lead.textContent, loading);
     assert.equal(lead.getAttribute('role'), 'status'); assert.equal(lead.getAttribute('aria-live'), 'polite');
     assert.ok(lead.classList.contains('m-credit-status'));
@@ -973,7 +974,7 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
       assert.match(lead.textContent, copy === de ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);
       assert.equal(lead.hasAttribute('role'), false); assert.equal(lead.classList.contains('m-credit-status'), false);
     } else {
-      assert.equal(lead.textContent, failed + (delivery ? mailHint : ''));
+      assert.equal(lead.textContent, failed + (delivery ? mailHint : saveHint));
       assert.equal(lead.getAttribute('aria-live'), 'polite'); assert.ok(lead.classList.contains('m-credit-status'));
     }
     mutations = 0; repaint(); await tick(); assert.equal(mutations, 0, 'settled paints do not reannounce');
