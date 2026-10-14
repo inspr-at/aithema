@@ -71,10 +71,16 @@ const finishRevealEntry = page => shadow(page, async c => {
 // Continuity baselines must wait for the first persisted greeting, not just
 // the rail's listening/speaking state.
 const finishWorkspaceEntry = async page => {
-  await until(page, () => { const w = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
-    return w.dataset.stage === 'live' && !w.hasAttribute('data-reveal'); });
-  await finishRevealEntry(page);
-  await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+  await until(page, () => { const c = document.querySelector('aithema-session'), w = c.shadowRoot.querySelector('.workspace');
+    return c.session.transcript.length > 0 && w.dataset.stage === 'live'
+      && w.dataset.understanding === 'present' && !w.hasAttribute('data-reveal'); });
+  await shadow(page, async c => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true })
+      .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
 };
 const freezeRevealExit = async page => {
   const point = await shadow(page, c => {

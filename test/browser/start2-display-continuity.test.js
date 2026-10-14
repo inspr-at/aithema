@@ -9,7 +9,7 @@ import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { mockConsent } from './consent-helpers.js';
-import { browserPath, shadow, until, settle, layoutBoxes, sameBoxes, finishRevealEntry, finishWorkspaceEntry, evidenceCommit } from './start2-display-helpers.js';
+import { browserPath, shadow, until, settle, layoutBoxes, sameBoxes, finishWorkspaceEntry, evidenceCommit } from './start2-display-helpers.js';
 
 test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-'));
@@ -57,10 +57,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
       await click(page, '.ready__mode[data-mode="voice"]'); await click(page, '.ready__start');
       await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
-      await until(page, () => { const w = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
-        return w.dataset.stage === 'live' && !w.hasAttribute('data-reveal'); });
-      await finishRevealEntry(page);
-      await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+      await finishWorkspaceEntry(page);
       st?.diagnostic('Started original call');
       const label = `${width}-${theme}-${locale}`, before = await layoutBoxes(page, selectors);
       const call = await page.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
@@ -81,13 +78,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         // tab before settling; the owner's normal visibility hold still applies.
         await target.bringToFront();
         const scrollBefore = await target.evaluate(() => scrollY);
-        // The rail helper only waits for the band; also settle the workspace entrance.
-        await shadow(target, async c => {
-          await document.fonts.ready;
-          await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true })
-            .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
-          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        });
+        await finishWorkspaceEntry(target);
         // Phones retain their scrollable conversation. Include the composer below the sticky band.
         if (width < 960) await shadow(target, c => {
           const root = c.shadowRoot, form = root.querySelector('.composer').getBoundingClientRect();
@@ -204,8 +195,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await shot(page, 'old-tab');
       st?.diagnostic('Captured old-tab notice');
       await other.bringToFront(); await click(other, '.pause'); await state(other, 'listening');
-      await until(other, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').hasAttribute('data-reveal'));
-      await finishRevealEntry(other);
+      await finishWorkspaceEntry(other);
       const next = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       assert.equal(next.callId, call.callId); assert.equal(next.epoch, call.epoch + 1);
       let dialogs = 0;
