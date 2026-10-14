@@ -31,14 +31,17 @@ const geometry = page => shadow(page, c => {
 // Session SSE remains open; navigation waits for the document, then explicit UI readiness.
 const openGeneral = async page => {
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
-  await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
+  // Compare operator navigation with the same known-tier reservation at each
+  // open; AIT-171 deliberately retains an unknown-tier union until close.
   await until(page, () => {
     const entry = document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify');
     return entry.dataset.emailState && entry.querySelector('.m-lead-save')?.textContent;
   });
+  await page.evaluate(() => document.fonts.ready);
+  await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
   // Scroll the last section into view; the footer stays fixed.
   await shadow(page, c => { const s = c.shadowRoot; s.querySelector('.settings__body').scrollTop = s.querySelector('.settings__body').scrollHeight; });
-  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 };
 
 test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift',
