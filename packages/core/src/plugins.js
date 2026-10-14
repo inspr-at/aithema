@@ -32,7 +32,7 @@ export const MANIFEST_SCHEMA = object({
       .map(k => [k, capability]))),
     billing: object({ visitor: string, upstream: string }),
     ownership: object(Object.fromEntries(['stt', 'tts', 'turnTaking'].map(k => [k, { enum: ['provider', 'server', 'browser'] }]))),
-    optionalCapabilities: object(Object.fromEntries(['forceInterrupt', 'alignment', 'playbackRetry', 'metering'].map(k => [k, capability])), []),
+    optionalCapabilities: object(Object.fromEntries(['forceInterrupt', 'alignment', 'playbackRetry', 'metering', 'speakText'].map(k => [k, capability])), []),
   }, ['reasoning', 'transcript', 'capabilities', 'billing']),
 }, ['id', 'version', 'apiVersion', 'kinds', 'placement', 'entrypoints', 'configSchema', 'vendor', 'models']);
 

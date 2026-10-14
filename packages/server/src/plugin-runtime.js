@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
   operationScope, inputRevision, voiceAuthorizationRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
@@ -94,6 +94,20 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }) } = {}) {
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
+  // A synchronous session lease precedes every authorization, quote and wallet await.
+  // It survives the synthesis receipt until playback ends (or its bounded lease expires).
+  const replyReplays = new Map();
+  const releaseReplyReplay = (sessionId, lease) => {
+    if (replyReplays.get(sessionId) !== lease) return;
+    replyReplays.delete(sessionId); clearTimeout(lease.timer);
+    lease.signal?.removeEventListener('abort', lease.abort);
+    lease.controller.abort();
+  };
+  const stopReplyReplay = (sessionId, replayId) => {
+    const entry = replyReplays.get(sessionId);
+    if (!entry || replayId !== undefined && entry.replayId !== replayId) return;
+    releaseReplyReplay(sessionId, entry);
+  };
   let ownerWallet, costRetryOffset = 0, costJob;
   const admitBudget = async (session, request) => {
     const wallet = ownerWallet?.(session);
@@ -254,7 +268,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       catch { return { reason: 'plugin unhealthy' }; }
     }
     if (scope) { const reason = consentReason(coverage, scope, now(), session.consentRevision); if (reason) return { reason }; }
-    if (feature === 'voice' && plugin.manifest.liveVoice?.reasoning === 'delegated') {
+    if (feature === 'voice' && !options.textReplay && plugin.manifest.liveVoice?.reasoning === 'delegated') {
       const reaction = await evaluate(session, preset, 'text', { ...options, raw: undefined, existingCall: false });
       if (reaction.reason) return { reason: `delegated reasoning: ${reaction.reason}` };
     }
@@ -657,6 +671,88 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       try { const kind = visualKind(session), raw = selectedBinding(session, session.processingPreset ?? 'best', kind).raw;
         return { maxMicro: (kind === 'images' ? createImageBinding(raw) : createBinding(raw)).maxMicro }; }
       catch { return null; }
+    },
+    stopReplyReplay,
+    stopReplyReplays() { for (const id of replyReplays.keys()) stopReplyReplay(id); },
+    async speakText({ session, turnId, options = {} }) {
+      if (replyReplays.has(session.id)) return { kind: 'busy' };
+      const lease = { replayId: options.replayId ?? randomUUID(), controller: new AbortController(), signal: options.signal };
+      replyReplays.set(session.id, lease);
+      lease.abort = () => releaseReplyReplay(session.id, lease);
+      lease.signal?.addEventListener('abort', lease.abort, { once: true });
+      lease.timer = setTimeout(lease.abort, 30_000); lease.timer.unref?.();
+      options = { ...options, signal: lease.signal ? AbortSignal.any([lease.signal, lease.controller.signal]) : lease.controller.signal };
+      let playing = false;
+      try {
+        const last = snapshot => snapshot.transcript.findLast(turn => turn.role === 'assistant' && !turn.erased && !turn.withdrawn && turn.content);
+        const reply = last(storage.get(session.id));
+        const current = () => {
+          const fresh = storage.get(session.id), latest = last(fresh);
+          if (!voiceUnchanged(session) || options.current?.() === false || latest?.id !== reply?.id || latest?.content !== reply?.content) throw new PluginError('unavailable');
+          options.signal?.throwIfAborted();
+        };
+        if (!reply || reply.id !== turnId) throw new PluginError('unavailable');
+        current();
+        const fallback = { kind: 'text', text: reply.content };
+        if (!selectedBinding(session, session.processingPreset ?? 'best', 'voice').raw) return fallback;
+        let result;
+        try { result = await this.checkVoice(session, { ...options, existingCall: true, textReplay: true }); }
+        catch (error) { current(); if (error.message === 'plugin unhealthy') return fallback; throw error; }
+        const adapter = result.plugin.ports?.serverAdapter;
+        if (!adapter?.quoteSpeakText || !adapter.speakText) return fallback;
+        let quote;
+        try { quote = await adapter.quoteSpeakText({ text: reply.content }, options); }
+        catch { current(); return fallback; }
+        current();
+        if (!Number.isSafeInteger(quote?.maxMicro) || quote.maxMicro < 0) return fallback;
+        let admission;
+        try { admission = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro: quote.maxMicro,
+          maxVisitorMicro: quote.maxMicro, requestSha256: hash({ turnId, text: reply.content }), bindingSha256: hash(result.binding) }); }
+        catch (error) {
+          if (error.code === 'not-admitted' && ['host-limit', 'session', 'voiceVisitor', 'Budget denied'].includes(error.message)) throw new PluginError('not-admitted', 'host-limit');
+          throw error;
+        }
+        const { attemptId } = admission;
+        const claim = budget.claim(attemptId); let dispatched = false, reported = false;
+        const report = terminal => {
+          if (reported) return; reported = true;
+          const receipt = { ...terminal, attemptId };
+          budget.settleVoice(claim.claimId, receipt);
+          if (receipt.closureConfirmed && receipt.usage) this.reconcileVoice(attemptId, receipt);
+        };
+        try {
+          const audio = await adapter.speakText({ text: reply.content, quote }, { ...options,
+            attempt: { ...claim, async consume() {
+              current();
+              if (result.scope) {
+                const coverage = await coverageFor(session, result.scope, options);
+                if (consentReason(coverage, result.scope, now(), session.consentRevision)) throw new PluginError('not-admitted');
+              }
+              current(); claim.consume(); dispatched = true;
+            } }, report });
+          current();
+          if (audio?.audio?.format !== 'pcm_16000' || typeof audio.audio.data !== 'string' || audio.audio.data.length > 5_592_408) return fallback;
+          // HTTP response completion aborts the request signal. Playback instead
+          // belongs to the call lifetime and its explicit, token-bound release.
+          lease.signal?.removeEventListener('abort', lease.abort);
+          lease.signal = options.playbackSignal;
+          lease.signal?.throwIfAborted();
+          lease.signal?.addEventListener('abort', lease.abort, { once: true });
+          playing = true;
+          clearTimeout(lease.timer);
+          // PCM is bounded by the output contract; expiry also releases abandoned tabs.
+          const durationMs = Buffer.from(audio.audio.data, 'base64').length / 32;
+          lease.timer = setTimeout(lease.abort, Math.ceil(durationMs) + 30_000); lease.timer.unref?.();
+          return { kind: 'audio', text: reply.content, turnId, replayId: lease.replayId, audio: audio.audio };
+        } catch (error) {
+          current();
+          if (['not-admitted', 'already-claimed', 'cancelled', 'deadline'].includes(error.code)) throw error;
+          return fallback;
+        } finally {
+          if (!reported) report({ outcome: 'uncertain', closureConfirmed: false, chargedMicro: dispatched ? quote.maxMicro : 0, usage: null });
+        }
+      } catch (error) { playing = false; throw error; }
+      finally { if (!playing) releaseReplyReplay(session.id, lease); }
     },
     async admitVoice({ session, request, options = {} }) {
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');

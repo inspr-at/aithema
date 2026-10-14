@@ -631,9 +631,9 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
     await t.test(`${width} ${theme} ${locale}`, async () => {
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
       const wording = {
-        de: { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Ganze Antwort lesen', title: 'Letzte Antwort',
+        de: { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Antwort wiederholen', title: 'Letzte Antwort',
           note: 'Der vollständige Text der letzten Antwort, Wort für Wort.', close: 'Schließen', tooltip: 'Erst fortsetzen' },
-        en: { notice: 'Last reply may not have played in full', button: 'Read full reply', title: 'Last reply',
+        en: { notice: 'Last reply may not have played in full', button: 'Replay reply', title: 'Last reply',
           note: 'The full text of the last reply, word for word.', close: 'Close', tooltip: 'Resume first' },
       }[locale];
       const layoutChecks = [];
@@ -653,6 +653,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
         s.transcript = [{ id: 'notice-user', role: 'user', content: locale === 'de' ? 'Eine Website für Stickpolster.' : 'A website for embroidered cushions.' }];
         globalThis.noticeReply = locale === 'de' ? 'Die Website zeigt die Lieferzeit nach dem Backlog.\n\nSollen Kunden Motiv, Farbe und Größe selbst wählen können?'
           : 'The website shows delivery time based on the backlog.\n\nShould customers be able to choose the design, colour and size?';
+        s.transcript.push({ id: 'notice-reply', role: 'assistant', content: globalThis.noticeReply });
         globalThis.noticeReplays = 0; globalThis.noticeAdmissions = 0; globalThis.noticeModelCalls = 0;
         const voiceClient = { manifest, async start({ callId }) {
           globalThis.noticeAdmissions++; globalThis.noticeCallId = callId;
@@ -682,7 +683,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
             const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right, height: b.height };
           };
           const rows = [...root.querySelectorAll('.voice-notice')].filter(n => getComputedStyle(n).display !== 'none');
-          const text = root.querySelector('.voice-notice--reply span'), range = document.createRange(); range.selectNodeContents(text);
+          const text = root.querySelector('.voice-notice--reply > span'), range = document.createRange(); range.selectNodeContents(text);
           return { slot: rect(root.querySelector('.voice-notices')), rows: rows.map(rect), text: rect(text),
             textRight: Math.max(...[...range.getClientRects()].map(r => r.right)), button: rect(root.querySelector('.voice-repeat')) };
         });
@@ -715,14 +716,14 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       await shot('unconfirmed', label);
       const lastReplyText = await page.evaluate(() => globalThis.noticeReply);
       await recovered({ deliveryUncertain: true, playbackPositionUnknown: false, lastReplyText });
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), '');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply > span').textContent), '');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), copy.voiceRecovered);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: known position hides incomplete notice without layout shift`);
       await noticeLayout('known-position');
       await shot('known-position', label);
       await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), wording.notice);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply > span').textContent), wording.notice);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), wording.button);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').getAttribute('aria-haspopup')), 'dialog');
       assert.equal(await page.evaluate(() => globalThis.noticeReplays), 0, 'no automatic replay');
@@ -746,7 +747,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
       const geometry = await shadow(page, c => {
         const root = c.shadowRoot, notice = root.querySelector('.voice-notices').getBoundingClientRect();
-        return [...root.querySelectorAll('.voice-notice--recovered, .voice-notice--user, .voice-notice--reply span, .voice-repeat')].map(n => {
+        return [...root.querySelectorAll('.voice-notice--recovered, .voice-notice--user, .voice-notice--reply > span, .voice-repeat')].map(n => {
           const b = n.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(n);
           return { name: n.className || 'reply-text', width: b.width, height: b.height, visible: b.top >= 0 && b.bottom <= innerHeight,
             inside: b.left >= notice.left - .5 && b.right <= notice.right + .5 && b.top >= notice.top - .5 && b.bottom <= notice.bottom + .5,

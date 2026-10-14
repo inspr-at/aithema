@@ -7,7 +7,7 @@ import { createVoiceDiagnostics, voiceReconciliationAge } from './voice-observab
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
-const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover))?$`, 'u');
+const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover|replay)|/(replay))?$`, 'u');
 // Route declarations are adapter-owned; parameter syntax is shared by the mount.
 const matchesCallback = (route, path) => {
   const declared = route.path.split('/'), actual = path.split('/');
@@ -150,6 +150,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   function revoke(entry) { entry.callbackContext?.revoke(); }
   function close(entry, reason = 'closed', outcome = 'completed') {
     if (entry.closing) return entry.closing;
+    runtime.stopReplyReplay?.(entry.sessionId);
     const resumable = recoverableVoiceEnd(reason);
     // Logical terminal intent commits before abort/settlement. A provider terminal
     // receipt only closes its own segment and cannot reopen the logical call.
@@ -400,6 +401,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return { voiceCallId: callId, voiceProviderId: providerSessionId };
     },
     stopSession(id, reason = 'session-revoked') {
+      runtime.stopReplyReplay?.(id);
       const entry = sessions.get(id);
       if (entry) void close(entry, reason, 'cancelled');
       for (const authority of authorities.values()) if (authority.sessionId === id) {
@@ -407,6 +409,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
     },
     async pauseSession(id, paused, opts = {}) {
+      if (paused) runtime.stopReplyReplay?.(id);
       const entry = sessions.get(id);
       if (!entry?.call) return null;
       const ack = await changePause(entry, paused, opts);
@@ -426,7 +429,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (methodNotAllowedStatus) return json({ error: methodNotAllowedStatus === 404 ? 'not-found' : 'method-not-allowed' }, methodNotAllowedStatus);
       const match = routes.exec(path); if (!match) return null;
       try {
-        const [, sessionId, callId, action] = match, ownerToken = ownership.token(request);
+        const [, sessionId, callId, callAction, pageAction] = match, action = callAction ?? pageAction, ownerToken = ownership.token(request);
         storage.authorize(sessionId, ownerToken);
         if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
         const bytes = await readBody(request, 65_536), body = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
@@ -434,6 +437,29 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (body.tabId !== undefined && (typeof body.tabId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.tabId)) ||
           body.epoch !== undefined && (!Number.isSafeInteger(body.epoch) || body.epoch < 0)) throw new TypeError('Invalid tab authority');
         if (action === 'recover' && body.explicit !== undefined && typeof body.explicit !== 'boolean') throw new TypeError('Invalid recovery intent');
+        if (action === 'replay') {
+          if (body.replayId !== undefined && (typeof body.replayId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.replayId))) throw new TypeError('Invalid replay identity');
+          if (body.stop === true) {
+            if (!body.replayId) throw new TypeError('Replay identity required');
+            runtime.stopReplyReplay(sessionId, body.replayId);
+            return json({ stopped: true });
+          }
+          if (typeof body.turnId !== 'string' || !body.turnId || body.turnId.length > 256) throw new TypeError('Reply identity required');
+          const entry = callId && calls.get(callId);
+          const current = () => {
+            const logical = storage.voiceLifecycle(sessionId);
+            if (!callId) return !logical || ['idle', 'ended'].includes(logical.state);
+            return entry?.sessionId === sessionId && entry.ownerToken === ownerToken && !entry.closing && !entry.call?.signal.aborted &&
+              logical?.callId === callId && logical.state === 'active' && !logical.holds.length && !logical.needsRecovery &&
+              logical.providerSessionId === body.providerSessionId && logical.epoch === entry.epoch &&
+              (!logical.controllingTabId || logical.controllingTabId === body.tabId && logical.epoch === body.epoch);
+          };
+          if (!current()) throw new PluginError('unavailable');
+          const playbackSignal = entry && AbortSignal.any([entry.controller.signal, entry.authority.signal]);
+          const signal = playbackSignal ? AbortSignal.any([request.signal, playbackSignal]) : request.signal;
+          return json(await runtime.speakText({ session: storage.get(sessionId), turnId: body.turnId,
+            options: { ...options(request), signal, playbackSignal, current, replayId: body.replayId } }));
+        }
         if (!action) {
           const current = storage.voiceLifecycle(sessionId);
           if (current?.state !== 'ended' && current?.controllingTabId && current.controllingTabId !== body.tabId) {
@@ -513,6 +539,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(await pending);
         }
         if (action === 'pause') {
+          runtime.stopReplyReplay?.(sessionId);
           if (body.pauseRequestId !== undefined && (typeof body.pauseRequestId !== 'string' ||
             !new RegExp(`^${idPattern}$`, 'u').test(body.pauseRequestId))) throw new TypeError('Invalid pause request identity');
           const event = storage.pause(sessionId, true, { ownerToken, pauseRequestId: body.pauseRequestId }); publish(sessionId, event);
@@ -543,6 +570,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
+          if (['partial', 'final'].includes(body.event?.type)) runtime.stopReplyReplay?.(sessionId);
           const fresh = sessionFor(entry);
           // The completion ID belongs to one operation. Text only attests that
           // receipt's bytes; it never selects a reply or supplies an ordinal.
@@ -651,6 +679,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     reconcileLater,
     async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },
     async close() {
+      runtime.stopReplyReplays?.();
       stopping = true; clearTimeout(reconcileTimer);
       for (const id of sessions.keys()) this.stopSession(id, 'server-stopping');
       for (const authority of authorities.values()) endAuthority(authority.sessionId, authority.callId);

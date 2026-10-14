@@ -90,6 +90,14 @@ export function createLocalVoiceProvider({ storage, now = Date.now }) {
       return config;
     },
     matchesConfig: value => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0,
+    quoteSpeakText: async () => ({ maxMicro: 0 }),
+    async speakText({ text }, options) {
+      await options.attempt.consume();
+      const usage = { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0,
+        upstreamMicro: 0, visitorMicro: 0, characters: text.length, providerCredits: 0, costEstimated: false, costSource: 'local-simulator' };
+      await options.report?.({ outcome: 'completed', closureConfirmed: true, chargedMicro: 0, usage });
+      return { audio: { format: 'pcm_16000', data: Buffer.alloc(32_000).toString('base64') }, usage };
+    },
     async startSegment(request, options) {
       const segment = await start(request, options);
       return { ...segment, grant: fakeMediaGrant({ callId: segment.callId, providerSessionId: segment.providerSessionId,

@@ -3,6 +3,9 @@ import { voiceEvents, voiceOperation, assertVoiceSession } from '../../../packag
 import { createVoiceLifecycleController } from '../../../packages/core/src/voice-lifecycle-controller.js';
 import { manifest } from './manifest.js';
 import { watchVoicePlayback } from './playback.js';
+import { createReplyReplay } from '../../../packages/core/src/reply-replay.js';
+import { playReplyAudio } from '../../../packages/ui/src/reply-audio.js';
+import { createPageReplay } from '../../../packages/ui/src/page-replay.js';
 import { voiceOverrides, createElevenLabsBrowserMedia, elevenLabsComponents } from './options.js';
 export { elevenLabsMediaGrant } from './options.js';
 export { manifest } from './manifest.js';
@@ -79,13 +82,17 @@ export function createElevenLabsClient(ports = {}) {
     !Number.isSafeInteger(persistenceRetries) || persistenceRetries < 0 || persistenceRetries > 5 ||
     !Number.isFinite(persistenceBackoffMs) || persistenceBackoffMs < 0) throw new TypeError('Voice control, durable persistence and valid timeouts required');
   const getSdk = async () => sdk ?? (await import('@elevenlabs/client')).Conversation;
+  const pageReplay = createPageReplay({ control, document, playAudio: ports.playAudio ?? playReplyAudio });
   const client = {
     manifest,
+    replayReply: (reply, opts) => pageReplay.replay(reply, opts),
+    stopReplay: () => pageReplay.stop(),
     tabId: control.tabId,
     takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
     async health(options) { return voiceOperation(options, async () => ({ available: typeof (await getSdk())?.startSession === 'function' })); },
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}) {
+      pageReplay.stop();
       const events = voiceEvents();
       const playback = document?.defaultView?.MutationObserver && document.body
         ? watchVoicePlayback(document, () => options.onPlaybackBlocked?.(() => playback.retry())) : undefined;
@@ -95,6 +102,7 @@ export function createElevenLabsClient(ports = {}) {
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       let lastReply, lastPlaybackTurnId;
+      let silenceReply = () => {};
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId,
         ...(grant?.epoch !== undefined ? { epoch: grant.epoch } : {}) });
       const pauseControl = opts => {
@@ -108,6 +116,19 @@ export function createElevenLabsClient(ports = {}) {
         return control.resume({ ...identity(), resumeRequestId }, opts);
       };
       const outputVolume = () => ended || paused || transportBlocked || !outputOn || playbackInterrupted ? 0 : 1;
+      const replay = createReplyReplay({
+        current: reply => !ended && !paused && !transportBlocked && outputOn && !lifecycle.state.holds.length &&
+          reply.turnId === lastReply?.turnId && reply.text === lastReply?.text && (!lastPlaybackTurnId || lastPlaybackTurnId === reply.turnId),
+        synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId, replayId: opts.replayId }, opts),
+        release: replayId => control.stopReplyReplay?.({ ...identity(), replayId }),
+        playAudio: (audio, opts) => {
+          conversation?.output?.interrupt?.(0);
+          playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
+          return (ports.playAudio ?? playReplyAudio)(audio, { ...opts, conversation, document, AudioContext });
+        },
+        onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); },
+      });
+      const stopReplayForInput = () => { if (replay.active) { silenceReply(); replay.stop(); } };
       const stopPersistence = () => persistenceCancellation.abort();
       const persist = async value => {
         const signal = persistenceCancellation.signal;
@@ -142,6 +163,7 @@ export function createElevenLabsClient(ports = {}) {
             lastReply = { turnId: value.turnId, text: value.text };
             lifecycle.dispatch({ type: 'reply', replyId: value.turnId });
           }
+          if (value.type === 'heard' && value.turnId === lastReply?.turnId) lastReply = { ...lastReply, text: value.prefix };
           // Corrections remain durable transcript evidence for their own turn.
           // A queued/late correction for A cannot establish B's playback position.
           if (value.type === 'heard' && value.turnId === lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: value.prefix });
@@ -150,6 +172,7 @@ export function createElevenLabsClient(ports = {}) {
             events.push(value.type === 'recovered' ? { ...value, recovery: {
               userUnconfirmed: checkpoint.userUnconfirmed, deliveryUncertain: checkpoint.deliveryUncertain,
               playbackPositionUnknown: checkpoint.deliveryUncertain && checkpoint.heardPrefix === null,
+              lastReplyTurnId: lastReply?.turnId ?? null,
               lastReplyText: lastReply && (!lastPlaybackTurnId || lastPlaybackTurnId === lastReply.turnId) ? lastReply.text : null,
             } } : value);
           }
@@ -208,7 +231,7 @@ export function createElevenLabsClient(ports = {}) {
         if (closing) return closing;
         const closeOptions = { ...commandOptions, deadlineAt: Math.min(commandOptions.deadlineAt ?? Infinity, Date.now() + closeTimeoutMs) };
         playback?.destroy();
-        ended = true; generation++; lifecycle.end(reason); options.signal?.removeEventListener('abort', cancel);
+        ended = true; replay.stop(); generation++; lifecycle.end(reason); options.signal?.removeEventListener('abort', cancel);
         options.holdSignal?.removeEventListener('abort', retainHold);
         document?.removeEventListener('freeze', freeze); document?.removeEventListener('resume', wake);
         document?.removeEventListener('visibilitychange', visible);
@@ -245,6 +268,10 @@ export function createElevenLabsClient(ports = {}) {
         const current = ++generation;
         playbackInterrupted = false;
         let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
+        silenceReply = () => {
+          lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
+          playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
+        };
         const replyIds = new Map();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
@@ -260,6 +287,7 @@ export function createElevenLabsClient(ports = {}) {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
           latestAssistantId = Math.max(latestAssistantId, eventId);
           const turnId = `${receipt.providerSessionId}:assistant:${latestAssistantId}`;
+          if (turnId !== lastReply?.turnId) replay.stop();
           // Stream/audio identity arrives before the complete final callback.
           // Invalidate the previous turn's prefix as soon as the new turn starts.
           if (turnId !== lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: null });
@@ -341,7 +369,7 @@ export function createElevenLabsClient(ports = {}) {
           onConnect({ conversationId }) {
             if (active() && conversationId !== receipt.providerSessionId) void close('provider-identity-mismatch').catch(() => {});
           },
-          onModeChange({ mode }) { if (active() && ['listening', 'speaking'].includes(mode)) emit({ type: mode }); },
+          onModeChange({ mode }) { if (active() && ['listening', 'speaking'].includes(mode) && !replay.active) emit({ type: mode }); },
           onAgentChatResponsePart({ event_id: eventId, type, text }) {
             // Provider stream starts/deltas precede the final response and
             // identify the reply, unlike speaking mode or analyser counters.
@@ -360,6 +388,7 @@ export function createElevenLabsClient(ports = {}) {
             // persistence. Paused finals leave a gap instead of shifting IDs.
             const ordinal = speaker === 'user' ? ++userTurnOrdinal : undefined;
             if (paused) return;
+            if (speaker === 'user') stopReplayForInput();
             if (speaker === 'assistant') {
               assistants.set(turnId, { text: message, eventId, replyId: replyIds.get(eventId) });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
@@ -396,12 +425,14 @@ export function createElevenLabsClient(ports = {}) {
             }
             const text = event?.tentative_user_transcription_event?.user_transcript;
             if (active() && !paused && event.type === 'tentative_user_transcript' && typeof text === 'string') {
+              if (text.trim()) stopReplayForInput();
               emit({ type: 'partial', turnId: `${receipt.providerSessionId}:user:pending`, role: 'user', text });
             }
           },
           onInterruption({ event_id: eventId }) {
             if (active() && Number.isSafeInteger(eventId) && eventId >= 0 && eventId > lastInterruptionId && eventId >= latestAssistantId) {
               lastInterruptionId = eventId; playbackInterrupted = true;
+              replay.stop();
               // WebRTC's native interrupt is a no-op. Mute its actual audio
               // elements (and WebSocket gain) synchronously, outside persistence
               // and the command queue. Only a newer agent reply lifts this gate.
@@ -452,6 +483,7 @@ export function createElevenLabsClient(ports = {}) {
       };
       let recoveryIdentity;
       const stopMedia = reason => {
+        replay.stop();
         if (reason === 'ownership-lost') playback?.destroy();
         if (['sleep', 'wake', 'ownership-lost', 'server-restart', 'browser-liveness-deadline'].includes(reason)) {
           paused = true; pauseRevision++;
@@ -511,6 +543,7 @@ export function createElevenLabsClient(ports = {}) {
         if (ended) return;
         if (options.holdSignal?.reason === 'ownership-lost') { lifecycle.ownershipLost(); return; }
         paused = true; pauseRevision++; lifecycle.pause('hide');
+        replay.stop();
         capture?.setEnabled(false);
         if (conversation) void capture.run(() => channels()).catch(() => {});
       };
@@ -573,6 +606,7 @@ export function createElevenLabsClient(ports = {}) {
           pause(commandOptions) {
             if (ended) return Promise.reject(new PluginError('unavailable'));
             paused = true; pauseRevision++; lifecycle.pause();
+            replay.stop();
             const muted = capture.run(() => channels()); muted.catch(() => {});
             return command('pause', async opts => {
               await muted;
@@ -601,14 +635,19 @@ export function createElevenLabsClient(ports = {}) {
             }, true)(commandOptions);
           },
           setInput(on, opts) { return command('setInput', () => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); inputOn = on; return capture.run(() => channels()); })(opts); },
-          setOutput(on, opts) { return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return capture.run(() => channels()); })(opts); },
-          // SDK 1.17.0 cannot speak arbitrary agent text. No complete audio is retained.
-          // Return the acknowledged original reply for the explicit, zero-cost text fallback.
-          // Never sendUserMessage: that would trigger a paid model turn and change Rule C.
-          replayLastReply: command('replayLastReply', () => {
-            if (paused || transportBlocked || lifecycle.state.holds.length || !outputOn || !lastReply) throw new PluginError('unavailable');
-            return { kind: 'text', text: lastReply.text };
-          }),
+          setOutput(on, opts) {
+            if (on === false) { outputOn = false; replay.stop(); }
+            return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return capture.run(() => channels()); })(opts);
+          },
+          get replaying() { return replay.active; },
+          stopReplay() { if (replay.active) silenceReply(); return replay.stop() ?? Promise.resolve(); },
+          replayLastReply(opts) {
+            const reply = lastReply && { ...lastReply }, revision = replay.revision;
+            return command('replayLastReply', bounded => {
+              if (revision !== replay.revision) throw new PluginError('cancelled');
+              return replay.replay(reply, bounded);
+            })(opts);
+          },
           sendText(text, opts) { return command('sendText', () => {
             if (paused || transportBlocked) throw new PluginError('not-admitted', 'Voice session paused');
             if (typeof text !== 'string' || !text.trim() || text.length > 16_384) throw new PluginError('limit', 'Invalid voice text');

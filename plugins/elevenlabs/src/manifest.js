@@ -29,6 +29,7 @@ export const manifest = deepFreeze({
     ],
     cost: { unit: 'minute', inputMicro: null, outputMicro: null, reviewedAt: null } }],
   liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
+    optionalCapabilities: { speakText: 'native' },
     ownership: { stt: 'provider', tts: 'provider', turnTaking: 'provider' },
     capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',
       pause: 'emulated', resume: 'emulated', interrupt: 'native', heard: 'native' },

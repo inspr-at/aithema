@@ -7,7 +7,7 @@ import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-async function fixture(t, copy) {
+async function fixture(t, copy, { bubble = true } = {}) {
   const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
   const events = voiceEvents(), replays = [];
   const session = { callId: 'call', providerSessionId: 'provider', events,
@@ -15,7 +15,7 @@ async function fixture(t, copy) {
     async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
     async replayLastReply() { replays.push('last'); return { kind: 'text', text: 'Exact last reply.\nWith paragraphs.' }; },
     async close() { events.end(); return { closureConfirmed: true }; } };
-  const rail = new AudioRail({ root, copy, client: { async start() { return session; } }, feature: () => ({ available: true }), context: () => ({}) });
+  const rail = new AudioRail({ root, copy, client: { async start() { return session; } }, feature: () => ({ available: true }), context: () => ({}), replyVisible: text => bubble && Boolean(text) });
   t.after(async () => { await rail.close(); rail.destroy(); await window.happyDOM.close(); });
   await rail.start();
   const push = async event => { events.push({ callId: 'call', ...event }); await tick(); };
@@ -24,9 +24,9 @@ async function fixture(t, copy) {
 }
 
 for (const [locale, copy, wording] of [
-  ['de', de, { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Ganze Antwort lesen', title: 'Letzte Antwort',
+  ['de', de, { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Antwort wiederholen', title: 'Letzte Antwort',
     note: 'Der vollständige Text der letzten Antwort, Wort für Wort.', close: 'Schließen', tooltip: 'Erst fortsetzen' }],
-  ['en', en, { notice: 'Last reply may not have played in full', button: 'Read full reply', title: 'Last reply',
+  ['en', en, { notice: 'Last reply may not have played in full', button: 'Replay reply', title: 'Last reply',
     note: 'The full text of the last reply, word for word.', close: 'Close', tooltip: 'Resume first' }],
 ]) {
   for (const [key, flags] of [
@@ -122,4 +122,70 @@ for (const stop of ['pause', 'waiting', 'hangup', 'next-turn']) test(`AIT-138 c:
   if (stop === 'next-turn') await f.push({ type: 'final', turnId: 'next', role: 'assistant', text: 'New reply' });
   resolve({ kind: 'text', text: 'Late reply' }); await tick();
   assert.equal(f.root.querySelector('.voice-reply-dialog').open, false);
+});
+
+for (const [locale, copy, labels] of [
+  ['de', de, ['Antwort wiederholen', 'Wiederholung stoppen', 'Ganze Antwort lesen', 'Text lesen']],
+  ['en', en, ['Replay reply', 'Stop replay', 'Read full reply', 'Read text']],
+]) {
+  test(`AIT-154 round 2: ${locale} replay label switches to Stop and back in the same button`, async t => {
+    const f = await fixture(t, copy);
+    f.rail.session.replayLastReply = async () => ({ kind: 'audio' });
+    f.rail.session.stopReplay = async () => {};
+    await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+    const button = f.root.querySelector('.voice-repeat');
+    assert.equal(button.textContent, labels[0]);
+    button.click(); await tick(); assert.equal(button.textContent, labels[1]);
+    assert.equal(button, f.root.querySelector('.voice-repeat'));
+    button.click(); await tick(); assert.equal(button.textContent, labels[0]);
+  });
+  test(`AIT-154 round 2: ${locale} unavailable audio changes to the full-text fallback`, async t => {
+    const f = await fixture(t, copy);
+    await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Exact last reply.\nWith paragraphs.' });
+    f.root.querySelector('.voice-repeat').click(); await tick();
+    assert.equal(f.root.querySelector('.voice-repeat').textContent, labels[2]);
+  });
+  test(`AIT-154 round 2: ${locale} Read text opens the approved dialog without synthesis`, async t => {
+    const f = await fixture(t, copy);
+    await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+    const link = f.root.querySelector('.voice-read-text'); assert.ok(link); assert.equal(link.textContent, labels[3]);
+    link.click(); await tick(); assert.equal(f.rail.notices.dialog.open, true);
+    assert.equal(f.root.querySelector('.voice-reply-text').textContent, 'Reply'); assert.deepEqual(f.replays, []);
+  });
+}
+test('AIT-154 round 2: acknowledged recovery without its assistant bubble hides replay and text actions', async t => {
+  const f = await fixture(t, en, { bubble: false });
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Acknowledged but missing' });
+  assert.equal(f.root.querySelector('.voice-repeat').hidden, true);
+  assert.equal(f.root.querySelector('.voice-read-text').hidden, true);
+  f.root.querySelector('.voice-repeat').click(); await tick(); assert.deepEqual(f.replays, []);
+});
+
+for (const locale of ['de', 'en']) test(`AIT-154 round 2: ${locale} no audio credit keeps both text actions usable`, async t => {
+  const copy = { de, en }[locale], f = await fixture(t, copy);
+  f.rail.usedUp = () => true;
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+  const button = f.root.querySelector('.voice-repeat');
+  assert.equal(button.textContent, copy.voiceReadFullReply); assert.equal(button.disabled, false);
+  button.click(); await tick(); assert.equal(f.rail.notices.dialog.open, true); assert.deepEqual(f.replays, []);
+});
+
+test('AIT-154 round 2: Stop stays usable during synthesis and fences a late result', async t => {
+  const f = await fixture(t, en), pending = Promise.withResolvers(); let stops = 0;
+  f.rail.session.replayLastReply = () => pending.promise;
+  f.rail.session.stopReplay = async () => { stops++; };
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+  const button = f.root.querySelector('.voice-repeat'); button.click(); await tick();
+  assert.equal(button.textContent, en.voiceReplayStop); assert.equal(button.disabled, false);
+  button.click(); await tick(); assert.equal(stops, 1); assert.equal(button.textContent, en.voiceRepeatReply);
+  pending.resolve({ kind: 'audio' }); await tick(); assert.equal(f.rail.notices.playing, false);
+});
+
+test('AIT-154 round 2: a newly denied wallet falls back to full text with no error dialog', async t => {
+  const f = await fixture(t, en);
+  f.rail.session.replayLastReply = async () => { throw Object.assign(new Error(), { code: 'not-admitted', reason: 'host-limit' }); };
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+  f.root.querySelector('.voice-repeat').click(); await tick();
+  assert.equal(f.root.querySelector('.voice-repeat').textContent, en.voiceReadFullReply);
+  assert.equal(f.rail.notices.dialog.open, true); assert.equal(f.root.querySelector('.voice-reply-text').textContent, 'Reply');
 });

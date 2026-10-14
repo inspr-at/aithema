@@ -21,6 +21,7 @@ export function assertVoicePorts(ports) {
   }
   if (ports.serverAdapter?.callbackRoutes !== undefined && (!Array.isArray(ports.serverAdapter.callbackRoutes) ||
     ports.serverAdapter.callbackRoutes.some(route => !route?.method || !route.path || typeof route.handle !== 'function'))) throw new TypeError('Invalid voice callback routes');
+  for (const method of ['quoteSpeakText', 'speakText']) if (ports.serverAdapter?.[method] !== undefined && typeof ports.serverAdapter[method] !== 'function') throw new TypeError('Invalid voice text speech port');
   return ports;
 }
 
