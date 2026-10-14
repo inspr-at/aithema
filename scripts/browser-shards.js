@@ -14,8 +14,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserShards = [
   // 402.566s CI; 350.166s mbp2606
   ['test/browser/visitor-credit-tiers.test.js'],
-  // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
-  // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
+  // AIT-173 run 38531320436: whole jobs 405/483/419/397s.
+  // Move operator-login's isolated 39s batch to shard 4 to keep every job below 480s.
   // AIT-169 rotates 13 admin states across widths in CI (both locales/themes),
   // keeps all 12 zero-shift flows, and awaits module readiness instead of idle.
   // The complete screenshot matrix is reserved for non-CI evidence runs.
@@ -23,7 +23,6 @@ export const browserShards = [
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/start-look.test.js',
-    'test/browser/operator-login.test.js',
     'test/browser/audio-replay.test.js',
     'test/browser/admin-pages.test.js',
     'test/browser/email-mail-space.test.js',
@@ -46,6 +45,7 @@ export const browserShards = [
     'test/browser/start2-display-continuity.test.js',
     'test/browser/demo.test.js',
     'test/browser/voice-presentation.test.js',
+    'test/browser/operator-login.test.js',
   ],
 ];
 
