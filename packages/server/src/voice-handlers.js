@@ -613,6 +613,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
                 userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
+            if (purposePolicy && result.event.type === 'turn.corrected' && result.event.data.role === 'assistant') {
+              storage.carrySafeguardRevision(sessionId, inputRevision(fresh), inputRevision(storage.get(sessionId)));
+            }
             if (purposePolicy && body.event.role === 'user' && Number.isSafeInteger(result.event?.data.userTurnOrdinal)) {
               storage.bindSafeguard(sessionId, `voice:${callId}:${entry.call.providerSessionId}:${result.event.data.userTurnOrdinal}`, inputRevision(storage.get(sessionId)));
             }

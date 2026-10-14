@@ -192,6 +192,11 @@ export class SQLiteStorage {
       return events;
     });
   }
+  carrySafeguardRevision(id, previousRevision, revision) {
+    // An assistant heard-prefix correction changes no person/document input.
+    // Retain its assessed purpose without creating another counter contribution.
+    this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND revision=?').run(revision, id, previousRevision);
+  }
   bindSafeguard(id, key, revision) {
     this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND input_key=?').run(revision, id, key);
   }

@@ -143,7 +143,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         host?.touchVisitor?.(storage.get(id));
         conceptHandlers.onTurn(id, event.data.id);
       }
-      if (purposePolicy && !voiceHandlers.delegatesReply(id)) scheduleLane(id, 'reaction');
+      if (purposePolicy && !voiceHandlers.delegatesReply(id)) schedule(id);
       else if (!purposePolicy || storage.safeguards(id, inputRevision(storage.get(id))).assessed) scheduleLane(id, 'understanding');
       status(id);
     } }) : null;
@@ -177,7 +177,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     await cancelled;
   }
   function schedule(id) {
-    for (const lane of voiceHandlers?.active(id) && (!purposePolicy || voiceHandlers.delegatesReply(id)) ? ['understanding'] : purposePolicy ? ['reaction'] : ['reaction', 'understanding']) scheduleLane(id, lane);
+    let requested;
+    if (purposePolicy) {
+      const session = storage.get(id), scoped = storage.safeguards(id, inputRevision(session));
+      requested = scoped.assessed ? scoped.offTopic ? [] : ['understanding']
+        : voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id) ? [] : ['reaction'];
+    } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
+    for (const lane of requested) scheduleLane(id, lane);
     status(id);
   }
   function scheduleLane(id, lane) {
@@ -245,9 +251,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   function unfinished(session) {
     const revision = inputRevision(session);
+    const scoped = purposePolicy ? storage.safeguards(session.id, revision) : null;
+    const replyMissing = scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     return !session.tombstone && hasConversationInput(session) &&
-      (!activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision) ||
-        !understandingDeferred(session) && (session.understanding.inputRevision !== revision || session.understanding.draft));
+      (replyMissing || !scoped?.offTopic && !understandingDeferred(session) &&
+        (session.understanding.inputRevision !== revision || session.understanding.draft));
   }
   function events(request, id) {
     const session = storage.get(id);
