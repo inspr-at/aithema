@@ -70,7 +70,7 @@ export function createQualificationBudget({ capMicro = QUALIFICATION_THRESHOLDS.
           if (row.state === 'settled') throw new PluginError('already-claimed');
           if (terminal?.attemptId !== attemptId || !['completed', 'cancelled', 'uncertain'].includes(terminal.outcome)) throw new TypeError('Invalid settlement');
           const charged = terminal.chargedMicro ?? terminal.usage?.upstreamMicro;
-          const known = terminal.outcome !== 'uncertain' && Number.isSafeInteger(charged) && charged >= 0;
+          const known = terminal.outcome !== 'uncertain' && terminal.usage?.estimated !== true && Number.isSafeInteger(charged) && charged >= 0;
           if (row.state === 'reserved' && terminal.outcome !== 'cancelled') throw new PluginError('not-admitted');
           row.exposureMicro = row.state === 'reserved' ? 0 : known ? charged : maxMicro;
           row.state = 'settled'; row.outcome = terminal.outcome;

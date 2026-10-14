@@ -46,6 +46,7 @@ preference remains pending, so offline results never qualify a vendor.
 `createQualificationBudget()` shares one $25 ceiling across candidate, ElevenLabs
 baseline, all component/reasoning attempts, and retries. Reserve the maximum
 before dispatch and settle once; uncertainty retains the entire reservation.
+Estimated vendor cost also retains the full reservation rather than freeing spend.
 Snapshots retain attempt identities and overrun blocks across restart. The later
 live runner must persist this shared snapshot atomically before dispatch, enforce
 verified pricing ceilings for every provider attempt, and collect actual media
