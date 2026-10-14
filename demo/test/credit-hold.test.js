@@ -60,10 +60,12 @@ test('AIT-173: display uses the capped AIT-163 lane/byte fallback and uncapped a
   const { attemptId } = f.ledger.admit(f.request('reaction', 500_000, { providerCost: { estimateMicro: 20_000, observedCostMicro: 30_000 } }));
   const claim = f.ledger.claim(attemptId); claim.consume();
   assert.equal((await credits(f)).balance.owner.availableMicro, 5_970_000);
+  f.ledger.observeCost(attemptId, { estimateMicro: 900_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_500_000, 'fallback is capped by the reservation');
   f.ledger.observeCost(attemptId, { observedCostMicro: 900_000 });
-  assert.equal((await credits(f)).balance.owner.availableMicro, 5_500_000, 'bytes cannot exceed the reservation');
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_100_000, 'real usage is an uncapped floor; byte observations are capped at collection');
   f.ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
-  assert.equal((await credits(f)).balance.owner.availableMicro, 5_500_000, 'uncertain settlement keeps the same estimate');
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_100_000, 'uncertain settlement keeps the same observed floor');
   f.ledger.observeCost(attemptId, { chargedMicro: 700_000 });
   assert.equal((await credits(f)).balance.owner.availableMicro, 5_300_000, 'actual provider costs can overrun');
 });

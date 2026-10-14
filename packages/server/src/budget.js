@@ -81,7 +81,7 @@ export class SQLiteBudgetLedger {
         const record = JSON.parse(row.provider_cost_json);
         // Same persisted lane/byte fallback as AIT-163. A real receipt is not
         // capped; estimates are bounded by the reservation, including bytes.
-        expected = record.chargedMicro ?? Math.min(row.max_micro, Math.max(record.estimateMicro ?? row.max_micro, record.observedCostMicro ?? 0));
+        expected = record.chargedMicro ?? Math.max(record.observedCostMicro ?? 0, Math.min(row.max_micro, record.estimateMicro ?? row.max_micro));
         if (row.state !== 'settled' && row.state !== 'dispatched') expected = 0;
       }
       costs.uncertainSpendMicro += expected;
