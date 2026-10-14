@@ -9,7 +9,7 @@ import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { mockConsent } from './consent-helpers.js';
-import { browserPath, shadow, until, settle, layoutBoxes, sameBoxes, finishRevealEntry, evidenceCommit } from './start2-display-helpers.js';
+import { browserPath, shadow, until, settle, layoutBoxes, sameBoxes, finishRevealEntry, finishWorkspaceEntry, evidenceCommit } from './start2-display-helpers.js';
 
 test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-'));
@@ -267,4 +267,46 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait-138-d-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 d', commit: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', provider: 'local fake; actual server and browser controller', files, checks, takebacks }, null, 2));
+});
+
+// Hold the first greeting's persistence while the rail is already speaking.
+// This reproduces the ordering that previously captured the full-width pane.
+test('AIT-177: continuity baseline awaits the persisted greeting and workspace entry', { timeout: 30_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-entry-'));
+  const demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), join(directory, 'session.sqlite'));
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+    userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
+    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(); await page.setViewport({ width: 1024, height: 900 });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let intercepted;
+  const greeting = new Promise(resolve => { intercepted = resolve; });
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    if (request.method() === 'POST' && /\/voice\/[^/]+\/events$/u.test(new URL(request.url()).pathname)
+      && JSON.parse(request.postData()).event.type === 'final') {
+      intercepted(); await held;
+    }
+    await request.continue();
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await mockConsent(page);
+  await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+  await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
+  await shadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
+  await greeting;
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent');
+  // Release only after the old 120ms baseline wait could finish. The new wait
+  // must observe the persisted final event before it can return.
+  const timer = setTimeout(release, 500); t.after(() => { clearTimeout(timer); release(); });
+  await finishWorkspaceEntry(page);
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'present');
+  assert.ok(await shadow(page, c => c.session.transcript.length > 0));
+  const selectors = ['.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
+  const before = await layoutBoxes(page, selectors);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  sameBoxes(before, await layoutBoxes(page, selectors), 'first greeting workspace entry completed');
 });
