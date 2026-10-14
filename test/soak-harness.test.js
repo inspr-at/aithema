@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { percentile, summarize, stopReason, spendGuard, diagnosticRecords, disruptionAt, schedule, validateOptions } from './live/soak-model.js';
+import { createSoakLog } from './live/diagnostic-host.js';
 
 test('AIT-139: nearest-rank report percentiles preserve zero and empty samples', () => {
   assert.equal(percentile([], .95), null);
@@ -68,6 +69,17 @@ test('AIT-139: diagnostic projection refuses other calls and drops private/free-
     firstTokenMs: 42, text: 'private', cause: 'private', url: 'private' }) + '\n'
     + JSON.stringify({ event: 'voice.turn.retry', callHash: 'b'.repeat(64) }) + '\nnot json', hash);
   assert.deepEqual(records, [{ event: 'voice.turn.first-token', callHash: hash, firstTokenMs: 42 }]);
+});
+
+test('AIT-139: OPS host exports JSON and legacy object records without private fields', () => {
+  const lines = [], log = createSoakLog(line => lines.push(JSON.parse(line))), hash = 'a'.repeat(64);
+  log(JSON.stringify({ event: 'voice.turn.admission', callHash: hash, admissionMs: 1, text: 'private' }));
+  log({ event: 'voice.cost-reconciled', callHash: hash, chargedMicro: 10, closureConfirmed: true, secret: 'private' });
+  log({ event: 'voice-availability', reason: 'private' }); log('not json');
+  assert.deepEqual(lines, [
+    { event: 'voice.turn.admission', callHash: hash, admissionMs: 1 },
+    { event: 'voice.cost-reconciled', callHash: hash, chargedMicro: 10, closureConfirmed: true },
+  ]);
 });
 
 test('AIT-139: 5/60-minute plans fit the cap, contain turns, barge-in and both disruptions', () => {

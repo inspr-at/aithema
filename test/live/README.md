@@ -93,11 +93,23 @@ dry run validates harness plumbing, not live voice quality or provider latency.
    voice and grant the normal processing consent through the page. **Do not start
    a call.** Close Chrome before the harness uses that profile. Keep this profile
    local/private; never attach it to the ticket. Record only value-free evidence.
-6. OPS supplies a local JSONL export containing **only** the part-1 closed-schema
-   `voice.*` correlation records from this test host, updated during the run.
-   Keep raw application/provider logs out. The harness filters records by the
-   hash of its own call ID, retains attempts across generations, and drops any
-   non-schema fields. Export file must remain present through final reconciliation.
+6. At startup of that isolated host, set these non-secret configuration values
+   through its normal OPS launcher (do not source or copy env files):
+
+   ```text
+   AITHEMA_VOICE_HOST_MODULE=/absolute/pinned/checkout/test/live/diagnostic-host.js
+   AITHEMA_SOAK_DIAGNOSTICS=/absolute/private/ait139-voice-diagnostics.jsonl
+   ```
+
+   Create the parent directory privately for the service account first. The
+   wrapper delegates to the existing owned-agent host and appends **only** the
+   part-1 closed-schema records, converting both JSON strings and legacy object
+   logs to JSONL. It does no provider work on import. Do not reuse a previous
+   run's export or rotate it during this run. OPS forwards this file to mbp2606
+   continuously if the host is elsewhere, using its existing private log
+   transport. Keep raw application/provider logs out. The harness filters by its
+   own call hash and retains attempts across generations. The complete append-only
+   export must remain present through final reconciliation.
 
 ## OPS: the single capped DE run (not executed by the builder)
 
