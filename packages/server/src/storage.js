@@ -173,14 +173,16 @@ export class SQLiteStorage {
         state.lastInput = key;
         state.unclear = reply.scope === 'unclear' ? [...state.unclear, key].slice(-3) : [];
       }
+      const copies = Object.values(policy.directionQuestion);
+      const directionCard = copies.some(copy => reply.question_short?.includes(copy) || reply.options.some(option => option.text.includes(copy)));
       let content = reply.content;
-      for (const copy of Object.values(policy.directionQuestion)) content = content.replaceAll(copy, '').trim();
+      for (const copy of copies) content = content.replaceAll(copy, '').trim();
       const ask = !state.asked && reply.scope === 'unclear' && state.unclear.length >= 3 && session.pauseReason !== 'purpose';
       if (ask) { content = policy.directionQuestion[session.locale]; state.asked = true; }
       this.db.prepare('INSERT INTO safeguard_direction VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET record=excluded.record')
         .run(id, JSON.stringify(state));
       return { ...reply, content: content || (session.locale === 'de' ? 'Woran arbeiten Sie gerade?' : 'What are you working on?'),
-        ...(reply.scope === 'unclear' ? { question_short: null, options: [] } : {}) };
+        ...(reply.scope === 'unclear' || directionCard ? { question_short: null, options: [] } : {}) };
     });
   }
   // Scope is consumed internally; retain only the counter contribution and assessment gate.
