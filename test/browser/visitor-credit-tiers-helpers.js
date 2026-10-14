@@ -18,7 +18,16 @@ async function browserPath() {
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
-const settle = () => new Promise(resolve => setTimeout(resolve, 450));
+// Wait for the rendered fixture and finite UI transitions instead of paying
+// 450 ms after every action in all twelve viewport/theme/language combinations.
+const settle = page => shadow(page, async c => {
+  await document.fonts.ready;
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+    .filter(animation => animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime))
+    .map(animation => animation.finished.catch(() => {})));
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+});
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
 }), selectors);
@@ -94,7 +103,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
   }, { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
-  await settle();
+  await settle(page);
 }
 
 export async function visitorCreditMatrix(t, locales) {
@@ -234,11 +243,11 @@ export async function visitorCreditMatrix(t, locales) {
       assert.equal(dock[0][1] + dock[0][3], dock[1][1], 'AIT-132 card meets the A2 composer without a gap');
       assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('#email-input'))), true, 'the inline email input exists');
       await click(page, '.host-credits__button'); await shot('credits-anonymous');
-      await click(page, '.credits-email'); await settle();
+      await click(page, '.credits-email'); await settle(page);
       const fixed = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.host-verify', '.settings-context', '.settings__footer'];
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true, 'the credit link opened Settings');
       const before = await boxes(page, fixed);
-      const check = async state => { await settle(); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
+      const check = async state => { await settle(page); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
       await check('no-email');
       const footer = await shadow(page, c => {
         const r = c.shadowRoot, status = r.querySelector('.save-status'), range = document.createRange(); range.selectNodeContents(status);
@@ -264,7 +273,7 @@ export async function visitorCreditMatrix(t, locales) {
       await page.evaluate(() => { window.a2.saving = false; }); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'saved'); await check('email-saved');
       await actions('email-saved');
       await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-email-saved');
-      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
       await click(page, '.m-change'); await check('editing'); await click(page, '.m-cancel');
       await click(page, '.m-delete'); await check('deleting');
       await actions('deleting');
@@ -274,21 +283,21 @@ export async function visitorCreditMatrix(t, locales) {
       await check('deleted'); passLines.at(-1).emailInputEmpty = true;
       await click(page, 'dialog.settings .done');
       await fixture(page, locale, { address: 'reader@example.test', spent: 15_000_000 });
-      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await click(page, '.m-delete'); await shot('over-spent-delete');
-      await click(page, '.m-del'); await settle(); await shot('over-spent-deleted'); await click(page, 'dialog.settings .done'); await shot('credit-used-up-give');
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await click(page, '.m-delete'); await shot('over-spent-delete');
+      await click(page, '.m-del'); await settle(page); await shot('over-spent-deleted'); await click(page, 'dialog.settings .done'); await shot('credit-used-up-give');
       await click(page, '.host-credits__button'); await shot('credits-used-up-give');
       await fixture(page, locale, { address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-none'); await click(page, '.host-credits__button'); await shot('credits-used-up-none');
       await fixture(page, locale, { privacy: false, spent: 12_000_000 });
-      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
       const focus = await shadow(page, c => { const heading = c.shadowRoot.querySelector('#email-heading'); return {
         focused: c.shadowRoot.activeElement === heading, outline: getComputedStyle(heading).outlineStyle, tabindex: heading.tabIndex }; });
       assert.deepEqual(focus, { focused: true, outline: 'none', tabindex: -1 }, `${label}: privacy gate retains heading focus without a ring`);
       uiChecks.push({ locale, theme, width, state: 'privacy-gate', pass: true, ...focus });
       await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
-      await fixture(page, locale, { handover: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('handover-notice');
+      await fixture(page, locale, { handover: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await shot('handover-notice');
       await click(page, 'dialog.settings .done');
-      await fixture(page, locale, { delivery: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-no-email');
-      await click(page, '.verify-entry'); await settle(); await shot('mail-confirm-dialog');
+      await fixture(page, locale, { delivery: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page); await shot('mail-no-email');
+      await click(page, '.verify-entry'); await settle(page); await shot('mail-confirm-dialog');
       const order = await shadow(page, c => {
         const form = c.shadowRoot.querySelector('dialog.verify-dialog form');
         return ['.verify__field', '.verify__note', '.m-notice', '.verify__actions'].map(selector => form.querySelector(selector).getBoundingClientRect().top);
@@ -304,7 +313,7 @@ export async function visitorCreditMatrix(t, locales) {
       assert.equal(sendLabel.lines, 1, `${label}/mail-confirm-dialog: "${sendLabel.text}" is one line`);
       assert.equal(sendLabel.fits, true, `${label}/mail-confirm-dialog: label and button fit the form`);
       uiChecks.push({ locale, theme, width, state: 'mail-confirm-dialog', pass: true, order, sendLabel });
-      await shadow(page, c => { c.shadowRoot.querySelector('#verify-dialog-email').value = 'reader@example.test'; c.shadowRoot.querySelector('dialog.verify-dialog form').requestSubmit(); }); await settle(); await shot('mail-link-sent');
+      await shadow(page, c => { c.shadowRoot.querySelector('#verify-dialog-email').value = 'reader@example.test'; c.shadowRoot.querySelector('dialog.verify-dialog form').requestSubmit(); }); await settle(page); await shot('mail-link-sent');
       const sent = await shadow(page, c => {
         const form = c.shadowRoot.querySelector('dialog.verify-dialog form'), pending = form.querySelector('.verify__pending'),
           button = form.querySelector('.verify-resend'), message = form.querySelector('.verify__message');
@@ -320,7 +329,7 @@ export async function visitorCreditMatrix(t, locales) {
       assert.match(sent.confirmation, locale === 'de' ? /^Wir haben Ihnen einen Bestätigungslink geschickt/u : /^We sent you a confirmation link/u);
       uiChecks.push({ locale, theme, width, state: 'mail-link-sent', pass: true, ...sent });
       await page.keyboard.press('Escape');
-      await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
       await actions('mail-pending');
       assert.equal(await shadow(page, c => {
         const r = c.shadowRoot, prefix = r.querySelector('.host-verify .m-sent-prefix'), address = r.querySelector('.verify-entry-address');
@@ -329,7 +338,7 @@ export async function visitorCreditMatrix(t, locales) {
           addressGap: address.getBoundingClientRect().left - textRight };
       }).then(m => m.display === 'block' && m.addressGap === 0 && m.text === (locale === 'de' ? 'Link gesendet an ' : 'Link sent to ') + 'reader@example.test'), true, `${label}: one normal space before pending address`);
       await shot('mail-pending'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-pending');
-      await fixture(page, locale, { delivery: true, address: 'reader@example.test', confirmed: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      await fixture(page, locale, { delivery: true, address: 'reader@example.test', confirmed: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
       await actions('mail-confirmed');
       const alignment = await shadow(page, c => {
         const r = c.shadowRoot, address = r.querySelector('.verify-entry-address'), heading = r.querySelector('#email-heading');
@@ -350,7 +359,7 @@ export async function visitorCreditMatrix(t, locales) {
         window.a2.reserved = 12_000_000;
         c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
         c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
-      }); await settle();
+      }); await settle(page);
       await until(page, () => {
         const c = document.querySelector('aithema-session');
         return c.shadowRoot.querySelector('.host-credits__amount').textContent === '0' && !c.session.featureMatrix.best.voice.available;
@@ -399,7 +408,7 @@ export async function visitorCreditMatrix(t, locales) {
         await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true, waitingCall });
         await click(page, waitingCall ? '.pause' : '.voice-start');
         await until(page, () => window.a2.voiceRequests.length === 1 && document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting');
-        await settle();
+        await settle(page);
         const recoveryBefore = await boxes(page, liveFixed), action = waitingCall ? 'resume' : 'retry';
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up')), true);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').dataset.ended), 'false', 'denial-only recovery stays below the ceiling');
@@ -412,7 +421,7 @@ export async function visitorCreditMatrix(t, locales) {
         await until(page, () => {
           const r = document.querySelector('aithema-session').shadowRoot;
           return r.querySelector('.host-verify').dataset.emailState === 'saved' && !r.querySelector('.audio-rail').hasAttribute('data-used-up') && !r.querySelector('.composer-shell').hasAttribute('data-used-up');
-        }); await settle();
+        }); await settle(page);
         assert.equal(await shadow(page, (c, waiting) => c.shadowRoot.querySelector(waiting ? '.voice-pause' : '.voice-retry').disabled, waitingCall), false);
         assert.equal(await shadow(page, c => c.session.featureMatrix.best.voice.available), true);
         assert.equal(await page.evaluate(() => window.a2.voiceRequests.length), 1, 'top-up never starts or resumes a call automatically');
@@ -434,7 +443,11 @@ export async function visitorCreditMatrix(t, locales) {
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').dataset.ended), 'true', `${label}: footer shows used-up during call ending`);
       passLines.push({ locale, theme, width, state: 'call-ending', displacementPx: endingDisplacement, pass: true }); await shot('call-ending');
-      await settle(); await settle();
+      await until(page, () => {
+        const root = document.querySelector('aithema-session').shadowRoot;
+        return root.querySelector('.voice-close').disabled && root.querySelector('.pause').disabled;
+      });
+      await settle(page);
       const calm = await shadow(page, c => {
         const r = c.shadowRoot, ink = getComputedStyle(r.querySelector('.composer-out__title')).color;
         return { questionReadable: !r.querySelector('.question-card').hidden, answersRest: r.querySelector('.question-card').inert,
