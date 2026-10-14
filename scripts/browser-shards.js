@@ -12,6 +12,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Four balanced bins below leave >10% of the 600s whole-job budget for
 // setup, worker cleanup, timing variance and uncompressed PNG evidence upload.
 // Every integrated B1–B8/r2/r3 block and visitor assertion remains covered.
+// AIT-182 moves geometry (37.25s) from shard 3 to shard 2: AIT-177's
+// final gate measured whole jobs 458s/360s there, projecting ~421s/~397s.
 export const browserShards = [
   // 431.49s measured file work; 219.52, 98.31, 44.44, 37.88, 15.69, 15.66
   [
@@ -22,21 +24,21 @@ export const browserShards = [
     'test/browser/question-card.test.js',
     'test/browser/start-journey.test.js',
   ],
-  // 433.29s measured file work; 189.39, 110.26, 58.91, 38.59, 28.14, 7.99
+  // 470.54s measured file work; 189.39, 110.26, 58.91, 38.59, 37.25, 28.14, 7.99
   [
     'test/browser/start2-display.test.js',
     'test/browser/email-mail-space.test.js',
     'test/browser/demo.test.js',
     'test/browser/operator-login.test.js',
+    'test/browser/start2-display-geometry.test.js',
     'test/browser/start-look.test.js',
     'test/browser/safeguards.test.js',
   ],
-  // 426.84s measured file work; 170.41, 117.63, 93.09, 37.25, 8.46
+  // 389.59s measured file work; 170.41, 117.63, 93.09, 8.46
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/start2-display-continuity.test.js',
     'test/browser/orb-reveal.test.js',
-    'test/browser/start2-display-geometry.test.js',
     'test/browser/html-preview.test.js',
   ],
   // 426.88s measured file work; 156.41, 154.47, 47.34, 39.86, 20.66, 8.14

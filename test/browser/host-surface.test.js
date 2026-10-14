@@ -170,9 +170,17 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(await text(page, '#verify-lock-message'), v.invalid);
     // Send: the pointer rests on Send; the pending state puts Send link again in its place.
     await inShadow(page, c => { c.shadowRoot.querySelector('#verify-lock-email').value = 'visitor@example.com'; });
+    await page.bringToFront();
+    await until(page, () => document.hasFocus());
     const lockBefore = await box(page, '.verify-lock'), sendBox = await rest(page, '.verify-lock .verify-send');
     await page.mouse.down(); await page.mouse.up();
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-lock form').dataset.mode === 'pending');
+    // identity.state can paint pending before saveAndConfirm's credit refreshes
+    // finish and #send restores focus. Await that outcome, not just the mode.
+    await until(page, () => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      return document.hasFocus() && root.activeElement === root.querySelector('.verify-lock .verify-resend');
+    });
     sameBox(sendBox, await box(page, '.verify-lock .verify-resend'), 'Send link again takes the place of Send');
     sameBox(lockBefore, await box(page, '.verify-lock'), 'the lock pane');
     assert.equal(await text(page, '.verify-lock .verify__address'), 'visitor@example.com');
