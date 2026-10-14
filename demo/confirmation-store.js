@@ -107,7 +107,15 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     db.exec(`CREATE TABLE IF NOT EXISTS host_mail_slots (
       created_at INTEGER PRIMARY KEY, count INTEGER NOT NULL CHECK(count>0));
       CREATE TABLE IF NOT EXISTS host_mail_cap_alerts (
-      window TEXT PRIMARY KEY CHECK(window IN ('hour','day')), last_at INTEGER NOT NULL);`);
+      window TEXT PRIMARY KEY CHECK(window IN ('hour','day')), last_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS host_mail_ip_slots (
+        bucket_key TEXT NOT NULL, created_at INTEGER NOT NULL, count INTEGER NOT NULL CHECK(count>0),
+        PRIMARY KEY(bucket_key,created_at));
+      CREATE INDEX IF NOT EXISTS host_mail_ip_retention ON host_mail_ip_slots(created_at);
+      CREATE TABLE IF NOT EXISTS host_mail_ip_alerts (
+        bucket_key TEXT NOT NULL, window TEXT NOT NULL CHECK(window IN ('hour','day')), last_at INTEGER NOT NULL,
+        PRIMARY KEY(bucket_key,window));
+      CREATE INDEX IF NOT EXISTS host_mail_ip_alert_retention ON host_mail_ip_alerts(last_at);`);
     if (!hasGlobalSlots) db.prepare(`INSERT INTO host_mail_slots
       SELECT created_at,COUNT(*) FROM visitor_mail_abuse WHERE created_at>? GROUP BY created_at`).run(now() - DAY);
     db.exec('DROP TABLE IF EXISTS visitor_mail_key;');
@@ -140,6 +148,34 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     // await or delivery can precede the durable slot; failures consume it.
     db.prepare(`INSERT INTO host_mail_slots VALUES (?,1)
       ON CONFLICT(created_at) DO UPDATE SET count=count+1`).run(at);
+    return true;
+  }
+  function reserveIp(ipBucket, at, alerts) {
+    if (ipBucket === undefined) return true; // Only the request route supplies a bucket.
+    // Physically erase expired buckets and log claims, including other IPs.
+    // Each indexed delete is bounded; hourly maintenance drains any backlog.
+    // These deletions share the reservation transaction and its rollback.
+    db.prepare(`DELETE FROM host_mail_ip_slots WHERE rowid IN
+      (SELECT rowid FROM host_mail_ip_slots WHERE created_at<=? LIMIT 100)`).run(at - DAY);
+    db.prepare(`DELETE FROM host_mail_ip_alerts WHERE rowid IN
+      (SELECT rowid FROM host_mail_ip_alerts WHERE last_at<=? LIMIT 100)`).run(at - DAY);
+    const digest = hmac(`ip\0${ipBucket}`), policy = visitorCredits.settings().mailIpCap;
+    const counts = db.prepare(`SELECT COALESCE(SUM(CASE WHEN created_at>? THEN count ELSE 0 END),0) hour,
+      COALESCE(SUM(count),0) day FROM host_mail_ip_slots WHERE bucket_key=? AND created_at>?`).get(at - windows.hour, digest, at - DAY);
+    let suppressed = false;
+    for (const [window, duration] of Object.entries(windows)) {
+      if (counts[window] < policy[window]) continue;
+      suppressed = true;
+      const claimed = db.prepare(`INSERT INTO host_mail_ip_alerts VALUES (?,?,?)
+        ON CONFLICT(bucket_key,window) DO UPDATE SET last_at=excluded.last_at
+        WHERE host_mail_ip_alerts.last_at<=excluded.last_at-?`).run(digest, window, at, duration).changes;
+      if (claimed) alerts.push({ event: 'mail-ip-cap', window, bucket: digest.slice(0, 12) });
+    }
+    if (suppressed) return false;
+    // Count requests even if C1 or the global cap subsequently suppresses mail.
+    // All claims roll back together if token creation or any check throws.
+    db.prepare(`INSERT INTO host_mail_ip_slots VALUES (?,?,1)
+      ON CONFLICT(bucket_key,created_at) DO UPDATE SET count=count+1`).run(digest, at);
     return true;
   }
   const rowFor = token => db.prepare(`SELECT t.*,v.owner_hash,v.address,v.address_revision current_revision,v.identity_json,v.confirmed_at,d.status delivery_status,d.locale
@@ -197,12 +233,13 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     mailCap() { return atomic(() => mailCap()); },
     inspect(token) { const row = rowFor(token); return describe(row, stateFor(row, token), token); },
     redeem,
-    reserve({ ownerHash, sessionId, address, revision, expiresAt, locale }) {
+    reserve({ ownerHash, sessionId, address, revision, expiresAt, locale, ipBucket }) {
       const alerts = [];
       const result = atomic(() => {
         const row = db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
         if (!row || row.address !== address || row.address_revision !== revision) throw Object.assign(new Error('stale-verification'), { code: 'stale-verification' });
         const at = now(), digest = addressKey(address);
+        if (!reserveIp(ipBucket, at, alerts)) return { status: 'rate-limited' };
         const last = db.prepare('SELECT MAX(created_at) at FROM visitor_mail_deliveries WHERE visitor_ref=?').get(row.visitor_ref).at;
         const count = db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse WHERE address_key IN (?,?) AND created_at>?')
           .get(digest, legacySlotKey(legacyAddressKey(address)), at - DAY).n;

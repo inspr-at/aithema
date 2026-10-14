@@ -18,3 +18,26 @@ export function startExpiry(handlers) {
   expiry.unref();
   return expiry;
 }
+
+/** Startup and hourly maintenance use the authoritative database writer.
+ * Drain full batches in short turns so idle IP buckets expire within about 25h. */
+export function startVisitorRetention(host) {
+  let batch, closed = false;
+  function retain() {
+    batch = undefined;
+    if (closed) return;
+    try {
+      const result = host.retainVisitors({ limit: 100 });
+      if (Object.values(result).some(value => value >= 100)) {
+        batch = setTimeout(retain, 10); batch.unref();
+      }
+    } catch { console.error({ event: 'visitor-retention-failed' }); }
+  }
+  retain();
+  const interval = setInterval(() => {
+    // A backlog already being drained needs no second chain of batches.
+    if (batch === undefined) retain();
+  }, 60 * 60_000);
+  interval.unref();
+  return { close() { closed = true; clearInterval(interval); clearTimeout(batch); } };
+}

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
 import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
 import { canonicalEmail } from './email-address.js';
-import { validateMailCap } from './mail-cap-policy.js';
+import { validateMailCap, MAIL_CAP_HOUR_CEILING, MAIL_CAP_DAY_CEILING } from './mail-cap-policy.js';
 
 export const VISITOR_CREDIT_CEILING_MICRO = 1_000_000_000;
 export const EMAIL_NOTICE_VERSION = 'ait-135-v1';
@@ -31,8 +31,10 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       allowancesMicro.emailGiven > allowancesMicro.emailConfirmed) throw new Error('Invalid stored visitor credit settings');
     const mailCap = { hour: row.mail_cap_hour, day: row.mail_cap_day };
     if (!Object.values(mailCap).every(integer)) throw new Error('Invalid stored mail cap');
+    const mailIpCap = { hour: row.mail_ip_cap_hour, day: row.mail_ip_cap_day };
+    validateMailCap(mailIpCap);
     return { schemaVersion: row.schema_version, revision: row.revision, allowancesMicro, confirmationEnabled: row.confirmation_enabled === 1,
-      mailCap, createdAt: row.created_at, updatedAt: row.updated_at };
+      mailCap, mailIpCap, createdAt: row.created_at, updatedAt: row.updated_at };
   };
   const insertAudit = (oldValues, newValues, { actor, source }, at) => db.prepare(`INSERT INTO visitor_credit_audit
     (actor,at,at_ms,source,revision,old_json,new_json) VALUES (?,?,?,?,?,?,?)`)
@@ -69,17 +71,20 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       CREATE TABLE IF NOT EXISTS visitor_identity_cleanup (owner_hash TEXT PRIMARY KEY, at TEXT NOT NULL);`);
     const columns = db.prepare('PRAGMA table_info(visitor_credit_settings)').all();
     const existing = db.prepare('SELECT 1 FROM visitor_credit_settings WHERE id=1').get();
-    let migratedCap = false;
-    for (const [name, fallback] of [['mail_cap_hour', 30], ['mail_cap_day', 200]]) {
+    let migratedCap = false, migratedIpCap = false;
+    for (const [name, fallback, ceiling] of [['mail_cap_hour', 30], ['mail_cap_day', 200],
+      ['mail_ip_cap_hour', 5, MAIL_CAP_HOUR_CEILING], ['mail_ip_cap_day', 20, MAIL_CAP_DAY_CEILING]]) {
       if (!columns.some(column => column.name === name)) {
-        db.exec(`ALTER TABLE visitor_credit_settings ADD COLUMN ${name} INTEGER NOT NULL DEFAULT ${fallback} CHECK(${name}>=0)`);
-        migratedCap = true;
+        db.exec(`ALTER TABLE visitor_credit_settings ADD COLUMN ${name} INTEGER NOT NULL DEFAULT ${fallback} CHECK(${name}>=0${ceiling ? ` AND ${name}<=${ceiling}` : ''})`);
+        if (name.startsWith('mail_ip_')) migratedIpCap = true;
+        else migratedCap = true;
       }
     }
-    if (existing && migratedCap) {
+    if (existing && (migratedCap || migratedIpCap)) {
       const before = settings(), at = timestamp();
       if (!integer(before.revision + 1)) throw new TypeError('Credit revision overflow');
-      delete before.mailCap;
+      if (migratedCap) delete before.mailCap;
+      if (migratedIpCap) delete before.mailIpCap;
       db.prepare('UPDATE visitor_credit_settings SET revision=revision+1,updated_at=? WHERE id=1').run(new Date(at).toISOString());
       insertAudit(before, settings(), { actor: 'system:migration', source: 'migration' }, at);
     }
@@ -258,8 +263,8 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       return { current, next, delta: next ? allowancesMicro[next] - allowancesMicro[current] : 0, canConfirm, allowancesMicro };
     },
     saveSettings(input, { actor = 'system:host', source = 'host' } = {}) {
-      if (!object(input, ['baseRevision', 'allowancesUsd', 'confirmationEnabled', 'mailCap']) || !integer(input.baseRevision) || !input.baseRevision ||
-        input.allowancesUsd === undefined && input.confirmationEnabled === undefined && input.mailCap === undefined ||
+      if (!object(input, ['baseRevision', 'allowancesUsd', 'confirmationEnabled', 'mailCap', 'mailIpCap']) || !integer(input.baseRevision) || !input.baseRevision ||
+        input.allowancesUsd === undefined && input.confirmationEnabled === undefined && input.mailCap === undefined && input.mailIpCap === undefined ||
         typeof actor !== 'string' || !actor || actor.length > 200 || typeof source !== 'string' || !source || source.length > 100) throw new TypeError('Invalid credit settings');
       let allowancesMicro;
       if (input.allowancesUsd !== undefined) {
@@ -281,14 +286,20 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         validateMailCap(input.mailCap);
         if (source !== 'ops-cli' || !actor.startsWith('ops-cli:')) throw new TypeError('Mail cap requires the OPS CLI');
       }
+      if (input.mailIpCap !== undefined) {
+        if (!object(input.mailIpCap, ['hour', 'day'])) throw new TypeError('Invalid IP mail cap');
+        validateMailCap(input.mailIpCap);
+        if (source !== 'ops-cli' || !actor.startsWith('ops-cli:')) throw new TypeError('IP mail cap requires the OPS CLI');
+      }
       return storage.transaction(() => {
         const before = settings();
         if (input.baseRevision !== before.revision) throw Object.assign(new Error('stale-credit-settings'), { status: 409, current: before });
         if (!integer(before.revision + 1)) throw new TypeError('Credit revision overflow');
-        const amounts = allowancesMicro ?? before.allowancesMicro, mailCap = input.mailCap ?? before.mailCap, at = timestamp();
+        const amounts = allowancesMicro ?? before.allowancesMicro, mailCap = input.mailCap ?? before.mailCap,
+          mailIpCap = input.mailIpCap ?? before.mailIpCap, at = timestamp();
         db.prepare(`UPDATE visitor_credit_settings SET revision=revision+1,anonymous_micro=?,email_given_micro=?,email_confirmed_micro=?,
-          confirmation_enabled=?,mail_cap_hour=?,mail_cap_day=?,updated_at=? WHERE id=1`).run(...tiers.map(tier => amounts[tier]),
-          Number(input.confirmationEnabled ?? before.confirmationEnabled), mailCap.hour, mailCap.day, new Date(at).toISOString());
+          confirmation_enabled=?,mail_cap_hour=?,mail_cap_day=?,mail_ip_cap_hour=?,mail_ip_cap_day=?,updated_at=? WHERE id=1`).run(...tiers.map(tier => amounts[tier]),
+          Number(input.confirmationEnabled ?? before.confirmationEnabled), mailCap.hour, mailCap.day, mailIpCap.hour, mailIpCap.day, new Date(at).toISOString());
         const after = settings(); insertAudit(before, after, { actor, source }, at); return after;
       });
     },
@@ -382,8 +393,14 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           ? db.prepare('DELETE FROM visitor_mail_abuse WHERE rowid IN (SELECT rowid FROM visitor_mail_abuse WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
         const mailSlots = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_mail_slots'").get()
           ? db.prepare('DELETE FROM host_mail_slots WHERE created_at IN (SELECT created_at FROM host_mail_slots WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
+        let ipRows = 0;
+        for (const [table, timestampColumn] of [['host_mail_ip_slots', 'created_at'], ['host_mail_ip_alerts', 'last_at']]) {
+          if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) {
+            ipRows += db.prepare(`DELETE FROM ${table} WHERE rowid IN (SELECT rowid FROM ${table} WHERE ${timestampColumn}<=? LIMIT ?)`).run(at - DAY, limit).changes;
+          }
+        }
         const audit = db.prepare('DELETE FROM visitor_credit_audit WHERE id IN (SELECT id FROM visitor_credit_audit WHERE at_ms<=? LIMIT ?)').run(at - 180 * DAY, limit).changes;
-        return { addresses, pending: pendingRows.length + tokens + deliveries + abuse + mailSlots, audit, projections: cleanupProjections(limit) };
+        return { addresses, pending: pendingRows.length + tokens + deliveries + abuse + mailSlots + ipRows, audit, projections: cleanupProjections(limit) };
       });
       if (result.addresses || result.pending || result.projections) storage.checkpointErasure();
       return result;

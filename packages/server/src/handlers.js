@@ -273,10 +273,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     return new Response(stream, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform',
       connection: 'keep-alive', 'x-accel-buffering': 'no' } });
   }
-  async function handle(request) {
+  async function handle(request, context) {
     if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
-      const hostResponse = await hostHandlers.handle(request);
+      const hostResponse = await hostHandlers.handle(request, context);
       if (hostResponse) return hostResponse;
       if (host) {
         const ownedPath = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);

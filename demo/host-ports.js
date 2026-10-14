@@ -5,6 +5,7 @@ import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js
 import { createConfirmationStore } from './confirmation-store.js';
 import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
 import { canonicalEmail } from './email-address.js';
+import { createClientIpResolver } from './client-ip.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -35,7 +36,8 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
  * demo:true is development only and explicitly exempts its fake-outbox identity
  * flow from the privacy gate. Non-demo hosts need a notice even with delivery. */
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
-  durationMs, ownerGuard = true, privacyDocumentConfigured, mailPlugin, visitorMicroPerMinute = () => 0 } = {}) {
+  durationMs, ownerGuard = true, privacyDocumentConfigured, mailPlugin, clientIpHeader, visitorMicroPerMinute = () => 0 } = {}) {
+  const clientIpBucket = createClientIpResolver({ header: clientIpHeader });
   if (!demo && mailPlugin && mailPlugin.id !== 'smtp') throw new TypeError('Production mail requires SMTP; mock transports are unavailable');
   const deliveryEnabled = demo || mailPlugin?.deliversVerification === true;
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
@@ -108,6 +110,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     return structuredClone(mail.filter(message => message.sessionId === sessionId).map(({ ownerHash, createdAt, ...message }) => message));
   };
   const identity = {
+    clientIpBucket,
     deliversVerification: deliveryEnabled,
     asynchronousDelivery: mailPlugin?.deliversVerification === true,
     canonicalizeAddress: canonicalEmail,
@@ -115,16 +118,17 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     project({ session }, state) { return visitorCredits.projectIdentity(session.ownerHash, state); },
     persist({ session }, state) { const result = visitorCredits.persistIdentity(session.ownerHash, state); purgeMail(); return result; },
     async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }, options) {
+      const { clientIpBucket: ipBucket, ...deliveryOptions } = options ?? {};
       address = canonicalEmail(address);
       const session = storage.authorize(sessionId, ownerToken);
       if (mailPlugin?.deliversVerification) {
         const locale = session.locale === 'de' ? 'de' : 'en';
-        const reserved = confirmation.reserve({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, locale });
+        const reserved = confirmation.reserve({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, locale, ipBucket });
         if (reserved.status === 'rate-limited') return reserved;
         try {
           const result = await mailPlugin.requestVerification({ sessionId, address, revision, ...reserved, locale,
             confirmedAllowanceMicro: visitorCredits.creditTiers(session.ownerHash).allowancesMicro.emailConfirmed,
-            privacyDocumentConfigured: hasPrivacyDocument({ privacyDocumentConfigured }) }, options);
+            privacyDocumentConfigured: hasPrivacyDocument({ privacyDocumentConfigured }) }, deliveryOptions);
           confirmation.delivered(reserved.token, result?.status);
           return { status: result?.status === 'sent' ? 'sent' : 'failed' };
         } catch {

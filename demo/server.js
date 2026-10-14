@@ -14,7 +14,7 @@ import { imagePluginBinding } from '../packages/server/src/image-binding.js';
 import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
 import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
-import { createOwnership, startExpiry } from './session-lifecycle.js';
+import { createOwnership, startExpiry, startVisitorRetention } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
 import { loadPrivacyDocuments } from './privacy.js';
@@ -137,6 +137,7 @@ const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry: runtimePorts.registry, uiRenderLimits, presets: runtimePorts.presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
+  clientIpHeader: process.env.AITHEMA_CLIENT_IP_HEADER,
   privacyDocumentConfigured: privacy.privacyDocumentConfigured,
   // Voice off has no binding and rate 0: warnings use 10% only, without the
   // five-minute / 50-Credit floor of the $0.10/minute voice configuration.
@@ -155,26 +156,13 @@ voiceHost?.onAvailable?.(candidate => prepareVoiceRuntime({ current: readVoiceSt
     htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy }),
 }));
 const expiry = startExpiry(handlers);
-// Startup and daily bounded maintenance use the authoritative database writer.
-let visitorBatch;
-function retainVisitors() {
-  visitorBatch = undefined;
-  try {
-    const result = host.retainVisitors({ limit: 100 });
-    if (Object.values(result).some(value => value >= 100)) {
-      visitorBatch = setTimeout(retainVisitors, 10); visitorBatch.unref();
-    }
-  } catch { console.error({ event: 'visitor-retention-failed' }); }
-}
-retainVisitors();
-const visitorRetention = setInterval(retainVisitors, 24 * 60 * 60_000);
-visitorRetention.unref();
+const visitorRetention = startVisitorRetention(host);
 const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options => handlers.reconcileUncertain(options), socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
   join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();
 let allowedHosts = new Set();
-async function handle(request) {
+async function handle(request, context) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
@@ -187,7 +175,7 @@ async function handle(request) {
   }
   const url = new URL(request.url);
   const privacyResponse = privacy.handle(request); if (privacyResponse) return privacyResponse;
-  if (url.pathname.startsWith('/api/')) return handlers.handle(request);
+  if (url.pathname.startsWith('/api/')) return handlers.handle(request, context);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') {
     const operator = operatorSessions?.session(request);
@@ -227,8 +215,7 @@ process.send?.({ url });
 async function close() {
   await voiceHost?.close?.();
   clearInterval(expiry);
-  clearInterval(visitorRetention);
-  clearTimeout(visitorBatch);
+  visitorRetention.close();
   await admin.close();
   mailPlugin?.close();
   server.close(); await handlers.close(); server.closeAllConnections(); storage.close();

@@ -5,13 +5,13 @@ import { validateMailCap } from './mail-cap-policy.js';
 
 const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | mail-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
   + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD | set-confirmation --base-revision N --enabled true|false | '
-  + 'set-mail-cap --base-revision N --hour N --day N';
+  + 'set-mail-cap --base-revision N --hour N --day N | set-mail-ip-cap --base-revision N --hour N --day N';
 try {
   const args = process.argv.slice(2);
   let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
   if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
   const command = args.shift();
-  if (!['settings', 'set-allowances', 'set-confirmation', 'set-mail-cap', 'audit', 'provider-cap', 'mail-cap', 'reconcile-uncertain'].includes(command)) throw new Error(usage);
+  if (!['settings', 'set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'audit', 'provider-cap', 'mail-cap', 'reconcile-uncertain'].includes(command)) throw new Error(usage);
   const options = {};
   while (args.length) {
     const key = args.shift(), value = ['--apply', '--dry-run'].includes(key) ? true : args.shift();
@@ -29,13 +29,14 @@ try {
     if (keys.length !== required.length || required.some(key => !Object.hasOwn(options, key)) || !/^[1-9]\d*$/u.test(options['--base-revision'])) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), allowancesUsd: {
       anonymous: options['--anonymous'], emailGiven: options['--email-given'], emailConfirmed: options['--email-confirmed'] } };
-  } else if (command === 'set-mail-cap') {
+  } else if (['set-mail-cap', 'set-mail-ip-cap'].includes(command)) {
     const required = ['--base-revision', '--hour', '--day'];
     if (keys.length !== required.length || required.some(key => !Object.hasOwn(options, key)) ||
       !/^[1-9]\d*$/u.test(options['--base-revision']) || !Number.isSafeInteger(Number(options['--base-revision'])) ||
       ['--hour', '--day'].some(key => !/^(0|[1-9]\d*)$/u.test(options[key]) || !Number.isSafeInteger(Number(options[key])))) throw new Error(usage);
-    payload = { baseRevision: Number(options['--base-revision']), mailCap: { hour: Number(options['--hour']), day: Number(options['--day']) } };
-    validateMailCap(payload.mailCap);
+    const cap = { hour: Number(options['--hour']), day: Number(options['--day']) };
+    validateMailCap(cap);
+    payload = { baseRevision: Number(options['--base-revision']), [command === 'set-mail-cap' ? 'mailCap' : 'mailIpCap']: cap };
   } else if (command === 'set-confirmation') {
     if (keys.length !== 2 || !/^[1-9]\d*$/u.test(options['--base-revision'] ?? '') || !['true', 'false'].includes(options['--enabled'])) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), confirmationEnabled: options['--enabled'] === 'true' };

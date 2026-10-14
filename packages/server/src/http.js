@@ -44,7 +44,7 @@ export function httpAdapter(handle) {
         signal: controller.signal, ...(body ? {
           body: Readable.toWeb(body, { strategy: { highWaterMark: 65_536, size: chunk => chunk.byteLength } }), duplex: 'half',
         } : {}) });
-      const response = await handle(request);
+      const response = await handle(request, { remoteAddress: incoming.socket?.remoteAddress });
       const responseHeaders = Object.fromEntries(response.headers);
       // Node must receive separate Set-Cookie headers for state clearing + grant issuance.
       const cookies = response.headers.getSetCookie();
