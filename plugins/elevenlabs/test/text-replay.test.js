@@ -147,3 +147,19 @@ test('AIT-154 round 2: server replay lease covers playing, token-bound Stop rele
   assert.equal((await f.runtime.speakText({ session: f.session, turnId: 'reply-a' })).kind, 'audio');
   assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 2);
 });
+
+for (const stop of ['error', 'abort', 'Stop']) test(`AIT-154 round 2: synthesis lease releases on ${stop}`, async t => {
+  const f = fixture(t, { status: stop === 'error' ? 403 : 200 });
+  const controller = new AbortController(), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  const original = f.plugin.ports.serverAdapter.quoteSpeakText;
+  f.plugin.ports.serverAdapter.quoteSpeakText = async (...args) => { entered.resolve(); await release.promise; return original(...args); };
+  const pending = f.runtime.speakText({ session: f.session, turnId: 'reply-a', options: { replayId: 'first', signal: controller.signal } });
+  const checked = stop === 'error' ? pending : assert.rejects(pending);
+  await entered.promise;
+  if (stop === 'abort') controller.abort();
+  if (stop === 'Stop') f.runtime.stopReplyReplay(f.session.id, 'first');
+  release.resolve(); await checked;
+  const next = await f.runtime.speakText({ session: f.session, turnId: 'reply-a' });
+  assert.equal(next.kind, stop === 'error' ? 'text' : 'audio');
+});

@@ -119,7 +119,8 @@ export function createElevenLabsClient(ports = {}) {
       const replay = createReplyReplay({
         current: reply => !ended && !paused && !transportBlocked && outputOn && !lifecycle.state.holds.length &&
           reply.turnId === lastReply?.turnId && reply.text === lastReply?.text && (!lastPlaybackTurnId || lastPlaybackTurnId === reply.turnId),
-        synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId }, opts),
+        synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId, replayId: opts.replayId }, opts),
+        release: replayId => control.stopReplyReplay?.({ ...identity(), replayId }),
         playAudio: (audio, opts) => {
           conversation?.output?.interrupt?.(0);
           playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
@@ -638,7 +639,7 @@ export function createElevenLabsClient(ports = {}) {
             return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return capture.run(() => channels()); })(opts);
           },
           get replaying() { return replay.active; },
-          stopReplay() { if (replay.active) silenceReply(); replay.stop(); return Promise.resolve(); },
+          stopReplay() { if (replay.active) silenceReply(); return replay.stop() ?? Promise.resolve(); },
           replayLastReply(opts) {
             const reply = lastReply && { ...lastReply }, revision = replay.revision;
             return command('replayLastReply', bounded => {

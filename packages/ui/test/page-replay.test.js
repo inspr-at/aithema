@@ -7,7 +7,7 @@ test('AIT-154: page audio uses the same capability and stops on an external hold
   const player = createPageReplay({ control: { async speakText(request) { requests.push(request); return { kind: 'audio', audio: {} }; } },
     playAudio: async () => ({ stop() { stops++; }, finished: new Promise(() => {}) }) });
   assert.equal((await player.replay({ turnId: 'shown-reply', text: 'Shown reply.' }, { holdSignal: held.signal })).kind, 'audio');
-  assert.deepEqual(requests, [{ turnId: 'shown-reply' }]); held.abort(); assert.equal(stops, 1); assert.equal(player.active, false);
+  assert.equal(requests[0].turnId, 'shown-reply'); assert.match(requests[0].replayId, /^[a-f0-9-]{36}$/u); held.abort(); assert.equal(stops, 1); assert.equal(player.active, false);
 });
 
 test('AIT-154: a newer shown reply refuses page playback while synthesis is pending', async () => {

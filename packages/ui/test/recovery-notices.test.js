@@ -160,3 +160,12 @@ test('AIT-154 round 2: acknowledged recovery without its assistant bubble hides 
   assert.equal(f.root.querySelector('.voice-read-text').hidden, true);
   f.root.querySelector('.voice-repeat').click(); await tick(); assert.deepEqual(f.replays, []);
 });
+
+for (const locale of ['de', 'en']) test(`AIT-154 round 2: ${locale} no audio credit keeps both text actions usable`, async t => {
+  const copy = { de, en }[locale], f = await fixture(t, copy);
+  f.rail.usedUp = () => true;
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+  const button = f.root.querySelector('.voice-repeat');
+  assert.equal(button.textContent, copy.voiceReadFullReply); assert.equal(button.disabled, false);
+  button.click(); await tick(); assert.equal(f.rail.notices.dialog.open, true); assert.deepEqual(f.replays, []);
+});

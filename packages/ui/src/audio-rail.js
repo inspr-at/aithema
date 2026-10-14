@@ -9,8 +9,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, context, lastReply, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, lastReply, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, context, lastReply, replyVisible, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, lastReply, replyVisible, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -29,7 +29,10 @@ export class AudioRail {
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
     if (!noticesRoot) { noticesRoot = root.ownerDocument.createElement('div'); noticesRoot.className = 'voice-notices'; root.append(noticesRoot); }
     this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean((this.session || this.lastReply?.()) && !this.paused && !this.busy && this.output &&
-      !this.usedUp?.() && !this.allowanceDenied && !['recovering', 'waiting', 'closing'].includes(this.state)),
+      !['recovering', 'waiting', 'closing'].includes(this.state)),
+      replyVisible: text => this.replyVisible?.(text) ?? Boolean(text && this.lastReply?.()?.text === text),
+      audioAvailable: () => !this.usedUp?.() && !this.allowanceDenied && this.feature()?.available !== false &&
+        Boolean(this.session ? this.session.replayLastReply : this.client?.replayReply),
       stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async () => {
         try {
           if (this.session) return await (this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText });
@@ -39,7 +42,13 @@ export class AudioRail {
             current: candidate => !this.session && !this.paused && this.lastReply?.()?.turnId === candidate.turnId && this.lastReply?.()?.text === candidate.text,
           }) ?? { kind: 'text', text: reply?.text });
         }
-        catch (error) { if (error.code === 'not-admitted' && error.reason === 'host-limit') { this.failure(error); this.render(); } throw error; }
+        catch (error) {
+          if (error.code === 'not-admitted' && error.reason === 'host-limit') {
+            this.failure(error); this.render();
+            return { kind: 'text', text: this.notices.recovery?.lastReplyText ?? this.lastReply?.()?.text };
+          }
+          throw error;
+        }
       } });
     for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
       const help = root.ownerDocument.createElement('span'); help.className = 'voice-waiting-help'; help.id = `voice-${name}-waiting-help`;

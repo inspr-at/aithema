@@ -24,6 +24,7 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
     control[name] = (identity, options) => post(`${base}/${identity.callId}/${name}`, authority(identity), options);
   }
   control.close = (identity, options) => post(`${base}/${identity.callId}/close`, { ...authority(identity), background: true }, options);
+  control.stopReplyReplay = identity => post(identity.callId ? `${base}/${identity.callId}/replay` : `${base}/replay`, authority({ ...identity, stop: true }));
   control.speakText = (identity, options) => post(identity.callId ? `${base}/${identity.callId}/replay` : `${base}/replay`, authority(identity), options);
   return { control, async persistEvent(event, identity, options) {
     const value = await post(`${base}/${event.callId}/events`, { ...authority({ ...identity, callId: event.callId }), event }, options);

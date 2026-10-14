@@ -215,7 +215,7 @@ for (const acknowledged of [false, true]) for (const correctionTiming of ['persi
     assert.equal(f.root.querySelector('.voice-notice--reply span').textContent, en.voiceReplyIncomplete);
     assert.ok(f.root.querySelector('.voice-notice-live').textContent.includes(en.voiceReplyIncomplete));
     const button = f.root.querySelector('.voice-repeat');
-    assert.equal(button.hidden, false);
+    assert.equal(button.hidden, !acknowledged);
     assert.equal(button.disabled, !acknowledged);
     assert.equal(recovery.lastReplyText, acknowledged ? '  Reply B.\nComplete remainder.  ' : null);
     if (acknowledged) {

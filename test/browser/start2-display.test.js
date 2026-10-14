@@ -631,9 +631,9 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
     await t.test(`${width} ${theme} ${locale}`, async () => {
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
       const wording = {
-        de: { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Ganze Antwort lesen', title: 'Letzte Antwort',
+        de: { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Antwort wiederholen', title: 'Letzte Antwort',
           note: 'Der vollständige Text der letzten Antwort, Wort für Wort.', close: 'Schließen', tooltip: 'Erst fortsetzen' },
-        en: { notice: 'Last reply may not have played in full', button: 'Read full reply', title: 'Last reply',
+        en: { notice: 'Last reply may not have played in full', button: 'Replay reply', title: 'Last reply',
           note: 'The full text of the last reply, word for word.', close: 'Close', tooltip: 'Resume first' },
       }[locale];
       const layoutChecks = [];
@@ -653,6 +653,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
         s.transcript = [{ id: 'notice-user', role: 'user', content: locale === 'de' ? 'Eine Website für Stickpolster.' : 'A website for embroidered cushions.' }];
         globalThis.noticeReply = locale === 'de' ? 'Die Website zeigt die Lieferzeit nach dem Backlog.\n\nSollen Kunden Motiv, Farbe und Größe selbst wählen können?'
           : 'The website shows delivery time based on the backlog.\n\nShould customers be able to choose the design, colour and size?';
+        s.transcript.push({ id: 'notice-reply', role: 'assistant', content: globalThis.noticeReply });
         globalThis.noticeReplays = 0; globalThis.noticeAdmissions = 0; globalThis.noticeModelCalls = 0;
         const voiceClient = { manifest, async start({ callId }) {
           globalThis.noticeAdmissions++; globalThis.noticeCallId = callId;
@@ -737,11 +738,11 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       await shot('lone-incomplete-button', label);
       await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), wording.notice);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').title), copy.voiceReplyUnavailable);
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unacknowledged reply reserves its space`);
-      assertButtonPosition(await noticeLayout('unacknowledged-reply'));
+      await noticeLayout('unacknowledged-reply');
       await shot('unacknowledged-reply', label);
       await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
       const geometry = await shadow(page, c => {

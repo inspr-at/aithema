@@ -5,10 +5,11 @@ import { playReplyAudio } from './reply-audio.js';
 export function createPageReplay({ control, document = globalThis.document, playAudio = playReplyAudio }) {
   let fence = () => false, cleanup, onState;
   const player = createReplyReplay({ current: reply => !document?.hidden && fence(reply),
-    synthesize: (reply, options) => control.speakText?.({ turnId: reply.turnId }, options),
+    synthesize: (reply, options) => control.speakText?.({ turnId: reply.turnId, replayId: options.replayId }, options),
+    release: replayId => control.stopReplyReplay?.({ replayId }),
     playAudio: (audio, options) => playAudio(audio, { ...options, document }),
     onState: playing => { onState?.(playing); if (!playing) { cleanup?.(); cleanup = null; } } });
-  return { stop() { player.stop(); cleanup?.(); cleanup = null; }, get active() { return player.active; },
+  return { stop() { const released = player.stop(); cleanup?.(); cleanup = null; return released; }, get active() { return player.active; },
     async replay(reply, options = {}) {
       player.stop();
       onState = options.onState;
