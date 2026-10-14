@@ -75,26 +75,39 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   let browser; t.after(async () => { await browser?.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
   if (evidence) await mkdir(evidence, { recursive: true });
-  let baseline; try { baseline = JSON.parse(await readFile(new URL('../fixtures/email-save-geometry.json', import.meta.url), 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  // Render main's two email modules on this same runner: platform fonts must match.
+  const baseline = JSON.parse(await readFile(new URL('../fixtures/email-save-baseline.json', import.meta.url), 'utf8'));
   const rows = [], saves = {}, shots = [];
   const record = async (page, label, state, metrics, shiftPx) => {
-    const row = { head: evidenceCommit, label, state, ...metrics, shiftPx }; rows.push(row);
-    t.diagnostic(`AIT-171 ${label}/${state}: gap=${metrics.reservationGap.toFixed(3)} px; hairline=${metrics.hairlineGap.toFixed(3)} px; shift=${shiftPx} px`);
+    const row = { head: evidenceCommit, label, state, ...metrics, shiftPx, bootCreditsBeforeSettings: await page.evaluate(() => window.emailBoot.settingsOpenAtCredits[0] === false) }; rows.push(row);
+    t.diagnostic(`${shiftPx === 0 && (state !== 'mail-none' || metrics.reservationGap <= metrics.lineHeight) ? 'PASS' : 'FAIL'} AIT-171 ${label}/${state}: gap=${metrics.reservationGap.toFixed(3)} px; hairline=${metrics.hairlineGap.toFixed(3)} px; shift=${shiftPx} px`);
     if (evidence && ['mail-none', 'mail-sent', 'save-none'].includes(state)) {
       const name = `ait-171-${evidenceCommit}-${label}-${state}.png`; await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
     }
   };
   for (const locale of ['de', 'en']) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-    const page = await browser.newPage();
+    const page = await browser.newPage(), mainPage = await browser.newPage();
+    await mainPage.setRequestInterception(true);
+    mainPage.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });
+    await mainPage.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
+    await mainPage.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(mainPage, () => document.querySelector('aithema-session')?.session);
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
     for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
       const label = `${locale}-${theme}-${width}`;
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       await fixture(page, locale, false); const save = await geometry(page); saves[label] = save.boxes; await record(page, label, 'save-none', save, 0);
-      if (baseline) assert.deepEqual(save.boxes, baseline[label], `${label}: save geometry matches main 90b708f`);
+      await mainPage.setViewport({ width, height: width === 390 ? 844 : 1000 }); await mainPage.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+      await fixture(mainPage, locale, false);
+      assert.deepEqual(save.boxes, (await geometry(mainPage)).boxes, `${label}: save geometry matches main ${baseline.sourceHead}`);
+      // Compare the visible email section's PNG bytes, with focus away from the input caret.
+      for (const p of [page, mainPage]) await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true }));
+      const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('#email').getBoundingClientRect(), body = c.shadowRoot.querySelector('.settings__body').getBoundingClientRect(); const y = Math.max(b.y, body.y), bottom = Math.min(b.bottom, body.bottom); return { x: b.x, y, width: b.width, height: bottom - y }; });
+      assert.deepEqual(await page.screenshot({ clip }), await mainPage.screenshot({ clip }), `${label}: save pixels match main ${baseline.sourceHead}`);
       await fixture(page, locale, true, false); assert.deepEqual((await geometry(page)).boxes, save.boxes, 'confirmation off retains save geometry');
+      await shadow(page, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true }));
+      assert.deepEqual(await page.screenshot({ clip }), await mainPage.screenshot({ clip }), 'confirmation off retains main save pixels');
       await fixture(page, locale, true); const before = await geometry(page); await record(page, label, 'mail-none', before, 0);
       await t.test(`${label}: mail content owns height`, () => {
         assert.ok(before.reservationGap <= before.lineHeight, `unused reservation ${before.reservationGap} px exceeds one line ${before.lineHeight} px`);
@@ -119,7 +132,10 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       await click(page, '.verify-entry'); await page.evaluate(() => { window.emailBoot.failure = true; }); await click(page, 'dialog.verify-dialog .verify-resend');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog .verify__message').textContent.length > 0); await check('mail-failed');
       await page.evaluate(() => { window.emailBoot.failure = false; window.emailBoot.rateLimited = true; }); await click(page, 'dialog.verify-dialog .verify-resend'); await frame(page); await check('mail-rate-limited');
-      await click(page, '.verify-dialog-close'); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await click(page, '.m-delete-mail'); await check('mail-delete-confirm');
+      await click(page, '.verify-dialog-close'); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+      await shadow(page, c => { window.emailBoot.status = 'verified'; c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, address: window.emailBoot.address, status: 'verified', assessmentUnlocked: true, conceptsUnlocked: true } }); }); await check('mail-confirmed');
+      await shadow(page, c => { window.emailBoot.address = 'a'.repeat(230) + '@example.test'; c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { ...c.session.identity, address: window.emailBoot.address } }); }); await check('mail-long-address');
+      await click(page, '.m-delete-mail'); await check('mail-delete-confirm');
       await shadow(page, c => { window.emailBoot.failure = true; c.shadowRoot.querySelector('.m-del').click(); }); await frame(page); await check('mail-delete-failed');
       await shadow(page, c => { window.emailBoot.failure = false; window.emailBoot.hold = true; c.shadowRoot.querySelector('.m-del').click(); }); await frame(page); await check('mail-deleting');
       await page.evaluate(() => { window.emailBoot.hold = false; }); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email').dataset.emailState === 'mailnone'); await check('mail-deleted');
