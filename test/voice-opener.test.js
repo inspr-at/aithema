@@ -46,8 +46,10 @@ for (const locale of ['de', 'en']) {
       const sdk = fakeSdk();
       const client = createElevenLabsClient({ sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
         persistEvent: async () => {}, control: { start: async () => ({ callId: 'stub-call', providerSessionId: 'stub-conversation',
-          overrides, credential: { connectionType: 'webrtc', conversationToken: 'stub-token', ttlMs: 60_000 },
-          spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 }), close: async () => ({ closureConfirmed: true }) } });
+          overrides, credential: { connectionType: 'webrtc', conversationToken: 'fixture-token-stub-conversation', ttlMs: 60_000 },
+          spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 }), close: async () => ({ closureConfirmed: true }),
+          pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }),
+          heartbeat: async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 }) } });
       const session = await client.start({ callId: 'stub-call' });
       try { assert.deepEqual(sdk.starts[0].overrides, overrides); } finally { await session.close(); }
     }
@@ -99,4 +101,20 @@ test('AIT-175: a different host can configure its opener without changing the ne
     assert.equal(aiNoticeText(locale), neutral[locale]);
   }
   assert.equal(aiNoticeText('fr'), neutral.en);
+});
+
+test('AIT-175: undisclosed host copy is rejected before provider calls; overrides remain limited', async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  let calls = 0;
+  const host = await createVoiceHost({ storage, spokenOpeners: { en: 'Hello, a human is ready.' },
+    fetchImpl: async () => { calls++; assert.fail('Invalid opener must never reach a provider'); }, values: {}, log() {} });
+  t.after(() => host.close());
+  assert.equal(host.binding, undefined); assert.equal(calls, 0);
+  for (const language of ['de', 'en']) {
+    for (const firstMessage of [' ', 'Hello, a human is ready.', start2[language === 'de' ? 'en' : 'de'],
+      `${start2.de} ${start2.en}`, `AI assistant KI-Assistenz`, 1, null, 'AI assistant'.repeat(100)]) {
+      assert.throws(() => voiceOverrides({ agent: { language, firstMessage } }), TypeError);
+    }
+    assert.throws(() => voiceOverrides({ agent: { language, firstMessage: start2[language], prompt: 'injected' } }), TypeError);
+  }
 });
