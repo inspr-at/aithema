@@ -327,12 +327,14 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
     await main.setRequestInterception(true);
     main.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });
     for (const p of [page, main]) {
+      await p.bringToFront();
       await p.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
       await p.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(p, () => document.querySelector('aithema-session')?.session);
     }
     for (const width of [390, 1440]) for (const [mode, delivery, confirm] of [['save', false, false], ['confirmation-off', true, false], ['mail', true, true]]) {
       const label = `${locale}-light-${width}-${mode}`;
       for (const p of [page, main]) {
+      await p.bringToFront();
         await p.setViewport({ width, height: width === 390 ? 844 : 1000 }); await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
         await fixture(p, locale, delivery, confirm);
         await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(p);
