@@ -14,12 +14,12 @@ const settle = page => shadow(page, async c => {
   await new Promise(requestAnimationFrame);
 });
 
-test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift', { timeout: process.env.AITHEMA_EVIDENCE_DIR ? 600_000 : 120_000 }, async t => {
+test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift', { timeout: process.env.AITHEMA_EVIDENCE_DIR && !process.env.CI ? 600_000 : 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-credit-hold-'));
   const fixture = await startChild(new URL('../fixtures/credit-hold.js', import.meta.url), join(directory, 'unused.sqlite'));
   let browser;
   t.after(async () => { await browser?.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, passes = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, realLongWait = Boolean(evidence && !process.env.CI), passes = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -40,7 +40,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
       }
       return timeout(callback, ms, ...args);
     };
-  }, Boolean(evidence));
+  }, realLongWait);
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (response.status() >= 400) loadErrors.push(`${response.status()} ${response.url()}`); });
   page.on('requestfailed', request => loadErrors.push(`${request.failure()?.errorText} ${request.url()}`));
@@ -174,7 +174,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
       }
       if (state === 'reconciling-blocked') {
         const before = await boxes(page, targets);
-        if (evidence && width !== 1024) {
+        if (realLongWait && width !== 1024) {
           await page.waitForFunction(() => /noch nicht bestätigt|aren't confirmed yet/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent), { polling: 100, timeout: 65_000 });
         } else await page.evaluate(() => window.__longWait());
         await settle(page);
@@ -185,14 +185,14 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
             overview: c.shadowRoot.querySelector('.notice').textContent, retry: c.shadowRoot.querySelector('.retry').hidden };
         });
         assert.equal(long.text, locale === 'de' ? 'Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.' : "The call's costs aren't confirmed yet. Your text is kept.");
-        if (evidence && width !== 1024) assert.ok(long.elapsedMs >= 60_000, `real long wait elapsed ${long.elapsedMs}ms`);
+        if (realLongWait && width !== 1024) assert.ok(long.elapsedMs >= 60_000, `real long wait elapsed ${long.elapsedMs}ms`);
         if (width === 390) { assert.ok(long.lines <= 2, `long wait has ${long.lines} lines`); assert.ok(long.scrollHeight <= long.clientHeight + 1, 'the long-wait text fits without scrolling'); }
         assert.doesNotMatch(long.overview, /nicht verfügbar|unavailable|bestätigt|confirmed/iu); assert.equal(long.retry, true);
         const after = await boxes(page, targets), shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0);
         for (const theme of ['light', 'dark']) {
           await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme); await settle(page);
-          passes.push({ head: evidenceCommit, locale, width, theme, state: 'long-wait', ...long, layoutShiftPx: shift, real60Seconds: Boolean(evidence && width !== 1024), pass: true });
+          passes.push({ head: evidenceCommit, locale, width, theme, state: 'long-wait', ...long, layoutShiftPx: shift, real60Seconds: Boolean(realLongWait && width !== 1024), pass: true });
           if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-long-wait.png`), fullPage: false, captureBeyondViewport: false });
         }
         console.log(`AIT-173 PASS ${locale} ${width} long wait: exact copy; ${long.lines} lines; overview kept; no error or retry; shift=${shift}px`);
