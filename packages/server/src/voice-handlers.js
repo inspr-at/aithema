@@ -455,9 +455,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               (!logical.controllingTabId || logical.controllingTabId === body.tabId && logical.epoch === body.epoch);
           };
           if (!current()) throw new PluginError('unavailable');
-          const signal = entry ? AbortSignal.any([request.signal, entry.controller.signal, entry.authority.signal]) : request.signal;
+          const playbackSignal = entry && AbortSignal.any([entry.controller.signal, entry.authority.signal]);
+          const signal = playbackSignal ? AbortSignal.any([request.signal, playbackSignal]) : request.signal;
           return json(await runtime.speakText({ session: storage.get(sessionId), turnId: body.turnId,
-            options: { ...options(request), signal, current, replayId: body.replayId } }));
+            options: { ...options(request), signal, playbackSignal, current, replayId: body.replayId } }));
         }
         if (!action) {
           const current = storage.voiceLifecycle(sessionId);

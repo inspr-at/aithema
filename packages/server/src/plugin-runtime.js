@@ -728,11 +728,17 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             } }, report });
           current();
           if (audio?.audio?.format !== 'pcm_16000' || typeof audio.audio.data !== 'string' || audio.audio.data.length > 5_592_408) return fallback;
+          // HTTP response completion aborts the request signal. Playback instead
+          // belongs to the call lifetime and its explicit, token-bound release.
+          lease.signal?.removeEventListener('abort', lease.abort);
+          lease.signal = options.playbackSignal;
+          lease.signal?.throwIfAborted();
+          lease.signal?.addEventListener('abort', lease.abort, { once: true });
           playing = true;
           clearTimeout(lease.timer);
           // PCM is bounded by the output contract; expiry also releases abandoned tabs.
           const durationMs = Buffer.from(audio.audio.data, 'base64').length / 32;
-          lease.timer = setTimeout(lease.abort, Math.ceil(durationMs) + 5000); lease.timer.unref?.();
+          lease.timer = setTimeout(lease.abort, Math.ceil(durationMs) + 30_000); lease.timer.unref?.();
           return { kind: 'audio', text: reply.content, turnId, replayId: lease.replayId, audio: audio.audio };
         } catch (error) {
           current();
