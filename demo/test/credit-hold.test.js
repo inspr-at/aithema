@@ -7,6 +7,8 @@ import { admitCredits } from '../../packages/core/src/credits.js';
 const credits = async f => (await f.call('/credits')).json();
 test('AIT-173 round 3: an owner reservation in the admitCredits await gap is held, not charged', async t => {
   const f = await creditHoldFixture(); t.after(() => f.close());
+  f.ledger.settleVoice(f.claim.claimId, { attemptId: f.claim.attemptId, outcome: 'completed', closureConfirmed: true,
+    usage: { providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 100_000, visitorMicro: 100_000 } });
   const wallet = f.host.wallet(f.owner), original = wallet.admit;
   const reserved = Promise.withResolvers(), resume = Promise.withResolvers();
   t.after(() => resume.resolve());
@@ -14,7 +16,7 @@ test('AIT-173 round 3: an owner reservation in the admitCredits await gap is hel
     const result = await original(request);
     reserved.resolve(request.attemptId); await resume.promise; return result;
   };
-  const pending = admitCredits(f.ledger, f.request('reaction', 200_000), wallet);
+  const pending = admitCredits(f.ledger, f.request('reaction', 6_000_000), wallet);
   const attemptId = await reserved.promise;
   try {
     assert.equal(f.ledger.get(attemptId), undefined, 'the poll lands before the ledger row');
