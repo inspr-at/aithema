@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { pausedOverview } from '../fixtures/pause-overview.js';
 import { startChild } from '../helpers.js';
-import { browserPath, shadow, until, settle, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-tick-followups-'));
@@ -34,7 +34,7 @@ async function fixture(t) {
   return page;
 }
 async function scene(page, locale, theme, width) {
-  await page.setViewport({ width, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
+  await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
   await page.evaluate(async locale => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
@@ -44,7 +44,7 @@ async function scene(page, locale, theme, width) {
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     scrollTo(0, 0);
   }, locale);
-  await settle();
+  await frame(page);
 }
 async function evidence(finding, page, label, values) {
   const root = process.env.AITHEMA_EVIDENCE_DIR;
@@ -81,9 +81,9 @@ async function voiceScene(page, locale, theme, width) {
     document.documentElement.lang = locale;
   }, locale);
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
-  await settle();
+  await frame(page);
 }
-const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+const frame = page => page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
 async function metrics(page) {
   return shadow(page, c => {
     const r = c.shadowRoot, b = r.querySelector('.composer').getBoundingClientRect(), f = r.querySelector('.display-foot').getBoundingClientRect();
@@ -111,11 +111,11 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
     await voiceScene(page, locale, theme, width);
-    await page.setViewport({ width, height: width === 393 ? 852 : 844 }); await frame(page);
+    await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); await frame(page);
     assert.ok((await metrics(page)).transcriptHeight >= 320, 'phone keeps a usable transcript viewport above the dock');
     const baseline = (await metrics(page)).composer;
     for (const state of ['idle', 'in-call', 'purpose-pause', 'session-pause']) {
-      if (state === 'session-pause') { await voiceScene(page, locale, theme, width); await page.setViewport({ width, height: width === 393 ? 852 : 844 }); }
+      if (state === 'session-pause') { await voiceScene(page, locale, theme, width); await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); }
       if (state === 'in-call') await page.evaluate(() => globalThis.tickRail.start());
       if (state === 'purpose-pause' || state === 'session-pause') {
         await shadow(page, (c, state) => c.receive({ seq: c.session.seq + 1, type: 'session.paused',
@@ -132,7 +132,7 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     // viewport as a phone keyboard does. No real OS keyboard is claimed here.
     await voiceScene(page, locale, theme, width);
     await page.click('aithema-session >>> textarea');
-    await page.setViewport({ width, height: 480 }); await frame(page);
+    await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: 480 }); await frame(page);
     await page.keyboard.type(locale === 'de' ? 'Mein Vorhaben' : 'My project');
     const keyboard = await metrics(page);
     assert.equal(keyboard.inViewport, true, `${locale}/${theme}/${width}: keyboard does not cover input ${JSON.stringify(keyboard)}`);
@@ -140,7 +140,7 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     await page.keyboard.press('Tab');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'attach');
     await record(t, 'L2', page, `${locale}-${theme}-${width}-keyboard`, keyboard);
-    await page.setViewport({ width, height: 844 }); await frame(page);
+    await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: 844 }); await frame(page);
     await page.evaluate(() => {
       globalThis.nativeViewport = visualViewport;
       const viewport = new EventTarget(); Object.assign(viewport, { height: 440, offsetTop: 30, scale: 1 });
@@ -192,7 +192,7 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
     const scenario = await pausedOverview(locale);
     for (const theme of ['light', 'dark']) for (const width of [390, 393, 1440]) {
       await scene(page, locale, theme, width);
-      await page.setViewport({ width, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
+      await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
       await page.evaluate(async ({ before, locale }) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         document.querySelector('aithema-session').configure({ copy, session: { ...before, id: globalThis.tickSeed.id } });
@@ -251,11 +251,11 @@ test('AIT-188 L2a: opaque phone dock backdrop hits in gaps and gutters, all stat
   const page = await fixture(t);
   for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
     await voiceScene(page, 'de', theme, width);
-    await page.setViewport({ width, height: width === 393 ? 852 : 844 });
+    await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 });
     for (const state of ['idle', 'purpose-pause', 'session-pause', 'resized-keyboard', 'overlay-keyboard']) {
-      if (state !== 'idle') { await voiceScene(page, 'de', theme, width); await page.setViewport({ width, height: width === 393 ? 852 : 844 }); }
+      if (state !== 'idle') { await voiceScene(page, 'de', theme, width); await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); }
       if (state.endsWith('pause')) await shadow(page, (c, state) => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, ...(state === 'purpose-pause' ? { reason: 'purpose' } : {}) } }), state);
-      if (state === 'resized-keyboard') { await page.click('aithema-session >>> textarea'); await page.setViewport({ width, height: 480 }); }
+      if (state === 'resized-keyboard') { await page.click('aithema-session >>> textarea'); await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: 480 }); }
       if (state === 'overlay-keyboard') await overlayKeyboard(page);
       await frame(page);
       const values = await backdropMetrics(page), label = `de-${theme}-${width}-${state}`;
@@ -275,9 +275,9 @@ test('AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcri
   const page = await fixture(t);
   for (const theme of ['light', 'dark']) for (const width of [390, 393]) for (const mode of ['resized', 'overlay']) {
     await voiceScene(page, 'de', theme, width);
-    await page.setViewport({ width, height: width === 393 ? 852 : 844 });
+    await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 });
     await page.click('aithema-session >>> textarea');
-    if (mode === 'resized') await page.setViewport({ width, height: 480 }); else await overlayKeyboard(page);
+    if (mode === 'resized') await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: 480 }); else await overlayKeyboard(page);
     // Dispatch in the current task and inspect before a frame or observer can run.
     const synchronous = await shadow(page, c => {
       (visualViewport ?? window).dispatchEvent(new Event('resize'));
@@ -294,7 +294,7 @@ test('AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcri
       (visualViewport ?? window).dispatchEvent(new Event('resize'));
       return getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display;
     }), 'none', 'footer stays hidden while keyboard remains open after focus moves');
-    if (mode === 'overlay') await closeOverlay(page); else { await page.setViewport({ width, height: width === 393 ? 852 : 844 }); await frame(page); }
+    if (mode === 'overlay') await closeOverlay(page); else { await page.setViewport({ width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); await frame(page); }
     assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'footer returns when keyboard closes');
   }
 });
@@ -368,5 +368,100 @@ test('AIT-188 notice option a: last scroll item follows and preserves scrolled-u
       else assert.equal(cleared.scrollTop, cleared.maxScroll, 'removed last item settles at bottom');
       await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${position}-removed`, { ...cleared, firstBubbleShift: following ? null : cleared.first.top - beforeClear.first.top });
     }
+  }
+});
+
+
+// R3 uses touch emulation from the first viewport onward. No mouse/pointer is
+// introduced: the ordinary row must obey the same last-message rules itself.
+test('AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390/393, exact 0px reading shift', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
+    await voiceScene(page, locale, theme, width);
+    await shadow(page, c => {
+      const session = structuredClone(c.session), text = session.transcript[0].content;
+      session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `ordinary-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
+      c.configure({ copy: globalThis.pauseCopy, session });
+    });
+    await frame(page);
+    assert.equal(await page.evaluate(() => navigator.maxTouchPoints > 0 && matchMedia('(pointer:coarse)').matches), true);
+    for (const position of ['following', 'scrolled-up', 'near-bottom']) {
+      const following = position === 'following';
+      const positionTranscript = () => shadow(page, (c, position) => {
+        const s = c.shadowRoot.querySelector('.transcript-shell');
+        s.scrollTop = position === 'following' ? s.scrollHeight : position === 'near-bottom' ? s.scrollHeight - s.clientHeight - 20 : 400;
+        s.dispatchEvent(new Event('scroll'));
+      }, position);
+      await positionTranscript(); await frame(page);
+      const beforeStart = await noticeMetrics(page);
+      assert.ok(beforeStart.controls.every(b => b.height >= 44), 'ordinary row exists before call starts');
+      await page.evaluate(() => globalThis.tickRail.start()); await frame(page);
+      const started = await noticeMetrics(page);
+      assert.ok(started.controls.every(b => b.height === 0), 'ordinary row removed at call start');
+      if (following) assert.equal(started.scrollTop, started.maxScroll, 'removed last item settles at bottom');
+      else assert.deepEqual(started.first, beforeStart.first, 'call start removes row: first bubble shift 0px');
+      await record(t, 'r3-ordinary', page, `${locale}-${theme}-${width}-${position}-call-start`, { ...started, firstBubbleShift: following ? null : started.first.top - beforeStart.first.top });
+      await positionTranscript(); await frame(page);
+      const beforeEnd = await noticeMetrics(page);
+      await page.evaluate(() => {
+        const rail = globalThis.tickRail;
+        rail.session.events.push({ type: 'ended', callId: rail.session.callId, reason: 'closed' });
+      });
+      await until(page, () => globalThis.tickRail.session === null); await frame(page);
+      const ended = await noticeMetrics(page);
+      assert.equal(ended.lastItem, 'voice-notices');
+      assert.ok(ended.controls.every(b => b.height >= 44), 'ordinary row returns at call end with 44px targets');
+      if (following) {
+        for (const b of [ended.notice, ...ended.controls]) assert.ok(b.top >= ended.viewport.top && b.bottom <= ended.viewport.bottom && b.bottom <= ended.dockTop - 12, `ordinary row fully visible after render: ${JSON.stringify(ended)}`);
+      } else {
+        assert.deepEqual(ended.first, beforeEnd.first, 'call end shows row: first bubble shift 0px');
+        assert.equal(ended.badge, beforeEnd.badge, 'ordinary row adds no badge');
+      }
+      await record(t, 'r3-ordinary', page, `${locale}-${theme}-${width}-${position}-call-end`, { ...ended, firstBubbleShift: following ? null : ended.first.top - beforeEnd.first.top });
+    }
+  }
+});
+
+test('AIT-188 r3 keyboard: fine-pointer desktop resize keeps footer', async t => {
+  const page = await fixture(t); page.phoneTouch = false;
+  await voiceScene(page, 'en', 'light', 500);
+  assert.equal(await page.evaluate(() => matchMedia('(pointer:fine)').matches && navigator.maxTouchPoints === 0), true);
+  await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
+  await page.setViewport({ width: 500, height: 644, hasTouch: false }); await frame(page);
+  assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'desktop window shrink is not an on-screen keyboard');
+});
+
+test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick footer hidden', async t => {
+  const page = await fixture(t);
+  await voiceScene(page, 'de', 'dark', 390);
+  const footer = () => shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display);
+  await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
+  await page.setViewport({ width: 390, height: 480, hasTouch: true }); await frame(page);
+  assert.equal(await footer(), 'none', 'touch keyboard opens');
+  await page.setViewport({ width: 500, height: 600, hasTouch: true, isLandscape: true }); await frame(page);
+  assert.notEqual(await footer(), 'none', 'width/orientation establishes a new unobstructed baseline');
+  await page.setViewport({ width: 500, height: 400, hasTouch: true, isLandscape: true }); await frame(page);
+  assert.equal(await footer(), 'none', 'keyboard detected against the new baseline');
+  await shadow(page, c => c.shadowRoot.querySelector('.fold').focus({ preventScroll: true })); await frame(page);
+  assert.notEqual(await footer(), 'none', 'leaving composer clears keyboard state without resize');
+  await page.setViewport({ width: 500, height: 600, hasTouch: true, isLandscape: true }); await frame(page);
+  assert.notEqual(await footer(), 'none', 'keyboard closed');
+  await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true })); await frame(page);
+  assert.notEqual(await footer(), 'none', 'focus alone cannot reuse a stale height');
+});
+
+test('AIT-188 r3 fade: overlay keyboard backdrop has a transparent-to-paper top 12px, L/D 390/393', async t => {
+  const page = await fixture(t);
+  for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
+    await voiceScene(page, 'de', theme, width); await overlayKeyboard(page);
+    const edge = await shadow(page, c => {
+      const r = c.shadowRoot, n = r.querySelector('.phone-dock-backdrop'), b = n.getBoundingClientRect(), d = r.querySelector('.composer-dock').getBoundingClientRect();
+      return { top: b.top, dockTop: d.top, mask: getComputedStyle(n).maskImage, background: getComputedStyle(n).backgroundColor };
+    });
+    assert.equal(edge.dockTop - edge.top, 12, 'fade occupies the gap above composer');
+    assert.match(edge.mask, /linear-gradient\(.*rgba\(0, 0, 0, 0\).*rgb\(0, 0, 0\) 12px/u, 'transparent-to-opaque gradient across top 12px');
+    await record(t, 'r3-fade', page, `de-${theme}-${width}-overlay-keyboard`, { ...edge, gradientPresent: true, fadePx: 12 });
+    if (process.env.AITHEMA_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, 'r3-fade', `de-${theme}-${width}-edge-crop.png`), clip: { x: 0, y: edge.top - 4, width, height: 24 }, captureBeyondViewport: false });
+    await closeOverlay(page);
   }
 });
