@@ -230,9 +230,10 @@ test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause 
 });
 
 test('AIT-189: reloaded purpose/session pauses match unpaused stage, visual drafts on/off, DE/EN L/D 390/1440', { timeout: 120_000 }, async t => {
-  const page = await fixture(t);
+  const page = await fixture(t), seed = await shadow(page, () => globalThis.tickSeed);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const enabled of [true, false]) for (const reason of ['purpose', 'session']) {
     page.reloadSession = null;
+    await shadow(page, (c, seed) => { globalThis.tickSeed = seed; }, seed);
     // Use the same visual-drafts scene as AIT-188 L1, including its disabled verdict.
     await voiceScene(page, locale, theme, width);
     await shadow(page, (c, enabled) => {
