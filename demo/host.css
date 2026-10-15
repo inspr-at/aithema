@@ -396,5 +396,3 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 
 /* AIT-206: unknown until the conversation resolves; reserve both DE and EN. */
 .conversation-page #language-value { display:inline-block; inline-size:2ch; flex:none; }
-/* Before upgrade, utilities are not yet in their header slot. */
-.conversation-page aithema-session:not(:defined) .host-actions { visibility:hidden; }
