@@ -226,7 +226,7 @@ for (const mode of ['create', 'PATCH']) {
     assert.ok(host.binding);
     assert.deepEqual(logs, [
       { name: AGENT_NAME, id: 'owned-agent', message: mode === 'create' ? 'elevenlabs agent ensured: created'
-        : 'elevenlabs agent ensured: patched (fields: conversation_config.conversation.max_duration_seconds)' },
+        : 'elevenlabs agent ensured: patched (fields: conversation_config.conversation.max_duration_seconds, conversation_config.agent.first_message)' },
       { event: 'voice-availability', from: 'starting', to: 'available', reason: null },
     ]);
   });

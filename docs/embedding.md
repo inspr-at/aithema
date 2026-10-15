@@ -344,6 +344,7 @@ binding in the callback, then normalize it before creating a duration binding.
 `agentName` and `facadeSecretName` must be explicit host-specific identifiers;
 `costConfig` and `qualifyBinding` are required. Missing or invalid arguments reject
 before any provider access; there is no fallback to Aithema's agent.
+
 At startup, `ensureAgent` GETs the receipt-owned agent and compares only the
 configuration it manages. An unchanged agent receives exactly one agent GET and
 no agent PATCH; a missing agent is created and its ownership receipt stored.
