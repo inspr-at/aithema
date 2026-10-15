@@ -202,6 +202,10 @@ Voice, image and HTML bindings have their own validated contracts described in
 the README. The host-port conformance helpers above test library, delivery,
 wallet behavior and failure/recovery; they do not replace live qualification.
 
+For the plugin contract and the text, voice and image onboarding steps, see
+[Adding a model](plugins.md#adding-a-model). The standalone external package proof
+uses host configuration and public exports without core or server changes.
+
 ## Shipped plugins
 
 The following imports are checked against actual exports. They are factories,

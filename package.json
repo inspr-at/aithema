@@ -19,9 +19,11 @@
     "release:pack": "node release/pack.mjs pack",
     "release:verify": "node release/pack.mjs verify",
     "release:consumer": "node release/consumer.mjs",
-    "release:candidate": "node release/candidate.mjs"
+    "release:candidate": "node release/candidate.mjs",
+    "setup:browser": "node scripts/install-test-browser.js"
   },
   "devDependencies": {
+    "@puppeteer/browsers": "3.2.4",
     "happy-dom": "^20.11.2",
     "puppeteer-core": "25.13.0",
     "typescript": "5.9.3",

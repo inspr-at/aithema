@@ -98,7 +98,6 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: ${{ github.event_name == 'pull_request' && 2 || 4 }}
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -114,6 +113,8 @@ jobs:
           cache: npm
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: npm ci
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm run setup:browser
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: npm run test:browser -- --shard ${{ matrix.shard }}/4
         env:

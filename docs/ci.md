@@ -1,10 +1,10 @@
-# CI runner sharing
+# CI runner use
 
-Aithema shares the organization's hosted runner slots with other projects.
-Each PR runs at most two of its four browser shards at once. Merge queue
-(`merge_group`) and main-branch push runs allow all four shards at once.
-This is a per-run limit; the coordinator's builder cap of four controls
-cross-PR demand. GitHub concurrency cannot express a cross-PR limit above one.
+Aithema runs on the organization's hosted runners. The organization is on GitHub
+Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
+CI hours (measured baseline AEON-1407, 2026-10-15). All four browser shards run
+at once for every event. Per-PR cancellation and the docs-only light path stay
+because they save runner minutes.
 
 The CI concurrency group is `ci-${{ github.event.pull_request.number || github.ref }}`.
 A newer run for the same PR cancels the older run. `cancel-in-progress` is
@@ -38,7 +38,7 @@ Repository rulesets and required-check settings are unchanged.
 ## Retry failed jobs
 
 After a transient failure, use **Re-run failed jobs** in the GitHub Actions run.
-This preserves successful job results and avoids spending shared slots on them
+This preserves successful job results and avoids spending runner minutes on them
 again. Push a new commit when the source needs fixing; PR dedupe cancels the
 superseded CI run. A docs-only follow-up PR can verify the light path by checking
 that all five CI check jobs report success without installation or browser steps.
@@ -46,15 +46,13 @@ that all five CI check jobs report success without installation or browser steps
 ## Validation and references
 
 `test/ci-slot-sharing.test.js` parses the workflow and checks concurrency,
-parallelism, stable check jobs, and step guards. It also executes the actual
+full browser parallelism, stable check jobs, and step guards. It also executes the actual
 detector against temporary Git histories, including test fixtures, mixed changes,
 renames, unusual filenames, errors, and docs-only merge queue/main events.
 The existing merge-queue tests check all seven required check names.
 Run tests on the designated remote test machine or in PR CI.
 
-The expression in `strategy.max-parallel` uses the `github` context, which is
-[allowed in job strategy](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability).
-GitHub documents [max-parallel](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategymax-parallel),
+GitHub documents
 [conditional cancellation and pending-run replacement](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency),
 and [merge queue temporary branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue).
 Validate workflow syntax and expression types with pinned `actionlint` v1.7.7;
