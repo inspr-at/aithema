@@ -5,15 +5,16 @@ import { resolve } from 'node:path';
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
 // AIT-191 baseline: slowest successful per-file observations across CI runs
-// 38692613866, 38701239296 and 38704006618. AIT-192 remeasures in CI runs
-// 38714762515, 38715731356 and 38716800511 (all attempt 1). Changed matrices
-// use their slowest new observation; unchanged files retain a slower historical
-// maximum. All weights round UP to 10-second planning buckets; updated/slower
-// observations also reserve one 10-second bucket for run variance.
+// 38692613866, 38701239296 and 38704006618. AIT-192 benchmark browser jobs:
+// 38714762515, 38715731356, 38716800511, 38717864470 and 38720349940 (attempt 1).
+// Changed matrices use their slowest benchmark observation; unchanged files
+// retain a slower historical maximum. All weights round UP to 10-second planning
+// buckets; updated/slower observations reserve another 10s for run variance.
 // Sum top-level test durations only; nested subtests are already included.
-// These estimates exclude setup, file-process overhead and evidence upload.
+// Estimates exclude setup, file-process overhead and evidence upload. The final
+// layout is validated separately against the 450s whole-job wall budget.
 export const browserTestWeights = {
-  'test/browser/admin-pages.test.js': 50.000, // CI 38692613866-1 (rounded up)
+  'test/browser/admin-pages.test.js': 80.000, // CI 38720349940-1 (rounded up + 10s margin)
   'test/browser/audio-replay.test.js': 50.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/confirmation-design.test.js': 80.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/credit-hold.test.js': 70.000, // CI 38716800511-1 (rounded up + 10s margin)
@@ -23,7 +24,7 @@ export const browserTestWeights = {
   'test/browser/footer-width-sweep.test.js': 30.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/host-surface.test.js': 20.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
-  'test/browser/operator-login.test.js': 50.000, // CI 38704006618-1 (rounded up)
+  'test/browser/operator-login.test.js': 60.000, // CI 38717864470-1 (rounded up + 10s margin)
   'test/browser/orb-reveal.test.js': 90.000, // CI 38701239296-1 (rounded up)
   'test/browser/pause-phone.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/question-card.test.js': 20.000, // CI 38704006618-1 (rounded up)
