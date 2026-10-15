@@ -24,7 +24,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function measure(output, variant, executable) {
   const dir = join(output, variant); await mkdir(dir, { recursive: true });
-  const stats = { variant, executable, pinnedShellBuild: browserBuild, peakChromeTreeRssKiB: 0,
+  const stats = { variant, executable, browserVersion: run(executable, ['--version']).trim(), pinnedShellBuild: browserBuild, peakChromeTreeRssKiB: 0,
     freeBeforePct: free(), minFreePct: 100, freeAfterPct: null, samples: [], files: [] };
   for (const [file, pattern] of batch) {
     const started = performance.now();

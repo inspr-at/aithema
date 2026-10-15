@@ -51,15 +51,33 @@ shards, with eight-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 
-Run the browser smoke test separately with an installed Google Chrome or Chromium:
+Run browser tests on the permitted test runner (never on mbp2607):
 
 ```sh
+npm run setup:browser
 npm run test:browser
-# For a browser outside the standard macOS/Linux locations:
+# Optional explicit executable; an invalid path never falls back:
 CHROME_PATH=/absolute/path/to/chrome npm run test:browser
 ```
 
-It uses exactly pinned `puppeteer-core` without downloading a browser, starts the
+`setup:browser` installs `chrome-headless-shell` **155.0.8059.39**, matching
+`puppeteer-core` **25.13.0**, through exactly pinned `@puppeteer/browsers` **3.2.4**.
+The cache is `~/.cache/aithema-browsers`; test launch also installs that exact build
+if it is missing. All browser suites and the voice soak use the same selection
+and disable Breakpad/Crashpad reporting. Full Chrome has no suite exceptions;
+the AIT-199 measurement batch uses it only as the old comparison baseline.
+An explicit `CHROME_PATH`, including a refusing stub, remains authoritative.
+On OPS workers, an exact new PID/run match in `~/ci.noindex/mem-guard.log` labels
+a SIGTERM exit `infra: memory guard` and fails the run.
+
+The separately invoked `test/measurements/headless-shell.test.js` runs a serial
+full-Chrome/shell sample (display, admin, A2, consent, pause and restart recovery).
+It writes viewport screenshots where the UI is fixed/sticky, raw pixel deltas,
+one-second sampled Chrome-tree RSS sums, system free percentages and the macOS
+ReportCrash log to `AITHEMA_EVIDENCE_DIR`. RSS sums can count shared pages more
+than once; the full browser suite belongs to PR CI.
+
+The smoke test starts the
 mock demo on a free port with a temporary database, and always clicks **Allow mock
 processing** (`#grant`), waiting for a 200 consent POST response, `#consent-status`
 to read "Mock processing allowed." and an enabled composer textarea. It then
