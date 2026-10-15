@@ -23,8 +23,10 @@ const running = await listen(async request => {
     const lane = url.searchParams.get('lane');
     observer = Promise.withResolvers(); failureLane = lane;
     await h.route('retry', {});
-    const calls = await Promise.all(['reaction', 'understanding'].map(async name => [name, await h.next(name)]));
-    for (const [name, call] of calls) {
+    // Retry now completes the reply before starting the overview. Release each
+    // controlled provider call in that order instead of waiting for both first.
+    for (const name of ['reaction', 'understanding']) {
+      const call = await h.next(name);
       if (name === lane) call.httpError(400); else h.resolve(call);
     }
     await h.handlers.idle();
