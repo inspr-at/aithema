@@ -47,6 +47,7 @@ async function fixture(t) {
       for (const [feature, ids] of Object.entries(features)) if (ids.every(id => page.state.selected.includes(id))) page.state.matrix.best[feature] = { available: true, reason: null };
       return json({ granted: true, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: 2, conversationUnchanged: true } } });
     }
+    if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, featureMatrix: page.state.matrix });
     if (path.endsWith('/features')) return json(page.state ? { featureMatrix: page.state.matrix } : {});
     if (path.endsWith('/retry') && page.state) return json({});
     if (path.endsWith('/events')) return request.continue({ headers: { ...request.headers(), 'last-event-id': '0' } });
@@ -78,6 +79,7 @@ async function scene(page, locale, theme, width, missing) {
     globalThis.c1Document = globalThis.documentToken;
     scrollTo(0, 0);
   }, { locale, matrix: page.state.matrix });
+  page.state.snapshot = await shadow(page, c => structuredClone(c.session));
   await frame(page);
 }
 const geometry = ['.band', '.concept-bar', '.understanding', '.notice', '.composer'];

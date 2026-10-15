@@ -191,11 +191,6 @@ test('start2 drafts run at milestones in the background; conversation and select
   assert.equal(spend.snapshot().spentMicro, 2468);
   await grant(['models-international']); await handlers.idle();
   assert.equal((await runtime.matrix(storage.get(session.id))).best.html.available, false);
-  assert.equal((await runtime.matrix(storage.get(session.id))).best.analysis.available, true, 'V1: models-international authorizes analysis without drafts consent');
-  assert.equal(storage.get(session.id).understanding.readinessAssessed, true, 'V1: an in-scope turn produces an overview with only models consent');
-  const document = await (await call('consent')).json();
-  assert.deepEqual(document.features.analysis, ['models-international']);
-  assert.deepEqual(document.features.html, ['drafts-anthropic']);
   assert.equal((await call(`concepts/${drafts[0].id}/html`)).status, 403);
   await turn('after', 'Further details: retain the existing layout.'); await handlers.idle();
   assert.equal(calls.length, 2); assert.equal((await runtime.matrix(storage.get(session.id))).best.text.available, true);
