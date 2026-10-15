@@ -200,7 +200,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits__limit { display:block; }
 .host-credits[data-pinned]:not([data-dismissed]) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
 /* Calm exhausted rail: same cells, no warning color or active controls. */
-.audio-rail[data-credit-ending] .voice-close { color:var(--aithema-ink); visibility:visible; }
+.audio-rail:is([data-used-up],[data-credit-ending]) .voice-close { color:var(--aithema-ink); }
+.audio-rail[data-credit-ending] .voice-close { visibility:visible; }
 .audio-rail[data-used-up] :is(.pause,.voice-pause,.voice-input,.voice-close,.voice-retry,.voice-playback),
 .audio-rail[data-used-up] :is(.pause,.voice-pause) .voice-icon { visibility:hidden; }
 .audio-rail[data-used-up] :is(.voice-start,.voice-output,.voice-wave) { visibility:visible; }
