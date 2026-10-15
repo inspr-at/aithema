@@ -209,8 +209,9 @@ export const bandStyles = `
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }
 }
-/* Both platform font metrics fit from 448px; below that keep the 44px icon control. */
-@media(width < 448px) {
+/* Reserved DE/EN utility labels and both platform font metrics fit from 480px;
+   below that keep the 44px icon control. */
+@media(width < 480px) {
   .conversations-toggle { min-width:44px; width:44px; padding:0; justify-content:center; }
   .conversations-toggle > svg:first-child { display:block; }
   .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
