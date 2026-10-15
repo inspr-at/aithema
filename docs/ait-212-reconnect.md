@@ -129,3 +129,12 @@ provider settlement follows the unchanged AIT-198 receipt rules.
 
 The English request has a conservative ceiling of 802,568 micro-USD; it also
 produces zero reconnect delta. No review gate was run.
+
+After the follow-up main merge, evidence was recaptured at `be9a268d7e` using the
+shared AIT-201 provider kit. Browser run `be9a268d7e-71649` passed 11/11 in 45.026
+seconds; all 40 credits comparisons and settlement classifications above remain
+identical. The same evidence directory now contains these refreshed captures and
+JSON (head `be9a268d7e`). Unit run `be9a268d7e-87742` passed 118/118 in 1.344
+seconds: handlers, storage, safeguards and the shard guard. This includes the signed
+merge's optional settlement error field, boot/reconnect durability and partial-lane
+recovery. Subsequent changes record this evidence only.
