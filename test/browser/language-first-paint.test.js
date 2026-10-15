@@ -32,7 +32,7 @@ test('AIT-206: fresh EN/DE browsers and stored choices never paint the wrong lan
           const sample = () => {
             const c = document.querySelector('aithema-session'), label = document.querySelector('#language-value');
             if (c?.shadowRoot?.querySelector('.toolbar')) {
-              const controls = [...document.querySelectorAll('.host-actions label'), ...c.shadowRoot.querySelectorAll('.settings-open, .motion-toggle, .fold')];
+              const controls = [...document.querySelectorAll('.host-actions label'), ...c.shadowRoot.querySelectorAll('.header-actions > .settings-open')];
               window.headerFrames.push({ label: label.textContent, language: document.documentElement.lang,
                 boxes: controls.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }) });
             } else if (label?.textContent) window.earlyWrongLabel = label.textContent;
