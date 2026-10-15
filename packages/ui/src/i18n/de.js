@@ -281,7 +281,7 @@ export const de = {
   export: 'Gesprächsdaten herunterladen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
   reconnecting: 'Verbindung wird wiederhergestellt …', sending: 'Wird gespeichert …', saved: 'Gespeichert', failed: 'Nicht gespeichert. Senden Sie die Nachricht erneut.',
   understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',
-  reasoningFailed: 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.',
+  reasoningFailed: 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.', noProjectDetails: 'Noch keine Angaben zu Ihrem Vorhaben.', preparingOverview: 'Ihr Überblick wird erstellt …',
   draft: 'Erste Fassung. Die gründliche Auswertung läuft noch.', stale: 'Neue Angaben erkannt. Die Auswertung wird aktualisiert …',
   final: 'Aktuelle Einschätzung', notAssessed: 'Noch nicht bewertet', talk: 'Gespräch', build: 'Umsetzung',
   talkProgress: '{percent} % Gesprächsbereitschaft', buildProgress: '{percent} % Umsetzungsbereitschaft',
@@ -513,6 +513,8 @@ export const de = {
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
   // Legal copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
+  featureConsent: { images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
+    action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
     // START src/lib/i18n.ts:2739 (consentCopy.de.intro).
     intro: 'Legen Sie einmal fest, welche Verarbeitung Sie freigeben. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange die gewählte Verarbeitung hier freigegeben ist, können Sie Einstellungen ändern, ohne erneut zuzustimmen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',

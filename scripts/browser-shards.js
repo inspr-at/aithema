@@ -24,32 +24,32 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Estimates exclude setup, file-process overhead and evidence upload. The final
 // layout is validated separately against the 450s whole-job wall budget.
 export const browserTestWeights = {
-  'test/browser/admin-pages.test.js': 80.000, // AIT-199 latest max 62.782s, CI 38770896962-1; historical floor 80s
-  'test/browser/audio-replay.test.js': 50.000, // AIT-199 latest max 30.882s, CI 38770896962-1; historical floor 50s
-  'test/browser/confirmation-design.test.js': 90.000, // AIT-199 latest max 68.546s, CI 38732580354-1; historical floor 90s
-  'test/browser/consent-lines.test.js': 90.000, // Incoming AIT-197: CI 38774634960-1, 76.396s rounded up + 10s
-  'test/browser/credit-hold.test.js': 80.000, // AIT-199 latest max 62.079s, CI 38774634960-1; historical floor 70s
-  'test/browser/demo.test.js': 90.000, // AIT-199 latest max 67.766s, CI 38770896962-1; historical floor 90s
-  'test/browser/email-ask.test.js': 130.000, // AIT-199 latest max 99.923s, CI 38732580354-1; historical floor 130s
-  'test/browser/email-mail-space.test.js': 80.000, // AIT-199 latest max 62.288s, CI 38773142800-1; historical floor 80s
-  'test/browser/footer-width-sweep.test.js': 30.000, // AIT-199 latest max 13.022s, CI 38732580354-1; historical floor 30s
-  'test/browser/host-surface.test.js': 20.000, // AIT-199 latest max 8.114s, CI 38732580354-1; historical floor 20s
-  'test/browser/html-preview.test.js': 40.000, // AIT-199 latest max 9.122s, CI 38765085264-1; historical floor 40s
-  'test/browser/operator-login.test.js': 60.000, // AIT-199 latest max 42.284s, CI 38770896962-1; historical floor 60s
-  'test/browser/orb-reveal.test.js': 100.000, // AIT-199 latest max 86.949s, CI 38770896962-1; historical floor 100s
-  'test/browser/pause-phone.test.js': 200.000, // AIT-199 latest max 187.080s, CI 38732580354-1; historical floor 190s
-  'test/browser/question-card.test.js': 30.000, // AIT-199 latest max 16.628s, CI 38732580354-1; historical floor 30s
-  'test/browser/safeguards.test.js': 20.000, // AIT-199 latest max 8.451s, CI 38774634960-1; historical floor 20s
-  'test/browser/start-journey.test.js': 30.000, // AIT-199 latest max 16.401s, CI 38765085264-1; historical floor 30s
-  'test/browser/start-look.test.js': 40.000, // AIT-199 latest max 27.864s, CI 38770896962-1; historical floor 40s
-  'test/browser/start2-display-continuity.test.js': 60.000, // AIT-199 latest max 40.700s, CI 38774634960-1; historical floor 60s
-  'test/browser/start2-display-geometry.test.js': 60.000, // AIT-199 latest max 44.925s, CI 38770896962-1; historical floor 50s
-  'test/browser/start2-display-matrix.test.js': 70.000, // AIT-199 latest max 52.528s, CI 38773142800-1; historical floor 70s
-  'test/browser/start2-display.test.js': 110.000, // AIT-199 latest max 97.777s, CI 38765085264-1; historical floor 110s
-  'test/browser/tick-followups.test.js': 90.000, // AIT-199 latest max 76.289s, CI 38732580354-1; historical floor 90s
-  'test/browser/understanding-failure.test.js': 50.000, // Incoming AIT-198: CI 38770896962-1, 32.829s rounded up + 10s
-  'test/browser/visitor-credit-tiers.test.js': 110.000, // AIT-199 latest max 96.541s, CI 38770896962-1; historical floor 110s
-  'test/browser/voice-presentation.test.js': 90.000, // AIT-199 latest max 68.021s, CI 38770896962-1; historical floor 90s
+  'test/browser/admin-pages.test.js': 80.000, // CI 38720349940-1 (rounded up + 10s margin)
+  'test/browser/audio-replay.test.js': 50.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/confirmation-design.test.js': 90.000, // CI 38726471579-1 (74.518s; rounded up + 10s margin)
+  'test/browser/consent-lines.test.js': 60.000, // AIT-197 round 2: reserve for real-server saves, withdrawals and target checks
+  'test/browser/credit-hold.test.js': 70.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/demo.test.js': 90.000, // CI 38704006618-1 (rounded up)
+  'test/browser/email-ask.test.js': 130.000, // CI 38726471579-1 (115.313s; rounded up + 10s margin)
+  'test/browser/email-mail-space.test.js': 80.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/footer-width-sweep.test.js': 30.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/host-surface.test.js': 20.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
+  'test/browser/operator-login.test.js': 60.000, // CI 38717864470-1 (rounded up + 10s margin)
+  'test/browser/orb-reveal.test.js': 100.000, // CI 38726471579-1 (84.326s; rounded up + 10s margin)
+  'test/browser/pause-phone.test.js': 190.000, // CI 38726471579-1 (176.200s; rounded up + 10s margin)
+  'test/browser/question-card.test.js': 30.000, // CI 38726471579-1 (14.920s; rounded up + 10s margin)
+  'test/browser/safeguards.test.js': 20.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/start-journey.test.js': 30.000, // CI 38726471579-1 (13.488s; rounded up + 10s margin)
+  'test/browser/start-look.test.js': 40.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/start2-display-continuity.test.js': 60.000, // CI 38714762515-1 (rounded up + 10s margin)
+  'test/browser/start2-display-geometry.test.js': 50.000, // CI 38704006618-2 (rounded up)
+  'test/browser/start2-display-matrix.test.js': 70.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/start2-display.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/tick-followups.test.js': 90.000, // CI 38726471579-1 (73.781s; rounded up + 10s margin)
+  'test/browser/visitor-credit-tiers.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/understanding-failure.test.js': 30.000, // AIT-198 controlled provider / 8 visitor settlement cases
+  'test/browser/voice-presentation.test.js': 90.000, // CI 38716800511-1 (rounded up + 10s margin)
 };
 
 export const browserShardCount = 4;

@@ -34,7 +34,6 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     document.documentElement.lang = session?.locale ?? preferredLocale(storage);
     document.title = `${h.processingTitle} — Aithema`;
     paintUtilities(copy, document);
-    document.querySelector('#locale').value = preferredLocale(storage);
     text('#language-note', session && preferredLocale(storage) !== session.locale ? h.languageNext.replace('{language}', h.languages[preferredLocale(storage)]) : '');
     text('#consent-title', binding?.voiceMode === 'elevenlabs' && !binding.processingConsent ? copy.voiceHostConsentTitle : binding?.processingConsent ? h.processingTitle : h.consentTitle);
     text('#consent-legend', c.legend); text('#retry', c.retry);

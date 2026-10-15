@@ -1,3 +1,4 @@
+import { paintConsentLine } from './consent-line.js';
 import { icon } from './icons.js';
 import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
@@ -10,8 +11,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -120,7 +121,11 @@ export class AudioRail {
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
     const range = this.root.ownerDocument.createRange();
     range.selectNodeContents(label);
-    const half = Math.max(0, ...Array.from(range.getClientRects(), rect => rect.width)) / 2;
+    // A quiet consent action is a sibling inline box. Measure the whole line's
+    // ink, including both the sentence and its action. Centred wrapped lines
+    // share an axis, so their horizontal union is the widest painted line.
+    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+    const half = rects.length ? (Math.max(...rects.map(rect => rect.right)) - Math.min(...rects.map(rect => rect.left))) / 2 : 0;
     // Only paint changes: the label and every control keep their existing layout boxes.
     wave.style.setProperty('--voice-label-half', `${half}px`);
     wave.toggleAttribute('data-short-flanks', wave.getBoundingClientRect().width / 2 - half - 8 < 24);
@@ -174,8 +179,10 @@ export class AudioRail {
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     // The session's one exhaustion announcement describes both credits and the saved conversation.
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
-    setText(this.root.querySelector('.voice-state'), usedUp ? c.voiceStates[creditEnding ? 'creditEnding' : 'usedUp'] : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
-      available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured));
+    paintConsentLine(this.root.querySelector('.voice-state'), { copy: c, feature: 'voice',
+      verdict: active || transitional || usedUp || this.error ? { available: true } : available,
+      text: usedUp ? c.voiceStates[creditEnding ? 'creditEnding' : 'usedUp'] : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
+      available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured), open: opener => this.consent?.(opener) });
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);

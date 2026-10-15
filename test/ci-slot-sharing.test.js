@@ -14,10 +14,12 @@ const lightCondition = "github.event_name == 'pull_request' && needs.changes.res
 const heavyCondition = "(github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')";
 const expression = (value, github) => runInNewContext(value.slice(3, -2), { github });
 
-test('dedupe cancels only PRs, with unique queue refs and full queue/main parallelism', () => {
+test('dedupe cancels only PRs, with unique queue refs and all four browser shards in parallel', () => {
   assert.equal(ci.concurrency.group, 'ci-${{ github.event.pull_request.number || github.ref }}');
   assert.equal(ci.concurrency['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}");
-  assert.equal(ci.jobs.browser.strategy['max-parallel'], "${{ github.event_name == 'pull_request' && 2 || 4 }}");
+  // AIT-207: all four shards run at once for every event (AEON-1407 baseline: Enterprise runners, Aithema ~2 % of CI hours).
+  assert.equal(ci.jobs.browser.strategy['max-parallel'], undefined);
+  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4]);
   const groups = [];
   for (const [event, ref, number] of [
     ['pull_request', 'refs/pull/204/merge', 204],
@@ -32,7 +34,6 @@ test('dedupe cancels only PRs, with unique queue refs and full queue/main parall
     github.event.pull_request ??= { number: null };
     groups.push(`ci-${expression('${{ github.event.pull_request.number || github.ref }}', github)}`);
     assert.equal(expression(ci.concurrency['cancel-in-progress'], github), event === 'pull_request');
-    assert.equal(expression(ci.jobs.browser.strategy['max-parallel'], github), event === 'pull_request' ? 2 : 4);
   }
   assert.equal(groups[0], groups[1]);
   assert.equal(new Set(groups.slice(1)).size, 5);

@@ -1,3 +1,4 @@
+import { paintConsentLine } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
@@ -308,6 +309,13 @@ export class AithemaSession extends HTMLElement {
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
+      consentPresentation: this.#options.voicePresentation,
+      consentDocument: async () => {
+        const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/consent`, { headers: this.#headers() });
+        if (!response.ok) throw new Error('Consent document unavailable');
+        return response.json();
+      },
+      saveConsent: body => this.#saveConsent(body),
       generalShown: () => this.#host?.verification?.email.beginSettings?.(),
       closed: () => this.#host?.verification?.email.endSettings?.(),
       catalog: () => this.#loadCatalog(), save: body => this.#saveSettings(body),
@@ -319,6 +327,7 @@ export class AithemaSession extends HTMLElement {
     } });
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
+      consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');
@@ -369,6 +378,7 @@ export class AithemaSession extends HTMLElement {
         const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
         return turn && { turnId: turn.id, text: turn.content };
       },
+      consent: opener => this.#dialog.openConsent('voice', opener),
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       onRender: rail => this.#syncVoicePause(rail),
@@ -699,6 +709,21 @@ export class AithemaSession extends HTMLElement {
     this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { processingPreset, settings: structuredClone(settings ?? {}),
       previousSessionId: this.#session.id }, bubbles: true, composed: true }));
   }
+  async #saveConsent(body) {
+    const sessionId = this.#session.id;
+    const response = await postJson(`${this.#base}/api/sessions/${sessionId}/consent`, { ...body, intent: 'settings-save' }, { sessionToken: this.#sessionToken });
+    if (!response.ok) throw new Error('Consent save failed');
+    const ack = await response.json();
+    if (sessionId !== this.#session.id || ack.granted !== body.granted) throw new Error('Consent acknowledgement missing');
+    // The current server document confirms the exact decision; HTTP success alone is not consent.
+    const current = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+    if (!current.ok) throw new Error('Consent confirmation unavailable');
+    const doc = await current.json(), items = body.granted ? body.processing.items : [];
+    if (doc.contract !== body.processing.contract || !Array.isArray(doc.selected) || doc.selected.length !== items.length ||
+      !items.every(item => doc.selected.includes(item))) throw new Error('Consent decision unconfirmed');
+    if (ack.event) this.receive(ack.event);
+    await this.#refreshFeatures();
+  }
   #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason))) {
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
@@ -935,7 +960,8 @@ export class AithemaSession extends HTMLElement {
       this.#syncPanes();
       return;
     }
-    const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
+    const unpausedAnalysis = this.#feature('analysis', true, { ignorePause: true });
+    const analysis = isConsentReason(unpausedAnalysis.rawReason) ? unpausedAnalysis : this.#feature('analysis', true), locked = this.#host?.locked ?? false;
     const reconciling = analysis.rawReason === 'budget reconciling';
     const cached = reconciling || this.#session.paused && this.#session.pauseReason !== 'purpose' ||
       (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
@@ -945,7 +971,7 @@ export class AithemaSession extends HTMLElement {
     // A pane that holds the host's own controls (the verification form, handover) is never marked
     // disabled as a whole: only its unavailable parts are, through the notice and the hidden, inert content.
     const aside = root.querySelector('.understanding');
-    if (this.#host?.holdsControls) aside.removeAttribute('aria-disabled'); else aside.setAttribute('aria-disabled', String(!analysis.available));
+    if (this.#host?.holdsControls || isConsentReason(analysis.rawReason)) aside.removeAttribute('aria-disabled'); else aside.setAttribute('aria-disabled', String(!analysis.available));
     // Keep the outer pane and readiness row in the grid when analysis is unavailable.
     // A host verification lock (AIT-104 B2) replaces the assessment in place with the email form.
     root.querySelector('.readiness').style.visibility = !locked && (analysis.available || cached) ? '' : 'hidden';
@@ -980,22 +1006,39 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').disabled = !analysis.available;
     if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || (waiting && !this.#failure) || Boolean(running) || !(this.#failure || hasPersonTurn &&
       (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
-    // Missing reply with no active work or recorded failure is also a stuck attempt.
-    // Pausing preserves the overview; its existing inline retry becomes disabled.
-    const stuck = missingReply && !running && !waiting && !this.#failure && (analysis.available || this.#session.paused);
-    const failedOverview = (this.#failure && this.#failureLane === 'understanding' || stuck) &&
+    // Real pending work owns the slot before failure; an existing assessment
+    // keeps its draft/stale copy while its replacement runs.
+    const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
+    const scheduledAnalysis = this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
+    const preparing = !u.readinessAssessed && (analysisRunning || (analysis.available || cached) && scheduledAnalysis && !this.#failure);
+    const consentMissing = hasPersonTurn && isConsentReason(analysis.rawReason);
+    // A purpose stop deliberately schedules no replacement reply after consent
+    // invalidates old replies; that idle state has no missing work to retry.
+    const stuck = missingReply && this.#session.pauseReason !== 'purpose' &&
+      !running && !waiting && !this.#failure && (analysis.available || this.#session.paused);
+    const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
+      (this.#failure && this.#failureLane === 'understanding' || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
-    const overviewRetry = root.querySelector('.overview-retry');
+    const overviewText = !hasPersonTurn ? copy.empty : preparing ? copy.preparingOverview
+      : failedOverview ? `${copy.understandingFailed} · `
+      : this.#failure && !reconciling ? copy.reasoningFailed
+      : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
+      : !u.readinessAssessed ? copy.noProjectDetails
+      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
+    const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
+    if (!this.#host?.usedUp) paintConsentLine(root.querySelector('.notice-text'), {
+      copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
+      open: opener => this.#dialog.openConsent('analysis', opener),
+    });
     overviewRetry.hidden = !failedOverview;
     overviewRetry.disabled = !analysis.available || Boolean(running);
     setText(overviewRetry, failedOverview ? copy.understandingRetry : '');
+    // Keep the same Retry node across live renders, and leave the consent
+    // slot with exactly its own action when no inline retry is shown.
     if (failedOverview) {
-      setText(root.querySelector('.notice-text'), `${copy.understandingFailed} · `);
+      if (overviewRetry.parentNode !== notice) notice.append(overviewRetry);
       root.querySelector('.retry').hidden = true;
-    } else if (!this.#host?.usedUp && (this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) {
-      setText(root.querySelector('.notice-text'), !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? this.#failureLane === 'understanding' ? copy.understandingFailed : copy.reasoningFailed : !u.readinessAssessed ? copy.empty
-        : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final);
-    }
+    } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     root.querySelector('.summary-text').textContent = u.summary;
