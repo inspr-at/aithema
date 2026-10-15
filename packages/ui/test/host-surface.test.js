@@ -10,7 +10,11 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 const window = new Window({ url: 'http://localhost/' });
 // Dispose pending DOM tasks after all component assertions, as in session-element.test.js.
-test.after(async () => window.happyDOM.close());
+test.after(async () => {
+  console.error('AIT-192 host-surface before DOM close', process.getActiveResourcesInfo());
+  await window.happyDOM.close();
+  console.error('AIT-192 host-surface after DOM close', process.getActiveResourcesInfo());
+});
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
