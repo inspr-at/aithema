@@ -4,10 +4,10 @@ import { createComposedRelay } from '../src/relay.js';
 import { createComposedRelayRoute } from '../src/network-relay.js';
 import { createNetworkRelayClient } from '../src/network-client.js';
 
-function fixture(options = {}) {
+function fixture(options = {}, durationMs = 60_000) {
   let at = Date.now(), authorized = true, received = 0, disconnects = 0;
   const relay = createComposedRelay({ callId: 'call', providerSessionId: 'segment', epoch: 2,
-    expiresAt: at + 30_000, spendDeadlineAt: at + 60_000, now: () => at });
+    expiresAt: at + 30_000, spendDeadlineAt: at + durationMs, now: () => at });
   relay.attach({ receiveAudio(bytes) { received += bytes.length; }, pause: async () => ({ acknowledged: true, paused: true }),
     close() { disconnects++; relay.close(); }, heartbeat: async () => ({ acknowledged: true }) });
   const route = createComposedRelayRoute({ now: () => at, authenticate: request => request.headers.get('x-owner'),
@@ -33,7 +33,7 @@ test('network relay denies unauthenticated, wrong-owner, expired, altered and re
   assert.equal((await h.post('audio', new Uint8Array(1280), connectionId, 'bob')).status, 403);
   assert.equal((await h.post('open', h.relay.grant)).status, 403);
   h.advance(31_000);
-  assert.equal((await h.post('audio', new Uint8Array(1280), connectionId)).status, 403);
+  assert.equal((await h.post('audio', new Uint8Array(1280), connectionId)).status, 200);
   const expired = fixture(); t.after(() => expired.route.close()); expired.advance(31_000);
   assert.equal((await expired.post('open', expired.relay.grant)).status, 403);
 });
@@ -94,4 +94,32 @@ test('grant revocation fences an audio upload already waiting for its body', asy
   await new Promise(resolve => setImmediate(resolve));
   h.route.revoke('segment'); upload.enqueue(new Uint8Array(1280)); upload.close();
   assert.equal((await pending).status, 403); assert.equal(h.received, 0);
+});
+
+for (const seconds of [900, 3600]) {
+  test(`claimed connection survives claim expiry with heartbeats until ${seconds}s spend deadline`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const h = fixture({}, seconds * 1000); t.after(() => h.route.close());
+    const id = (await (await h.post('open', h.relay.grant)).json()).connectionId;
+    for (let elapsed = 30; elapsed < seconds; elapsed += 30) {
+      h.advance(30_000); t.mock.timers.tick(30_000);
+      assert.equal((await h.post('command', { name: 'heartbeat' }, id)).status, 200);
+      assert.equal((await h.post('audio', new Uint8Array(2), id)).status, 200);
+      assert.equal(h.disconnects, 0);
+    }
+    h.advance(30_000); t.mock.timers.tick(30_000);
+    assert.equal(h.disconnects, 1);
+    assert.equal((await h.post('command', { name: 'heartbeat' }, id)).status, 403);
+  });
+}
+
+test('client-posted later spend deadline is ignored in favor of the stored relay grant', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture(); t.after(() => h.route.close());
+  const altered = { ...h.relay.grant, opaque: { ...h.relay.grant.opaque, spendDeadlineAt: h.relay.grant.opaque.spendDeadlineAt + 3_600_000 } };
+  const opened = await h.post('open', altered); assert.equal(opened.status, 200);
+  const { connectionId } = await opened.json();
+  h.advance(60_000); t.mock.timers.tick(60_000);
+  assert.equal(h.disconnects, 1);
+  assert.equal((await h.post('audio', new Uint8Array(2), connectionId)).status, 403);
 });

@@ -237,7 +237,7 @@ alone is not verification. The proof must bound all billable request bytes,
 initialization/whitespace, rounding, minimums, retries and maximum duration.
 
 Reports are exactly once. Estimated charges, missing usage and uncertainty retain
-the maximum. After dispatch, only `reconcile(receipt)` with a trusted
+the maximum. After dispatch and terminal settlement, only `reconcile(receipt)` with a trusted
 `verifyReceipt(receipt, storedAttempt) === true` can release exposure. Receipts
 must include matching `attemptId`, `provider`, `model`, `operation`, `accountRef`, `endpoint`, unique
 `receiptId`, integer `chargedMicro`, and `estimated: false`. OPS authenticates
@@ -322,3 +322,8 @@ Offline checks live in `network-relay.test.js`, `persisted-budget.test.js`,
 outside its local fixture, includes permission denial, ordered PCM16/float32
 playback, synchronous barge-in/hold stop and fresh-generation recovery. Device
 proof is not vendor latency, billing, quality or production qualification.
+
+After a restart, OPS must confirm the previous dispatcher has stopped and explicitly
+call `settleOrphan(attemptId)` for its dispatched attempts. This marks them settled
+and uncertain while keeping their full reservation. Receipts for in-flight attempts
+are refused; only settled attempts can be reconciled.

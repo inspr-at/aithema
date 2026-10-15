@@ -66,9 +66,9 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
           const grant = JSON.parse(Buffer.from(await boundedBody(request, 4096)).toString());
           // The connect port checks the server's stored session owner before consuming a grant.
           const transport = await connect(grant, owner);
-          const id = randomUUID(), entry = { id, owner, transport, grant, closed: false, polling: false,
-            expiresAt: Math.min(grant.expiresAt, grant.opaque.spendDeadlineAt), windowAt: now(), requests: 0, bytes: 0 };
-          if (connections.size >= maxConnections || entry.expiresAt <= now()) { close(entry); throw new PluginError('not-admitted'); }
+          const id = randomUUID(), entry = { id, owner, transport, grant: transport.grant, closed: false, polling: false,
+            expiresAt: transport.grant.opaque.spendDeadlineAt, windowAt: now(), requests: 0, bytes: 0 };
+          if (connections.size >= maxConnections || !Number.isFinite(entry.expiresAt) || entry.expiresAt <= now()) { close(entry); throw new PluginError('not-admitted'); }
           entry.timer = setTimeout(() => close(entry), entry.expiresAt - now()); entry.timer.unref?.();
           connections.set(id, entry); return json({ connectionId: id });
         }
@@ -84,7 +84,7 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
             if (request.signal.aborted) { close(entry); throw new PluginError('cancelled'); }
             const next = await entry.transport.frames.next();
             // Recheck ownership after a pending read and before publishing media.
-            if (entry.closed || await authorize(entry.grant, owner) !== true) { close(entry); return json({ done: true }); }
+            if (entry.closed || now() >= entry.expiresAt || await authorize(entry.grant, owner) !== true) { close(entry); return json({ done: true }); }
             if (next.done) { close(entry); return json({ done: true }); }
             const frame = next.value;
             return json({ frame: frame.type === 'audio' ? { ...frame, bytes: Buffer.from(frame.bytes).toString('base64') } : frame });

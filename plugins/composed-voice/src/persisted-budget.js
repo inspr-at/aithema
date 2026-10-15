@@ -43,7 +43,8 @@ export function initializeQualificationBudget({ path, capMicro = QUALIFICATION_T
 export function openPersistedQualificationBudget({ path, verifyCeiling, verifyReceipt, now = Date.now } = {}) {
   if (typeof verifyCeiling !== 'function' || typeof verifyReceipt !== 'function') throw new TypeError('Verified ceiling and receipt ports required');
   const db = open(path); let closed = false;
-  try { read(db); } catch (error) { db.close(); throw error; }
+  let restartOrphans;
+  try { restartOrphans = new Set(read(db).records.filter(row => row.state === 'dispatched').map(row => row.attemptId)); } catch (error) { db.close(); throw error; }
   function change(mutate) {
     if (closed) throw new Error('Budget closed');
     db.exec('BEGIN IMMEDIATE');
@@ -136,15 +137,26 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
           }
         } };
     },
+    // OPS must confirm the previous dispatcher has stopped before settling a crash orphan.
+    // Opening a second connection alone never releases or changes an in-flight reservation.
+    settleOrphan(attemptId) {
+      change(snapshot => {
+        const row = rowFor(snapshot, attemptId);
+        if (!restartOrphans.has(attemptId) || row.state !== 'dispatched') throw new PluginError('not-admitted');
+        row.state = 'settled'; row.outcome = 'uncertain'; row.reportedAt = now();
+      });
+      restartOrphans.delete(attemptId);
+    },
     async reconcile(receipt) {
       const original = api.snapshot().records.find(row => row.attemptId === receipt?.attemptId);
-      if (!original || original.state === 'reserved') throw new PluginError('not-admitted');
+      if (!original || original.state !== 'settled') throw new PluginError('not-admitted');
       if (await verifyReceipt(structuredClone(receipt), structuredClone(original)) !== true ||
         receipt.estimated !== false || !Number.isSafeInteger(receipt.chargedMicro) || receipt.chargedMicro < 0 ||
         typeof receipt.receiptId !== 'string' || !receipt.receiptId ||
         ['provider', 'model', 'operation', 'accountRef', 'endpoint'].some(key => receipt[key] !== original[key])) throw new PluginError('not-admitted', 'Authenticated matching server receipt required');
       const overrun = change(snapshot => {
         const row = rowFor(snapshot, receipt.attemptId);
+        if (row.state !== 'settled') throw new PluginError('not-admitted');
         if (snapshot.records.some(other => other.attemptId !== receipt.attemptId && other.receipt?.receiptId === receipt.receiptId)) throw new PluginError('already-claimed');
         if (row.receipt) {
           if (['receiptId', 'attemptId', 'chargedMicro', 'estimated', 'provider', 'model', 'operation', 'accountRef', 'endpoint'].some(key => row.receipt[key] !== receipt[key])) throw new PluginError('already-claimed');

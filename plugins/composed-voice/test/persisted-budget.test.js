@@ -85,7 +85,7 @@ test('concurrent writers cannot overbook; interrupted dispatch retains maximum a
   assert.throws(() => openPersistedQualificationBudget({ path: ':memory:', ...ports }));
 });
 
-test('process death after committed dispatch restores full exposure; authenticated receipt can settle the orphan', async t => {
+test('process death keeps full exposure until explicit uncertain orphan settlement, then receipt reconciliation', async t => {
   const { spawnSync } = await import('node:child_process');
   const h = await fixture(t);
   const code = `
@@ -101,7 +101,43 @@ test('process death after committed dispatch restores full exposure; authenticat
   const restored = h.open(); t.after(() => restored.close());
   assert.equal(restored.snapshot().records[0].state, 'dispatched'); assert.equal(restored.snapshot().exposureMicro, 25_000_000);
   await assert.rejects(restored.admit(specification('after-crash', 1)), { code: 'not-admitted' });
+  await assert.rejects(restored.reconcile(receipt('killed-provider', 5)), { code: 'not-admitted' });
+  restored.settleOrphan('killed-provider');
+  assert.equal(restored.snapshot().records[0].state, 'settled');
+  assert.equal(restored.snapshot().records[0].outcome, 'uncertain');
+  assert.equal(restored.snapshot().exposureMicro, 25_000_000);
+  await assert.rejects(restored.admit(specification('after-settlement', 1)), { code: 'not-admitted' });
   await restored.reconcile(receipt('killed-provider', 5));
   assert.equal(restored.snapshot().exposureMicro, 5);
   const restarted = h.open(); t.after(() => restarted.close()); assert.equal(restarted.snapshot().exposureMicro, 5);
+});
+
+test('concurrent in-flight receipts cannot release reservations or overbook the $25 cap', async t => {
+  const h = await fixture(t), a = h.open(), b = h.open(); t.after(() => { a.close(); b.close(); });
+  const claims = await Promise.all([a.admit(specification('a', 15_000_000)), b.admit(specification('b', 10_000_000))]);
+  await Promise.all(claims.map(claim => claim.attempt.consume()));
+  assert.throws(() => a.settleOrphan('a'), { code: 'not-admitted' });
+  const assertInvariant = () => {
+    const snapshot = b.snapshot();
+    const committedAndReserved = snapshot.records.reduce((sum, row) => sum +
+      (row.state === 'settled' ? row.exposureMicro : row.maxMicro), 0);
+    assert.equal(snapshot.exposureMicro, committedAndReserved);
+    assert.ok(committedAndReserved <= 25_000_000);
+  };
+  const results = await Promise.allSettled([
+    a.reconcile(receipt('a', 0)), b.reconcile(receipt('b', 0)),
+    a.admit(specification('extra-a', 1)), b.admit(specification('extra-b', 1)),
+  ]);
+  for (const result of results) { assert.equal(result.status, 'rejected'); assert.equal(result.reason.code, 'not-admitted'); }
+  assertInvariant(); assert.equal(b.snapshot().exposureMicro, 25_000_000);
+  claims[0].report({ attemptId: 'a', outcome: 'uncertain' });
+  assertInvariant(); assert.equal(b.snapshot().exposureMicro, 25_000_000);
+  await a.reconcile(receipt('a', 5_000_000)); assertInvariant();
+  const admissions = await Promise.allSettled([
+    a.admit(specification('replacement-a', 10_000_000)), b.admit(specification('replacement-b', 10_000_000)),
+    b.reconcile(receipt('b', 0)),
+  ]);
+  assert.equal(admissions.filter(result => result.status === 'fulfilled').length, 1);
+  assertInvariant(); assert.equal(b.snapshot().exposureMicro, 25_000_000);
+  claims[1].report({ attemptId: 'b', outcome: 'uncertain' }); assertInvariant();
 });
