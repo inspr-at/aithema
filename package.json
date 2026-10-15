@@ -10,7 +10,7 @@
     "plugins/*"
   ],
   "scripts": {
-    "test": "node --test packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
+    "test": "node --test --test-timeout=180000 --import ./scripts/unit-watchdog.js packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js test/*.test.js",
     "test:browser": "node scripts/test-browser.js",
     "test:browser-shards": "node scripts/browser-shards.js",
     "test:voice-soak": "node scripts/voice-soak.js",

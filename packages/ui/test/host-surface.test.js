@@ -10,7 +10,14 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 const window = new Window({ url: 'http://localhost/' });
 // Dispose pending DOM tasks after all component assertions, as in session-element.test.js.
-test.after(async () => window.happyDOM.close());
+const dumpHandles = process.env.AITHEMA_UNIT_HANDLES === '1'
+  ? (await import('../../../scripts/unit-handles.js')).dumpHandles : () => {};
+test.after(async () => {
+  dumpHandles('before happyDOM.close');
+  await window.happyDOM.close();
+  dumpHandles('after happyDOM.close');
+  setImmediate(() => dumpHandles('after teardown microtasks'));
+});
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
@@ -47,6 +54,48 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
   return { c, root: c.shadowRoot, calls };
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
+
+test('AIT-193: disconnect clears the verification countdown; reconnect starts one countdown', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const clears = t.mock.method(globalThis, 'clearInterval');
+  const { c } = setup(t, { host: { verification: true }, session: { identity: pending() } });
+  await tick(8);
+  const countdowns = intervals.mock.calls.filter(call => call.arguments[1] === 1000).map(call => call.result);
+  assert.ok(countdowns.length > 0, 'the connected pending identity has a countdown');
+  c.remove();
+  assert.ok(countdowns.every(countdown => clears.mock.calls.some(call => call.arguments[0] === countdown)), 'disconnect clears every countdown');
+  const before = intervals.mock.callCount();
+  document.body.append(c); await tick(8);
+  assert.equal(intervals.mock.callCount(), before + countdowns.length, 'reconnect starts each countdown exactly once');
+});
+
+test('AIT-193: an identity response after disconnect cannot restart countdown or verification polling', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const timeouts = t.mock.method(globalThis, 'setTimeout');
+  const clears = t.mock.method(globalThis, 'clearInterval');
+  const reply = Promise.withResolvers();
+  let serverIdentity = pending({ resendAfterMs: 0 });
+  const { c, root, calls } = setup(t, { host: { verification: true }, session: { identity: pending({ resendAfterMs: 0 }) },
+    routes: { 'GET /identity': () => Response.json({ identity: serverIdentity }), 'POST /identity/resend': () => reply.promise } });
+  t.after(() => reply.resolve(Response.json({ identity: pending() })));
+  await tick(8); root.querySelector('.verify-lock .verify-resend').click(); await tick(8);
+  assert.ok(calls.some(call => call.path === '/identity/resend'));
+  c.remove();
+  const before = intervals.mock.callCount(), initialClocks = intervals.mock.calls.filter(call => call.arguments[1] === 1000).length;
+  const polls = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
+  serverIdentity = pending({ pollVerification: true });
+  reply.resolve(Response.json({ identity: serverIdentity })); await tick(8);
+  assert.equal(intervals.mock.callCount(), before, `late response leaves countdown stopped\n${intervals.mock.calls.slice(before).map(call => call.stack.stack).join('\n')}`);
+  assert.equal(timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length, polls, 'late response leaves polling stopped');
+  document.body.append(c); await tick(8);
+  const liveClocks = () => intervals.mock.calls.slice(before).filter(call => call.arguments[1] === 1000 &&
+    !clears.mock.calls.some(clear => clear.arguments[0] === call.result));
+  assert.equal(liveClocks().length, initialClocks + 1, 'reconnect resumes the original clocks plus exactly one verification countdown');
+  c.remove();
+  assert.equal(liveClocks().length, 0, 'every clock stops again on the next disconnect');
+});
 
 for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
   const { voiceEvents } = await import('../../core/src/live-voice.js');

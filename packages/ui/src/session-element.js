@@ -535,7 +535,8 @@ export class AithemaSession extends HTMLElement {
     status.toggleAttribute('data-connected', connected);
     status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
-    this.#timer?.setConnected(connected);
+    // Late host replies can repaint after removal; they must not restart a clock.
+    this.#timer?.setConnected(this.isConnected && connected);
   }
   #scrollToLatest() {
     if (this.#fold?.folded) return;
