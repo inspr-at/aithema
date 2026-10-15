@@ -140,3 +140,56 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
   assert.equal(passes.length, 4);
   if (evidence) await writeFile(join(evidence, 'ait198-stuck-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
+
+for (const kind of ['typed', 'live voice', 'facade pending']) test(`AIT-198 ${kind}: no false failure during reply event gaps, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-reply-gap-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    await shadow(page, async (c, locale, kind) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      if (kind === 'live voice') session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'active' };
+      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      window.gapStates = [];
+      window.captureGap = phase => {
+        const r = c.shadowRoot;
+        window.gapStates.push({ phase, notice: r.querySelector('.notice').textContent,
+          inlineHidden: r.querySelector('.overview-retry').hidden, footerHidden: r.querySelector('.retry').hidden });
+      };
+      c.receive({ seq: 1, type: 'turn.final', data: { id: 'person', role: 'user', content: 'Wir vereinfachen die Auftragsbearbeitung.',
+        ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } : {}) } });
+      window.captureGap('person final before lane.status');
+      window.gapRevision = inputRevision(c.session);
+    }, locale, kind);
+    await settle(page);
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const before = await boxes(page, targets);
+    await shadow(page, (c, kind) => {
+      window.captureGap('paint before lane.status');
+      c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: kind === 'typed' ? ['reaction'] : [], lastFailure: null } });
+      window.captureGap('lane.status');
+      c.receive({ type: 'turn.partial', data: { id: 'reply', inputRevision: window.gapRevision, delta: 'Welche Arbeit?' } });
+      window.captureGap('assistant partial');
+    }, kind);
+    await settle(page);
+    assert.deepEqual(await boxes(page, targets), before, 'pending reply causes exactly 0 px surrounding displacement');
+    await shadow(page, c => {
+      window.captureGap('paint before assistant final');
+      c.receive({ seq: 2, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Welche Arbeit?', inputRevision: window.gapRevision } });
+      c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: [], lastFailure: null } });
+      window.captureGap('assistant final');
+    });
+    for (const state of await page.evaluate(() => window.gapStates)) {
+      assert.equal(state.inlineHidden, true, `${kind} ${locale}/${width}: ${state.phase}`);
+      assert.equal(state.footerHidden, true, `${kind} ${locale}/${width}: ${state.phase}`);
+      assert.doesNotMatch(state.notice, /couldn't be built|konnte gerade nicht erstellt/iu, `${kind}: ${state.phase}`);
+    }
+  }
+});
