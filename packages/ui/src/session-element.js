@@ -972,8 +972,9 @@ export class AithemaSession extends HTMLElement {
     // pending until the assistant final or an authoritative end of that call.
     const voice = this.#rail?.ownershipState;
     const liveVoice = Boolean(this.#rail?.session) || voice && !['idle', 'ended'].includes(voice.state);
-    const facadePending = turns.at(-1) === person && person?.voiceCallId &&
-      !(voice?.callId === person.voiceCallId && voice.state === 'ended');
+    const facadeCallId = person?.voiceCallId ?? person?.callId;
+    const facadePending = turns.at(-1) === person && facadeCallId &&
+      !(voice?.callId === facadeCallId && voice.state === 'ended');
     const waiting = liveVoice || facadePending || this.#laneStatusPending === revision ||
       this.#deferredAnalysis === revision || this.#analysisRecovery === revision;
     root.querySelector('.retry').disabled = !analysis.available;
