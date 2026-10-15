@@ -112,7 +112,7 @@ for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'othe
         verifiedAt: now - 1000, expiresAt: now + 100_000 } } };
     const scopes = [], consent = { coverage({ scope, consentRevision }) {
       scopes.push(scope);
-      return { covered: scope === MOCK_PROCESSING_SCOPE, ...scope, scope, consentRevision,
+      return { covered: JSON.stringify(scope) === JSON.stringify(MOCK_PROCESSING_SCOPE), ...scope, scope, consentRevision,
         checkedAt: Date.now(), expiresAt: Date.now() + 100_000 };
     } };
     const runtime = createPluginRuntime({ storage, registry, consent,
