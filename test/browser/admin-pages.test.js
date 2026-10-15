@@ -41,6 +41,8 @@ async function closeBrowser(browser, run) {
 }
 
 // Reserve both launch budgets in addition to the existing page/evidence budget.
+// Startup protocol discovery needs the launch budget too; adminSteps still
+// bounds every page protocol operation at ADMIN_STEP_TIMEOUT.
 test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)', { timeout: (fullMatrix ? 120_000 : 60_000) + 2 * ADMIN_LAUNCH_TIMEOUT }, async t => {
   const { at, run } = adminSteps(t.signal);
   const dir = await run('mkdtemp', () => mkdtemp(join(tmpdir(), 'aithema-admin-browser-')));
@@ -93,7 +95,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
     at('launch', { locale, theme: 'light', width: 390 });
     const executablePath = await run('browserPath', () => browserPath());
     const launchStarted = performance.now();
-    browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_LAUNCH_TIMEOUT, protocolTimeout: ADMIN_STEP_TIMEOUT, userDataDir: join(dir, locale),
+    browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_LAUNCH_TIMEOUT, protocolTimeout: ADMIN_LAUNCH_TIMEOUT, userDataDir: join(dir, locale),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: ADMIN_LAUNCH_TIMEOUT });
     t.diagnostic(`admin launch locale=${locale} duration_ms=${(performance.now() - launchStarted).toFixed(3)}`);
     const page = await run('browser.newPage', () => browser.newPage()); page.setDefaultTimeout(ADMIN_STEP_TIMEOUT);
@@ -237,7 +239,7 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   at('launch');
   const executablePath = await run('browserPath', () => browserPath());
   const launchStarted = performance.now();
-  browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_LAUNCH_TIMEOUT, protocolTimeout: ADMIN_STEP_TIMEOUT, userDataDir: join(dir, 'chrome'),
+  browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_LAUNCH_TIMEOUT, protocolTimeout: ADMIN_LAUNCH_TIMEOUT, userDataDir: join(dir, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: ADMIN_LAUNCH_TIMEOUT });
   t.diagnostic(`admin launch independent-edits duration_ms=${(performance.now() - launchStarted).toFixed(3)}`);
   at('independent-edits', { locale: 'de', theme: 'light', width: 800 });
