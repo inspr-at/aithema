@@ -26,7 +26,9 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
     await shadow(page, async (c, locale) => {
-      const session = await (await fetch('/fixture?locale=' + locale)).json();
+      const response = await fetch('/fixture?locale=' + locale);
+      if (!response.ok) throw new Error('Fixture setup failed: ' + await response.text());
+      const session = await response.json();
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       c.setAttribute('motion', 'off'); c.configure({ session, copy, host: { credits: true } });
       window.fixtureComponent = c;
@@ -56,7 +58,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     await page.evaluate(() => fetch('/success'));
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current understanding');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
     assert.deepEqual(await boxes(page, targets), before, 'next success causes 0 px surrounding displacement');
     assert.equal(await shadow(page, c => c === window.fixtureComponent), true);
     const pass = { head: evidenceCommit, locale, width, verdict, visitorCharge: 0, layoutShiftPx: 0, recoveredWithoutReload: true, pass: true };

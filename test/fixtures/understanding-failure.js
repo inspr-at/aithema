@@ -8,7 +8,7 @@ import { createOpenRouterReasoning } from '../../plugins/openrouter/src/index.js
 import { createDemoHost } from '../../demo/host-ports.js';
 import { openRouterConfig } from '../../demo/openrouter-config.js';
 import { start2PurposePolicy } from '../../demo/safeguards.js';
-import { mockConsent } from '../helpers.js';
+const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
 
 const storage = new SQLiteStorage(), owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
@@ -32,10 +32,10 @@ const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: con
     }
     return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }] });
   } });
-const runtime = createPluginRuntime({ storage, consent: mockConsent, registry: new PluginRegistry().register(plugin),
+const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(plugin),
   presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction, understanding: config.understanding }, policy: { endpoints: [config.reaction.endpoint] } } } });
 const host = createDemoHost({ storage, ownerGuard: false });
-const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, host, consent: mockConsent });
+const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, host, consent });
 const call = (action, data) => handlers.handle(new Request(`http://fixture/api/sessions/${current.id}/${action}`, {
   method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: JSON.stringify(data),
 }));
