@@ -461,6 +461,10 @@ export async function displayMatrix(t, section) {
         return { top: h.top - p.top, bottom: h.bottom - p.top, height: p.height }; });
       assert.ok(heading.top >= 24 && heading.bottom < heading.height - 40, `${label}: open-items heading stays clear of the fades: ${JSON.stringify(heading)}`);
       await shot('conversation-scrolled', width, theme);
+      // AIT-188 bounds the phone transcript above its dock. Reveal the hover
+      // target before recording geometry: Puppeteer's implicit scroll is a
+      // reading-position change, not a hover-induced layout change.
+      await shadow(page, c => c.shadowRoot.querySelector('.turn.user').scrollIntoView({ block: 'center', behavior: 'instant' }));
       const stable = ['.turn.user', '.withdraw', '.composer', '.display-foot'], before = await boxes(page, stable);
       await page.hover('aithema-session >>> .turn.user'); sameBoxes(before, await boxes(page, stable), `${label}: withdraw hover`);
       await shadow(page, c => c.shadowRoot.querySelector('.withdraw').focus({ preventScroll: true })); sameBoxes(before, await boxes(page, stable), `${label}: withdraw focus`);
