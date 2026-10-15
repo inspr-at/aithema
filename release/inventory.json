@@ -11,7 +11,6 @@
     "automatic update feeds (none shipped)"
   ],
   "pending": [
-    "candidate verification evidence",
     "presentation pin review"
   ],
   "surfaces": [
@@ -25,7 +24,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate reserved; verification evidence pending",
+      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
       "artifact_class": "workspace-package",
       "release_surfaces": "fifteen npm-compatible module tarballs plus workspace/source archive, exact package/lock, SPDX SBOM; tag-only GitHub artifact attestation",
       "consumers": "release scripts; workspace dependency pins; npm; deployment pin; backup labels",
@@ -41,7 +40,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate reserved; verification evidence pending",
+      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
       "artifact_class": "service",
       "release_surfaces": "HTTP health API, exported ZIP generator, logs/support diagnostics",
       "consumers": "thin hosts; archive consumers; operators",
@@ -57,7 +56,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate reserved; verification evidence pending",
+      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
       "artifact_class": "web-components",
       "release_surfaces": "hover/focus version details; canonical clipboard; product name",
       "consumers": "web embedding hosts; shared pinned renderer/interaction",
@@ -73,7 +72,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate reserved; verification evidence pending",
+      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
       "artifact_class": "plugin-packages",
       "release_surfaces": "package metadata; workspace artifact; technical plugin manifest API protocol",
       "consumers": "plugin loaders; registry; binding runtime",
@@ -89,7 +88,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate reserved; verification evidence pending",
+      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
       "artifact_class": "release-set",
       "release_surfaces": "source tree and dependency lock provenance; every output/member digest; validation run",
       "consumers": "CI admission; verification; exact-artifact rollback",
@@ -111,6 +110,16 @@
       "item": "release notes and consumer guide",
       "status": "completed",
       "evidence": "release/notes.md; docs/embedding.md; test/embedding.test.js"
+    },
+    {
+      "item": "immutable candidate",
+      "status": "verified; frozen source commit and BSD toolchain, not published",
+      "evidence": "release/evidence.json; two identical builds of all 16 archives and release-set.json; retained dist/ait105-r3/candidate/first"
+    },
+    {
+      "item": "candidate install/update/deployment pin/rollback",
+      "status": "verified in external scratch host; legacy API/data upgrade is not applicable",
+      "evidence": "release/evidence.json consumer; release/consumer.mjs; portable consumer-deployment; exact manifest and all 15 module digests retained"
     }
   ],
   "unmeasured": [

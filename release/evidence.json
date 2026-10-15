@@ -1,0 +1,251 @@
+{
+  "schema": "aithema-candidate-evidence/1",
+  "version": "261015164601.0.0",
+  "source_commit": "cd81126b3adb8049fbe61754faec981064b770a3",
+  "built_at": "2026-10-15T17:04:25.717Z",
+  "runner": "mbp2606",
+  "toolchain": {
+    "node": "24.20.0",
+    "tar": "bsdtar 3.5.3 - libarchive 3.7.4 zlib/1.2.12 liblzma/5.4.3 bz2lib/1.0.8 "
+  },
+  "reproducible": true,
+  "builds": 2,
+  "manifest_sha256": "sha256:c33b745b6f4743bec5007ae0ad67fcca571670e1477cdb2593a6632c059ad150",
+  "artifacts": [
+    {
+      "path": "aithema-reset-261015164601.0.0.tgz",
+      "sha256": "sha256:db613ef9b45ee55eaf4a58939d2f89741e809e2c6025889e1ad00efc75af49ed"
+    },
+    {
+      "path": "inspr-aithema-core-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-core",
+      "sha256": "sha256:7200bb51fac4ba3665643007f01a92078417ff96c16027768627758185a61d16"
+    },
+    {
+      "path": "inspr-aithema-server-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-server",
+      "sha256": "sha256:20dc6643dcd46102f27f2f3732369b1b1a19187a46d783dee3ec7d54ecbab221"
+    },
+    {
+      "path": "inspr-aithema-ui-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-ui",
+      "sha256": "sha256:5fcdf7a9ad8289dd1f2bb8b742493dadf12b0694967385d420638136e830dda9"
+    },
+    {
+      "path": "inspr-aithema-plugin-claude-html-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-claude-html",
+      "sha256": "sha256:28c79c8c9e5a62436f4c436820db3e68e8c94009e95a624d97d916cae4cbf65f"
+    },
+    {
+      "path": "inspr-aithema-plugin-codex-imagegen-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-codex-imagegen",
+      "sha256": "sha256:7c671ac8a1f977880085f12848263bbeabe139bfba71cd6cd8a945f024c593f1"
+    },
+    {
+      "path": "inspr-aithema-plugin-device-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-device",
+      "sha256": "sha256:998c05e20ec330109427913c918317ee34a5dc91b573a65d8ddcb0f7a29480b5"
+    },
+    {
+      "path": "inspr-aithema-plugin-elevenlabs-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-elevenlabs",
+      "sha256": "sha256:77b641baf0298db042f07e524cca15d770cdbafc803c1209878b9776a1c8dc80"
+    },
+    {
+      "path": "inspr-aithema-plugin-extract-ooxml-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-extract-ooxml",
+      "sha256": "sha256:cf4d40b7722ccb656edf4c551ca624aeaf8fdd29a9a3a69a82eeb7581cf35197"
+    },
+    {
+      "path": "inspr-aithema-plugin-extract-pdf-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-extract-pdf",
+      "sha256": "sha256:47ab5b5d6c4a13aed66aa094ad0549f10052e20684ce6f39c6b82ff15b94c88f"
+    },
+    {
+      "path": "inspr-aithema-plugin-extract-text-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-extract-text",
+      "sha256": "sha256:78cae170f8a83360392b1a308271d7dc370d2addda5abd77247061bfdd5992d7"
+    },
+    {
+      "path": "inspr-aithema-plugin-mail-smtp-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-mail-smtp",
+      "sha256": "sha256:d1204ba277280d66ba4ae2a71dbb7eabd050128e7591f848f5224b1d77443d3c"
+    },
+    {
+      "path": "inspr-aithema-plugin-mistral-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-mistral",
+      "sha256": "sha256:85c62b2ff019f7745353d4f9c72c3507bd1218002ecd673660b2e69577453627"
+    },
+    {
+      "path": "inspr-aithema-plugin-openai-images-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-openai-images",
+      "sha256": "sha256:f71d91f0093f403e0d39de0344d4c0e9940ab819590168dda81c2bd2ca39df80"
+    },
+    {
+      "path": "inspr-aithema-plugin-openrouter-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-openrouter",
+      "sha256": "sha256:1d488a08037be9c67c4503917dff98edeb3c72b62844476267bdda4f7aee3094"
+    },
+    {
+      "path": "inspr-aithema-plugin-zitadel-oidc-261015164601.0.0.tgz",
+      "name": "@inspr/aithema-plugin-zitadel-oidc",
+      "sha256": "sha256:7a48d159a06343d65149e47a13fd4ce96da8cea006d9f098c76ebaf715dba5fb"
+    }
+  ],
+  "consumer": {
+    "schema": "aithema-consumer-evidence/1",
+    "version": "261015164601.0.0",
+    "version_scheme": "inspr-calver-3",
+    "release_channel": "stable",
+    "release_sequence": 12,
+    "source_commit": "cd81126b3adb8049fbe61754faec981064b770a3",
+    "manifest_sha256": "sha256:c33b745b6f4743bec5007ae0ad67fcca571670e1477cdb2593a6632c059ad150",
+    "packages": [
+      {
+        "name": "@inspr/aithema-core",
+        "path": "inspr-aithema-core-261015164601.0.0.tgz",
+        "sha256": "sha256:7200bb51fac4ba3665643007f01a92078417ff96c16027768627758185a61d16"
+      },
+      {
+        "name": "@inspr/aithema-server",
+        "path": "inspr-aithema-server-261015164601.0.0.tgz",
+        "sha256": "sha256:20dc6643dcd46102f27f2f3732369b1b1a19187a46d783dee3ec7d54ecbab221"
+      },
+      {
+        "name": "@inspr/aithema-ui",
+        "path": "inspr-aithema-ui-261015164601.0.0.tgz",
+        "sha256": "sha256:5fcdf7a9ad8289dd1f2bb8b742493dadf12b0694967385d420638136e830dda9"
+      },
+      {
+        "name": "@inspr/aithema-plugin-claude-html",
+        "path": "inspr-aithema-plugin-claude-html-261015164601.0.0.tgz",
+        "sha256": "sha256:28c79c8c9e5a62436f4c436820db3e68e8c94009e95a624d97d916cae4cbf65f"
+      },
+      {
+        "name": "@inspr/aithema-plugin-codex-imagegen",
+        "path": "inspr-aithema-plugin-codex-imagegen-261015164601.0.0.tgz",
+        "sha256": "sha256:7c671ac8a1f977880085f12848263bbeabe139bfba71cd6cd8a945f024c593f1"
+      },
+      {
+        "name": "@inspr/aithema-plugin-device",
+        "path": "inspr-aithema-plugin-device-261015164601.0.0.tgz",
+        "sha256": "sha256:998c05e20ec330109427913c918317ee34a5dc91b573a65d8ddcb0f7a29480b5"
+      },
+      {
+        "name": "@inspr/aithema-plugin-elevenlabs",
+        "path": "inspr-aithema-plugin-elevenlabs-261015164601.0.0.tgz",
+        "sha256": "sha256:77b641baf0298db042f07e524cca15d770cdbafc803c1209878b9776a1c8dc80"
+      },
+      {
+        "name": "@inspr/aithema-plugin-extract-ooxml",
+        "path": "inspr-aithema-plugin-extract-ooxml-261015164601.0.0.tgz",
+        "sha256": "sha256:cf4d40b7722ccb656edf4c551ca624aeaf8fdd29a9a3a69a82eeb7581cf35197"
+      },
+      {
+        "name": "@inspr/aithema-plugin-extract-pdf",
+        "path": "inspr-aithema-plugin-extract-pdf-261015164601.0.0.tgz",
+        "sha256": "sha256:47ab5b5d6c4a13aed66aa094ad0549f10052e20684ce6f39c6b82ff15b94c88f"
+      },
+      {
+        "name": "@inspr/aithema-plugin-extract-text",
+        "path": "inspr-aithema-plugin-extract-text-261015164601.0.0.tgz",
+        "sha256": "sha256:78cae170f8a83360392b1a308271d7dc370d2addda5abd77247061bfdd5992d7"
+      },
+      {
+        "name": "@inspr/aithema-plugin-mail-smtp",
+        "path": "inspr-aithema-plugin-mail-smtp-261015164601.0.0.tgz",
+        "sha256": "sha256:d1204ba277280d66ba4ae2a71dbb7eabd050128e7591f848f5224b1d77443d3c"
+      },
+      {
+        "name": "@inspr/aithema-plugin-mistral",
+        "path": "inspr-aithema-plugin-mistral-261015164601.0.0.tgz",
+        "sha256": "sha256:85c62b2ff019f7745353d4f9c72c3507bd1218002ecd673660b2e69577453627"
+      },
+      {
+        "name": "@inspr/aithema-plugin-openai-images",
+        "path": "inspr-aithema-plugin-openai-images-261015164601.0.0.tgz",
+        "sha256": "sha256:f71d91f0093f403e0d39de0344d4c0e9940ab819590168dda81c2bd2ca39df80"
+      },
+      {
+        "name": "@inspr/aithema-plugin-openrouter",
+        "path": "inspr-aithema-plugin-openrouter-261015164601.0.0.tgz",
+        "sha256": "sha256:1d488a08037be9c67c4503917dff98edeb3c72b62844476267bdda4f7aee3094"
+      },
+      {
+        "name": "@inspr/aithema-plugin-zitadel-oidc",
+        "path": "inspr-aithema-plugin-zitadel-oidc-261015164601.0.0.tgz",
+        "sha256": "sha256:7a48d159a06343d65149e47a13fd4ce96da8cea006d9f098c76ebaf715dba5fb"
+      }
+    ],
+    "installed": {
+      "imports": 23,
+      "symbols": 42,
+      "runtime_exports": "all",
+      "handlers": "HTTP create/read/export and owner isolation",
+      "components": [
+        "aithema-session",
+        "aithema-html-preview"
+      ],
+      "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
+      "version": "261015164601.0.0"
+    },
+    "locked_reinstall": {
+      "imports": 23,
+      "symbols": 42,
+      "runtime_exports": "all",
+      "handlers": "HTTP create/read/export and owner isolation",
+      "components": [
+        "aithema-session",
+        "aithema-html-preview"
+      ],
+      "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
+      "version": "261015164601.0.0"
+    },
+    "update": {
+      "from": "0.10.1",
+      "to": "261015164601.0.0",
+      "scope": "dependency pin replacement and anchored ordering; no legacy API/database migration",
+      "legacy_source_commit": "e89c1cdad0c3f608f2ae06fb0cfc87d9048b1ca0",
+      "legacy_install": "not applicable: private, retired monolith; no compatible split package release"
+    },
+    "rollback": {
+      "retained_manifest_sha256": "sha256:c33b745b6f4743bec5007ae0ad67fcca571670e1477cdb2593a6632c059ad150",
+      "verified_packages": 15,
+      "smoke": {
+        "imports": 23,
+        "symbols": 42,
+        "runtime_exports": "all",
+        "handlers": "HTTP create/read/export and owner isolation",
+        "components": [
+          "aithema-session",
+          "aithema-html-preview"
+        ],
+        "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
+        "version": "261015164601.0.0"
+      }
+    }
+  },
+  "scope": "frozen mbp2606 candidate; no tag, no publish; subsequent CI archives are separate GNU validation artifacts",
+  "retention": {
+    "local_directory": "dist/ait105-r3/candidate/first",
+    "comparison_directory": "dist/ait105-r3/candidate/second",
+    "ci_artifact_name": "reset-candidate",
+    "ci_retention_days": 90,
+    "note": "mbp2606 archives use BSD tar; future tag archives use canonical GNU tar and require their own digest pin. Source commit and toolchain are part of this frozen candidate identity."
+  },
+  "tests": {
+    "unit": {
+      "runner": "mbp2606",
+      "run": "cd81126b3a-78441",
+      "head": "cd81126b3adb8049fbe61754faec981064b770a3",
+      "passed": 3548,
+      "failed": 0,
+      "duration_ms": 33900.110459,
+      "completion_observed_at": "2026-10-15T17:04:39Z"
+    },
+    "browser": {
+      "runner": "mbp2606",
+      "status": "running at same source commit"
+    }
+  }
+}
