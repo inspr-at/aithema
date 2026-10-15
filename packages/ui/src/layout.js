@@ -152,9 +152,15 @@ export class PhoneComposerViewport {
       if (!phone) notices.style.minHeight = '';
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
-      if (phone) this.fullHeight = Math.max(this.fullHeight ?? 0, view.innerHeight, height);
-      const editing = root.activeElement?.matches('textarea,input,[contenteditable="true"]');
-      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && (editing || workspace.hasAttribute('data-phone-keyboard')) && this.fullHeight - height >= 150));
+      const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
+      const editing = root.activeElement?.matches('textarea,input,[contenteditable="true"]') ||
+        root.activeElement?.closest('.composer');
+      const width = view?.innerWidth, orientation = view?.screen.orientation?.angle;
+      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing) {
+        this.fullHeight = Math.max(view?.innerHeight ?? height, height);
+        this.viewportWidth = width; this.viewportOrientation = orientation;
+      } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
+      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && touch && editing && this.fullHeight - height >= 150));
       const values = {
         '--phone-height': height + (viewport?.offsetTop ?? 0),
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
@@ -169,9 +175,13 @@ export class PhoneComposerViewport {
         workspace.style.setProperty(key, `${value}px`);
       }
     };
+    // focusout fires before activeElement changes; settle it in this frame.
+    this.focusOut = () => queueMicrotask(this.paint);
     this.connect();
   }
   connect() {
+    this.root.addEventListener('focusin', this.paint);
+    this.root.addEventListener('focusout', this.focusOut);
     this.view?.addEventListener('resize', this.paint);
     this.view?.visualViewport?.addEventListener('resize', this.paint);
     this.view?.visualViewport?.addEventListener('scroll', this.paint);
@@ -219,6 +229,8 @@ export class PhoneComposerViewport {
     this.paint();
   }
   destroy() {
+    this.root.removeEventListener('focusin', this.paint);
+    this.root.removeEventListener('focusout', this.focusOut);
     this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
     this.noticesObserver?.disconnect();
     this.observer?.disconnect();
