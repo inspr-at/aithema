@@ -632,6 +632,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
     let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
+    if (ignorePause && value.reason === 'session paused' && value.unpaused) value = value.unpaused;
     if (!this.#hasLiveCall() && this.#postCallMatrix === this.#session.featureMatrix && value.reason === 'budget denied') {
       value = { ...value, reason: 'budget reconciling' };
     }
