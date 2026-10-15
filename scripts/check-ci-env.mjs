@@ -46,7 +46,10 @@ export function ciEnvReads(ast) {
       if (ts.isPropertyAccessExpression(parent) && parent.name === node) return;
       const key = access(parent) && parent.expression === node ? property(parent) : undefined;
       if (key && ambient.test(key)) reads.push(key);
-      else if (!key) {
+      else if (!key && ts.isVariableDeclaration(parent) && ts.isObjectBindingPattern(parent.name)) {
+        // Pin every binding, including non-CI names, computed keys and rest.
+        reads.push(`destructure ${parent.name.getText(ast).replace(/\s+/gu, ' ')}`);
+      } else if (!key) {
         // Computed reads and whole-environment forwarding also carry CI values.
         // Pin their exact expression and count; aliases must be declared as well.
         reads.push((access(parent) && parent.expression === node ? parent : node).getText(ast));

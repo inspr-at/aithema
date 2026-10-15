@@ -17,58 +17,60 @@ so changing policy requires updating both together.
 | --- | --- | --- | --- |
 | core | `packages/core` | none | Headless domain, contracts and shared engine primitives |
 | ui | `packages/ui` | core | Web components and browser presentation |
-| server | `packages/server` | core, plugin | Fetch handlers, persistence and public adapter compatibility |
+| server | `packages/server` | core | Fetch handlers and persistence; AIT-211 permits only the two named plugin targets |
+| host | `demo` | core, ui, server, plugin | Reference host; package imports except named browser sources |
 | plugin | `plugins/*` | core, ui, server, plugin | Exchangeable provider adapters |
 
-Every cross-module edge in this table must resolve to an explicit `package.json`
-`exports` target, including cross-plugin edges and server compatibility adapters.
-No core → server/UI/plugin or UI → server/plugin edge is allowed. Server does not
-import UI. Relative browser imports remain supported when they reach exactly an
-exported file; they preserve native browser loading. Node consumers should prefer
-package specifiers. A deep specifier such as `@inspr/aithema-core/src/session.js`
-is private even when that file exists. Exporting a target does not override the
-layer table. Conditional exports are inspected; no wildcard export is implicit.
+Every cross-module edge must resolve to an explicit package export. Core cannot
+import server, UI or plugins; UI cannot import server or plugins. The two existing
+server-to-plugin dependencies below belong to AIT-211. Only their listed source
+and target files are permitted; another server file or plugin target fails.
 
-Production code cannot import `test/`, `tests/`, `dev/`, or test/spec files.
-`plugins/fake-voice` is test-only and may be imported only from those development
-entry points. Tests/dev can inspect internals and integrate layers deliberately;
-the literal-import rule still applies there. The zero-cost simulator's function
-identity registry belongs to server; runtime code does not load the simulator.
-The old local voice shim is now explicitly `packages/server/dev/local-voice.js`.
-The release source archive includes this dev entry because the reference host uses it.
+| Source | Exact exception | Owner / reason |
+| --- | --- | --- |
+| `packages/server/src/plugin-runtime.js` | `plugins/claude-html/src/index.js`, `plugins/claude-html/src/html-artifact.js` | AIT-211 |
+| `packages/server/src/local-images.js` | `plugins/openai-images/src/index.js`, `plugins/openai-images/src/image-artifact.js` | AIT-211 |
+| `demo/host.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
+| `demo/fake-voice.js` | Relative public source URLs | AIT-205: native browser loading |
+| `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |
+| `plugins/fake-voice/src/server.js` | `packages/server/src/dev/local-voice.js` | Test-only compatibility forwarder |
+| `demo/fake-voice.js` | `plugins/fake-voice/src/client.js` | Test-only browser simulator forwarder |
+| `demo/server.js` | `@inspr/aithema-server/dev/local-voice` | Explicit simulator factory with production guard |
 
-The composed-voice coordinator stays in server, exported as `/composed-voice`.
-Its generic bounded stream, audio queue and component admission helpers now live
-in core's `/voice-components`. The composed plugin consumes both public surfaces;
-its former component entry re-exports core for compatibility. Replay/audio and
-credit formatting helpers used by plugins are explicit UI exports. Image/HTML
-adapter helpers and legacy ElevenLabs factories are explicit plugin exports.
-These moves preserve implementation and runtime behavior.
+AIT-202 and AIT-205 use one AST scan and this policy in
+`scripts/check-boundaries.mjs`, exercised by `test/module-boundaries.test.js` and
+negative host fixtures in `test/demo-package-imports.test.js`. The embedding guide
+links here for the host policy. Browser exceptions must still resolve public
+exports and must remain used; fake-voice is a test-only, unpublished dependency.
 
-## Enforcement and adding a module
+Tests may inspect internals. The sole implementation exempt from layer checks is
+`packages/server/src/dev/local-voice.js`, which retains its production guard.
+Other `dev/` sources are checked normally and cannot be imported by production
+code. The fake-voice manifest and factory forwarders above preserve #173's layout.
+The public `local-voice-identity` subpath exposes recognition only; the private
+registry cannot be imported through a package subpath. The obsolete
+`packages/server/dev/local-voice.js` shim is removed.
 
-`npm test` runs `test/module-boundaries.test.js` in the existing CI unit job.
-The guard parses JavaScript and TypeScript with the existing TypeScript dependency;
-it visits static and side-effect imports, dynamic imports, re-exports, require,
-TypeScript import types and literal templates. Expressions, concatenations and
-interpolated templates fail closed, even if their runtime value appears safe.
-Comments and strings containing example imports are not dependencies. Syntax
-errors and undeclared package layers fail closed. Only source extensions are
-opened; env/config files and dependency trees are never read.
+The composed coordinator stays in server at `/composed-voice` and is packed.
+Generic component admission, bounded streams and audio queues belong to core at
+`/voice-components`. The composed compatibility entry re-exports those helpers.
+The ElevenLabs component implementation imports core directly.
 
-To add a module, choose its layer, provide a package manifest with explicit public
-exports, and keep implementation-local imports within it. Add a new layer to the
-single policy table only when the architecture requires it; update this rendered
-table and add a negative fixture for the new forbidden edge. Export shared building
-blocks from their owning layer instead of reaching into another module's source.
-Run `node scripts/check-boundaries.mjs` or the boundary unit tests on the designated
-test worker and let PR CI run the suite.
+The checker parses static imports, re-exports, dynamic imports, CommonJS require,
+createRequire bindings (including aliases and namespace factories), TypeScript
+import types and templates. Nonliteral specifiers fail even in tests and the
+simulator. Comments and ordinary strings are ignored. Env/config files,
+dependencies and symlinks are not read. Relative browser imports must reach an
+exported target; Node hosts use package specifiers. Run checks on the designated
+test worker; the complete suite belongs to PR CI.
 
-Scope is `packages/*` and `plugins/*`. AIT-205 (PR #173) separately guards `demo/`;
-the policy table's AIT-205 hook is the integration point once that PR merges.
-This change does not duplicate the demo import rule. The release packer's
-public-export contract is enforced at source level; this base revision uses the
-single archive packer and does not yet contain `release/lib/modules.mjs`.
+To add a module, declare its layer and explicit exports, then add a negative
+fixture for any new allowed edge. Both policy tables above are rendered from the
+checker and tested for drift. Release packing retains #173's source admission
+rule: no blanket top-level `dev/` inclusion. New exports or packed files invalidate
+the candidate freeze; only the coordinator may arrange a replacement freeze.
 
 ## Deliberate ambient CI reads in tests
 

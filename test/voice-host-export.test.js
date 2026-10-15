@@ -83,3 +83,15 @@ test('local voice production requires an explicit boolean simulator opt-in', asy
   process.env.NODE_ENV = 'development';
   assert.ok(isLocalVoice(createLocalVoiceProvider({ storage })));
 });
+
+
+test('host cannot register a real provider as the local voice simulator', async () => {
+  const identity = await import('@inspr/aithema-server/local-voice-identity');
+  assert.deepEqual(Object.keys(identity), ['isLocalVoice']);
+  const provider = { start() {} };
+  assert.equal(identity.isLocalVoice(provider), false);
+  for (const path of ['dev-voice-identity', 'src/dev-voice-identity.js', 'src/local-voice-identity.js']) {
+    await assert.rejects(import(`@inspr/aithema-server/${path}`), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+  }
+  assert.equal(identity.isLocalVoice(provider), false);
+});

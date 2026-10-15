@@ -3,7 +3,7 @@ import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { processingScope } from '../../../packages/core/src/presets.js';
 import { consentCoverage } from '@inspr/aithema-core';
-import { componentInvocation, boundedEvents } from '../../composed-voice/src/component.js';
+import { componentInvocation, boundedEvents } from '@inspr/aithema-core/voice-components';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
 export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });

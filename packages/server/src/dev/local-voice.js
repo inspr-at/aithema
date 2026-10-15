@@ -8,7 +8,7 @@ export const localVoiceBinding = Object.freeze({ plugin: 'fake-voice', model: 'l
   effort: 'none', endpoint: 'https://example.test', accountRef: 'local-demo', secretRef: 'local-only',
   maxMicro: 0, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 3600,
   upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
-import { markLocalVoice, isLocalVoice } from '../local-voice-identity.js';
+import { registerLocalVoice, isLocalVoice } from '../dev-voice-identity.js';
 export { isLocalVoice };
 
 function terminal(call, at, outcome = 'completed') {
@@ -115,5 +115,5 @@ export function createLocalVoiceProvider({ storage, now = Date.now, allowProduct
   });
   const plugin = { manifest, health: options => voiceOperation(options, async () => ({ available: true })),
     start, ports: Object.freeze({ serverAdapter }) };
-  markLocalVoice(start); return plugin;
+  registerLocalVoice(start); return plugin;
 }

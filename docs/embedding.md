@@ -365,8 +365,8 @@ metadata. The demo's operator page is internal for this release.
 The demo browser currently resolves source URLs without an import map. Its
 `host.js`, `consent-page.js`, shared `admin-view.js` and test-only `fake-voice.js`
 retain those browser paths; every other non-test demo module uses package
-specifiers. `test/demo-package-imports.test.js` enforces that explicit exception
-list. Existing static routes continue to serve package component dependencies.
+specifiers. The unified [module boundary policy](architecture.md#module-boundaries) defines
+and checks those exceptions with the packages/plugins rules. Existing static routes continue to serve package component dependencies.
 The packed consumer imports every runtime subpath and also attempts each
 types-only subpath, asserting Node's expected rejection and its installed type
 file. It checks recursive German/English key parity on every install/reinstall
@@ -405,9 +405,52 @@ files, and the demo does not import them directly. Neither needs a demo guard
 exception or a new public export.
 The unexported ElevenLabs `components.js` also imports
 `plugins/composed-voice/src/component.js`, which has no publishable package.
-It stays in the workspace/source archive alongside the existing source-only
-composed coordinator and Voxtral proof, and is omitted from the ElevenLabs
-module tarball. No current package export or demo entrypoint imports it. This
+It stays in the workspace/source archive alongside the Voxtral proof, and is
+omitted from the ElevenLabs module tarball. AIT-202 moves its shared component
+helpers to public core `/voice-components` and packs server `/composed-voice`. No current package export or demo entrypoint imports it. This
 keeps the proof and its tests while avoiding a public composed-component API
 in this candidate. The packer still rejects any admitted runtime module that
 tries to import an unpublished dependency.
+
+
+### Core subpath decisions (AIT-202)
+
+The #173 release candidate already exposes the subpaths below. Each is retained
+because an actual production module consumes it; none is added speculatively.
+These are explicit public contracts, not permission to import arbitrary `src/`
+files. The root remains the normal host entrypoint. `/voice-components` is the
+one additional core subpath in AIT-202; it removes the generic server-to-composed
+plugin dependency. Server also adds `/composed-voice` and packs its target.
+These export and packed-file changes invalidate #173's freeze; this branch does
+not re-freeze it. The public server `/local-voice-identity` now exports only
+`isLocalVoice`; hosts cannot register providers as the simulator.
+
+| Core subpath | Keep reason and actual consumer |
+| --- | --- |
+| `./understanding` | UI session understanding model. |
+| `./readiness` | UI session readiness model. |
+| `./live-voice` | Server voice handlers and composed provider lifecycle. |
+| `./extractor` | Server upload admission and extraction adapters. |
+| `./extractor-process` | OOXML/PDF/text subprocess adapters. |
+| `./extractor-zip` | OOXML child ZIP safety checks. |
+| `./invocation` | Server coordinator, UI reply audio and provider admission errors. |
+| `./session` | UI session-element and email session state. |
+| `./ui-html` | Host HTML setup and UI HTML rendering contract. |
+| `./reply` | UI session and ElevenLabs facade reply delivery. |
+| `./prompts` | UI session prompt construction. |
+| `./document-context` | UI session document context. |
+| `./text-origin` | UI session and ElevenLabs facade origin tracking. |
+| `./presets` | UI session and composed/ElevenLabs feature configuration. |
+| `./settings` | Server handlers and UI settings/consent controls. |
+| `./ai-notice` | UI locales and ElevenLabs host notice/options. |
+| `./voice-lifecycle` | Server composed coordinator and UI session lifecycle. |
+| `./reply-replay` | UI page replay and ElevenLabs/fake-voice clients. |
+| `./voice-lifecycle-controller` | UI audio rail and provider clients. |
+| `./cost` | Server budget and ElevenLabs speech/server costing. |
+| `./plugins` | Provider manifests and server coordinator deepFreeze. |
+| `./plugin-contract` | Codex-imagegen declaration contract (types only). |
+| `./safeguards` | ElevenLabs facade safeguards. |
+| `./reasoning` | Device adapter and ElevenLabs facade operation scopes. |
+| `./reply-opener` | ElevenLabs facade opener delivery. |
+| `./chat-completions` | Device adapter chat protocol. |
+| `./voice-components` | Server composed coordinator, ElevenLabs components and Voxtral adapter. |

@@ -31,7 +31,8 @@
     "./safeguards": "./src/safeguards.js",
     "./reasoning": "./src/reasoning.js",
     "./reply-opener": "./src/reply-opener.js",
-    "./chat-completions": "./src/chat-completions.js"
+    "./chat-completions": "./src/chat-completions.js",
+    "./voice-components": "./src/voice-components.js"
   },
   "engines": {
     "node": ">=24"

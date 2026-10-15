@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkBoundaries, importSpecifiers, parseSource, renderLayerTable } from '../scripts/check-boundaries.mjs';
+import { checkBoundaries, importSpecifiers, parseSource, renderLayerTable, renderExceptionTable } from '../scripts/check-boundaries.mjs';
 import { checkCiEnv, ciEnvReads, renderCiEnvTable } from '../scripts/check-ci-env.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const declarations = JSON.parse(readFileSync(new URL('../scripts/ci-env-declarations.json', import.meta.url), 'utf8'));
@@ -18,6 +18,7 @@ test('AIT-202: test CI environment reads are explicit and unchanged', () => {
 test('AIT-202: architecture tables render the actual enforcement policy', () => {
   const doc = readFileSync(resolve(root, 'docs/architecture.md'), 'utf8');
   assert.ok(doc.includes(renderLayerTable()), 'layer table drift');
+  assert.ok(doc.includes(renderExceptionTable()), 'exception table drift');
   assert.ok(doc.includes(renderCiEnvTable(declarations)), 'CI env table drift');
 });
 
@@ -29,7 +30,7 @@ test('parser finds static, dynamic, re-export, require and template imports with
 });
 test('ambient detector handles computed access, destructuring and process aliases', () => {
   const ast = parseSource('fixture.js', "process['env'][`CI`]; process.env[name]; const { CI } = process.env; import { env } from 'node:process'; const p = process;");
-  assert.deepEqual(ciEnvReads(ast), ['CI', 'alias process', 'import node:process', 'process.env', 'process.env[name]'].sort());
+  assert.deepEqual(ciEnvReads(ast), ['CI', 'alias process', 'import node:process', 'destructure { CI }', 'process.env[name]'].sort());
 });
 
 test('CI declarations reject new variables, added reads, indirect aliases and stale entries', () => {
@@ -75,10 +76,28 @@ test('boundary fixtures reject forbidden layers, unexported paths, dev leaks and
   put('packages/server/src/index.js', "import '../../../plugins/adapter/src/index.js';");
   const errors = checkBoundaries(dir);
   assert.equal(errors.length, 10, errors.join('\n'));
-  assert.equal(errors.filter(error => error.includes('Forbidden')).length, 2);
-  assert.equal(errors.filter(error => error.includes('Unexported')).length, 4);
+  assert.equal(errors.filter(error => error.includes('Forbidden')).length, 3);
+  assert.equal(errors.filter(error => error.includes('Unexported')).length, 3);
   assert.ok(errors.some(error => error.includes('Test-only')));
   assert.ok(errors.some(error => error.includes('Non-literal')));
   assert.ok(errors.some(error => error.includes('dev/test')));
   assert.ok(errors.some(error => error.includes('Unknown workspace')));
+});
+
+test('createRequire aliases and namespace factories participate in the same import check', () => {
+  const source = "import { createRequire as factory } from 'node:module'; const load = factory(import.meta.url); load('one'); load(name); import * as mod from 'module'; const other = mod.createRequire(import.meta.url); other(`two`);";
+  assert.deepEqual(importSpecifiers(parseSource('fixture.js', source)).map(item => item.specifier), ['node:module', 'one', undefined, 'module', 'two']);
+});
+
+test('changing destructured environment keys requires a declaration', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-destructure-'));
+  mkdirSync(resolve(dir, 'test'));
+  const file = resolve(dir, 'test/fixture.js');
+  const declared = { 'test/fixture.js': { reads: ['destructure { CI }'], reason: 'Pinned binding keys' } };
+  writeFileSync(file, 'const { CI } = process.env;');
+  assert.deepEqual(checkCiEnv(dir, declared), []);
+  for (const binding of ['{ GITHUB_ACTIONS }', '{ CI, RUNNER_OS }', '{ CI: renamed }', '{ ...rest }', '{ [key]: value }']) {
+    writeFileSync(file, `const ${binding} = process.env;`);
+    assert.equal(checkCiEnv(dir, declared).length, 1, binding);
+  }
 });
