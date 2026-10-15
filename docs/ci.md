@@ -57,3 +57,5 @@ GitHub documents
 and [merge queue temporary branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue).
 Validate workflow syntax and expression types with pinned `actionlint` v1.7.7;
 no repository dependency or installation is needed.
+
+Browser launches use a 60 s default per attempt (caller overrides preserved), with exactly one retry for a startup timeout only, after process/profile cleanup; page and test failures are never retried. The bound adds headroom above the 30 s failure in run [38788184134](https://github.com/inspr-at/aithema/actions/runs/38788184134); recent run [38795278547](https://github.com/inspr-at/aithema/actions/runs/38795278547) logged admin launches of 718.973, 42.021 and 56.389 ms. Each attempt uses an isolated temporary profile under the caller's `userDataDir` (or the system temp directory).
