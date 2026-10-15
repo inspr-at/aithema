@@ -31,7 +31,7 @@ were opened and no live provider calls were made by the builder.
 ## Confirmed cancellation cause and fix
 
 `f2e9f71e46d3a7b52be7a8db4b409ff86604c27a` introduced unconditional stale-input
-transport abortion in `next/packages/core/src/lanes.js:21-25` (now
+transport abortion in `next/packages/core/src/lanes.js:13-16` (now
 `packages/core/src/lanes.js:26-35`). AIT-188 (`93e05c21`) preserved it for new
 in-scope project revisions while allowing off-topic-only suffixes to survive.
 This is the confirmed cause of the reproduced **superseding-turn** defect,
@@ -47,6 +47,14 @@ The lane now distinguishes provider lifetime from permission to publish:
   suffixes and purpose pause retain the original project assessment.
 - Consent, withdrawal, erasure, corrections, upload/locale/identity revisions and
   changes to the selected processing still invalidate the operation.
+
+The full unit run at `715b527` additionally exposed a voice Resume wake-up
+race (3550/3551 passed). A background assessment that deferred during Pause
+was not scheduled by voice Resume. The shared resume event now wakes the
+appropriate lanes, and a scheduling request arriving while a job is finishing
+is retained for one rerun. The existing voice assertion is unchanged; a new
+deterministic test holds admission until paused, verifies no charged attempt,
+then requires a current assessment after Resume.
 
 ## Budget finding
 

@@ -79,6 +79,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
     if (event.type === 'session.paused' && event.data.reason === 'purpose') voiceHandlers?.stopSession(id, 'purpose');
+    // Voice Resume publishes the same durable pause event as text Resume.
+    // Work that deferred while paused needs a wake-up even without a new turn.
+    if (event.type === 'session.paused' && event.data.paused === false) schedule(id);
   };
   const operations = session => {
     const revision = inputRevision(session), failure = failures.get(session.id);
@@ -244,12 +247,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   function scheduleLane(id, lane) {
     const key = `${id}:${lane}`;
-    if (jobs.has(key) || stop.signal.aborted) return;
-    const job = { id, lane, promise: null };
+    if (stop.signal.aborted) return;
+    const running = jobs.get(key);
+    if (running) { running.reschedule = true; return; }
+    const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
     job.promise = Promise.resolve().then(async () => {
       try {
         while (!stop.signal.aborted) {
+          job.reschedule = false;
           const started = storage.get(id), revision = inputRevision(started), work = laneKey(started, lane);
           try {
             await lanes.run(id, lane, { signal: stop.signal });
@@ -266,7 +272,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }
           }
-          if (stop.signal.aborted || laneKey(storage.get(id), lane) === work) {
+          if (stop.signal.aborted || laneKey(storage.get(id), lane) === work && !job.reschedule) {
             // Remove synchronously with the last revision check: a subsequent
             // schedule can start work even before this promise settles.
             jobs.delete(key); status(id); return;
