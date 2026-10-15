@@ -130,3 +130,25 @@ test('AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px 
     await page.evaluate(() => { globalThis.tickRail.session = null; });
   }
 });
+
+test('AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await voiceScene(page, locale, theme, width);
+    await page.evaluate(() => globalThis.tickRail.start()); await settle();
+    const before = await boxes(page, railBoxes);
+    await page.evaluate(() => globalThis.tickRail.close()); await settle();
+    const view = await shadow(page, c => {
+      const root = c.shadowRoot, n = root.querySelector('.voice-state'), range = document.createRange(); range.selectNodeContents(n);
+      const rects = [...range.getClientRects()], mic = root.querySelector('.voice-cell--mic').getBoundingClientRect(), band = root.querySelector('.band').getBoundingClientRect();
+      return { lines: new Set(rects.map(r => r.y)).size, textRight: Math.max(...rects.map(r => r.right)), micLeft: mic.left,
+        textBottom: Math.max(...rects.map(r => r.bottom)), bandBottom: band.bottom, railText: n.textContent };
+    });
+    const label = `${locale}-${theme}-${width}-reconciling`;
+    assert.ok(view.lines <= 2, `${label}: at most two lines: ${JSON.stringify(view)}`);
+    assert.ok(view.textRight <= view.micLeft, `${label}: label never covers mic`);
+    assert.ok(view.textBottom < view.bandBottom, `${label}: label clears hairline`);
+    assert.deepEqual(await boxes(page, railBoxes), before, `${label}: mic and all rail cells shift 0 px`);
+    const values = { ...view, shiftPx: 0 }; await evidence('F4', page, label, values); t.diagnostic(`PASS F4 ${label}: ${JSON.stringify(values)}`);
+  }
+});
