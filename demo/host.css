@@ -416,3 +416,9 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 
 /* The theme chevron is exactly 4px after the intrinsic label reserve. */
 .conversation-page .utility-theme { column-gap:4px; }
+/* At the full-label boundary, keep the compact icon gap while the chevron
+   remains 4px after the measured reserve (1px gap + 3px margin). */
+@media(448px <= width < 480px) {
+  .conversation-page .utility-theme { column-gap:1px; }
+  .conversation-page .utility-theme .utility-chevron { margin-inline-start:3px; }
+}
