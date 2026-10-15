@@ -35,6 +35,41 @@ rejections on HTTP 400/422; a plain `invalid_request_error` takes the failed pat
 The understanding loop admits at most one prompt-only retry, with a distinct
 attempt and settlement.
 
+## Round-4 source and red-to-green evidence
+
+- `packages/core/src/prompts.js:66` appends the host user instruction after all
+  transcript turns. `packages/core/src/lanes.js:96` uses this builder for both
+  draft and final analysis. The assistant reply remains in context.
+- `plugins/claude-html/src/prompt.js:105` already folds concept context into a
+  user-final request; `plugins/claude-html/src/index.js:147` disables reasoning.
+- `packages/core/src/chat-completions.js:110` and
+  `plugins/claude-html/src/index.js:102` observe a complete rejection before
+  recording zero cost. Normal usage/cost observation takes precedence, and late
+  received rejections can repair conservative holds through the existing receipt
+  path. `packages/server/src/budget.js:295` then settles the exact zero rather
+  than the maximum. No timeout/recovery budget rule is weakened.
+- `packages/core/src/chat-completions.js:65` requires explicit schema capability
+  evidence, and line 161 restricts HTTP compatibility to 400/422.
+  `packages/core/src/lanes.js:99` caps understanding at two total admissions;
+  line 112 permits only the first failed attempt to request the compatibility
+  retry. Non-schema `invalid_request_error` is covered as one failed attempt.
+- Red, tests-only `ff4c6cd`: the unseeded offline diagnostic records reply first,
+  roles `[system,user,user,assistant]`, thinking/effort enabled, 8000 output tokens,
+  HTTP 400 `invalid_request_error`, no usage, zero updates, one failed analysis,
+  one uncertain attempt and `max_charged_uncertain:1`. The independent HTML 401
+  rejection retains 607,413 micro where the new test requires zero.
+- Green, implementation `b6501eb`: focused remote run **203/203**, 58.086 seconds.
+  The same prefill-rejecting fake completes understanding with 30 input / 40
+  output tokens, 110 micro actual cost and exactly one update. The earlier
+  unseeded diagnostic/overlap sequence passes with three calls; its five-call
+  cap and value-free wire records remain covered. Draft/final prompt tests,
+  session/account budget rules, schema retry limits, portable schema, Azure
+  default, supersede behavior, cancellation and concept accounting all pass.
+
+All execution is on mbp2606, sequentially. The builder does not run review gates
+or live provider calls. OPS must rerun `node scripts/understanding-diagnostic.mjs
+--allow-live` on the pushed head before deploying.
+
 ## Earlier rounds
 
 The following round-3 evidence is historical; the zero-cost 4xx rule above
