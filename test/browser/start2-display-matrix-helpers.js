@@ -310,7 +310,7 @@ export async function displayMatrix(t, section) {
       }
     });
     await t.test('r2 menu: icon-only below 448px, whole localized labels from 448px, no ellipsis', async () => {
-      for (locale of ['de', 'en']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 1440]) {
+      for (locale of ['de', 'en']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 479, 480, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const menu = await shadow(page, c => {
           const n = c.shadowRoot.querySelector('.conversations-toggle'), label = n.querySelector('span'), style = getComputedStyle(label);
