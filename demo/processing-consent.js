@@ -1,5 +1,5 @@
 import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
-import { manifest as voiceManifest } from '../plugins/elevenlabs/src/manifest.js';
+import { manifest as voiceManifest } from '@inspr/aithema-plugin-elevenlabs/manifest';
 import { modelProvider } from './model-provider.js';
 
 // Reasoning/voice copy is ported verbatim from START consentCopy.en. The separate

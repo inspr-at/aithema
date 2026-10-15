@@ -8,6 +8,7 @@ import { demoPresets } from '../choices.js';
 import { isOptionId } from '@inspr/aithema-core';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import versionSource from '../../release/version.json' with { type: 'json' };
 import { access } from 'node:fs/promises';
 
 const raw = (url, headers, method = 'GET') => new Promise((resolve, reject) => {
@@ -23,7 +24,7 @@ const healthcheck = (url, origin) => spawnSync(process.execPath, [fileURLToPath(
 test('healthz has no session, commit defaults null, and local Host allowlist still applies', async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb()); t.after(() => running.kill());
   const response = await fetch(running.url + '/healthz'); assert.equal(response.status, 200);
-  const health = await response.json(); assert.equal(health.ok, true); assert.equal(health.version, '0.0.0'); assert.equal(health.product, 'Aithema 2026.10'); assert.ok(health.commit === null || /^[a-f0-9]{7,40}$/u.test(health.commit)); assert.equal(response.headers.get('set-cookie'), null);
+  const health = await response.json(); assert.equal(health.ok, true); assert.equal(health.version, versionSource.version); assert.equal(health.version_scheme, versionSource.version_scheme); assert.equal(health.product, 'Aithema 2026.10'); assert.ok(health.commit === null || /^[a-f0-9]{7,40}$/u.test(health.commit)); assert.equal(response.headers.get('set-cookie'), null);
   assert.equal((await raw(running.url + '/healthz', { host: 'foreign.test' })).status, 403);
   assert.equal(healthcheck(running.url).status, 0);
 });
@@ -33,7 +34,7 @@ test('public origin controls accepted Host, origin checking and Secure cookies b
   t.after(() => running.kill());
   const headers = { host: 'start2.example.test', origin: 'https://start2.example.test', 'content-type': 'application/json' };
   const health = await raw(running.url + '/healthz', { ...headers, origin: 'https://foreign.test' });
-  assert.equal(health.status, 200); const info = JSON.parse(health.body); assert.equal(info.ok, true); assert.equal(info.commit, 'local-commit-fixture'); assert.equal(info.version, '0.0.0'); assert.equal(info.product, 'Aithema 2026.10');
+  assert.equal(health.status, 200); const info = JSON.parse(health.body); assert.equal(info.ok, true); assert.equal(info.commit, 'local-commit-fixture'); assert.equal(info.version, versionSource.version); assert.equal(info.version_scheme, versionSource.version_scheme); assert.equal(info.product, 'Aithema 2026.10');
   assert.equal((await fetch(running.url + '/healthz')).status, 403);
   assert.equal(healthcheck(running.url, 'https://start2.example.test').status, 0);
   assert.equal(healthcheck(running.url, 'https://foreign.test').status, 1);

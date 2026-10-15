@@ -1,17 +1,8 @@
 // Shared display helpers for the two file-based CI shards.
 import assert from 'node:assert/strict';
-import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
-import { delimiter, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
-async function browserPath() {
-  const paths = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name)))];
-  for (const path of paths) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
-  throw new Error('No browser available on the remote test runner');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: 30_000 }, arg);
 const settle = () => new Promise(resolve => setTimeout(resolve, 120));

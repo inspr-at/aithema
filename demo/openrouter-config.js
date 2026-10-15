@@ -1,6 +1,6 @@
-import { modelPrice, providerMaxPrice, tokenCeilingMicro } from '../plugins/openrouter/src/pricing.js';
-import { manifest as openRouterManifest } from '../plugins/openrouter/src/index.js';
-import { usdMicro } from '../packages/server/src/spend-cap.js';
+import { modelPrice, providerMaxPrice, tokenCeilingMicro } from '@inspr/aithema-plugin-openrouter/pricing';
+import { manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
+import { usdMicro } from '@inspr/aithema-server';
 import { qualifyStartBinding } from './processing-consent.js';
 
 // Mirror START's readExact/integer semantics for these routing settings.

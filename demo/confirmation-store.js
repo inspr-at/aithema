@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import { constants, openSync, closeSync, writeFileSync, readFileSync, fstatSync, fsyncSync, linkSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { IDENTITY_POLICY } from '@inspr/aithema-core';
-import { formatCredits } from '../packages/ui/src/display.js';
+import { formatCredits } from '@inspr/aithema-ui/display';
 import { canonicalEmail } from './email-address.js';
 
 const DAY = 86_400_000;

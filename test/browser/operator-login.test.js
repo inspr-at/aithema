@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { listen } from '../../packages/server/src/http.js';
 import { startChild } from '../helpers.js';
 import { stubOperatorIssuer } from '../fixtures/operator-issuer.js';

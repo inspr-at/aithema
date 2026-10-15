@@ -1,7 +1,6 @@
+import { adminCopy } from '../admin-copy.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { de } from '../../packages/ui/src/i18n/de.js';
-import { en } from '../../packages/ui/src/i18n/en.js';
 import { adminFixture } from '../../test/fixtures/admin-host.js';
 import { createOperatorSessions, createSQLiteOperatorStore } from '../../packages/server/src/operator-session.js';
 import { SQLiteStorage } from '../../packages/server/src/index.js';
@@ -55,7 +54,7 @@ for (const locale of ['de', 'en']) for (const ErrorType of [Error, TypeError, Sy
     assert.equal(response.status, 503);
     assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
     assert.equal(response.headers.get('cache-control'), 'no-store');
-    const copy = (locale === 'en' ? en : de).admin.failed;
+    const copy = adminCopy[locale].failed;
     assert.equal(await response.text(), `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${locale === 'en' ? 'Admin' : 'Verwaltung'} · Aithema</title></head><body><p>${copy}</p></body></html>`);
     const api = await f.call('/api/operator/admin/audit');
     assert.equal(api.status, ErrorType === Error ? 503 : 400);

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { listen } from '../../packages/server/src/http.js';
 import { adminFixture } from '../fixtures/admin-host.js';
 import { ADMIN_LAUNCH_TIMEOUT, ADMIN_STEP_TIMEOUT, adminSteps } from './admin-steps.js';
@@ -49,7 +49,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   let f, held, responseMode = 'ok', browser;
   const server = await run('listen', () => listen(async request => {
     const path = new URL(request.url).pathname;
-    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
+    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|admin-copy\.js|utility-icons\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
       return new Response(await run('readFile', () => readFile(new URL('../../' + path.slice(1), import.meta.url))), { headers: { 'content-type': path.endsWith('.css') ? 'text/css' : 'text/javascript' } });
     }
     if (request.method === 'POST' && path.endsWith('/settings')) {
@@ -215,7 +215,7 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   let f, browser;
   const server = await run('listen', () => listen(async request => {
     const path = new URL(request.url).pathname;
-    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
+    if (/^\/(demo\/(host\.css|theme-init\.js|admin-page\.js|admin-view\.js|admin-copy\.js|utility-icons\.js|page-preferences\.js)|packages\/ui\/src\/(i18n\/(de|en|admin)\.js|display\.js|icons\.js)|packages\/core\/src\/ai-notice\.js)$/u.test(path)) {
       return new Response(await run('readFile', () => readFile(new URL('../../' + path.slice(1), import.meta.url))), { headers: { 'content-type': path.endsWith('.css') ? 'text/css' : 'text/javascript' } });
     }
     return await run('f.admin.handle', () => f.admin.handle(request)) ?? new Response(null, { status: 404 });

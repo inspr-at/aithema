@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { collectPurposeReply, reasoningRequest } from '../../packages/core/src/index.js';
 import { start2PurposePolicy } from '../../demo/safeguards.js';
 import { start2Redirects } from '../safeguards-corpus.js';

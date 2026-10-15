@@ -1,8 +1,8 @@
 {
   "schema": "aithema-migration-inventory/1",
-  "ticket": "AIT-32",
+  "ticket": "AIT-105 / AIT-32",
   "decision": "Markus 2026-10-14: first reset release adopts inspr-calver-3; separate publish go required",
-  "presentation_pin": "release/presentation.json; independent controller review pending",
+  "presentation_pin": "release/presentation.json; pin review passed in controller-supplied AIT-105 gate1",
   "compatibility_window": "Keep stable legacy and calendar/v1 readers until every supported consumer and rollback path is evidenced; removal needs a separate owner-approved change",
   "not_applicable": [
     "OCI images (none shipped)",
@@ -10,42 +10,35 @@
     "native apps (none shipped)",
     "automatic update feeds (none shipped)"
   ],
-  "pending": [
-    "AIT-139",
-    "AIT-160",
-    "immutable candidate",
-    "signatures/attestation",
-    "candidate install/update/deployment pin/rollback",
-    "presentation pin review"
-  ],
+  "pending": [],
   "surfaces": [
     {
       "repository_alias": "aithema",
       "visibility": "public",
-      "current_scheme": "legacy",
+      "current_scheme": "inspr-calver-3",
       "version_source": "release/version.json",
       "deployment_boundary": "consumer-owned service",
-      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
-      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
-      "owning_ticket": "AIT-32",
+      "rollback_reference": "release/consumer.mjs; retained manifest SHA-256 and all module tarball digests",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
+      "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate; unreserved preparation",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "workspace-package",
-      "release_surfaces": "git tag, forge release, npm-compatible archive, package/lock, SPDX SBOM; signature/attestation provenance",
+      "release_surfaces": "fifteen npm-compatible module tarballs plus workspace/source archive, exact package/lock, SPDX SBOM; tag-only immutable GitHub release + SHA256SUMS + GitHub artifact attestations",
       "consumers": "release scripts; workspace dependency pins; npm; deployment pin; backup labels",
       "external_constraints": "npm SemVer syntax; no bounded integer/shortened coordinate"
     },
     {
       "repository_alias": "aithema",
       "visibility": "public",
-      "current_scheme": "legacy",
+      "current_scheme": "inspr-calver-3",
       "version_source": "release/version.json",
       "deployment_boundary": "consumer-owned service",
-      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
-      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
-      "owning_ticket": "AIT-32",
+      "rollback_reference": "release/consumer.mjs; retained manifest SHA-256 and all module tarball digests",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
+      "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate; unreserved preparation",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "service",
       "release_surfaces": "HTTP health API, exported ZIP generator, logs/support diagnostics",
       "consumers": "thin hosts; archive consumers; operators",
@@ -54,14 +47,14 @@
     {
       "repository_alias": "aithema",
       "visibility": "public",
-      "current_scheme": "legacy",
+      "current_scheme": "inspr-calver-3",
       "version_source": "release/version.json",
       "deployment_boundary": "consumer-owned service",
-      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
-      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
-      "owning_ticket": "AIT-32",
+      "rollback_reference": "release/consumer.mjs; retained manifest SHA-256 and all module tarball digests",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
+      "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate; unreserved preparation",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "web-components",
       "release_surfaces": "hover/focus version details; canonical clipboard; product name",
       "consumers": "web embedding hosts; shared pinned renderer/interaction",
@@ -70,14 +63,14 @@
     {
       "repository_alias": "aithema",
       "visibility": "public",
-      "current_scheme": "legacy",
+      "current_scheme": "inspr-calver-3",
       "version_source": "release/version.json",
       "deployment_boundary": "consumer-owned service",
-      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
-      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
-      "owning_ticket": "AIT-32",
+      "rollback_reference": "release/consumer.mjs; retained manifest SHA-256 and all module tarball digests",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
+      "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate; unreserved preparation",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "plugin-packages",
       "release_surfaces": "package metadata; workspace artifact; technical plugin manifest API protocol",
       "consumers": "plugin loaders; registry; binding runtime",
@@ -86,18 +79,59 @@
     {
       "repository_alias": "aithema",
       "visibility": "public",
-      "current_scheme": "legacy",
+      "current_scheme": "inspr-calver-3",
       "version_source": "release/version.json",
       "deployment_boundary": "consumer-owned service",
-      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
-      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
-      "owning_ticket": "AIT-32",
+      "rollback_reference": "release/consumer.mjs; retained manifest SHA-256 and all module tarball digests",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
+      "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate; unreserved preparation",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "release-set",
       "release_surfaces": "source tree and dependency lock provenance; every output/member digest; validation run",
       "consumers": "CI admission; verification; exact-artifact rollback",
       "external_constraints": "canonical Node 24/GNU tar"
+    }
+  ],
+  "completed": [
+    {
+      "item": "publishable module layout and exact pins",
+      "status": "implemented",
+      "evidence": "release/pack.mjs; release/lib/modules.mjs; all fifteen package manifests"
+    },
+    {
+      "item": "signatures/attestation",
+      "status": "wired; execution awaits separately authorized tag",
+      "evidence": ".github/workflows/release.yml; release/README.md; no signature claimed for local candidate"
+    },
+    {
+      "item": "release notes and consumer guide",
+      "status": "completed",
+      "evidence": "release/notes.md; docs/embedding.md; test/embedding.test.js"
+    },
+    {
+      "item": "immutable candidate",
+      "status": "verified; frozen source commit and BSD toolchain, not published",
+      "evidence": "release/evidence.json; two identical builds of all 16 archives and release-set.json; retained dist/ait105-r3/candidate/first"
+    },
+    {
+      "item": "candidate install/update/deployment pin/rollback",
+      "status": "verified in external scratch host; legacy API/data upgrade is not applicable",
+      "evidence": "release/evidence.json consumer; release/consumer.mjs; portable consumer-deployment; exact manifest and all 15 module digests retained"
+    }
+  ],
+  "unmeasured": [
+    {
+      "item": "AIT-139",
+      "status": "not measured, stated in release notes",
+      "decision": "Markus 2026-10-15: 60-minute soak is not measured (Kein Test); not a blocker",
+      "evidence": "release/notes.md"
+    },
+    {
+      "item": "AIT-160",
+      "status": "not measured, stated in release notes",
+      "decision": "Markus 2026-10-15: second voice pipeline not yet proven; parked; not a blocker",
+      "evidence": "release/notes.md"
     }
   ]
 }

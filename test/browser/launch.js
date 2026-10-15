@@ -1,0 +1,25 @@
+import puppeteer from 'puppeteer-core';
+import { browserPath } from '../../scripts/install-test-browser.js';
+import { watchMemoryGuard } from '../../scripts/memory-guard.js';
+
+export const crashReportingArgs = ['--disable-breakpad', '--disable-crash-reporter', '--disable-crashpad-for-testing'];
+
+export default {
+  async launch(options = {}) {
+    const watch = watchMemoryGuard();
+    const browser = await puppeteer.launch({ ...options,
+      executablePath: options.executablePath ?? await browserPath(),
+      // The macOS shell's software compositor can omit masked scroll-pane
+      // paint until a scroll. Match full Chrome's GPU compositing there.
+      args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
+    });
+    const child = browser.process();
+    const run = /\/ci\.noindex\/(aithema-runs\/[^/ ]+)/u.exec(options.userDataDir ?? process.cwd())?.[1];
+    if (run && !child.spawnargs.some(arg => arg.startsWith('--user-data-dir=') && arg.includes(`/ci.noindex/${run}/`))) {
+      await browser.close();
+      throw new Error('Browser profile must be inside the OPS memory guard run path');
+    }
+    watch(child, run);
+    return browser;
+  },
+};

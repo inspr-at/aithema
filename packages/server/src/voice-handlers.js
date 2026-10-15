@@ -1,5 +1,5 @@
 import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
-import { voiceOperation } from '../../core/src/live-voice.js';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
 import { createVoiceTurnOperations } from './voice-turns.js';
