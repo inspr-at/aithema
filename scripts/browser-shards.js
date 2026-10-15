@@ -18,7 +18,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Headless-shell PR benchmarks: 38773142800-1 and 38773893654-1.
 // Not on this base yet: AIT-197 consent-lines = 56.843s (38765085264-1),
 // planning weight 70s; AIT-198 understanding-failure = 32.829s (38770896962-1),
-// planning weight 50s. Apply those entries when their source files merge.
+// planning weight 50s. Reserve both entries below; discovery enables them
+// automatically when their source files merge (no placeholder test files).
 // Sum top-level test durations only; nested subtests are already included.
 // Estimates exclude setup, file-process overhead and evidence upload. The final
 // layout is validated separately against the 450s whole-job wall budget.
@@ -26,6 +27,7 @@ export const browserTestWeights = {
   'test/browser/admin-pages.test.js': 80.000, // AIT-199 latest max 62.782s, CI 38770896962-1; historical floor 80s
   'test/browser/audio-replay.test.js': 50.000, // AIT-199 latest max 30.882s, CI 38770896962-1; historical floor 50s
   'test/browser/confirmation-design.test.js': 90.000, // AIT-199 latest max 68.546s, CI 38732580354-1; historical floor 90s
+  'test/browser/consent-lines.test.js': 70.000, // Incoming AIT-197: CI 38765085264-1, 56.843s rounded up + 10s
   'test/browser/credit-hold.test.js': 70.000, // AIT-199 latest max 53.360s, CI 38765085264-1; historical floor 70s
   'test/browser/demo.test.js': 90.000, // AIT-199 latest max 67.766s, CI 38770896962-1; historical floor 90s
   'test/browser/email-ask.test.js': 130.000, // AIT-199 latest max 99.923s, CI 38732580354-1; historical floor 130s
@@ -45,6 +47,7 @@ export const browserTestWeights = {
   'test/browser/start2-display-matrix.test.js': 70.000, // AIT-199 latest max 52.528s, CI 38773142800-1; historical floor 70s
   'test/browser/start2-display.test.js': 110.000, // AIT-199 latest max 97.777s, CI 38765085264-1; historical floor 110s
   'test/browser/tick-followups.test.js': 90.000, // AIT-199 latest max 76.289s, CI 38732580354-1; historical floor 90s
+  'test/browser/understanding-failure.test.js': 50.000, // Incoming AIT-198: CI 38770896962-1, 32.829s rounded up + 10s
   'test/browser/visitor-credit-tiers.test.js': 110.000, // AIT-199 latest max 96.541s, CI 38770896962-1; historical floor 110s
   'test/browser/voice-presentation.test.js': 90.000, // AIT-199 latest max 68.021s, CI 38770896962-1; historical floor 90s
 };
