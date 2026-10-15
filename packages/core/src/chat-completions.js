@@ -6,6 +6,8 @@ import { usdCostMicro, generationId } from './cost.js';
 // Only the portable strict-output subset crosses the wire. Limits, patterns,
 // numeric bounds and other validation rules stay in the original host schema.
 function providerSchema(schema) {
+  // Feature availability quotes omit the schema; no wire request is sent there.
+  if (schema === undefined) return undefined;
   const safe = {};
   for (const key of ['type', 'enum', 'description', '$ref']) if (Object.hasOwn(schema, key)) safe[key] = schema[key];
   if (schema.properties) {
