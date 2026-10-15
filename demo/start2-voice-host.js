@@ -10,5 +10,6 @@ export const START2_VOICE_OPENERS = Object.freeze({
 export function createVoiceHost(options = {}) {
   return createElevenLabsVoiceHost({ agentName: 'aithema-start2', facadeSecretName: 'aithema-start2-facade',
     accountRef: 'start2-elevenlabs', spokenOpeners: START2_VOICE_OPENERS, costConfig: voiceCostConfig,
-    qualifyBinding: qualifyStartBinding, ...options });
+    qualifyBinding: qualifyStartBinding,
+    ...Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined)) });
 }

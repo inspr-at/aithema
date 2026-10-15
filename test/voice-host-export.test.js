@@ -28,3 +28,58 @@ test('external voice host injects naming, costs, openers and its own qualificati
   assert.equal(normalizeElevenLabsDurationBinding(host.binding).adapterConfig.agentId, 'owned-agent');
   assert.ok(api.requests.filter(r => r.path.endsWith('/template-agent')).every(r => r.method === 'GET'));
 });
+
+const hostArguments = { agentName: 'external-host', facadeSecretName: 'external-facade',
+  costConfig: {}, qualifyBinding: binding => binding };
+for (const [name, invalid] of Object.entries({ agentName: ['', 'invalid name', 42, null],
+  facadeSecretName: ['', 'invalid name', 42, null], costConfig: [null, [], 'costs', 42],
+  qualifyBinding: [null, {}, 'qualify'] })) {
+  test(`voice host requires and validates ${name} before touching any provider`, async () => {
+    const options = { ...hostArguments, fetchImpl: () => assert.fail('must not contact provider') };
+    delete options[name];
+    for (const value of [undefined, ...invalid]) {
+      await assert.rejects(createElevenLabsVoiceHost({ ...options, [name]: value }),
+        error => error instanceof TypeError && error.message.includes(name));
+    }
+  });
+}
+
+test('ensureAgent rejects omitted host names without touching Aithema agents', async () => {
+  const { ensureAgent } = await import('../plugins/elevenlabs/src/ensure-agent.js');
+  for (const name of ['agentName', 'facadeSecretName']) {
+    const options = { ...hostArguments, fetchImpl: () => assert.fail('must not contact provider') };
+    delete options[name];
+    await assert.rejects(ensureAgent(options), error => error.message.includes(name));
+  }
+});
+
+test('start2 undefined options preserve host defaults', async t => {
+  const { createVoiceHost, START2_VOICE_OPENERS } = await import('../demo/start2-voice-host.js');
+  const api = stubAgentApi(), storage = new SQLiteStorage();
+  t.after(() => storage.close());
+  const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://host.example.test',
+    apiBaseUrl: api.endpoint, fetchImpl: api.fetchImpl, resolveSecret: () => 'fixture-secret', values: {}, log() {},
+    agentName: undefined, facadeSecretName: undefined, costConfig: undefined, qualifyBinding: undefined,
+    spokenOpeners: undefined, accountRef: undefined });
+  t.after(() => host.close());
+  assert.equal(host.disabledReason, null);
+  assert.equal(api.agents[0].name, 'aithema-start2');
+  assert.equal(api.secrets[0].name, 'aithema-start2-facade');
+  assert.equal(host.binding.accountRef, 'start2-elevenlabs');
+  assert.equal(host.binding.maxDurationSeconds, 3600);
+  for (const locale of ['de', 'en']) assert.equal(host.presentation(locale).agent.firstMessage, START2_VOICE_OPENERS[locale]);
+});
+
+test('local voice production requires an explicit boolean simulator opt-in', async t => {
+  const { createLocalVoiceProvider, isLocalVoice } = await import('@inspr/aithema-server/dev/local-voice');
+  const previous = process.env.NODE_ENV;
+  t.after(() => { if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous; });
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  process.env.NODE_ENV = 'production';
+  for (const allowProductionSimulator of [undefined, false, 'true', 1]) {
+    assert.throws(() => createLocalVoiceProvider({ storage, allowProductionSimulator }), /production requires allowProductionSimulator: true/u);
+  }
+  assert.ok(isLocalVoice(createLocalVoiceProvider({ storage, allowProductionSimulator: true }).start));
+  process.env.NODE_ENV = 'development';
+  assert.ok(isLocalVoice(createLocalVoiceProvider({ storage }).start));
+});

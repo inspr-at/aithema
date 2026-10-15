@@ -116,7 +116,10 @@ test('release command stages assets in a draft and removes releases whose immuta
   writeFileSync(join(cwd, 'bin/gh'), `#!${process.execPath}
 import('node:fs').then(fs => {
   fs.appendFileSync('calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
-  if (process.argv[3] === 'view') {
+  if (process.argv[3] === process.env.TEST_FAIL_COMMAND) {
+    console.error('simulated gh failure');
+    process.exitCode = 1;
+  } else if (process.argv[3] === 'view') {
     if (process.env.TEST_IMMUTABLE === 'unsupported') {
       console.error('Unknown JSON field: isImmutable');
       process.exitCode = 1;
@@ -129,8 +132,8 @@ import('node:fs').then(fs => {
   const step = releaseWorkflow().jobs.pack.steps.find(s => s.run?.includes('gh release create'));
   const env = { ...process.env, PATH: join(cwd, 'bin') + ':' + process.env.PATH,
     GH_TOKEN: 'test-placeholder', GITHUB_REF_NAME: 'v261015164601.0.0', GITHUB_REPOSITORY: 'inspr-at/aithema' };
-  const run = immutable => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run],
-    { cwd, env: { ...env, TEST_IMMUTABLE: immutable }, stdio: 'pipe' });
+  const run = (immutable, failCommand = '') => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run],
+    { cwd, env: { ...env, TEST_IMMUTABLE: immutable, TEST_FAIL_COMMAND: failCommand }, stdio: 'pipe' });
   const calls = () => readFileSync(join(cwd, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   run('true');
   const [create, edit, view] = calls();
@@ -152,6 +155,17 @@ import('node:fs').then(fs => {
     assert.deepEqual(calls(), [create, edit, view,
       ['release', 'delete', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY, '--yes']],
     `${immutable || 'empty'} status must remove the release after publishing and checking it`);
+  }
+  const remove = ['release', 'delete', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY, '--yes'];
+  for (const command of ['edit', 'delete']) {
+    writeFileSync(join(cwd, 'calls.jsonl'), '');
+    assert.throws(() => run('false', command), error => {
+      assert.equal(error.status, 1);
+      assert.match(error.stderr.toString(), /attempting release deletion \(tag retained\)/u);
+      assert.match(error.stderr.toString(), command === 'delete' ? /manual deletion required immediately/u : /release removed/u);
+      return true;
+    });
+    assert.deepEqual(calls(), command === 'edit' ? [create, edit, remove] : [create, edit, view, remove, remove]);
   }
 });
 

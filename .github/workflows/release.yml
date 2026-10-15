@@ -95,12 +95,24 @@ jobs:
             dist/release/*.tgz dist/release/SHA256SUMS dist/release/release-set.json \
             dist/release/consumer-evidence.json dist/release/consumer-package-lock.json \
             dist/release/deployment-pin.json
+          cleanup_failed_release() {
+            trap - ERR
+            echo "release publication or immutability verification failed; attempting release deletion (tag retained)" >&2
+            if gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes; then
+              echo "release removed; verify repository immutability before retrying" >&2
+            else
+              echo "release cleanup failed; manual deletion required immediately (tag retained)" >&2
+            fi
+            exit 1
+          }
+          trap cleanup_failed_release ERR
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
           if ! immutable=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable') || [ "$immutable" != true ]; then
             gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
-            echo "release immutability not enabled — release removed, enable it and re-run" >&2
+            echo "release immutability not enabled — release removed, enable it and re-run (tag retained)" >&2
             exit 1
           fi
+          trap - ERR
       - name: Retain the tested set and portable consumer deployment
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

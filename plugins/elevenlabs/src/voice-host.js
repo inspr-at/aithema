@@ -8,6 +8,15 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
   apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env, random = Math.random,
   spokenOpeners, agentName, facadeSecretName, costConfig, qualifyBinding,
   accountRef = agentName } = {}) {
+  for (const [name, value] of Object.entries({ agentName, facadeSecretName })) {
+    if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(value)) {
+      throw new TypeError(`${name} is required and must be a host-specific identifier (1–128 letters, digits, _ or -)`);
+    }
+  }
+  if (typeof costConfig !== 'function' && (!costConfig || typeof costConfig !== 'object' || Array.isArray(costConfig))) {
+    throw new TypeError('costConfig is required and must be a cost object or function');
+  }
+  if (typeof qualifyBinding !== 'function') throw new TypeError('qualifyBinding is required and must be a function');
   // Snapshot host configuration so startup/read-back and subsequent calls always agree.
   spokenOpeners = Object.freeze(Object.fromEntries(Object.keys(AI_NOTICE).map(locale =>
     [locale, aiNoticeText(locale, { opener: spokenOpeners?.[locale] })])));

@@ -337,11 +337,18 @@ The costs contain `maxDurationSeconds`, `reservationSeconds`,
 The returned host exposes `binding`, `runtime`, `disabledReason`, `transient`,
 `presentation`, `onAvailable`, `closeOrphan`, and `close`. Qualify the legacy
 binding in the callback, then normalize it before creating a duration binding.
-The demo's thin wrapper supplies its own START qualification, costs and openers.
+`agentName` and `facadeSecretName` must be explicit host-specific identifiers;
+`costConfig` and `qualifyBinding` are required. Missing or invalid arguments reject
+before any provider access; there is no fallback to Aithema's agent.
+The demo's thin wrapper supplies its own START qualification, costs and openers;
+undefined options preserve those defaults.
 
 `@inspr/aithema-server/dev/local-voice` exports `createLocalVoiceProvider`,
-`localVoiceBinding` and `isLocalVoice` for **development and tests only; never
-use this simulator in production**. It needs durable storage but no credentials
+`localVoiceBinding` and `isLocalVoice` for **development and tests**. Construction
+refuses `NODE_ENV === 'production'` unless the host explicitly passes
+`allowProductionSimulator: true` to `createLocalVoiceProvider`. This opt-in is only
+for a deliberately simulated production-hosted demo; it does not provide real
+voice or a production provider. It needs durable storage but no credentials
 or external provider. Its implementation and manifest ship inside the server
 package; the existing fake-voice fixtures forward to that single implementation.
 

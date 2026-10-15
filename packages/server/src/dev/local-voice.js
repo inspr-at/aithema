@@ -1,4 +1,4 @@
-// Development/test simulator only. Never use in production.
+// Development/test simulator. Production requires an explicit host opt-in.
 import { PluginError } from '@inspr/aithema-core/invocation';
 import { beginVoiceInvocation, voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
 import { manifest, fakeMediaGrant } from './local-voice-manifest.js';
@@ -21,7 +21,10 @@ function terminal(call, at, outcome = 'completed') {
 }
 
 /** Admission, durable holds and leases without credentials, HTTP or callbacks. */
-export function createLocalVoiceProvider({ storage, now = Date.now }) {
+export function createLocalVoiceProvider({ storage, now = Date.now, allowProductionSimulator = false } = {}) {
+  if (process.env.NODE_ENV === 'production' && allowProductionSimulator !== true) {
+    throw new TypeError('Local voice is a development/test simulator; production requires allowProductionSimulator: true');
+  }
   if (typeof storage?.saveVoiceCall !== 'function') throw new TypeError('Durable voice storage required');
   const start = async (request, options) => {
     if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(request?.callId ?? '')) throw new TypeError('Call identity required');

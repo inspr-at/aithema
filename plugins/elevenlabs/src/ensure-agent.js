@@ -6,8 +6,6 @@ import { voiceOverrides } from './options.js';
 /** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */
 export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
 
-export const AGENT_NAME = 'aithema-start2';
-const SECRET_NAME = 'aithema-start2-facade';
 // Detailed requirements need room for thinking pauses and spelled domains.
 // This owned-agent policy replaces START's eager settings, on every startup.
 // https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow
@@ -39,8 +37,9 @@ export class AgentEnsureError extends Error {
 /** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
   apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600,
-  spokenOpeners, signal, agentName = AGENT_NAME, facadeSecretName = SECRET_NAME } = {}) {
-  if (!id(agentName) || !id(facadeSecretName)) throw new AgentEnsureError('agent-name-invalid');
+  spokenOpeners, signal, agentName, facadeSecretName } = {}) {
+  if (!id(agentName)) throw new AgentEnsureError('agentName is required and must be a host-specific identifier');
+  if (!id(facadeSecretName)) throw new AgentEnsureError('facadeSecretName is required and must be a host-specific identifier');
   // Reject a host configuration without AI disclosure before any provider read or write.
   const openers = Object.fromEntries(['de', 'en'].map(language => {
     const firstMessage = aiNoticeText(language, { opener: spokenOpeners?.[language] });
