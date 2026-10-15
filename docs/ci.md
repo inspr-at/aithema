@@ -17,11 +17,15 @@ runs therefore serialize, and the guarantee concerns in-progress runs.
 ## Docs-only PRs
 
 The `changes` job compares the PR's base/head with a three-dot Git diff.
-A nonempty change containing only `docs/**` or `**/*.md` (including root
-Markdown files) takes the light path. Files under any `test/` or `tests/`
-directory always require full CI, including Markdown fixtures. Mixed changes,
-workflow changes, and moving source files into docs require full CI too.
-Detection errors fail the changes job rather than silently approving a PR.
+Only a nonempty change confined to the explicit pure-prose allowlist
+(`docs/ci.md`) takes the light path. All other files require full CI, including
+`README.md` and `docs/embedding.md`, which the release pack consumes; the
+embedding guide is also parsed by a unit test. Moving source files into docs
+requires full CI too. The unit guard checks allowlisted paths against release
+pack admission and references in test, release, and script consumers.
+Detection errors fail the changes job and run all heavy checks. The heavy jobs
+use `!cancelled()` so a failed dependency cannot silently skip required checks;
+only successful PR detection with an explicit `true` output can skip heavy steps.
 
 On the light path, `test` and each `browser (1/4)` through `browser (4/4)`
 job run an explicit success step. They skip dependency installation, packaging,

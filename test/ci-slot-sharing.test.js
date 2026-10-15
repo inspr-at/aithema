@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { parse } from 'yaml';
+import { admittedPath } from '../release/pack.mjs';
 
 const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
 const detector = ci.jobs.changes.steps.find(step => step.id === 'changes');
+const lightCondition = "github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'";
+const heavyCondition = "(github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')";
 const expression = (value, github) => runInNewContext(value.slice(3, -2), { github });
 
 test('dedupe cancels only PRs, with unique queue refs and full queue/main parallelism', () => {
@@ -52,16 +55,16 @@ test('required jobs always exist; docs-only success gates every heavy step', () 
   assert.equal(checkout.with['fetch-depth'], 0);
   for (const id of ['test', 'browser']) {
     const job = ci.jobs[id];
-    assert.equal(job.if, undefined);
+    assert.equal(job.if, '${{ !cancelled() }}');
     assert.equal(job.needs, 'changes');
     const [noop, ...heavy] = job.steps;
-    assert.equal(noop.if, "needs.changes.outputs.docs-only == 'true'");
+    assert.equal(noop.if, lightCondition);
     assert.match(noop.run, /^echo /u);
     assert.ok(heavy.length > 0);
     for (const step of heavy) {
       assert.equal(step.if, step.uses?.startsWith('actions/upload-artifact@')
-        ? "${{ always() && needs.changes.outputs.docs-only != 'true' }}"
-        : "needs.changes.outputs.docs-only != 'true'");
+        ? '${{ always() && ' + heavyCondition + ' }}'
+        : heavyCondition);
     }
   }
   const dco = parse(readFileSync(new URL('../.github/workflows/dco.yml', import.meta.url), 'utf8'));
@@ -99,9 +102,11 @@ function detect(event, paths = [], { rename = false, invalidBase = false } = {})
 }
 
 for (const [name, paths, light] of [
-  ['root Markdown', ['README.md'], true],
-  ['nested Markdown and docs assets', ['guide/deep/info.md', 'docs/image.png'], true],
-  ['unusual path characters', ['docs/line\nbreak.md', 'docs/with space.md'], true],
+  ['packaged root Markdown', ['README.md'], false],
+  ['unlisted Markdown and docs assets', ['guide/deep/info.md', 'docs/image.png'], false],
+  ['unusual path characters', ['docs/line\nbreak.md', 'docs/with space.md'], false],
+  ['allowlisted pure prose', ['docs/ci.md'], true],
+  ['test-read packaged guide', ['docs/embedding.md'], false],
   ['mixed source and docs', ['docs/ci.md', 'packages/core/src/core.js'], false],
   ['root test Markdown', ['test/README.md'], false],
   ['Python test Markdown', ['tests/README.md'], false],
@@ -134,3 +139,55 @@ for (const event of ['merge_group', 'push']) {
     assert.equal(result.output, 'docs-only=false\n');
   });
 }
+
+// This file names paths to test classification; it does not consume their bytes.
+test('light allowlist excludes every pack input and consumer-referenced file', () => {
+  const paths = JSON.parse(detector.run.match(/light_paths = (\[[^\n]+\])/u)[1]);
+  assert.ok(paths.length > 0);
+  const root = new URL('../', import.meta.url);
+  function sources(directory) {
+    return readdirSync(new URL(directory, root), { withFileTypes: true }).flatMap(entry => {
+      const path = directory + entry.name;
+      if (/^(?:\.env|env\.)/u.test(entry.name)) return [];
+      if (entry.isDirectory()) return sources(path + '/');
+      return entry.isFile() && /\.(?:js|mjs|cjs|py|sh|json)$/u.test(path)
+        && path !== 'test/ci-slot-sharing.test.js' ? [path] : [];
+    });
+  }
+  const consumers = ['test/', 'release/', 'scripts/'].flatMap(sources);
+  for (const path of paths) {
+    assert.equal(admittedPath(path), false, `Pack reads ${path}`);
+    for (const consumer of consumers) {
+      assert.ok(!readFileSync(new URL(consumer, root), 'utf8').includes(path),
+        `${consumer} references light-path file ${path}`);
+    }
+    assert.equal(detect('pull_request', [path]).output, 'docs-only=true\n');
+  }
+});
+
+test('heavy jobs run on failed or absent detection; queue always runs everything', () => {
+  for (const event of ['pull_request', 'merge_group', 'push']) {
+    for (const result of ['success', 'failure', 'skipped', undefined]) {
+      for (const output of ['true', 'false', '', undefined]) {
+        const context = {
+          github: { event_name: event },
+          needs: { changes: { result, outputs: { 'docs-only': output } } },
+          cancelled: () => false,
+        };
+        const light = event === 'pull_request' && result === 'success' && output === 'true';
+        for (const id of ['test', 'browser']) {
+          const job = ci.jobs[id];
+          assert.equal(runInNewContext(job.if.slice(3, -2), context), true);
+          for (const step of job.steps) {
+            const condition = step.if.startsWith('${{') ? step.if.slice(3, -2) : step.if;
+            const runs = runInNewContext(condition.replaceAll("outputs.docs-only", "outputs['docs-only']"), {
+              ...context, always: () => true,
+            });
+            assert.equal(runs, step.name === 'Docs-only success' ? light : !light);
+          }
+          assert.equal(runInNewContext(job.if.slice(3, -2), { cancelled: () => true }), false);
+        }
+      }
+    }
+  }
+});
