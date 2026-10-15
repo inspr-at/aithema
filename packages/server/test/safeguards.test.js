@@ -495,30 +495,34 @@ test('AIT-188 gate1 voice: off-topic completion wakes retained overview without 
   assert.doesNotMatch(f.storage.get(f.session.id).understanding.summary, /soup/iu);
 });
 
-for (const project of [false, true]) test(`AIT-197 R3: consent in purpose pause recovers ${project ? 'earlier in-scope input once' : 'no off-topic analysis'}`, { timeout: 5000 }, async t => {
+for (const offCount of [1, 3]) for (const project of [false, true]) test(`AIT-197 R3: consent after ${offCount} off-topic turns recovers ${project ? 'earlier in-scope input once' : 'no off-topic analysis'}`, { timeout: 5000 }, async t => {
   const gate = Promise.withResolvers(); t.after(gate.resolve);
   const f = fixture(t, { analysisGate: gate.promise, consent: { ...mockConsent, grant: () => true } });
   const id = f.session.id;
-  for (const [index, content] of [...(project ? ['We need a website.'] : []), ...Array(3).fill('Give me a soup recipe.')].entries()) {
+  for (const [index, content] of [...(project ? ['We need a website.'] : []), ...Array(offCount).fill('Give me a soup recipe.')].entries()) {
     f.storage.postTurn(id, `r3-${index}`, Buffer.from(content), content);
     const revision = inputRevision(f.storage.get(id));
     f.storage.appendPurposeReply(id, { id: `reply-${index}`, role: 'assistant', content: 'What should the project improve?', inputRevision: revision }, revision, !project || index > 0, 3);
   }
-  assert.equal(f.storage.get(id).pauseReason, 'purpose');
+  assert.equal(f.storage.get(id).pauseReason === 'purpose', offCount === 3);
   assert.equal((await f.handlers.handle(req(id, 'consent', { granted: true }))).status, 200);
   if (project) {
     await f.assessmentStarted;
     const snapshot = await f.handlers.handle(req(id)).then(r => r.json());
-    assert.deepEqual(snapshot.operations.running, ['understanding']);
+    assert.ok(snapshot.operations.running.includes('understanding'));
+    assert.equal(snapshot.operations.running.filter(lane => lane === 'understanding').length, 1);
     assert.equal(f.assessments.length, 1); assert.doesNotMatch(JSON.stringify(f.assessments), /soup/);
   }
   gate.resolve(); await f.handlers.idle();
-  assert.equal(f.assessments.length, Number(project)); assert.equal(f.calls.length, 0);
+  assert.equal(f.assessments.length, Number(project)); assert.equal(f.calls.length, offCount === 3 ? 0 : 1);
   assert.equal(f.storage.get(id).understanding.readinessAssessed, project);
-  assert.equal(f.storage.get(id).paused, true);
+  assert.equal(f.storage.get(id).paused, offCount === 3);
   if (project) assert.match(f.storage.get(id).understanding.summary, /website/);
   await f.handlers.handle(req(id, 'retry', {})); await f.handlers.idle();
   assert.equal(f.assessments.length, Number(project), 'retry after settlement cannot duplicate admission');
   const updates = f.storage.read(id).filter(event => event.type === 'understanding.updated');
   assert.equal(updates.length, Number(project));
+  const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
+  assert.equal(attempts.length, Number(project));
+  assert.ok(attempts.every(attempt => attempt.state === 'settled'), 'normal admission leaves no open analysis claim');
 });
