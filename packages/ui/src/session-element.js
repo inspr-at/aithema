@@ -573,12 +573,15 @@ export class AithemaSession extends HTMLElement {
     // Bottom slack first fills any spare space, then adds scroll room; measure until it holds.
     for (let round = 0; round < 4; round++) {
       const delta = node.getBoundingClientRect().top - top;
-      if (Math.abs(delta) < .5) return;
+      if (Math.abs(delta) < .5) break;
       const target = pane.scrollTop + delta, max = pane.scrollHeight - pane.clientHeight;
       if (target < 0) slack.top += -target;
       else if (target > max) slack.bottom += target - max + (max < 1 ? spareSpace(pane) : 0);
       apply(); pane.scrollTop = Math.max(0, target);
     }
+    // The phone notice observer runs after this render. Its reading position
+    // must include the pointer anchor's compensation for changed transcript rows.
+    if (pane.matches('.transcript-shell')) this.#phoneViewport?.recordTranscriptAnchor();
   }
   #headers(headers = {}) {
     return { ...headers, ...(this.#sessionToken ? { 'x-aithema-session-token': this.#sessionToken } : {}) };

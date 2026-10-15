@@ -231,6 +231,9 @@ export class PhoneComposerViewport {
     }
     this.paint();
   }
+  recordTranscriptAnchor() {
+    this.noticeScrollTop = this.root.querySelector('.transcript-shell').scrollTop;
+  }
   destroy() {
     this.connected = false;
     this.root.removeEventListener('focusin', this.paint);
