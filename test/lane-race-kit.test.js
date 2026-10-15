@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLaneRaceHarness, lanePairs, laneNames } from './fixtures/lane-race-harness.js';
+import { inputRevision } from '../packages/core/src/index.js';
 import { start2PurposePolicy } from '../demo/safeguards.js';
 import { createFakeProviderKit, providerRuleViolation } from './fixtures/fake-provider-kit.js';
 
@@ -220,3 +221,31 @@ for (const failure of ['diagnostic sink', 'counter sink']) for (const failed of 
     assert.equal(h.storage.db.prepare('SELECT state FROM budget_attempts').get().state, 'settled');
   });
 }
+
+
+test('AIT-197 recovered project input settles during purpose pause without a replacement reply', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  const classify = off => {
+    const revision = inputRevision(h.storage.get(h.id));
+    h.storage.appendPurposeReply(h.id, { id: crypto.randomUUID(), role: 'assistant', content: 'Project question', inputRevision: revision }, revision, off, 3);
+  };
+  classify(false);
+  for (let i = 0; i < 3; i++) { h.turn('Give me a soup recipe.'); classify(true); }
+  assert.equal(h.storage.get(h.id).pauseReason, 'purpose');
+  assert.equal((await h.route('consent', { granted: true })).status, 200);
+  const analysis = await h.next('understanding');
+  assert.match(JSON.stringify(analysis.body.messages), /API dashboard/u);
+  assert.doesNotMatch(JSON.stringify(analysis.body.messages), /soup recipe/u);
+  assert.equal(analysis.violation, null);
+  // Exercise compatibility admission with the recovered input too.
+  analysis.httpError(400, { message: 'response_format json_schema is not supported' });
+  const retry = await h.next('understanding');
+  assert.equal(retry.body.response_format, undefined); h.resolve(retry);
+  await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).understanding.readinessAssessed, true);
+  assert.equal(h.storage.get(h.id).pauseReason, 'purpose');
+  assert.equal(h.kit.calls.filter(call => call.body.stream).length, 0, 'purpose stop schedules no replacement reply');
+  assert.equal((await h.route('retry', {})).status, 202); await h.handlers.idle();
+  assert.equal(h.kit.calls.length, 2, 'recovered input is assessed only once');
+  const c = balanced(h).understanding; assert.equal(c.started, 2); assert.equal(c.failed, 1); assert.equal(c.completed, 1);
+});

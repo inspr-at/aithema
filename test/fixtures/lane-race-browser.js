@@ -6,6 +6,10 @@ const root = new URL('../../', import.meta.url);
 const snapshot = async () => (await h.route()).json();
 const running = await listen(async request => {
   const url = new URL(request.url), path = url.pathname;
+  if (path === '/snapshot') {
+    await h?.close(); h = await createLaneRaceHarness();
+    return Response.json(await snapshot());
+  }
   if (path === '/begin') {
     await h?.close(); h = await createLaneRaceHarness();
     const pair = url.searchParams.get('pair').split(',');

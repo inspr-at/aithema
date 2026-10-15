@@ -22,7 +22,7 @@ export async function createLaneRaceHarness({ honorAbort = true, purposePolicy }
     AITHEMA_HTML_MODE: 'claude', AITHEMA_HTML_MODEL: 'anthropic/claude-race',
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/race': { prompt: 1e-6, completion: 2e-6 }, 'anthropic/claude-race': { prompt: 1e-6, completion: 2e-6 } }) };
   const config = openRouterConfig(values), html = htmlConfig(values), storage = new SQLiteStorage();
-  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision,
+  const consent = { grant: () => true, coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision,
     checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
   const reasoning = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only', fetchImpl: kit.fetchImpl });
   const visuals = createClaudeHTML({ binding: html.binding, spendPath: join(dir, 'spend.json'), resolveSecret: () => 'fake-only', fetchImpl: kit.fetchImpl });

@@ -64,3 +64,70 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
   if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'ait201-lane-races-390.png'), fullPage: false, captureBeyondViewport: false }); }
   assert.deepEqual(errors, []);
 });
+
+// These projections model the event-order gaps between a facade person final,
+// lane.status, pause, and assistant final. Provider/settlement coverage stays in
+// the real-lane matrix above; detached elements keep automatic refreshes from
+// racing the deliberately held event boundary.
+for (const scenario of ['e155043 pause retains pending overview', 'be304ae reply ends preparation', 'e5bb795 purpose stop versus stuck reply']) {
+  test(`AIT-197 ${scenario}`, { timeout: 30_000 }, async t => {
+    const fixture = await startChild(new URL('../fixtures/lane-race-browser.js', import.meta.url));
+    const browser = await browserForFile(), page = await browser.newPage();
+    t.after(async () => { await browser.close(); await fixture.kill(); });
+    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    const result = await page.evaluate(async scenario => {
+      const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const c = document.createElement('aithema-session');
+      c.setAttribute('motion', 'off');
+      const session = await (await fetch('/snapshot')).json();
+      const revision = inputRevision(session);
+      session.operations = { inputRevision: revision, running: [], lastFailure: null };
+      const configure = () => c.configure({ session: structuredClone(session), copy });
+      const state = () => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
+        preparing: c.shadowRoot.querySelector('.notice').textContent === copy.preparingOverview,
+        stuck: !c.shadowRoot.querySelector('.overview-retry').hidden,
+        retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length });
+      if (scenario.startsWith('e155043')) {
+        session.transcript.at(-1).voiceCallId = 'pending-facade';
+        configure(); const pending = state();
+        session.paused = true; configure(); const paused = state();
+        session.paused = false; configure(); const resumed = state();
+        // The reply and overview both settle after resuming.
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Which work?', inputRevision: revision } });
+        const settled = state();
+        return { pending, paused, resumed, settled };
+      }
+      if (scenario.startsWith('be304ae')) {
+        session.voiceLifecycle = { callId: 'active-call', providerSessionId: 'provider', epoch: 1, state: 'active' };
+        configure(); const pending = state();
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Which work?', inputRevision: revision } });
+        return { pending, settled: state() };
+      }
+      session.paused = true; session.pauseReason = 'purpose'; configure(); const purpose = state();
+      session.pauseReason = null; configure(); const stuck = state();
+      session.paused = false; configure(); const unpausedStuck = state();
+      return { purpose, stuck, unpausedStuck, failedCopy: copy.understandingFailed };
+    }, scenario);
+    if (scenario.startsWith('e155043')) {
+      for (const name of ['pending', 'paused', 'resumed']) {
+        assert.equal(result[name].preparing, true, `${name}: pending overview stays visible`);
+        assert.equal(result[name].stuck, false);
+      }
+      assert.equal(result.settled.preparing, false); assert.equal(result.settled.stuck, false);
+    } else if (scenario.startsWith('be304ae')) {
+      assert.equal(result.pending.preparing, true);
+      assert.equal(result.settled.preparing, false, 'assistant final ends wird erstellt even while voice remains active');
+      assert.doesNotMatch(result.settled.notice, /wird erstellt|building/iu);
+      assert.equal(result.settled.stuck, false);
+    } else {
+      assert.equal(result.purpose.stuck, false, 'purpose stop is deliberate, not a stuck reply');
+      assert.equal(result.purpose.retries, 0, 'purpose stop offers no replacement reply');
+      for (const name of ['stuck', 'unpausedStuck']) {
+        assert.equal(result[name].stuck, true, `${name}: genuinely missing reply remains actionable`);
+        assert.match(result[name].notice, new RegExp(result.failedCopy, 'u'));
+      }
+    }
+  });
+}
