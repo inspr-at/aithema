@@ -24,6 +24,7 @@ export const browserTestWeights = {
   'test/browser/demo.test.js': 90.000, // CI 38704006618-1 (rounded up)
   'test/browser/email-ask.test.js': 130.000, // CI 38726471579-1 (115.313s; rounded up + 10s margin)
   'test/browser/email-mail-space.test.js': 80.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/external-plugin.test.js': 20.000, // mbp2606 67d406e9b6-90156 (1.251s; rounded up + 10s margin)
   'test/browser/footer-width-sweep.test.js': 30.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/host-surface.test.js': 20.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
