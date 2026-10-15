@@ -6,19 +6,21 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets } from '../../packages/server/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
-import { createMockReasoning, PluginRegistry, MOCK_PROCESSING_SCOPE } from '../../packages/core/src/index.js';
+import { createMockReasoning, PluginRegistry, MOCK_PROCESSING_SCOPE, inputRevision } from '../../packages/core/src/index.js';
 import { createLocalVoiceProvider, localVoiceBinding } from '../../packages/server/src/local-voice.js';
 import { demoPresets } from '../../demo/choices.js';
 import { createOwnership } from '../../demo/session-lifecycle.js';
 import { createDemoHost } from '../../demo/host-ports.js';
 import { createMockConsent } from '../../demo/mock-consent.js';
 import { buildInfo } from '../../demo/build-info.js';
+import { start2PurposePolicy } from '../../demo/safeguards.js';
 import { HTML_PREVIEW_HOST_CSP } from '../../packages/core/src/ui-html.js';
 
 globalThis.fetch = async () => assert.fail('Continuity fixture must never contact a provider');
 const root = fileURLToPath(new URL('../../', import.meta.url)), storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const consent = createMockConsent(storage);
 const admitted = { reaction: 0, understanding: 0 };
+const assessmentMessages = [];
 let release; const pending = new Promise(resolve => { release = resolve; });
 const reasoning = createMockReasoning(), secrets = createFacadeSecrets(), voicePlugin = createLocalVoiceProvider({ storage,
   provisionFacade: () => {}, revokeFacade: secrets.revoke });
@@ -29,14 +31,25 @@ const pluginRuntime = createPluginRuntime({ storage, registry, presets, consent 
 const admit = pluginRuntime.admit.bind(pluginRuntime);
 pluginRuntime.admit = async args => {
   const result = await admit(args);
-  if (args.lane in admitted) { admitted[args.lane]++; await pending; }
+  if (args.lane in admitted) { admitted[args.lane]++; if (args.lane === 'understanding') assessmentMessages.push(args.request.messages); await pending; }
   return result;
 };
 const ownership = createOwnership(), host = createDemoHost({ storage, demo: true, ownerGuard: false });
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, ownership, consent, host, voice: { secrets } });
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, ownership, consent, host, voice: { secrets }, ...(process.env.AITHEMA_PURPOSE_FIXTURE ? { purposePolicy: start2PurposePolicy } : {}) });
 await handlers.resume();
 const handle = async request => {
   const path = new URL(request.url).pathname;
+  if (path === '/fixture/assessment-messages') return Response.json(assessmentMessages);
+  if (path === '/fixture/pause') {
+    const { id, project, locale } = await request.json();
+    storage.changeLocale(id, locale);
+    const turns = [...(project ? [locale === 'de' ? 'Wir brauchen eine Website.' : 'We need a website.'] : []), ...Array(3).fill('Give me a soup recipe.')];
+    for (const [index, content] of turns.entries()) {
+      storage.postTurn(id, `r3-${index}`, Buffer.from(content), content);
+      storage.appendPurposeReply(id, { id: `r3-reply-${index}`, role: 'assistant', content: 'What should the project improve?', inputRevision: inputRevision(storage.get(id)) }, inputRevision(storage.get(id)), !project || index > 0, 3);
+    }
+    const session = storage.get(id); return Response.json({ ...session, operations: { inputRevision: inputRevision(session), running: [], lastFailure: null }, featureMatrix: await pluginRuntime.matrix(session) });
+  }
   if (path === '/fixture/stats') return Response.json(admitted);
   if (path === '/fixture/release') { release(); return Response.json({ ok: true }); }
   if (path === '/fixture/turn') {

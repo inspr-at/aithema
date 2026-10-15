@@ -25,10 +25,10 @@ async function record(t, page, label, values) {
   await writeFile(join(dir, label + '.json'), JSON.stringify({ head: evidenceCommit, viewportOnly: true, label, ...values, pass: true }, null, 2));
   await appendFile(join(dir, 'pass-lines.txt'), line + '\n');
 }
-async function fixture(t, real = false) {
+async function fixture(t, real = false, purpose = false) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-consent-lines-'));
   const demo = await startChild(new URL(real ? '../fixtures/consent-lines-server.js' : '../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
-    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+    ...(purpose ? { AITHEMA_PURPOSE_FIXTURE: '1' } : {}), AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -346,4 +346,58 @@ for (const feature of ['voice', 'html']) test(`AIT-197 R2 High: removing only ${
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   assert.equal(page.posts[0].granted, true); assert.equal(await shadow(page, c => c.session.consentWithdrawn), false);
   assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]} · ${words.de.action}`);
+});
+
+for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AIT-197 R3 ${locale}: paused consent with ${project ? 'earlier project' : 'only off-topic turns'}, 390/1440 L/D`, { timeout: 120_000 }, async t => {
+  for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    const page = await fixture(t, true, true);
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    await shadow(page, async (c, { locale, project }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = await fetch('/fixture/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.session.id, locale, project }) }).then(r => r.json());
+      c.configure({ session, copy }); document.documentElement.lang = locale;
+    }, { locale, project });
+    await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
+    const before = await boxes(page, geometry);
+    let posts = 0, retries = 0;
+    page.on('request', request => { const path = new URL(request.url()).pathname; if (request.method() === 'POST' && path.endsWith('/consent')) posts++; if (path.endsWith('/retry')) retries++; });
+    await page.locator('aithema-session >>> .notice button').click();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing');
+    const save = await shadow(page, c => { const n = c.shadowRoot.querySelector('.done svg'); return { present: Boolean(n?.querySelector('path')), display: getComputedStyle(n).display, width: n.getBoundingClientRect().width }; });
+    assert.equal(save.present, true); assert.notEqual(save.display, 'none'); assert.ok(save.width > 0, 'Save consent has its check icon');
+    await record(t, page, `r3-${locale}-${theme}-${width}-${project ? 'project' : 'off'}-save-check`, { save, shiftPx: 0 });
+    const buttonBefore = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
+    await page.keyboard.press('Space'); await frame(page);
+    assert.deepEqual(await boxes(page, ['.done', '.settings__footer', '.settings__body']), buttonBefore, 'save label stays at 0 px');
+    await page.locator('aithema-session >>> .consent-save').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    await until(page, project => { const s = document.querySelector('aithema-session').session; return s.operations?.running.length === (project ? 1 : 0) && s.featureMatrix.best.analysis.unpaused?.available; }, project);
+    await frame(page);
+    const notice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
+    assert.equal(notice, project ? locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …' : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
+    assert.deepEqual(await boxes(page, geometry), before, 'paused real consent save shifts 0 px');
+    assert.equal(posts, 1); assert.equal(retries, 0);
+    const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
+    assert.deepEqual(stats, { reaction: 0, understanding: project ? 1 : 0 });
+    assert.equal(await shadow(page, c => c.session.pauseReason), 'purpose');
+    await record(t, page, `r3-${locale}-${theme}-${width}-${project ? 'project-preparing' : 'off-no-details'}`, { notice, stats, retries, shiftPx: 0 });
+    await page.evaluate(() => fetch('/fixture/release'));
+    if (project) {
+      await until(page, () => document.querySelector('aithema-session').session.understanding.readinessAssessed && !document.querySelector('aithema-session').session.operations.running.length);
+      assert.match(await shadow(page, c => c.session.understanding.summary), /website|Website/);
+      const messages = await page.evaluate(() => fetch('/fixture/assessment-messages').then(r => r.json()));
+      assert.doesNotMatch(JSON.stringify(messages), /soup/);
+    }
+    assert.deepEqual(await page.evaluate(() => fetch('/fixture/stats').then(r => r.json())), stats, 'settles exactly once');
+    await page.close();
+  }
+});
+
+test('AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent', async t => {
+  const page = await fixture(t); await scene(page, 'en', 'light', 1440, []);
+  await shadow(page, async c => { const { en: copy } = await import('/packages/ui/src/i18n/en.js'); const session = structuredClone(c.session); session.operations.running = []; session.transcript.push({ id: 'reply', role: 'assistant', content: 'What should improve?', inputRevision: session.operations.inputRevision }); c.configure({ session, copy }); });
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'No details about your project yet.');
+  await scene(page, 'en', 'light', 1440, ['analysis']);
+  await shadow(page, async c => { const { en: copy } = await import('/packages/ui/src/i18n/en.js'); const session = structuredClone(c.session); session.transcript = []; session.operations.running = []; c.configure({ session, copy }); });
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Your overview appears here after the first sentence.');
 });
