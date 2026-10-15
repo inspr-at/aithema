@@ -33,7 +33,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     window.timings = []; window.failures = []; window.events = [];
     const onTiming = event => window.timings.push(event);
     window.player = createPCMPlayer({ onTiming });
-    const physical = createPCMCapture({ onTiming, onFault: error => window.failures.push(error.message) });
+    const physical = createPCMCapture({ AudioContext: class extends AudioContext { constructor() { super({ sampleRate: 48000 }); } }, onTiming, onFault: error => window.failures.push(error.message) });
     window.captureStops = 0; window.captures = 0;
     const capture = async options => {
       const recording = await physical(options); window.captures++;
@@ -49,7 +49,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   const physical = await page.evaluate(async () => ({ stats: await fetch('/stats').then(r => r.json()),
     timings: window.timings, failures: window.failures }));
   assert.ok(physical.stats.packets >= 4); assert.equal(physical.stats.maxPacket, 1280);
-  assert.ok(physical.timings.some(e => e.kind === 'capture' && Number.isFinite(e.captureFrame)));
+  assert.ok(physical.timings.some(e => e.kind === 'capture' && Number.isFinite(e.captureFrame) && e.contextSampleRate === 48000));
   assert.ok(physical.timings.some(e => e.kind === 'playback-scheduled' && e.format === 'pcm_s16le' && e.sampleRateHz === 24000));
   assert.deepEqual(physical.failures, []);
   const immediate = await page.evaluate(async () => {
@@ -79,6 +79,14 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   await page.waitForFunction(() => window.events.filter(e => e.type === 'recovered').length === 3);
   assert.equal(await page.evaluate(() => window.captures), 3);
   await page.evaluate(async () => { await window.session.close(); await window.player.close(); });
+  const latePermission = await page.evaluate(async () => {
+    const { createPCMCapture } = await import('/plugins/composed-voice/src/browser-audio.js');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true }), permission = Promise.withResolvers(), controller = new AbortController();
+    const pending = createPCMCapture({ mediaDevices: { getUserMedia: () => permission.promise } })({ signal: controller.signal, onAudio() {} });
+    controller.abort(); permission.resolve(stream);
+    try { await pending; return false; } catch (error) { return error.name === 'AbortError' && stream.getTracks().every(track => track.readyState === 'ended'); }
+  });
+  assert.equal(latePermission, true);
   await context.overridePermissions(fixture.url, []);
   const permission = await page.evaluate(async () => {
     const { createPCMCapture } = await import('/plugins/composed-voice/src/browser-audio.js');
@@ -88,7 +96,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) {
     await mkdir(evidence, { recursive: true });
-    const report = { physical, immediate, pause, permission, external, problems };
+    const report = { physical, immediate, pause, permission, latePermission, external, problems };
     await writeFile(join(evidence, 'ait-160-physical-media.json'), JSON.stringify(report, null, 2));
     await page.evaluate(report => { document.querySelector('#proof').textContent = JSON.stringify({ packets: report.physical.stats.packets,
       packetBytes: report.physical.stats.maxPacket, format: 'PCM16 mono 16 kHz capture / PCM16 + Float32 24 kHz playback',

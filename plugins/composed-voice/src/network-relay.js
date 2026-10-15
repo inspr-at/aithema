@@ -93,7 +93,7 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
         }
         if (action === 'command') {
           const { name, args = [] } = JSON.parse(Buffer.from(await boundedBody(request, 8192)).toString());
-          if (!Array.isArray(args) || !['pause', 'interrupt', 'setInput', 'setOutput', 'updateContext', 'heartbeat', 'close'].includes(name)) throw new PluginError('not-admitted');
+          if (!Array.isArray(args) || !['pause', 'resume', 'interrupt', 'setInput', 'setOutput', 'updateContext', 'heartbeat', 'close'].includes(name)) throw new PluginError('not-admitted');
           // A paused network grant is revoked. Resume obtains a new admitted segment via AIT-138.
           const pending = entry.transport.command(name, ...args);
           if (name === 'pause' || name === 'close') close(entry, name !== 'pause');
