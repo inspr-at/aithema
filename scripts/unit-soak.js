@@ -14,9 +14,9 @@ async function run(label, command, args, env = {}) {
   child.stderr.on('data', chunk => { output += chunk; });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
   console.log(`${label}: exit=${code}, duration_ms=${(performance.now() - started).toFixed(1)}`);
-  console.log(output.split('\n').filter(line => /# (tests|pass|fail|duration_ms)|reflected in understanding:/.test(line)).join('\n'));
+  console.log(output.split('\n').filter(line => /(?:#|ℹ) (tests|pass|fail|duration_ms)|reflected in understanding:/.test(line)).join('; '));
   if (code !== 0) console.log(output);
-  assert.match(output, /# tests [1-9][0-9]*/, `${label} must actually execute tests`);
+  assert.ok(/(?:#|ℹ) tests [1-9][0-9]*/.test(output), `${label} must actually execute tests`);
   return code;
 }
 
@@ -34,7 +34,7 @@ test('diagnostic: unit suite under bounded CPU stress, then host 50 times', { ti
   // One CPU worker at 20% duty, only during the full suite; no extra suite concurrency.
   const stress = spawn(process.execPath, ['-e', 'setInterval(() => { const end = performance.now() + 10; while (performance.now() < end) {} }, 50)'], { stdio: 'ignore' });
   let code;
-  try { code = await run('unit with stress', 'npm', ['test', '--', '--test-reporter=tap']); }
+  try { code = await run('unit with stress', 'npm', ['test']); }
   finally { stress.kill(); }
   await hosts();
   assert.equal(code, 0, 'unit suite under stress must pass');
