@@ -594,7 +594,7 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       const sentence = await recoveryRowMetrics(page), label = `${locale}-${theme}-${width}-${position}`;
       if (!following) assert.deepEqual(sentence.first, before.first, 'notice add: first visible bubble shifts 0px');
       if (following && width === 390) for (const b of sentence.controls) assert.ok(b.top >= sentence.shell.top && b.bottom <= sentence.shell.bottom && b.bottom <= sentence.dock.top - 12, 'sentence controls fully above dock');
-      await record(t, 'ait190', page, `${label}-clear`, { ...sentence, shiftPx: following ? null : sentence.first.top - before.first.top });
+      await record(t, 'ait190', page, `${label}-clear`, { ...sentence, shiftPx: following ? sentence.dock.top - before.dock.top : sentence.first.top - before.first.top });
       await setPosition(); await frame(page);
       const beforeClear = await recoveryRowMetrics(page);
       await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
@@ -607,11 +607,12 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
         if (following && width === 390) assert.ok(b.top >= row.shell.top && b.bottom <= row.shell.bottom && b.bottom <= row.dock.top - 12, 'action row fully above dock');
       }
       if (!following) assert.deepEqual(row.first, beforeClear.first, 'notice clear to row: first visible bubble shifts 0px');
-      await record(t, 'ait190', page, `${label}-action-row`, { ...row, shiftPx: following ? null : row.first.top - beforeClear.first.top });
+      await record(t, 'ait190', page, `${label}-action-row`, { ...row, shiftPx: following ? row.dock.top - beforeClear.dock.top : row.first.top - beforeClear.first.top });
       // Read the full text through the same moved control, without synthesis.
       if (following) {
         const b = row.controls[1]; await page.touchscreen.tap(b.left + 12, b.top + 22);
-        assert.equal(await page.evaluate(() => globalThis.tickRail.notices.dialog.open), true);
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), true);
         await shadow(page, c => { const dialog = c.shadowRoot.querySelector('dialog'); dialog.close(); }); await frame(page);
       }
       await page.evaluate(() => {
@@ -629,7 +630,7 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       assert.ok(gone.controls.every(b => b.hidden && b.height === 0), 'fully visible and played-through reply has no controls');
       if (!following) assert.deepEqual(gone.first, beforeGone.first, 'row removal: first visible bubble shifts 0px');
       if (following && width === 390) assert.equal(gone.scrollTop, gone.maxScroll, 'following remains at bottom');
-      await record(t, 'ait190', page, `${label}-gone`, { ...gone, emptySpaceAbovePx: 0, shiftPx: following ? null : gone.first.top - beforeGone.first.top });
+      await record(t, 'ait190', page, `${label}-gone`, { ...gone, emptySpaceAbovePx: 0, shiftPx: following ? gone.dock.top - beforeGone.dock.top : gone.first.top - beforeGone.first.top });
     }
   }
 });

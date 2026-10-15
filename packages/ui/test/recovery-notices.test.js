@@ -223,3 +223,14 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-190: ${locale} 
   notices.pageReply = { turnId: 'next', text: reply.text }; notices.render();
   assert.equal(button.hidden, false, 'completion is scoped to turn identity, not identical text');
 });
+
+for (const completed of [false, true]) test(`AIT-190: in-call replay completion=${completed} preserves interruption controls and retires played-through replies`, async t => {
+  const f = await fixture(t, en);
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply', lastReplyTurnId: 'last' });
+  await f.push({ type: 'speaking', replay: true });
+  await f.push({ type: 'listening', replay: true, completed });
+  assert.equal(f.rail.notices.button.hidden, completed);
+  assert.equal(f.rail.notices.readText.hidden, completed);
+  f.rail.render();
+  assert.equal(f.rail.notices.button.hidden, completed, 'render preserves the completion verdict');
+});
