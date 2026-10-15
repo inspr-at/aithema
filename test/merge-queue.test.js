@@ -31,7 +31,8 @@ function checkNames(workflow, event) {
   block(block(workflow, 'on'), event, 2);
   return mappingEntries(block(workflow, 'jobs'), 2).flatMap(job => {
     const condition = /^    if: (.+)$/mu.exec(job.body)?.[1];
-    if (condition) {
+    // Cancellation is independent of the PR/merge-group event selection.
+    if (condition && condition !== '${{ !cancelled() }}') {
       const events = condition.split(' || ').map(expression => {
         const match = /^github\.event_name == '(pull_request|merge_group)'$/u.exec(expression);
         assert.ok(match, `Unsupported job condition: ${expression}`);
