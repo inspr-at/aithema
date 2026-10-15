@@ -373,7 +373,9 @@ export async function visitorCreditMatrix(t, locales) {
           placeholder: r.querySelector('textarea').placeholder };
       });
       const afterCall = locale === 'de' ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call';
-      assert.deepEqual(heldCopy, { composerHint: afterCall, panelStatus: afterCall, placeholder: locale === 'de' ? 'Sprechen Sie einfach weiter.' : 'Just keep talking.' }, `${label}/full-hold-call: visitor copy`);
+      assert.equal(await shadow(page, c => c.session.understanding.readinessAssessed), false, 'the held-call fixture has no assessment');
+      const noProjectDetails = locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.';
+      assert.deepEqual(heldCopy, { composerHint: afterCall, panelStatus: noProjectDetails, placeholder: locale === 'de' ? 'Sprechen Sie einfach weiter.' : 'Just keep talking.' }, `${label}/full-hold-call: visitor copy`);
       passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held, ...heldCopy });
       await shot('full-hold-call');
       if (evidence && theme === 'light' && [390, 1440].includes(width)) {
