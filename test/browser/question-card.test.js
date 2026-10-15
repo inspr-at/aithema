@@ -297,14 +297,14 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'other-answer', role: 'user', content: c.session.locale === 'de' ? 'Beides' : 'Both' } }));
         await nextFrame(page);
         assert.deepEqual(await readingBox(), readingBefore, 'card disappearance preserves the older reply under the pointer');
-        // The next scroll must release any held card space without moving
-        // the visible reading anchor. It has ample content below it here.
+        // Keep the reader's pointer fixed through release. Leaving the pane
+        // separately clears the existing pointer-anchor padding.
         const releaseBefore = await readingBox();
-        await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').dispatchEvent(new Event('scroll')));
         await nextFrame(page);
         assert.deepEqual(await readingBox(), releaseBefore, 'releasing held card space keeps the reading anchor at exactly the same box');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the obsolete reservation is actually released');
+        await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
         if (width <= 600) {
           await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
