@@ -968,7 +968,7 @@ export class AithemaSession extends HTMLElement {
     // A pane that holds the host's own controls (the verification form, handover) is never marked
     // disabled as a whole: only its unavailable parts are, through the notice and the hidden, inert content.
     const aside = root.querySelector('.understanding');
-    if (this.#host?.holdsControls) aside.removeAttribute('aria-disabled'); else aside.setAttribute('aria-disabled', String(!analysis.available));
+    if (this.#host?.holdsControls || isConsentReason(analysis.rawReason)) aside.removeAttribute('aria-disabled'); else aside.setAttribute('aria-disabled', String(!analysis.available));
     // Keep the outer pane and readiness row in the grid when analysis is unavailable.
     // A host verification lock (AIT-104 B2) replaces the assessment in place with the email form.
     root.querySelector('.readiness').style.visibility = !locked && (analysis.available || cached) ? '' : 'hidden';

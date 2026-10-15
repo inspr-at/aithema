@@ -12,6 +12,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     label.className = 'consent-line-copy'; action.className = 'consent-action'; action.type = 'button';
     action.addEventListener('click', () => open(action));
     line.replaceChildren(label, action); line.tabIndex = -1;
+    line.dataset.focusKey = action.dataset.focusKey = `consent-${feature}`;
   }
   const action = line.querySelector('.consent-action');
   setText(line.querySelector('.consent-line-copy'), blocked ? `${copy.featureConsent[feature]} · ` : text ?? '');

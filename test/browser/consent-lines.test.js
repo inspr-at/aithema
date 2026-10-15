@@ -98,14 +98,22 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     assert.equal(state.text, expected, label); assert.equal(state.lines, 1, label + ': once in its own place');
     assert.equal(state.action, words[locale].action); assert.equal(state.italic, 'normal');
     if (feature === 'analysis') assert.equal(state.placeholder, expected, 'blocked overview never promises the placeholder');
+    if (feature === 'analysis') {
+      await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
+    }
     const before = await boxes(page, geometry);
     await record(t, page, label + '-missing', { feature, item: features[feature][0], ...state });
     await page.locator(`aithema-session >>> ${selector} button`).click();
     const item = features[feature][0];
-    await until(page, item => {
-      const r = document.querySelector('aithema-session').shadowRoot;
-      return r.querySelector('dialog.settings').open && r.activeElement?.matches(`input[value="${item}"]`);
-    }, item);
+    try {
+      await until(page, item => {
+        const r = document.querySelector('aithema-session').shadowRoot;
+        return r.querySelector('dialog.settings').open && r.activeElement?.matches(`input[value="${item}"]`);
+      }, item);
+    } catch (error) {
+      t.diagnostic(JSON.stringify(await shadow(page, c => ({ open: c.shadowRoot.querySelector('dialog.settings').open, focused: c.shadowRoot.activeElement?.outerHTML, status: c.shadowRoot.querySelector('.consent-status').textContent }))));
+      throw error;
+    }
     const focused = await shadow(page, c => c.shadowRoot.activeElement.value);
     assert.equal(focused, item);
     await record(t, page, label + '-settings', { focused, item });
@@ -129,10 +137,11 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
 test('AIT-197 C1: all three refusals have one action each; stage survives a paused reload', async t => {
   const page = await fixture(t); await scene(page, 'de', 'light', 390, Object.keys(features));
   assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('[data-consent-feature]').length), 3);
-  await shadow(page, c => {
+  await shadow(page, async c => {
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
     const session = structuredClone(c.session); session.paused = true; session.pauseReason = 'purpose';
     session.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: { available: false, reason: 'current processing consent required' } };
-    c.configure({ session });
+    c.configure({ session, copy });
   });
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…');
 });
