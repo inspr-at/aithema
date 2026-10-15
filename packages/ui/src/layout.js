@@ -157,7 +157,12 @@ export class PhoneComposerViewport {
         '--phone-footer': root.querySelector('.display-foot').getBoundingClientRect().height,
         '--phone-dock': root.querySelector('.composer-dock').getBoundingClientRect().height,
       };
-      for (const [key, value] of Object.entries(values)) workspace.style.setProperty(key, `${value}px`);
+      for (const [key, value] of Object.entries(values)) {
+        // Folding hides the dock; keep its reservation so unfolding cannot
+        // briefly enlarge the transcript and clamp its saved scroll position.
+        if (key === '--phone-dock' && value === 0) continue;
+        workspace.style.setProperty(key, `${value}px`);
+      }
     };
     this.connect();
   }
