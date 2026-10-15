@@ -103,6 +103,8 @@ jobs:
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: npm ci
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm run setup:browser
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: npm run test:browser -- --shard ${{ matrix.shard }}/4
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence

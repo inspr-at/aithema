@@ -1,0 +1,10 @@
+{
+  "name": "@aithema-test/external-plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.js" },
+  "peerDependencies": { "@inspr/aithema-core": "*" },
+  "engines": { "node": ">=24" },
+  "license": "AGPL-3.0-only"
+}

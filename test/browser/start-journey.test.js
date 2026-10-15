@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { access, mkdir, mkdtemp } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { join } from 'node:path';
+import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 
-async function browserPath() {
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name))) ];
-  for (const path of candidates) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
-  throw new Error('No browser available on the remote test runner');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 async function setup(t, settings = {}, server = '../../demo/server.js') {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-journey-'));
   const demo = await startChild(new URL(server, import.meta.url), join(directory, 'session.sqlite'), settings);
@@ -188,7 +181,47 @@ test('AIT-129: live host has no developer chrome; contract consent stays stable 
       assert.equal(await page.$$eval('[data-demo-only]', nodes => nodes.length), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
       assert.equal(await page.$eval('aithema-session', c => c.getBoundingClientRect().width), width);
-      if (evidence) await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: true });
+      if (evidence) {
+        const state = () => page.evaluate(() => {
+          const root = document.querySelector('aithema-session').shadowRoot;
+          return { fonts: document.fonts.status, animations: [...document.getAnimations(), ...root.getAnimations()].map(a => ({
+            name: a.animationName ?? a.transitionProperty, time: a.currentTime, state: a.playState,
+            duration: a.effect.getComputedTiming().duration, target: a.effect.target?.className,
+          })), text: root.innerText, cards: [...root.querySelectorAll('.chooser-option')].map(el => {
+            const s = getComputedStyle(el), r = el.getBoundingClientRect();
+            return { text: el.innerText, x: r.x, y: r.y, width: r.width, height: r.height,
+              font: s.font, backdropFilter: s.backdropFilter, background: s.background, boxShadow: s.boxShadow };
+          }) };
+        });
+        const before = await state();
+        const diagnostic = join(evidence, '..', 'diagnostics', evidence.split('/').at(-1));
+        await mkdir(diagnostic, { recursive: true });
+        await page.screenshot({ path: join(diagnostic, `ait-129-root-${device}-${theme}-unsettled.png`), fullPage: false });
+        // Wait for real finite transitions, including theme/entry paint. Pin only
+        // repeating decorative animation to its initial frame for both engines.
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          const root = document.querySelector('aithema-session').shadowRoot;
+          for (let pass = 0; pass < 3; pass++) {
+            const animations = [...document.getAnimations(), ...root.getAnimations()];
+            await Promise.all(animations.map(a => {
+              if (a.effect.getComputedTiming().iterations === Infinity) { a.pause(); a.currentTime = 0; return; }
+              return a.finished.catch(() => {});
+            }));
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          }
+        });
+        await writeFile(join(diagnostic, `ait-129-root-${device}-${theme}.json`), JSON.stringify({ before, after: await state() }, null, 2));
+        await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: false });
+        // Diagnostic ablation only: the actual sample above keeps its blur.
+        await page.evaluate(() => {
+          const style = document.createElement('style'); style.id = 'ait199-no-backdrop';
+          style.textContent = '* { backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }';
+          document.querySelector('aithema-session').shadowRoot.append(style);
+        });
+        await page.screenshot({ path: join(diagnostic, `ait-129-root-${device}-${theme}-no-backdrop.png`), fullPage: false });
+        await page.evaluate(() => document.querySelector('aithema-session').shadowRoot.querySelector('#ait199-no-backdrop').remove());
+      }
       await visitConsent(page, demo.url);
       assert.equal(await page.$$eval('.consent-item', rows => rows.length), CONSENT_ITEMS.length);
       const before = await rect(page, '[data-grant]'), last = await rect(page, '.consent-actions--bottom');

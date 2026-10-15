@@ -3,27 +3,17 @@
 // AITHEMA_EVIDENCE_DIR receives frames, a timeline manifest and 50ms rendered-pixel exit samples.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join, resolve, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 import { test } from 'node:test';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 
 const repo = resolve(fileURLToPath(new URL('../../', import.meta.url))), wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function browserPath() {
-  // Respect CHROME_PATH, including the refusing stub on mbp2607. Never override it.
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
-    ...['/usr/bin/google-chrome', '/usr/bin/chromium', '/opt/google/chrome/chrome'],
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name))),
-  ];
-  for (const path of new Set(candidates)) { try { await access(path, constants.X_OK); return path; } catch { /* next */ } }
-  throw new Error('Set CHROME_PATH to the remote browser executable');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><style>
 :root { --paper:#fbf7ef; --surface:#fffcf8; --teal:#0e6f6c; --ink:#102b42; --muted:#496477; --line:rgba(16,43,66,.13); --display:Georgia,"Iowan Old Style","Palatino Linotype",serif; --ui:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SF Mono",Menlo,monospace; color-scheme:light; }

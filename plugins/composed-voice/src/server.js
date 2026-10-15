@@ -3,15 +3,21 @@ import { PluginError } from '../../../packages/core/src/invocation.js';
 import { beginVoiceInvocation, voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { createComposedVoiceCoordinator, callDurationSeconds } from '../../../packages/server/src/composed-voice.js';
 import { createComposedRelay } from './relay.js';
+import { configureComposedComponents } from './configuration.js';
 import { manifest } from './manifest.js';
 
 /** Explicit opt-in factory. Inject separately admitted components and the existing
  * Rule C reply executor; default hosts continue to construct ElevenLabs. */
 export function createComposedVoice({ enabled = false, config = {}, binding, storage, stt, tts, replyExecutor,
-  admitComponent, authorize, commitUtterance, now = Date.now } = {}) {
+  admitComponent, authorize, commitUtterance, componentOptions, consent, reasoningBinding, now = Date.now } = {}) {
+  let selected;
+  if (config.stt !== undefined || config.tts !== undefined) {
+    selected = configureComposedComponents({ enabled, config, componentOptions, consent, reasoningBinding, authorize });
+    ({ stt, tts, authorize } = selected);
+  }
   const relays = new Map();
   const validateConfig = raw => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['host', 'maxDurationSeconds', 'voice'].includes(key))) throw new TypeError('Invalid composed configuration');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['host', 'maxDurationSeconds', 'voice', 'stt', 'tts'].includes(key))) throw new TypeError('Invalid composed configuration');
     callDurationSeconds(raw); return Object.freeze(structuredClone(raw));
   };
   config = validateConfig(config);
@@ -26,7 +32,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt, now });
     const coordinator = createComposedVoiceCoordinator({ ...config, ...request, providerSessionId, epoch,
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
-      stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
+      stt, tts, ...(selected ? { outputFormat: selected.outputFormat } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,
       maxMicro: 0, exposureMicro: 0, pauses: [] }, closing, mutations = Promise.resolve(), holdRevision = 0;
     const serial = action => { const job = mutations.then(action); mutations = job.catch(() => {}); return job; };
