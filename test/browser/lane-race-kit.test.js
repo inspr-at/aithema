@@ -15,7 +15,6 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
   await page.setViewport({ width: 390, height: 844 });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
-  const retryLanes = new Set();
   for (const pair of lanePairs) for (const order of [pair, [...pair].reverse()]) for (const failed of [false, true]) {
     const result = await page.evaluate(async (pair, order, failed) => {
       await fetch('/begin?pair=' + pair.join(','));
@@ -42,12 +41,25 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
     const failureLane = result.session.operations.lastFailure?.lane;
     if (['reaction', 'understanding'].includes(failureLane)) {
       assert.equal(state.retries, 1, JSON.stringify({ pair, order, failed, state }));
-      retryLanes.add(failureLane);
     } else assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
     if (pair.includes('understanding') && !(failed && order[0] === 'understanding')) assert.equal(state.summary, 'Ein Überblick. An overview.');
     assert.doesNotMatch(state.notice, /wird erstellt|wird aktualisiert|building|updating/iu, 'no overview stays busy after work settled');
   }
-  assert.deepEqual([...retryLanes].sort(), ['reaction', 'understanding'], 'both retryable failure lanes require exactly one Retry');
+  // Direct lane races do not record handler failures. Exercise the real retry
+  // scheduler as well, so the UI receives each retryable failure in its snapshot.
+  for (const lane of ['reaction', 'understanding']) {
+    const session = await page.evaluate(async lane => (await fetch('/retry-failure?lane=' + lane)).json(), lane);
+    assert.equal(session.operations.lastFailure.lane, lane);
+    assert.equal(session.operations.lastFailure.retryable, true);
+    const retries = await shadow(page, async (c, session) => {
+      const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      return [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length;
+    }, session);
+    assert.equal(retries, 1, `${lane} failure shows exactly one Retry`);
+  }
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'ait201-lane-races-390.png'), fullPage: false, captureBeyondViewport: false }); }
   assert.deepEqual(errors, []);

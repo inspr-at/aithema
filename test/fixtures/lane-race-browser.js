@@ -13,6 +13,17 @@ const running = await listen(async request => {
     pending = Object.fromEntries(await Promise.all(pair.map(async lane => [lane, await h.next(lane)])));
     return Response.json({ session: await snapshot(), pending: pair });
   }
+  if (path === '/retry-failure') {
+    await h?.close(); h = await createLaneRaceHarness();
+    const lane = url.searchParams.get('lane');
+    await h.route('retry', {});
+    const calls = await Promise.all(['reaction', 'understanding'].map(async name => [name, await h.next(name)]));
+    for (const [name, call] of calls) {
+      if (name === lane) call.httpError(400); else h.resolve(call);
+    }
+    await h.handlers.idle();
+    return Response.json(await snapshot());
+  }
   if (path === '/finish') {
     const order = url.searchParams.get('order').split(',');
     const failure = url.searchParams.get('failure');
