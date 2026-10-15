@@ -5,13 +5,13 @@ import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCanc
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
-import { isLocalVoice } from './local-voice.js';
+import { isLocalVoice } from './local-voice-identity.js';
 import { createImageBinding, imagePluginBinding } from './image-binding.js';
 import { isLocalImages } from './local-images.js';
 import { isLocalHTML } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
-import { buildMessages, callCeilingMicro } from '../../../plugins/claude-html/src/index.js';
-import { previousDocument } from '../../../plugins/claude-html/src/html-artifact.js';
+import { buildMessages, callCeilingMicro } from '@inspr/aithema-plugin-claude-html/index';
+import { previousDocument } from '@inspr/aithema-plugin-claude-html/html-artifact';
 import { SQLiteBudgetLedger } from './budget.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
@@ -365,7 +365,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     }
     return { selection };
   }
+  let laneDiagnostic = () => {};
+  const emitOutcome = (lane, outcome, reason, providerErrorClass) => {
+    try { Promise.resolve(laneDiagnostic({ event: `${lane === 'reaction' ? 'reply' : lane}.${outcome}`, count: 1, lane,
+      ...(reason ? { reason } : {}), ...(['4xx', '5xx'].includes(providerErrorClass) ? { providerErrorClass } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
+  };
   const runtime = {
+    setLaneDiagnostic(callback) { laneDiagnostic = callback; },
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
     voiceServerAdapters: () => registry.list().flatMap(plugin => plugin.ports?.serverAdapter ? [plugin.ports.serverAdapter] : []),
     setOwnerWallet(provider) { ownerWallet = provider; },
@@ -887,7 +893,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef, model: binding.model, estimateMicro: plugin.estimateUncertainCost?.(request, operation) ?? plugin.uncertainEstimateMicro } } : {}),
         requestSha256: hash(html ? { ...request, previousArtifact: request.previousArtifact?.provenance.subject.contentDigest } : lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback, references: request.references?.map(r => ({
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
-      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false;
+      const diagnosticLane = options.voiceReply ? 'voice-facade' : lane;
+      try { if (budget.startOutcome(attemptId, diagnosticLane)) emitOutcome(diagnosticLane, 'started'); }
+      catch { /* Diagnostics cannot interrupt admission. */ }
+      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false;
       const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
         if (reported) {
@@ -897,6 +906,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           if (refused && isCancelledZeroReport(terminal, attemptId)) return;
           throw new PluginError('already-claimed');
         }
+        settlementAborted = Boolean(options.signal?.aborted);
+        settlementDispatched = budget.get(attemptId).state === 'dispatched';
         const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
         try { Promise.resolve(options.onTerminal?.({ outcome: settlement.outcome })).catch(() => {}); }
         catch { /* Diagnostics cannot interrupt settlement. */ }
@@ -936,7 +947,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const described = runtime.describe(session);
       return { plugin, consentScope: result.scope ? structuredClone(result.scope) : null,
         ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
-        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false } = {}) {
+        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false, error } = {}) {
         try {
           if (!reported) {
             report({ attemptId, outcome: 'uncertain' });
@@ -944,7 +955,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             throw new PluginError('invalid-output', 'Plugin omitted its terminal report');
           }
         } catch (error) { if (!failed) throw error; }
-        finally { if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId); }
+        finally {
+          if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId);
+          try {
+            const row = budget.get(attemptId), latest = storage.get(session.id);
+            const inputChanged = inputRevision(latest) !== inputRevision(session);
+            const superseded = selectionKey(latest, lane) !== selectionKey(session, lane) || inputChanged;
+            const outcome = row.outcome === 'uncertain' && settlementDispatched ? 'uncertain'
+              : row.outcome === 'completed' && !failed ? 'completed'
+              : latest.tombstone || latest.consentWithdrawn ? 'aborted'
+              : latest.paused && !(purposeAssessment && latest.pauseReason === 'purpose') && row.outcome !== 'completed' ? 'deferred'
+              : superseded ? 'superseded'
+              : settlementAborted ? 'aborted'
+              : failed || row.outcome !== 'completed' ? 'failed' : 'completed';
+            if (budget.finishOutcome(attemptId, outcome)) emitOutcome(diagnosticLane, outcome,
+              outcome === 'uncertain' ? 'provider-cost-unknown' : ['4xx', '5xx'].includes(error?.providerErrorClass) ? `provider-${error.providerErrorClass}` : undefined, error?.providerErrorClass);
+          } catch { /* Diagnostics cannot interrupt settlement. */ }
+        }
       } };
     },
   };

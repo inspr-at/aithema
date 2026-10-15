@@ -1,4 +1,4 @@
-import { createMemoryConsentLedger } from '../packages/server/src/memory-consent.js';
+import { createMemoryConsentLedger } from '@inspr/aithema-server';
 
 // Same in-memory mock grant, with a read port for the dedicated consent page.
 // The server verdict disappears on restart, even when the session persists.

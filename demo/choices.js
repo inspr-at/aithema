@@ -2,7 +2,7 @@
 // provider network, and real providers are declared so the settings screen shows how
 // a host lists them. An explicitly selected provider makes the demo a live host: it
 // then offers only its configured routes, so visitors never meet a mock there.
-import { MODEL_DISPLAY_NAMES } from '../packages/ui/src/display.js';
+import { MODEL_DISPLAY_NAMES } from '@inspr/aithema-ui/display';
 
 /**
  * Voice or image mode for this host. Fake providers are local-demo only: a live host

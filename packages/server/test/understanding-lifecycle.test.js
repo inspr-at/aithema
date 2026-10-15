@@ -75,6 +75,8 @@ test('AIT-198 slow provider: one in-scope DE turn publishes understanding and se
   assert.equal(f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated').length, 1);
   assertPaidWorkCompleted(f, 1);
   assert.deepEqual(f.logs, [
+    { event: 'reply.started', count: 1, lane: 'reaction' },
+    { event: 'reply.completed', count: 1, lane: 'reaction' },
     { event: 'understanding.started', count: 1, lane: 'understanding' },
     { event: 'understanding.completed', count: 1, lane: 'understanding' },
   ]);
@@ -99,7 +101,10 @@ test('AIT-198 slow provider: superseding project input never aborts already disp
   await f.send('Unsere neue Anforderung ist eine Schnittstelle zur Buchhaltung.');
   await f.handlers.idle();
   assertPaidWorkCompleted(f, 2);
-  assert.equal(f.logs.filter(event => event.event === 'understanding.superseded').length, 1);
+  // AIT-201 counts admitted provider attempts. Both valid paid completions
+  // settle successfully; the separate publication assertion still rejects stale output.
+  assert.equal(f.logs.filter(event => event.event === 'understanding.completed').length, 2);
+  assert.equal(f.logs.filter(event => event.event === 'understanding.superseded').length, 0);
   assert.equal(f.logs.filter(event => event.event === 'understanding.aborted' || event.event === 'understanding.uncertain').length, 0);
   const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
   assert.equal(updates.length, 1, 'only the current project revision may publish');
@@ -114,9 +119,10 @@ test('AIT-198 unknown provider 5xx remains conservative and logs its HTTP class 
   assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, row.max_micro);
   assert.equal(row.usage, null, 'a provider error without a receipt gives no evidence of zero spend');
   assert.deepEqual(f.logs, [
+    { event: 'reply.started', count: 1, lane: 'reaction' },
+    { event: 'reply.completed', count: 1, lane: 'reaction' },
     { event: 'understanding.started', count: 1, lane: 'understanding' },
-    { event: 'understanding.uncertain', count: 1, lane: 'understanding', reason: 'provider-cost-unknown' },
-    { event: 'understanding.failed', count: 1, lane: 'understanding', reason: 'provider-5xx' },
+    { event: 'understanding.uncertain', count: 1, lane: 'understanding', reason: 'provider-cost-unknown', providerErrorClass: '5xx' },
   ]);
   assert.doesNotMatch(JSON.stringify(f.logs), /Private|Auftragsbearbeitung|fake-only/u);
 });

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { usdMicro } from '../packages/server/src/spend-cap.js';
-import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
+import { usdMicro } from '@inspr/aithema-server';
+import { privacyDocumentConfigured as hasPrivacyDocument } from '@inspr/aithema-server';
 import { canonicalEmail } from './email-address.js';
 import { validateMailCap, MAIL_CAP_HOUR_CEILING, MAIL_CAP_DAY_CEILING } from './mail-cap-policy.js';
 

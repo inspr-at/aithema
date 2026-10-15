@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { PluginError } from '@inspr/aithema-core';
-import { generationId } from '../../core/src/cost.js';
+import { generationId } from '@inspr/aithema-core/cost';
 const integer = n => Number.isSafeInteger(n) && n >= 0;
 const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0";
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,
@@ -33,6 +33,9 @@ export class SQLiteBudgetLedger {
     for (const name of ['owner_hash', 'provider_cost_json', 'cost_reconciliation_json']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
     }
+    for (const name of ['diagnostic_lane', 'diagnostic_outcome']) {
+      if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
+    }
     this.db.prepare(`UPDATE budget_attempts SET owner_hash=(SELECT json_extract(snapshot,'$.ownerHash') FROM sessions WHERE id=session_id)
       WHERE owner_hash IS NULL`).run();
     this.db.exec(`CREATE TABLE IF NOT EXISTS budget_corrections (
@@ -51,6 +54,27 @@ export class SQLiteBudgetLedger {
       CREATE INDEX IF NOT EXISTS budget_cost_deferred ON budget_attempts(json_extract(provider_cost_json,'$.retryAt'))
       WHERE state='settled' AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=1
         AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL;`);
+  }
+  // AIT-201: counts only, derived from existing admitted attempts. No second ledger.
+  startOutcome(attemptId, lane) {
+    if (!['reaction', 'understanding', 'concept', 'voice-facade'].includes(lane)) throw new TypeError('Invalid diagnostic lane');
+    return this.db.prepare('UPDATE budget_attempts SET diagnostic_lane=? WHERE attempt_id=? AND diagnostic_lane IS NULL').run(lane, attemptId).changes > 0;
+  }
+  finishOutcome(attemptId, outcome) {
+    if (!['completed', 'superseded', 'deferred', 'aborted', 'uncertain', 'failed'].includes(outcome)) throw new TypeError('Invalid diagnostic outcome');
+    return this.db.prepare('UPDATE budget_attempts SET diagnostic_outcome=? WHERE attempt_id=? AND diagnostic_lane IS NOT NULL AND diagnostic_outcome IS NULL').run(outcome, attemptId).changes > 0;
+  }
+  outcomeCounters() {
+    const counters = Object.fromEntries(['reaction', 'understanding', 'concept', 'voice-facade'].map(lane => [lane,
+      { started: 0, completed: 0, superseded: 0, deferred: 0, aborted: 0, uncertain: 0, failed: 0, inFlight: 0 }]));
+    for (const row of this.db.prepare(`SELECT diagnostic_lane AS lane, diagnostic_outcome AS outcome, COUNT(*) AS n
+      FROM budget_attempts WHERE diagnostic_lane IS NOT NULL GROUP BY diagnostic_lane, diagnostic_outcome`).all()) {
+      const counts = counters[row.lane];
+      counts.started += row.n;
+      const outcome = row.outcome ?? 'inFlight';
+      counts[outcome] += row.n;
+    }
+    return counters;
   }
   breakdown(sessionId, { visitor = false, ownerHash, visitorCredits = false } = {}) {
     const settled = visitor ? 'settled_visitor_micro' : 'settled_micro', maximum = visitor ? 'max_visitor_micro' : 'max_micro';
@@ -385,6 +409,7 @@ export class SQLiteBudgetLedger {
         this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,settled_micro=?,usage=?,terminal_json=?,settled_visitor_micro=? WHERE attempt_id=?")
           .run(terminal.outcome, dispatched ? actual ?? exposure : 0, terminal.usage ? JSON.stringify(terminal.usage) : null,
             JSON.stringify(terminal), dispatched ? visitorExposure : 0, row.attempt_id);
+        if (row.diagnostic_lane) this.finishOutcome(row.attempt_id, terminal.outcome === 'uncertain' ? 'uncertain' : 'aborted');
         // Recovery has no published assessment, even when a receipt survived.
         if (row.lane === 'understanding') this.releaseUnderstandingCredits(row.attempt_id);
       }

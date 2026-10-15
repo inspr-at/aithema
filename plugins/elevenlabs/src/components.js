@@ -2,7 +2,7 @@ import { PluginError, normalizedError } from '../../../packages/core/src/invocat
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { processingScope } from '../../../packages/core/src/presets.js';
-import { consentCoverage } from '../../../packages/core/src/consent.js';
+import { consentCoverage } from '@inspr/aithema-core';
 import { componentInvocation, boundedEvents } from '../../composed-voice/src/component.js';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });

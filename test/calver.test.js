@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { parseVersion, compareVersions, reserveVersion, migrationGate, assertReleaseTag } from '../release/lib/version.mjs';
-const source = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
+const declared = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
+const source = { ...declared, status: 'unreserved', version: '0.0.0', version_scheme: 'legacy', release_sequence: null,
+  migration: { ...declared.migration, first_calendar_version: null } };
 const record = (version, version_scheme = 'inspr-calver-3', release_sequence = 12) => ({ version, version_scheme, release_sequence, release_channel: 'stable' });
 test('CalVer3 validates full UTC dates and SemVer-clean coordinates without truncating integers', () => {
   for (const value of ['100101000000.0.0', '260909113550.0.0', '280229120000.0.0', '991231235959.0.0']) {
@@ -42,17 +44,23 @@ test('reservation is pure, owner-triggered, single-use and refuses a same-second
 test('migration gate keeps current legacy metadata and live evidence pending before publication', () => {
   assert.equal(source.status, 'unreserved'); assert.equal(source.version, '0.0.0'); assert.equal(source.version_scheme, 'legacy');
   const gate = migrationGate(source, {}); assert.equal(gate.authoritative, false);
-  assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160')); assert.ok(gate.pending.includes('immutable-candidate'));
+  assert.ok(gate.pending.includes('immutable-candidate'));
   const reserved = reserveVersion(source, { now: '2026-10-14T08:00:00Z', publishGo: true });
   assert.equal(migrationGate(reserved, { 'AIT-139': { status: 'merged' }, 'AIT-160': { status: 'merged' } }).authoritative, false);
 });
 
-test('qualification CLI fails closed before release and names pending measured inputs', () => {
-  let failure;
-  try { execFileSync(process.execPath, ['release/gate.mjs', 'qualification'], { cwd: new URL('../', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] }); }
-  catch (error) { failure = error; }
-  assert.equal(failure?.status, 1); const gate = JSON.parse(failure.stdout);
-  assert.equal(gate.authoritative, false); assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160'));
+test('owner candidate authorization reserves without claiming publication or measured qualifications', () => {
+  const candidate = reserveVersion(source, { now: '2026-10-15T16:46:01Z', candidateGo: true });
+  assert.equal(candidate.version, declared.version);
+  const gate = migrationGate(candidate, {});
+  assert.equal(gate.authoritative, false);
+  assert.ok(gate.pending.includes('presentation-pin'));
+  assert.ok(!gate.pending.includes('AIT-139')); assert.ok(!gate.pending.includes('AIT-160'));
+  assert.deepEqual(gate.qualifications, {
+    'AIT-139': 'not measured (Markus decision)', 'AIT-160': 'not measured (Markus decision)',
+  });
+  const claimed = migrationGate(candidate, { 'AIT-139': { status: 'verified' }, 'AIT-160': { status: 'verified' } });
+  assert.deepEqual(claimed.qualifications, gate.qualifications);
 });
 
 test('historical release-manifest scheme declarations remain explicit, unchanged legacy records', () => {
@@ -63,4 +71,35 @@ test('historical release-manifest scheme declarations remain explicit, unchanged
       first_calendar_version: '261014080000.0.0', first_calendar_sequence: 12 };
     assert.equal(compareVersions(parsed, record('261014080000.0.0'), anchor), -1);
   }
+});
+
+test('candidate version gate admits the existing reservation and exact mirrored coordinate without reserving', () => {
+  const root = new URL('../', import.meta.url);
+  assert.equal(declared.status, 'reserved');
+  assert.equal(declared.version_scheme, 'inspr-calver-3');
+  const original = readFileSync(new URL('release/version.json', root), 'utf8');
+  execFileSync(process.execPath, [new URL('release/gate.mjs', root).pathname,
+    'tag', `refs/tags/v${declared.version}`], { stdio: 'pipe' });
+  const history = JSON.parse(readFileSync(new URL('release/history.json', root)));
+  const previous = history.releases.at(-1);
+  assert.equal(declared.release_sequence, previous.release_sequence + 1);
+  assert.equal(compareVersions(previous, declared, declared.migration), -1);
+  const paths = ['package.json', ...['packages', 'plugins'].flatMap(directory =>
+    readdirSync(new URL(directory + '/', root)).map(name => `${directory}/${name}/package.json`)
+      .filter(path => existsSync(new URL(path, root))))];
+  const lock = JSON.parse(readFileSync(new URL('package-lock.json', root)));
+  const packages = paths.map(path => [path, JSON.parse(readFileSync(new URL(path, root)))]);
+  const names = new Set(packages.map(([, pkg]) => pkg.name));
+  assert.equal(lock.version, declared.version);
+  for (const [path, pkg] of packages) {
+    assert.equal(pkg.version, declared.version, path);
+    const key = path === 'package.json' ? '' : path.slice(0, -'/package.json'.length);
+    assert.equal(lock.packages[key].version, declared.version, `lock ${key}`);
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      for (const [name, version] of Object.entries(pkg[field] ?? {})) {
+        if (names.has(name)) assert.equal(version, declared.version, `${path} ${name}`);
+      }
+    }
+  }
+  assert.equal(readFileSync(new URL('release/version.json', root), 'utf8'), original);
 });

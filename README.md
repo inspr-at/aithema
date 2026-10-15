@@ -28,11 +28,14 @@ shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
-All development packages remain private at `0.0.0`. **AIT-105/AIT-32** prepare
-the first reset release with INSPR-CalVer3 (`inspr-calver-3`) and a reproducible
-workspace artifact. No coordinate is reserved and no reset release is published.
-See [the consumer guide](docs/embedding.md) for exports, the version source,
-rollback and the pending AIT-139/AIT-160 live qualification checklist.
+**AIT-105/AIT-32** reserve the first reset candidate with INSPR-CalVer3
+(`inspr-calver-3`). Core, server, UI and twelve shipped plugin packages have exact
+versions and reproducible, independently installable tarballs; the root workspace
+stays private. No tag, GitHub release or registry publication is made here.
+See [the consumer guide](docs/embedding.md), [candidate notes](release/notes.md)
+and [registry recommendation](release/README.md). AIT-139's soak is not measured;
+AIT-160's second voice pipeline is not yet proven. Both are disclosed limits,
+not release blockers; presentation pin review remains for the cross-family gate.
 
 ## Tests and demo
 
@@ -3239,6 +3242,53 @@ A high fallback rate is visible through value-free `reply.schema-retry` and
 `reply.fallback` counter events (lane, reason class, attempt count). Constrained
 replies missing scope emit `reply.scope-missing` without counting as off-topic.
 Fallback metadata stays private and never enters visitor snapshots or transcripts.
+
+AIT-201 extends those existing diagnostics to all admitted reasoning/render attempts:
+`reply`, `understanding`, `concept` and `voice-facade` emit `.started` and exactly
+one of `.completed`, `.superseded`, `.deferred`, `.aborted`, `.uncertain`, `.failed`.
+Events contain only lane, count and optional closed reason/HTTP error classes. They never
+contain content or attempt/session/model/provider identities. Existing
+`reply.schema-retry`, `reply.fallback` and `reply.scope-missing` remain separate.
+
+`SQLiteBudgetLedger.outcomeCounters()` exposes the same counts, derived from
+`budget_attempts.diagnostic_lane` and its write-once `diagnostic_outcome`; no
+parallel ledger or per-content metric is created. `reaction` is the stored reply
+lane name. Delegated voice reasoning has its own `voice-facade` bucket rather
+than counting twice as a typed reply. Starts mean **admitted attempts**, so cache
+hits, joined flights and scheduling skips create no count. Each compatibility
+retry and each draft/refinement admission owns another start and terminal.
+`completed` means a valid provider attempt completed; the lane independently
+fences publication, so a paid completion kept as history or superseded before
+publication still counts as a completed attempt. Known cancelled attempts are
+classified by their supersession, pause or abort fence. `understanding.superseded`
+therefore counts admitted attempts cancelled by a supersession fence, rather than
+stale lane publications; the former lane-level understanding emitter is removed.
+`started = completed + superseded + deferred + aborted + uncertain + failed + inFlight`.
+Unknown dispatched billing takes precedence over cancellation/supersession;
+confirmed receipts allow the precise lifecycle outcome. Pre-dispatch pause,
+supersession and cancellation release zero. A received provider refusal remains
+failed even if facade cleanup subsequently aborts its iterator. Recovery closes
+orphaned counters as uncertain (unknown dispatch) or aborted (no publication).
+Existing deployments' older uninstrumented attempts are excluded.
+
+The shared test wire kit is `test/fixtures/fake-provider-kit.js`; its header is
+the single provider-rule/source table. `test/lane-race-kit.test.js` drives real
+handlers' lanes, real admission/adapters and the real durable facade for all six
+pairs, each release order, new-turn supersession and pause/resume. Browser
+`test/browser/lane-race-kit.test.js` renders every pair/order with success and
+unbilled refusal. No test sleeps or live provider calls are needed. Run
+`test/fixtures/lane-race-proof.js` separately in an isolated disposable checkout
+for the AIT-198 role-order red/restored-green proof; it restores `prompts.js`
+byte-for-byte in `finally` and must not run beside the normal suite.
+`test/fixtures/lane-race-ait197-proof.js` uses the same isolated-run rule for
+three UI hunk reversions: pending overview through pause/resume (`e155043`),
+preparation ending at assistant final (`be304ae`), and deliberate purpose stop
+versus a stuck reply (`e5bb795`). Each reversion must fail its specific assertion,
+then pass after `session-element.js` is restored byte-for-byte. The race kit also
+recovers project-only input after consent during a purpose pause, including a
+schema compatibility retry, balanced attempts, and no replacement reply.
+Authorized purpose assessments retain provider-failure outcomes during that pause;
+the pause alone does not classify their failed attempts as deferred.
 
 Every start2 post-deploy smoke must include **in-scope DE + EN turns and an off-topic
 turn**. Both in-scope turns must show a specific model reply to the project, beyond

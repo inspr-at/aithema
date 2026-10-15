@@ -1,6 +1,6 @@
 import { PluginError } from '../../../packages/core/src/invocation.js';
 import { processingScope } from '../../../packages/core/src/presets.js';
-import { consentCoverage } from '../../../packages/core/src/consent.js';
+import { consentCoverage } from '@inspr/aithema-core';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { createElevenLabsSTT, createElevenLabsTTS } from '../../elevenlabs/src/components.js';
 import { createVoxtralSTT, createVoxtralTTS, TTS_FORMAT as VOXTRAL_OUTPUT } from '../../voxtral/src/index.js';

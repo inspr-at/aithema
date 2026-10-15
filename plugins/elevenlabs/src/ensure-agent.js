@@ -1,13 +1,11 @@
 import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
-import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
+import { aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { voiceOverrides } from './options.js';
 
 /** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */
 export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
 
-export const AGENT_NAME = 'aithema-start2';
-const SECRET_NAME = 'aithema-start2-facade';
 // Detailed requirements need room for thinking pauses and spelled domains.
 // This owned-agent policy replaces START's eager settings, on every startup.
 // https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow
@@ -39,7 +37,9 @@ export class AgentEnsureError extends Error {
 /** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
   apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600,
-  spokenOpeners, signal } = {}) {
+  spokenOpeners, signal, agentName, facadeSecretName } = {}) {
+  if (!id(agentName)) throw new AgentEnsureError('agentName is required and must be a host-specific identifier');
+  if (!id(facadeSecretName)) throw new AgentEnsureError('facadeSecretName is required and must be a host-specific identifier');
   // Reject a host configuration without AI disclosure before any provider read or write.
   const openers = Object.fromEntries(['de', 'en'].map(language => {
     const firstMessage = aiNoticeText(language, { opener: spokenOpeners?.[language] });
@@ -86,7 +86,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     const page = await request(`/v1/convai/agents?page_size=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
     if (!Array.isArray(page.agents) || typeof page.has_more !== 'boolean') throw new AgentEnsureError('agent-list-invalid');
     for (const agent of page.agents) {
-      if (agent.name !== AGENT_NAME) continue;
+      if (agent.name !== agentName) continue;
       if (!id(agent.agent_id)) throw new AgentEnsureError('agent-list-invalid');
       matches.set(agent.agent_id, agent);
     }
@@ -96,7 +96,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     cursors.add(cursor);
   } while (true);
   if (matches.size > 1) throw new AgentEnsureError('agent-name-ambiguous');
-  const owned = db.prepare('SELECT agent_id FROM host_agents WHERE name=?').get(AGENT_NAME)?.agent_id;
+  const owned = db.prepare('SELECT agent_id FROM host_agents WHERE name=?').get(agentName)?.agent_id;
   const existing = [...matches.keys()][0];
   if (existing === templateAgentId || owned === templateAgentId) throw new AgentEnsureError('template-agent-write-forbidden');
   if (existing && existing !== owned || owned && existing !== owned) throw new AgentEnsureError('agent-ownership-unproven');
@@ -106,7 +106,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const template = await request(`/v1/convai/agents/${encodeURIComponent(templateAgentId)}`);
   if (owned) {
     const remote = await request(`/v1/convai/agents/${encodeURIComponent(owned)}`);
-    if (remote.agent_id !== owned || remote.name !== AGENT_NAME) throw new AgentEnsureError('agent-ownership-unproven');
+    if (remote.agent_id !== owned || remote.name !== agentName) throw new AgentEnsureError('agent-ownership-unproven');
   }
   const config = template.conversation_config;
   if (!id(config?.tts?.voice_id)) throw new AgentEnsureError('template-voice-invalid');
@@ -114,25 +114,25 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // {secrets:[{type,secret_id,name,used_by}]}; /v1/convai/workspace/secrets is 404.
   const listed = await request('/v1/convai/secrets');
   if (!Array.isArray(listed.secrets)) throw new AgentEnsureError('secret-list-invalid');
-  const named = listed.secrets.filter(secret => secret.name === SECRET_NAME);
+  const named = listed.secrets.filter(secret => secret.name === facadeSecretName);
   if (named.length > 1) throw new AgentEnsureError('secret-name-ambiguous');
-  const cachedSecret = db.prepare('SELECT secret_id FROM host_voice_secrets WHERE name=?').get(SECRET_NAME)?.secret_id;
+  const cachedSecret = db.prepare('SELECT secret_id FROM host_voice_secrets WHERE name=?').get(facadeSecretName)?.secret_id;
   if (named.length && named[0].secret_id !== cachedSecret || cachedSecret && named[0]?.secret_id !== cachedSecret) {
-    log({ name: SECRET_NAME });
+    log({ name: facadeSecretName });
     throw new AgentEnsureError('secret-ownership-unproven');
   }
   let secretId = cachedSecret;
   // UNVERIFIED API SHAPE: POST/PATCH secret bodies.
   if (secretId) {
-    await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: SECRET_NAME, value: bearer });
+    await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: facadeSecretName, value: bearer });
   } else {
-    const created = await request('/v1/convai/secrets', 'POST', { type: 'new', name: SECRET_NAME, value: bearer });
+    const created = await request('/v1/convai/secrets', 'POST', { type: 'new', name: facadeSecretName, value: bearer });
     if (!id(created.secret_id)) {
-      log({ name: SECRET_NAME });
+      log({ name: facadeSecretName });
       throw new AgentEnsureError('secret-create-invalid');
     }
     secretId = created.secret_id;
-    db.prepare('INSERT INTO host_voice_secrets VALUES (?,?)').run(SECRET_NAME, secretId);
+    db.prepare('INSERT INTO host_voice_secrets VALUES (?,?)').run(facadeSecretName, secretId);
   }
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
   // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_settings.auth/overrides.
@@ -141,7 +141,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // Only our receipt-owned aithema-start2 agent is changed, never START's template.
   const language = ['en', 'de'].includes(config.agent?.language) ? config.agent.language : 'de';
   const firstMessage = openers[language];
-  const body = { name: AGENT_NAME, conversation_config: {
+  const body = { name: agentName, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
     asr: { ...pick(config.asr, ['quality', 'provider', 'user_input_audio_format']), keywords: [...ASR_KEYWORDS] },
@@ -169,12 +169,12 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     const created = await request('/v1/convai/agents/create', 'POST', body);
     if (!id(created.agent_id) || created.agent_id === templateAgentId) throw new AgentEnsureError('agent-create-invalid');
     agentId = created.agent_id;
-    db.prepare('INSERT INTO host_agents VALUES (?,?)').run(AGENT_NAME, agentId);
+    db.prepare('INSERT INTO host_agents VALUES (?,?)').run(agentName, agentId);
   }
   let remote;
   try { remote = await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`); }
   catch (error) {
-    log({ name: AGENT_NAME, id: agentId, fields: ['agent-readback'] });
+    log({ name: agentName, id: agentId, fields: ['agent-readback'] });
     throw error;
   }
   const platform = remote?.platform_settings, prompt = remote?.conversation_config?.agent?.prompt;
@@ -183,7 +183,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const allowlist = platform?.auth?.allowlist;
   const checks = {
     agent_id: remote?.agent_id === agentId,
-    name: remote?.name === AGENT_NAME,
+    name: remote?.name === agentName,
     'platform_settings.auth.enable_auth': platform?.auth?.enable_auth === true,
     'platform_settings.auth.allowlist': Array.isArray(allowlist) && allowlist.length === 1 && allowlist[0]?.hostname === origin.host,
     'platform_settings.overrides.custom_llm_extra_body': platform?.overrides?.custom_llm_extra_body === true,
@@ -208,9 +208,9 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   };
   const fields = Object.keys(checks).filter(field => !checks[field]);
   if (fields.length) {
-    log({ name: AGENT_NAME, id: agentId, fields });
+    log({ name: agentName, id: agentId, fields });
     throw new AgentEnsureError('agent-readback-mismatch');
   }
-  log({ name: AGENT_NAME, id: agentId }); // Never log bodies, errors from fetch, secrets, or template data.
+  log({ name: agentName, id: agentId }); // Never log bodies, errors from fetch, secrets, or template data.
   return { agentId, apiBaseUrl: base.href.replace(/\/$/u, '') };
 }

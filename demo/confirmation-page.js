@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { privacyDocumentConfigured } from '../packages/server/src/host-handlers.js';
+import { privacyDocumentConfigured } from '@inspr/aithema-server';
 const escape = value => String(value).replace(/[&<>"']/gu, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 export const confirmationCopy = Object.freeze({
   "de": {

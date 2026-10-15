@@ -1,8 +1,6 @@
-import { adminCopy } from './admin.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
-  admin: adminCopy.en,
   questionCard: {
     heading: 'Open question', suggestion: 'Suggestion', likely: 'Most likely, based on the conversation so far',
     hint: 'One click sends the answer. Or just speak or type.',
@@ -46,11 +44,18 @@ export const en = {
   conceptFree: 'No cost (local fake)', conceptCost: 'Up to {micro} micro-units',
   conceptGuidance: ['Simpler layout', 'More contrast', 'More whitespace', 'Warmer colours', 'Clearer hierarchy', 'Keep this direction'],
   // Host catalog names (models, voices, visuals, vendors) in this language; a name without an entry shows as the host wrote it.
-  catalogLabels: { 'Mock reasoning': 'Mock reasoning', 'Swift (mock)': 'Swift (mock)', 'Deep (mock)': 'Deep (mock)',
-    'GPT-4.1 mini via OpenRouter': 'GPT-4.1 mini via OpenRouter', 'Fake voice (local agent)': 'Fake voice (local agent)',
-    'Fake HTML (local click-dummy)': 'Fake HTML (local click-dummy)', 'Claude HTML click-dummy': 'Claude HTML click-dummy',
-    'Fake images (local PNG)': 'Fake images (local PNG)', 'Demo only: fake HTML click-dummy (no provider)': 'Demo only: fake HTML click-dummy (no provider)',
-    'Anthropic via OpenRouter': 'Anthropic via OpenRouter', 'This host’s model': 'This host’s model' },
+  // Explicit identity labels preserve the former English fallback.
+  catalogLabels: { 'Mock reasoning': 'Mock reasoning',
+    'Swift (mock)': 'Swift (mock)',
+    'Deep (mock)': 'Deep (mock)',
+    'GPT-4.1 mini via OpenRouter': 'GPT-4.1 mini via OpenRouter',
+    'Fake voice (local agent)': 'Fake voice (local agent)',
+    'Fake HTML (local click-dummy)': 'Fake HTML (local click-dummy)',
+    'Claude HTML click-dummy': 'Claude HTML click-dummy',
+    'Fake images (local PNG)': 'Fake images (local PNG)',
+    'Demo only: fake HTML click-dummy (no provider)': 'Demo only: fake HTML click-dummy (no provider)',
+    'Anthropic via OpenRouter': 'Anthropic via OpenRouter',
+    'This host’s model': 'This host’s model' },
   // Clickable HTML drafts (AIT-113): the same rail and viewer, revised as the conversation goes on.
   conceptDraftView: 'Open clickable draft', conceptDraftTitle: 'Draft revision {number}', conceptDraftDownload: 'Download draft',
   conceptDraftRendering: 'Creating your clickable draft…', conceptDraftUpdating: 'Updating your draft with your latest answers…',

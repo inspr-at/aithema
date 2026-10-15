@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
-import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '../../../packages/core/src/live-voice.js';
+import { PluginError, normalizedError } from '@inspr/aithema-core/invocation';
+import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '@inspr/aithema-core/live-voice';
 import { manifest } from './manifest.js';
-import { usdCostMicro } from '../../../packages/core/src/cost.js';
+import { usdCostMicro } from '@inspr/aithema-core/cost';
 import { voiceOverrides, elevenLabsMediaGrant, elevenLabsComponents } from './options.js';
 import { elevenLabsCallbackPort } from './callbacks.js';
 import { createTextSpeech } from './text-speech.js';

@@ -1,5 +1,5 @@
-import { de } from '../packages/ui/src/i18n/de.js';
-import { en } from '../packages/ui/src/i18n/en.js';
+import { de } from '@inspr/aithema-ui/i18n/de';
+import { en } from '@inspr/aithema-ui/i18n/en';
 export const start2PurposePolicy = {
   purpose: {
     de: 'Augmentoring hilft Unternehmen, individuelle Lösungen und Produkte zu entwickeln, und berät bei Geschäfts- und Prozessoptimierung; oft beides, und die Richtung kann sich im Gespräch ändern.',

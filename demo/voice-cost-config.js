@@ -1,4 +1,4 @@
-import { usdMicro } from '../packages/server/src/spend-cap.js';
+import { usdMicro } from '@inspr/aithema-server';
 
 /** Non-secret prices and technical bounds. No plan-specific credit price is guessed. */
 export function voiceCostConfig(values = {}) {

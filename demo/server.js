@@ -1,27 +1,27 @@
 import { start2PurposePolicy } from './safeguards.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
-import { createOperatorSessions, createSQLiteOperatorStore } from '../packages/server/src/operator-session.js';
+import { createOperatorSessions, createSQLiteOperatorStore } from '@inspr/aithema-server';
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
-import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { createOpenAIImages } from '@inspr/aithema-plugin-openai-images';
-import { imagePluginBinding } from '../packages/server/src/image-binding.js';
+import { imagePluginBinding } from '@inspr/aithema-server';
 import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
-import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
+import { HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core/ui-html';
 import { createOwnership, startExpiry, startVisitorRetention } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
 import { loadPrivacyDocuments } from './privacy.js';
 import { buildInfo } from './build-info.js';
 import { createVoiceHost as createStart2VoiceHost } from './start2-voice-host.js';
-import { normalizeElevenLabsDurationBinding } from '../plugins/elevenlabs/src/config.js';
+import { normalizeElevenLabsDurationBinding } from '@inspr/aithema-plugin-elevenlabs/voice-host';
 import { createMockConsent } from './mock-consent.js';
 import { createProcessingConsent } from './processing-consent.js';
 import { prepareVoiceRuntime, voiceRuntimePorts } from './voice-availability.js';
@@ -200,7 +200,7 @@ async function handle(request, context) {
   }
   const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|admin-copy\.js|post-json\.js|reason-text\.js|utility-icons\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/server\/src\/dev\/local-voice-manifest\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
