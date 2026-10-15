@@ -23,6 +23,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const locale of ['de', 'en']) for (const width of [390, 1440]) for (const verdict of ['uncertain', 'failed']) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: loading`);
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
     await shadow(page, async (c, locale) => {
@@ -36,9 +37,11 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.includes('…'));
     await settle(page);
     const targets = ['.understanding', '.composer-shell', '.display-foot', '.host-credits', '.audio-rail'];
+    console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: holding`);
     const before = await boxes(page, targets);
     const held = await shadow(page, c => c.shadowRoot.querySelector('.host-credits__amount').textContent);
     await page.evaluate((verdict, held) => { window.heldCredits = held; return fetch('/settle?verdict=' + verdict); }, verdict, held);
+    console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: settled`);
     const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden · Erneut versuchen' : "The overview couldn't be built just now · Try again";
     await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === expected, { timeout: 10_000 }, expected);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent !== window.heldCredits, undefined);
@@ -58,11 +61,13 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     assert.equal(failed.alerts, 0); assert.equal(failed.background, 'rgba(0, 0, 0, 0)'); assert.equal(failed.reload, true);
     assert.deepEqual(await boxes(page, targets), before, 'failed overview causes 0 px surrounding displacement');
     if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
+    console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: refund and geometry checked`);
     await page.evaluate(() => fetch('/success'));
     const retry = await shadow(page, c => ({ inlineDisabled: c.shadowRoot.querySelector('.overview-retry').disabled, footerDisabled: c.shadowRoot.querySelector('.retry').disabled, operations: c.session.operations, features: c.session.featureMatrix }));
     assert.equal(retry.inlineDisabled, false, JSON.stringify(retry)); assert.equal(retry.footerDisabled, false, JSON.stringify(retry));
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry'), { timeout: 5000 }), shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click())]);
     assert.equal(response.status(), 202, await response.text());
+    console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: retry admitted`);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');

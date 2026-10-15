@@ -140,3 +140,23 @@ test('two SQLite connections share ceilings and claim uniqueness', async () => {
     a.claim(hold.attemptId); assert.throws(() => b.claim(hold.attemptId), { code: 'already-claimed' });
   } finally { first.close(); second.close(); }
 });
+
+for (const recovery of [false, true]) test(`AIT-198 visitor understanding refund survives restart and a late provider receipt (${recovery ? 'recovered dispatch' : 'terminal failure'})`, async t => {
+  const db = await temporaryDb();
+  let storage = new SQLiteStorage(db), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const session = storage.create();
+  const { attemptId } = admit(ledger, session.id, { lane: 'understanding', providerCost: { plugin: 'openrouter' } });
+  const claim = ledger.claim(attemptId); claim.consume(); ledger.markCostDispatch(attemptId);
+  if (!recovery) ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+  storage.close(); storage = new SQLiteStorage(db); ledger = new SQLiteBudgetLedger(storage);
+  if (recovery) assert.equal(ledger.recover(session.id), 1);
+  assert.equal(ledger.get(attemptId).settled_micro, 40, 'provider liability remains conservative');
+  assert.equal(ledger.get(attemptId).visitor_credit_released, 1);
+  assert.equal(ledger.breakdown(session.id, { visitorCredits: true }).uncertainSpendMicro, 0);
+  ledger.reconcileCost(attemptId, { chargedMicro: 7 });
+  assert.equal(ledger.get(attemptId).settled_micro, 7, 'real receipt repairs the provider ledger');
+  assert.equal(ledger.breakdown(session.id).confirmedSpendMicro, 7);
+  assert.equal(ledger.breakdown(session.id, { visitorCredits: true }).confirmedSpendMicro, 0, 'receipt cannot charge the refunded visitor again');
+  assert.deepEqual(ledger.displayBreakdown(session.id), { reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0, pendingHoldMicro: 0, reconciling: false });
+});
