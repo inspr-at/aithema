@@ -463,7 +463,7 @@ for (const next of ['project', 'withdrawal']) test(`AIT-188 V1: ${next} still in
   } else assert.equal((await f.handlers.handle(req(f.session.id, 'withdraw', { turnId: f.storage.get(f.session.id).transcript[0].id }))).status, 200);
   gate.resolve(); await f.handlers.idle();
   const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
-  if (next === 'project') { assert.equal(updates.length, 1); assert.match(updates[0].data.summary, /order processing/u); }
+  if (next === 'project') { assert.equal(f.assessments.length, 2); assert.equal(updates.length, 1); assert.match(updates[0].data.summary, /order processing/u); }
   else { assert.equal(updates.length, 0); assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false); }
 });
 

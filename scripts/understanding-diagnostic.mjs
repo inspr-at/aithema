@@ -1,7 +1,7 @@
 // OPS only. Inherit process configuration; never load files or print content.
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { PluginRegistry, inputRevision } from '../packages/core/src/index.js';
+import { PluginRegistry, inputRevision, PluginError } from '../packages/core/src/index.js';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createSpendCap } from '../packages/server/src/index.js';
 import { createOpenRouterReasoning } from '../plugins/openrouter/src/index.js';
 import { openRouterConfig } from '../demo/openrouter-config.js';
@@ -31,6 +31,11 @@ export async function runUnderstandingDiagnostic({ config, fetchImpl = globalThi
         checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) },
       presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction, understanding: config.understanding },
         policy: { endpoints: [config.reaction.endpoint] } } } });
+    const admit = runtime.admit;
+    runtime.admit = args => {
+      if (calls >= 3) throw new PluginError('not-admitted', 'Diagnostic call cap');
+      return admit(args);
+    };
     handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, log: event => logs.push(event) });
     const request = (id, action, body = {}) => new Request(`http://diagnostic.invalid/api/sessions/${id}/${action}`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': ownerToken }, body: JSON.stringify(body),
@@ -68,6 +73,8 @@ export async function runUnderstandingDiagnostic({ config, fetchImpl = globalThi
         project_scope_seeded: true, ...(overlap ? { overlapped, off_classified: offClassified } : {}),
         understanding_updates: updates, completed: completed.length, with_usage: withUsage.length,
         uncertain: uncertain.length, max_charged_uncertain: uncertain.filter(row => row.settled_micro === row.max_micro).length,
+        failures: logs.filter(event => ['understanding.failed', 'understanding.aborted', 'understanding.uncertain'].includes(event.event))
+          .map(({ event, reason }) => ({ event, reason })),
         outcomes: Object.fromEntries(['started', 'completed', 'superseded', 'deferred', 'aborted', 'uncertain', 'failed']
           .map(outcome => [outcome, logs.filter(event => event.event === `understanding.${outcome}`).length])) });
       logs.length = 0;

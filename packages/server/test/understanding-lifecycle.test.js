@@ -16,7 +16,7 @@ const assessment = {
   progress: { talk: { value: 0.2, reasoning: 'Erste Angaben' }, build: { value: 0, reasoning: 'Offene Details' } },
   actor: null, engagement: null, conceptIntent: null,
 };
-function fixture(t) {
+function fixture(t, { replyMs = 1000, analysisMs = 6000, analysisHttpError = false } = {}) {
   const storage = new SQLiteStorage(), calls = [], logs = [];
   const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture-understanding', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture-reply',
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/fixture-understanding': { prompt: 1e-6, completion: 2e-6 },
@@ -27,8 +27,9 @@ function fixture(t) {
       calls.push(call);
       // Keep the actual adapter invocation dispatched and unsettled for the
       // whole provider latency. Settling an instant mock before a gate hides this race.
-      try { await delay(body.stream ? 1000 : 6000, undefined, { signal: init.signal }); }
+      try { await delay(body.stream ? replyMs : analysisMs, undefined, { signal: init.signal }); }
       catch (error) { call.aborted = true; throw error; }
+      if (!body.stream && analysisHttpError) return new Response('Private provider refusal', { status: 400 });
       const usage = { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 };
       if (!body.stream) return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }] });
       const off = body.messages.at(-1).content === offTopic;
@@ -92,4 +93,19 @@ test('AIT-198 slow provider: superseding project input never aborts already disp
   assert.equal(f.logs.filter(event => event.event === 'understanding.aborted' || event.event === 'understanding.uncertain').length, 0);
   const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
   assert.equal(updates.length, 1, 'only the current project revision may publish');
+});
+
+
+test('AIT-198 unknown provider refusal remains conservative and logs its HTTP class without values', async t => {
+  const f = fixture(t, { replyMs: 5, analysisMs: 5, analysisHttpError: true });
+  await f.send(project); await f.handlers.idle();
+  const [row] = f.rows();
+  assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, row.max_micro);
+  assert.equal(row.usage, null, 'a provider error without a receipt gives no evidence of zero spend');
+  assert.deepEqual(f.logs, [
+    { event: 'understanding.started', count: 1, lane: 'understanding' },
+    { event: 'understanding.uncertain', count: 1, lane: 'understanding', reason: 'provider-cost-unknown' },
+    { event: 'understanding.failed', count: 1, lane: 'understanding', reason: 'provider-4xx' },
+  ]);
+  assert.doesNotMatch(JSON.stringify(f.logs), /Private|Auftragsbearbeitung|fake-only/u);
 });
