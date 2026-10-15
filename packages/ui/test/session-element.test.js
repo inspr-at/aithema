@@ -393,6 +393,7 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
 test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
   const c = setup(); turn(c, 'first', 'Hello');
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
   assertInlineRetry(c);
   const session = c.session;
   session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
@@ -1021,4 +1022,14 @@ for (const recovering of [false, true]) test(`AIT-198 ${recovering ? 'recovering
   }
   assertNoFailedOverview(c, recovering ? 'retry request is in flight' : 'analysis is deferred');
   retryDone.resolve();
+});
+
+
+test('AIT-198 an ended facade call can expose a genuinely stuck missing reply', () => {
+  const c = setup();
+  c.receive({ seq: 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Detail', voiceCallId: 'call' } });
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
+  assertNoFailedOverview(c, 'accepted facade input is still pending');
+  c.receive({ type: 'voice.state', data: { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'ended' } });
+  assertInlineRetry(c, 'authoritative call end releases the pending facade reply');
 });
