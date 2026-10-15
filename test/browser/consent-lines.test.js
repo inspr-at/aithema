@@ -276,3 +276,27 @@ test('AIT-197 R2 A and real save: consent starts overview and missing reply exac
   assert.equal(await shadow(page, c => c.session.transcript.filter(t => t.role === 'assistant' && !t.withdrawn).length), 1);
   assert.deepEqual(await page.evaluate(() => fetch('/fixture/stats').then(r => r.json())), stats);
 });
+
+test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN', async t => {
+  const page = await fixture(t, true);
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await shadow(page, async (c, locale) => {
+      await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
+      const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
+      session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); c.configure({ session, copy });
+    }, locale);
+    await page.locator('aithema-session >>> .notice button').click();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing');
+    await frame(page); const before = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
+    await page.keyboard.press('Space'); await frame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent), locale === 'de' ? 'Widerrufen und Gespräch beenden' : 'Withdraw and end conversation');
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none', 'withdraw has no check icon');
+    assert.deepEqual(await boxes(page, ['.done', '.settings__footer', '.settings__body']), before, 'label swap shifts 0 px');
+    await record(t, page, `${locale}-${width}-withdraw-label`, { shiftPx: 0 });
+    await page.locator('aithema-session >>> .consent-save').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    assert.equal(await shadow(page, c => c.session.consentWithdrawn), true, 'the real server ends the conversation');
+  }
+});
