@@ -2,14 +2,15 @@
 // No provider calls, microphone, wallet writes or voice lifecycle work. Run only on the remote browser runner.
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserForFile } from './shared-browser.js';
+import { matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { readFile } from 'node:fs/promises';
-import { browserPath, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
 
 const content = {
   de: {
@@ -39,8 +40,7 @@ export async function displayMatrix(t, section) {
       AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [reply]: { prompt: 1e-6, completion: 5e-6 }, [understanding]: { prompt: 5e-6, completion: 25e-6 } }),
       AITHEMA_COMMIT: evidenceCommit, AITHEMA_BUILD_DATE: '2026-10-12T09:00:00Z',
     });
-    const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const browser = await browserForFile();
     t.after(async () => { await browser.close(); await demo.kill(); });
     const page = await browser.newPage(); page.setDefaultTimeout(30_000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -382,7 +382,7 @@ export async function displayMatrix(t, section) {
       }
     });
     } else {
-    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.select('#theme', theme);
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
@@ -536,7 +536,7 @@ export async function displayMatrix(t, section) {
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
     }
-    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 600, 680, 768, 900, 1000]) {
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([320, 600, 680, 768, 900, 1000], theme, 1)) {
       await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
       const row = await shadow(page, c => {
         const r = c.shadowRoot, items = ['.ai-notice', '.host-credits', '.footer-right'].map(s => {
@@ -582,7 +582,7 @@ export async function displayMatrix(t, section) {
       try {
         const html = await readFile('/tmp/aithema-ait-131-approved.html', 'utf8');
         const reference = await browser.newPage();
-        for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+        for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
           await reference.goto('about:blank');
           await reference.setViewport({ width, height: width === 390 ? 844 : 900 });
           await reference.setContent(html);

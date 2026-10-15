@@ -3,22 +3,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserForFile } from './shared-browser.js';
+import { matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
-import { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
 
 test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout shift, DE/EN light/dark 390/1024/1440', { timeout: 180_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-opaque-band-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -34,7 +34,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
     return file;
   };
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
     await page.evaluate(async locale => {
@@ -130,15 +130,14 @@ test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewpor
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id && !document.querySelector('#demo-account').hidden);
   await shadow(page, c => { globalThis.accountSeed = c.session; });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) for (const folded of [false, true]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 320], theme, 1)) for (const folded of [false, true]) {
     const height = width < 600 ? 844 : 900;
     await page.setViewport({ width, height }); await page.select('#theme', theme);
     await page.evaluate(async ({ locale, folded }) => {
@@ -220,8 +219,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
   t.after(() => demo.kill());
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(() => browser.close());
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -237,7 +235,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
     en: 'General · Start a new conversation, review consent and your defaults.',
   };
   const controls = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.footer-links', '.save-state', '.done'];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 2)) {
     let baseline;
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
     for (const state of ['off', 'unverified', 'pending', 'verified']) await t.test(`${locale}/${theme}/${width}/verification-${state}`, async () => {
@@ -302,15 +300,14 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.emailSeed = c.session; });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) for (const state of ['unverified', 'pending', 'verified']) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 3)) for (const state of ['unverified', 'pending', 'verified']) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
     await page.evaluate(async ({ locale, state }) => {
       const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
@@ -361,8 +358,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(); page.setDefaultTimeout(15_000);
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
@@ -425,7 +421,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe'))), false);
   });
   await t.test('populated canvas and every modal frame are redacted on consent or source withdrawal', async () => {
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 4)) {
       for (const cause of ['consent', 'source']) for (const folded of [true, false]) {
         await scene(locale, theme, width);
         await shot('folded-populated-canvas', locale, theme, width);
@@ -444,7 +440,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     }
   });
   await t.test('the reveal orb has a 44px hit area around its 40px visual', async () => {
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 5)) {
       await scene(locale, theme, width);
       const visual = (await boxes(page, ['.band-orb .orb__body']))[0];
       const target = await shadow(page, c => {
@@ -485,8 +481,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
   page.on('pageerror', error => errors.push(error.message));
@@ -539,7 +534,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     const n = c.shadowRoot.querySelector(selector), style = getComputedStyle(n);
     return { selector, disabled: n.disabled, tooltip: n.title, opacity: style.opacity, cursor: style.cursor };
   }));
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390, 1024]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 1024], theme, 7)) {
     const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -604,8 +599,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
   page.on('pageerror', error => errors.push(error.message));
@@ -627,7 +621,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
     await settle();
   };
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 8)) {
     await t.test(`${width} ${theme} ${locale}`, async () => {
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
       const wording = {
@@ -840,8 +834,7 @@ test('AIT-149: reveal exit clock survives delayed browser round trips', { timeou
   });
   let browser;
   t.after(async () => { await browser?.close(); await demo.kill(); });
-  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  browser = await browserForFile();
   const page = await browser.newPage(); page.setDefaultTimeout(30_000);
   await page.setViewport({ width: 1440, height: 900 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
@@ -879,8 +872,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), errors = [], evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
   page.on('pageerror', error => errors.push(error.message));

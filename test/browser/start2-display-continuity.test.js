@@ -2,14 +2,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserForFile } from './shared-browser.js';
+import { matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { mockConsent } from './consent-helpers.js';
-import { browserPath, shadow, until, settle, layoutBoxes, sameBoxes, finishWorkspaceEntry, evidenceCommit } from './start2-display-helpers.js';
+import { shadow, until, settle, layoutBoxes, sameBoxes, finishWorkspaceEntry, evidenceCommit } from './start2-display-helpers.js';
 
 test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-'));
@@ -23,14 +24,12 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === expected, expected);
   const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 0)) {
     let complete = false;
     await t.test(`${width} ${theme} ${locale}`, async st => {
-      const runBrowser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-        userDataDir: join(directory, `chrome-${width}-${theme}-${locale}`), env: { PATH: process.env.PATH, HOME: homedir() },
-        args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+      const runBrowser = await browserForFile();
       browser = runBrowser;
-      const context = runBrowser.defaultBrowserContext(), page = await context.newPage();
+      const context = runBrowser, page = await context.newPage();
       let other;
       st.after(async () => {
         if (!complete) {
@@ -264,9 +263,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
 test('AIT-177: continuity baseline awaits the persisted greeting and workspace entry', { timeout: 30_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-entry-'));
   const demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), join(directory, 'session.sqlite'));
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-    userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(); await page.setViewport({ width: 1024, height: 900 });
   let release;

@@ -1,20 +1,13 @@
 // AIT-135 A2 D. The shipped component against deterministic owner-route fixtures.
 // Run exclusively through remote-browser.sh or CI; screenshots never render the design mock.
 import assert from 'node:assert/strict';
-import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { browserForFile } from './shared-browser.js';
+import { fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 
-async function browserPath() {
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name)))];
-  for (const path of candidates) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
-  throw new Error('No browser on remote runner');
-}
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
 const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
@@ -119,8 +112,7 @@ export async function visitorCreditMatrix(t, locales) {
   const branchHead = event?.pull_request?.head?.sha ?? head;
   const passLines = [], states = [], captures = [], uiChecks = [];
   for (const locale of locales) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome-' + locale),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage();
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -129,7 +121,7 @@ export async function visitorCreditMatrix(t, locales) {
     await page.select('#locale', locale);
     await page.waitForFunction(locale => document.querySelector('aithema-session')?.session.locale === locale
       && document.documentElement.lang === locale && document.querySelector('#language-value').textContent === locale.toUpperCase(), { timeout: 20_000 }, locale);
-    for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 2)) {
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
@@ -474,5 +466,5 @@ export async function visitorCreditMatrix(t, locales) {
   for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog'].includes(row.state))) {
     t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state}${row.displacementPx === 0 ? ' 0 px layout shift' : ''} ${JSON.stringify(row)}`);
   }
-  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${locales.length * 6} viewport/theme/language combinations`);
+  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${locales.length * 2 * (fullMatrix ? 3 : 1)} viewport/theme/language combinations`);
 }

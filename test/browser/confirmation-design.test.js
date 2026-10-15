@@ -2,11 +2,11 @@
 // viewport evidence and exact geometry. No relay, provider or external resource.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, delimiter, dirname, join } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
-import puppeteer from 'puppeteer-core';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { browserForFile } from './shared-browser.js';
+import { fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { createIdentity, reduceIdentity } from '@inspr/aithema-core';
 import { SQLiteStorage } from '../../packages/server/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
@@ -16,15 +16,6 @@ import { confirmationMessage } from '../../plugins/mail-smtp/src/templates.js';
 import { formatCredits } from '../../packages/ui/src/display.js';
 import { assertConfirmationMail } from '../fixtures/confirmation-mail.js';
 
-async function browserPath() {
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
-    '/opt/google/chrome/chrome', ...(process.env.PATH ?? '').split(delimiter).flatMap(dir =>
-      ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].map(name => join(dir, name))).filter(path => path !== '/snap/bin/chromium'),
-    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'];
-  for (const path of new Set(candidates)) { try { await access(path, constants.X_OK); return path; } catch { /* next */ } }
-  throw new Error('No Chrome or Chromium found. Set CHROME_PATH to its executable.');
-}
 
 async function fixture() {
   const storage = new SQLiteStorage(), messages = [];
@@ -96,9 +87,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
   const directory = await mkdtemp(join(tmpdir(), 'aithema-confirm-c2-')), f = await fixture();
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await f.close(); await rm(directory, { recursive: true, force: true }); } });
-  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-    env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  browser = await browserForFile();
   const page = await browser.newPage(); page.setDefaultTimeout(15_000);
   let resolveSubmission;
   await page.exposeFunction('recordConfirmationSubmit', result => resolveSubmission(result));
@@ -117,7 +106,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
     pass.push(`PASS head=${head} mail ${locale}: ${assertConfirmationMail(f.mail(locale), { locale, link, privacyUrl })}`);
     for (const theme of ['light', 'dark']) {
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-      for (const width of [600, 375]) {
+      for (const width of matrixWidths([600, 375], theme, 0)) {
         await page.setViewport({ width, height: 1100 });
         await page.goto(f.url + '/mail?lang=' + locale, { waitUntil: 'networkidle0' });
         const dimensions = await page.evaluate(() => ({ viewport: innerWidth, scroll: document.documentElement.scrollWidth,
@@ -130,7 +119,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
       await page.setViewport({ width: 320, height: 1100 });
       await page.evaluate(() => document.querySelector('style').remove());
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
-      for (const width of [390, 1440]) {
+      for (const width of matrixWidths([390, 1440], theme, 1)) {
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         const ready = await f.prepare('ready', locale);
         await page.goto(ready.url, { waitUntil: 'networkidle0' });
@@ -213,8 +202,8 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
   assert.equal(f.host.visitor(plain.owner).tier, 'emailConfirmed');
   assert.equal(f.lastPost().origin, f.url); assert.equal(f.lastPost().referer, f.url + '/');
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  assert.equal(shots.length, 80);
-  pass.push(`PASS head=${head} 80 viewport shots; all 9 landing states; CSP; GET never redeems; one POST; BFCache reset; reduced motion; no-script confirmation; no remote requests`);
+  assert.equal(shots.length, fullMatrix ? 80 : 40);
+  pass.push(`PASS head=${head} ${shots.length} viewport shots; all 9 landing states; CSP; GET never redeems; one POST; BFCache reset; reduced motion; no-script confirmation; no remote requests`);
   if (evidence) {
     await writeFile(join(evidence, 'c2-pass-lines.txt'), pass.join('\n') + '\n');
     await writeFile(join(evidence, 'c2-evidence.json'), JSON.stringify({ head, shots, pass }, null, 2) + '\n');

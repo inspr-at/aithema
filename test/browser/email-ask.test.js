@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserForFile } from './shared-browser.js';
+import { fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
-import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
 // Wait for rendered state and finite transitions, including the phone dock's
 // lift. Infinite call/wave animations must not hold the evidence capture open.
@@ -131,25 +132,33 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
   if (evidence) await mkdir(evidence, { recursive: true });
   const passes = [];
   for (const locale of ['de', 'en']) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
     await page.select('#locale', locale);
     await until(page, locale => document.querySelector('aithema-session')?.session.locale === locale, locale);
-    // Six behaviour passes (language × width), with both theme screenshots
+    // Full evidence replays every width; CI rotates widths at fixture boundaries.
+    // Both theme screenshots and assertions are
     // taken from each resulting state instead of replaying every interaction.
-    for (const width of [390, 1024, 1440]) {
+    for (let width of fullMatrix ? [390, 1024, 1440] : [390]) {
       await page.setViewport({ width, height: 1000 });
       const setTheme = async theme => {
         await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       };
       await setTheme('light');
-      const label = `${locale}-${width}`;
+      let label = `${locale}-${width}`;
       // The stacked assessment is below the phone viewport. Only controls
       // visible under its pointer are part of that viewport's shift contract.
-      const targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
-      let baseline;
+      let targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
+      let baseline, stateGroup = 0;
+      const begin = async (options = {}, widths = [390, 1024, 1440]) => {
+        if (!fullMatrix) width = matrixWidths(widths, 'light', stateGroup++)[0];
+        await page.setViewport({ width, height: 1000 });
+        label = `${locale}-${width}`;
+        targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
+        await fixture(page, locale, options);
+      };
       const shot = async state => {
         for (const theme of ['light', 'dark']) {
           await setTheme(theme); await settle(page);
@@ -165,7 +174,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         await until(page, reads => window.ait164.creditsReads > reads, reads);
         await settle(page);
       };
-      await fixture(page, locale); baseline = await boxes(page, targets); await shot('before');
+      await begin(); baseline = await boxes(page, targets); await shot('before');
       await reply(); await gateReady(page);
       const gate = await shadow(page, c => ({ placement: c.shadowRoot.querySelector('.workspace').dataset.emailAsk, focus: c.shadowRoot.activeElement?.id ?? null }));
       assert.equal(gate.placement, width >= 960 ? 'pane' : 'dock'); assert.notEqual(gate.focus, 'email-ask-input'); await shot('gate');
@@ -191,16 +200,16 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       await page.evaluate(([x, y]) => window.scrollTo(x, y), viewportScroll);
       await click(page, '.email-ask__skip');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.emailAsk === 'closed'); await shot('gate-dismissed');
-      await fixture(page, locale, { delivery: true }); baseline = await boxes(page, targets); await reply(); await settle(page); await shot('gate-mail');
+      await begin({ delivery: true }); baseline = await boxes(page, targets); await reply(); await settle(page); await shot('gate-mail');
       await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-ask').dataset.step === 'done');
       assert.deepEqual(await page.evaluate(() => window.ait164.requests), ['save', 'link']); await shot('gate-saved-mail');
-      await fixture(page, locale); baseline = await boxes(page, targets); await reply(); await settle(page);
+      await begin(); baseline = await boxes(page, targets); await reply(); await settle(page);
       await page.evaluate(() => { window.ait164.saveFails = true; });
       await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email-ask-message').textContent.trim() !== '' && document.querySelector('aithema-session').shadowRoot.querySelector('.email-ask').dataset.step === 'idle'); await shot('gate-save-failed');
       assert.equal(await page.evaluate(() => window.ait164.address), null);
-      await fixture(page, locale, { delivery: true }); baseline = await boxes(page, targets); await reply(); await settle(page);
+      await begin({ delivery: true }); baseline = await boxes(page, targets); await reply(); await settle(page);
       await page.evaluate(() => { window.ait164.linkFails = true; });
       await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.email-ask').dataset.step === 'done'); await shot('gate-saved-delivery-failed');
@@ -211,7 +220,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         ['low-given', { low: true, address: 'visitor@example.test' }], ['low-confirmed', { low: true, address: 'visitor@example.test', delivery: true, confirmed: true }],
         ['low-pending', { low: true, address: 'visitor@example.test', delivery: true }], ['out', { out: true }],
       ]) {
-        await fixture(page, locale, options); baseline = await boxes(page, targets); await reply(); await settle(page);
+        await begin(options); baseline = await boxes(page, targets); await reply(); await settle(page);
         const values = await shadow(page, c => ({ ask: c.shadowRoot.querySelector('.workspace').dataset.emailAsk, low: c.shadowRoot.querySelector('.host-credits').dataset.low,
           line: Boolean(c.shadowRoot.querySelector('.email-low-line')), rail: c.shadowRoot.querySelector('.voice-state').textContent, usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
         if (state === 'out') assert.equal(values.usedUp, true);
@@ -222,16 +231,16 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         if (state === 'low-voice') { await click(page, '.voice-pause'); await gateReady(page); await shot('low-after-call'); assert.notEqual(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed'); }
       }
       // Fold, deferred typing, no mid-stream opening, and changing digit count.
-      await fixture(page, locale); baseline = await boxes(page, targets); await reply(); await settle(page);
+      await begin({}, [1024, 1440]); baseline = await boxes(page, targets); await reply(); await settle(page);
       if (width >= 960) { await reply(); await reply();
         await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.email-ask-fold')).visibility === 'visible'); assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.email-ask-fold')).visibility), 'visible'); await shot('gate-folded'); }
-      await fixture(page, locale); baseline = await boxes(page, targets);
+      await begin(); baseline = await boxes(page, targets);
       const footerBefore = await boxes(page, ['.host-credits', '.engine-info']);
       await page.evaluate(() => { window.ait164.after = Date.now() + 86_400_000; window.ait164.spent = 12_000_000 - 980_000; }); await reply();
       stable(footerBefore, await boxes(page, ['.host-credits', '.engine-info']), `${label}/footer-fewer-digits`);
       const footer = await shadow(page, c => { const r = c.shadowRoot, left = r.querySelector('.ai-notice').getBoundingClientRect(), credit = r.querySelector('.host-credits').getBoundingClientRect(); return { gap: credit.left - left.right, numeric: getComputedStyle(r.querySelector('.host-credits__amount')).fontVariantNumeric }; });
       assert.ok(footer.gap >= 23.5, `${label}: footer gap ${footer.gap}`); assert.equal(footer.numeric, 'tabular-nums'); await shot('footer-fewer-digits');
-      await fixture(page, locale, { motion: 'on' }); baseline = await boxes(page, targets);
+      await begin({ motion: 'on' }); baseline = await boxes(page, targets);
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#message'); input.value = 'draft'; input.focus(); input.dispatchEvent(new Event('input')); });
       await reply(); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed', 'typing defers the ask');
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#message'); input.value = ''; input.blur(); });
@@ -242,12 +251,12 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         assert.equal(lift, 20, 'phone gate lifts exactly 20 px');
       }
       await shot('flow-gate');
-      await fixture(page, locale); baseline = await boxes(page, targets);
+      await begin(); baseline = await boxes(page, targets);
       await shadow(page, c => { c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'stream-u5', role: 'user', content: 'A requirement.' } });
         c.receive({ type: 'turn.partial', data: { id: 'stream-a5', delta: 'A partial reply', inputRevision: c.session.inputRevision } }); });
       await settle(page); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed', 'no ask during the fifth reply');
       await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'stream-a5', role: 'assistant', content: 'A complete reply.' } })); await gateReady(page); await shot('flow-stream-finished');
-      await fixture(page, locale, { voice: true }); baseline = await boxes(page, targets); await reply(); await settle(page);
+      await begin({ voice: true }); baseline = await boxes(page, targets); await reply(); await settle(page);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed'); await shot('flow-call');
       await page.evaluate(() => { window.ait164.spent = 12_000_000 - 720_000; }); await reply();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-low-line') === null), true); await shot('flow-low-call');
@@ -273,8 +282,7 @@ test('AIT-168: Settings saves only with confirmation disabled and saves plus req
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   let browser;
   t.after(async () => { await browser?.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
-  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  browser = await browserForFile();
   const page = await browser.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -311,7 +319,7 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
   const rows = [], shots = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const locale of ['de', 'en']) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage(), main = await browser.newPage();
     await main.setRequestInterception(true);
     main.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });

@@ -2,11 +2,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { browserForFile } from './shared-browser.js';
+import { matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
-import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
+import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
 const click = (page, selector) => shadow(page, (c, s) => c.shadowRoot.querySelector(s).click(), selector);
 const frame = async page => { await page.bringToFront(); await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); };
@@ -107,7 +108,7 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
     assert.ok(actual.equals(expected), `${label}: save pixels outside the privacy line match main ${baseline.sourceHead}`);
   };
   for (const locale of ['de', 'en']) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage(), mainPage = await browser.newPage();
     await mainPage.setRequestInterception(true);
     mainPage.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });
@@ -115,7 +116,7 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
     await mainPage.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(mainPage, () => document.querySelector('aithema-session')?.session);
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-    for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
+    for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
       const label = `${locale}-${theme}-${width}`;
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       await fixture(page, locale, false); const save = await geometry(page); saves[label] = save.boxes; await record(page, label, 'save-none', save, 0);
@@ -190,11 +191,11 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
     await frame(page);
   };
   for (const locale of ['de', 'en']) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage();
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-    for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
+    for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 1)) {
       const label = `${locale}-${theme}-${width}`;
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       await fixture(page, locale, true, false); const saveHeight = (await geometry(page)).stackHeight;
@@ -275,7 +276,7 @@ test('AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440;
     await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
   };
   for (const locale of ['de', 'en']) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage();
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
@@ -322,7 +323,7 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
   const rows = [], shots = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const locale of ['de', 'en']) {
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage(), main = await browser.newPage();
     await main.setRequestInterception(true);
     main.on('request', request => { const source = baseline.modules[new URL(request.url()).pathname.slice(1)]; if (source) void request.respond({ status: 200, contentType: 'text/javascript', body: source }); else void request.continue(); });

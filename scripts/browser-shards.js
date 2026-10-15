@@ -31,7 +31,6 @@ export const browserTestWeights = {
   'test/browser/start2-display-matrix.test.js': 176.803, // CI 38701239296-1
   'test/browser/start2-display.test.js': 195.234, // CI 38704006618-2
   'test/browser/tick-followups.test.js': 78.181, // CI 38704006618-1
-  'test/browser/visitor-credit-tiers-en.test.js': 144.541, // CI 38704006618-1
   'test/browser/visitor-credit-tiers.test.js': 142.004, // CI 38704006618-1
   'test/browser/voice-presentation.test.js': 70.395, // CI 38704006618-1
 };
