@@ -65,7 +65,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         const label = `${locale}-${theme}-${width}`;
         const shot = async state => { if (evidence) {
           if (state !== 'bounded-options' || width === 1024 || width !== 390 && theme !== (locale === 'en' ? 'light' : 'dark')) return;
-          await page.mouse.move(-1, -1);
+          await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
           await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
           await nextFrame(page);
           const file = `ait-225-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
@@ -194,7 +194,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
         // Begin this independent layout scenario following the transcript,
         // after the preceding voice fixture has finished its notice updates.
-        await page.mouse.move(-1, -1);
+        await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); c.shadowRoot.querySelector('.transcript-latest').click(); });
         await nextFrame(page);
         // A long, overflowing transcript and option list exercise the actual phone limit.
@@ -213,7 +213,10 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
             'Offer both: buy finished cushions or put together your own design, colour and size',
             'Not decided yet: first compare the different ways customers could choose their cushions',
           ];
-          globalThis.showQuestion({ options: answers.map((text, index) => ({ text, likely: index === 0 })) });
+          globalThis.showQuestion({ options: answers.map((text, index) => ({
+            text: text + (de ? '. Verfügbarkeit und Lieferzeit können vor der Bestellung geprüft werden.'
+              : '. Availability and delivery details can be checked before placing an order.'), likely: index === 0,
+          })) });
         });
         await nextFrame(page);
         const bounded = await shadow(page, c => {
@@ -229,7 +232,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         assert.ok(bounded.bubbleBottom <= bounded.top, `AIT-225: latest reply/card geometry ${JSON.stringify(bounded)}`);
         assert.ok(bounded.shellBottom <= bounded.top, 'AIT-225: the transcript viewport ends above the card');
         assert.ok(bounded.bubbleBottom > bounded.shellTop + 26, 'AIT-225: the latest reply is visible inside the transcript viewport');
-        if (width <= 600) assert.equal(bounded.overflow, true, 'the options scroll inside the capped phone card');
+        if (width <= 600) assert.equal(bounded.overflow, true, `the options scroll inside the capped phone card: ${JSON.stringify(bounded)}`);
         assert.equal(bounded.role, 'region'); assert.ok(bounded.name, 'the options scroll region has an accessible name');
         await shot('bounded-options');
         const answerBoxes = await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']);
@@ -254,7 +257,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         } finally {
           // The pointer must leave before persistence closes the card: otherwise
           // it is now over the transcript and intentionally holds its reading anchor.
-          await page.mouse.move(-1, -1);
+          await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
           globalThis.qcardAnswerHold.resolve(); globalThis.qcardAnswerHold = null;
         }
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qcard').hidden);
@@ -285,7 +288,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'other-answer', role: 'user', content: c.session.locale === 'de' ? 'Beides' : 'Both' } }));
         await nextFrame(page);
         assert.deepEqual(await readingBox(), readingBefore, 'card disappearance preserves the older reply under the pointer');
-        await page.mouse.move(-1, -1);
+        await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
         if (width <= 600) {
           await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
