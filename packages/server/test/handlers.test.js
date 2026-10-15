@@ -254,23 +254,17 @@ test('AIT-109 N2: deferred understanding does not reschedule completed work on S
   } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); }
 });
 
-test('AIT-109 N4: obsolete failure entries are removed when the input revision moves on', async t => {
+test('AIT-109 N4: obsolete failure entries are removed when the input revision moves on', async () => {
   const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
   const s = storage.create({ demo: true, ownerToken: testToken });
-  let failures;
-  const set = Map.prototype.set;
-  t.mock.method(Map.prototype, 'set', function (key, value) {
-    if (key === s.id && value?.error === 'reasoning-unavailable') failures = this;
-    return set.call(this, key, value);
-  });
   handlers.lanes.run = async (id, lane) => { if (lane === 'understanding') throw new Error('mock failure'); return 'completed'; };
   try {
     await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
-    assert.ok(failures.has(s.id));
+    assert.equal(storage.laneFailures(s.id).length, 1);
     storage.postTurn(s.id, 'second', Buffer.from('Second'), 'Second');
     const snapshot = await handlers.handle(request(s.id)).then(r => r.json());
     assert.equal(snapshot.operations.lastFailure, null);
-    assert.equal(failures.has(s.id), false, 'masking a stale failure must also release its map entry');
+    assert.deepEqual(storage.laneFailures(s.id), [], 'masking a stale failure also removes its durable record');
   } finally { await handlers.close(); storage.close(); }
 });
 

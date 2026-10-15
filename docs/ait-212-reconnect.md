@@ -5,7 +5,7 @@ against its recorded current-input-revision failure before scheduling. Failed la
 are skipped independently, including when both lanes failed. The existing Retry
 endpoint uses normal scheduling and existing in-flight deduplication, admission
 and terminal settlement. Successful attempts clear the lane's failure; input
-revision changes ignore obsolete failure state; invalidation clears it.
+revision changes remove obsolete failure state; invalidation clears it.
 
 AIT-213 stores sanitized per-session/per-lane failures in SQLite `lane_failures`,
 including the input revision. Records survive handler recreation, database reopen,

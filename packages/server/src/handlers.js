@@ -85,8 +85,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     if (event.type === 'session.paused' && event.data.paused === false) schedule(id, { wake: true });
   };
   const clearFailures = id => storage.clearLaneFailures(id);
-  const currentFailures = session => storage.laneFailures(session.id)
-    .filter(failure => failure.inputRevision === inputRevision(session));
+  const currentFailures = session => storage.laneFailures(session.id).filter(failure => {
+    if (failure.inputRevision === inputRevision(session)) return true;
+    storage.clearLaneFailures(session.id, failure.lane);
+    return false;
+  });
   const operations = session => ({ inputRevision: inputRevision(session),
     running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
     // One visible Retry; recovering one lane reveals any other failed lane.
