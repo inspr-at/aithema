@@ -121,7 +121,11 @@ export class AudioRail {
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
     const range = this.root.ownerDocument.createRange();
     range.selectNodeContents(label);
-    const half = Math.max(0, ...Array.from(range.getClientRects(), rect => rect.width)) / 2;
+    // A quiet consent action is a sibling inline box. Measure the whole line's
+    // ink, including both the sentence and its action. Centred wrapped lines
+    // share an axis, so their horizontal union is the widest painted line.
+    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+    const half = rects.length ? (Math.max(...rects.map(rect => rect.right)) - Math.min(...rects.map(rect => rect.left))) / 2 : 0;
     // Only paint changes: the label and every control keep their existing layout boxes.
     wave.style.setProperty('--voice-label-half', `${half}px`);
     wave.toggleAttribute('data-short-flanks', wave.getBoundingClientRect().width / 2 - half - 8 < 24);

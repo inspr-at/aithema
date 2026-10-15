@@ -77,6 +77,9 @@ async function scene(page, locale, theme, width, missing) {
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     globalThis.c1Nodes = [...c.shadowRoot.querySelectorAll('.concept-activity-text, .voice-state, .notice, textarea')];
     globalThis.c1Document = globalThis.documentToken;
+    for (const [selector, text] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) {
+      const node = document.querySelector(selector); if (node) node.textContent = text;
+    }
     scrollTo(0, 0);
   }, { locale, matrix: page.state.matrix });
   page.state.snapshot = await shadow(page, c => structuredClone(c.session));
@@ -104,6 +107,17 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     if (feature === 'analysis') assert.equal(state.placeholder, expected, 'blocked overview never promises the placeholder');
     if (feature === 'analysis') {
       await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
+    }
+    const account = await page.$eval('#demo-account-label', n => n.textContent);
+    assert.equal(account, locale === 'de' ? 'Konto (Demo)' : 'Account (demo)', 'host slot uses the screen language');
+    if (feature === 'voice') {
+      const ink = await shadow(page, c => {
+        const r = c.shadowRoot, range = document.createRange(); range.selectNodeContents(r.querySelector('.voice-state'));
+        const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+        const width = Math.max(...rects.map(rect => rect.right)) - Math.min(...rects.map(rect => rect.left));
+        return { half: Number.parseFloat(r.querySelector('.voice-wave').style.getPropertyValue('--voice-label-half')), expected: width / 2 };
+      });
+      assert.equal(ink.half, ink.expected, 'waveform mask covers sentence and action together');
     }
     const before = await boxes(page, geometry);
     await record(t, page, label + '-missing', { feature, item: features[feature][0], ...state });
