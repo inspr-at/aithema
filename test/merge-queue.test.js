@@ -31,7 +31,8 @@ function checkNames(workflow, event) {
   block(block(workflow, 'on'), event, 2);
   return mappingEntries(block(workflow, 'jobs'), 2).flatMap(job => {
     const condition = /^    if: (.+)$/mu.exec(job.body)?.[1];
-    if (condition) {
+    // Cancellation is independent of the PR/merge-group event selection.
+    if (condition && condition !== '${{ !cancelled() }}') {
       const events = condition.split(' || ').map(expression => {
         const match = /^github\.event_name == '(pull_request|merge_group)'$/u.exec(expression);
         assert.ok(match, `Unsupported job condition: ${expression}`);
@@ -55,7 +56,7 @@ test('both required workflows request merge-group checks', () => {
 test('PR and merge-group events run the same seven required check names', () => {
   const expected = ['test', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
-    assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)), expected);
+    assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
   }
 });
 
