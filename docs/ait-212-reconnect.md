@@ -89,3 +89,36 @@ after failure and after reconnect and assert equality of the entire owner balanc
 They also distinguish provider settlement at zero, with received usage, or
 conservatively; failed understanding visitor charges remain governed by AIT-198.
 Viewport evidence retains reduced motion, settled animations and loaded fonts.
+
+Green evidence head: `7ca3832ca3`.
+
+- mbp2606 browser run `7ca3832ca3-18003`: 11/11 passed in 44.890 seconds.
+  All 40 restart/reconnect cases passed, with one visible enabled Retry and exactly
+  one settled explicit retry attempt each. Captures and `ait212-passes.json` are in
+  `/Users/markus/Code/aithema-worktrees/ait-212-evidence/round2/` (63 files).
+- mbp2606 unit run `7ca3832ca3-34558`: handlers, storage and safeguards, 106/106
+  passed in 1.313 seconds, including disk reopen, boot recovery, three reconnects,
+  repeated-click deduplication, newer input, stale cleanup and partial recovery.
+- Full PR CI unit job `38801292295 / 116651183288`: 3,783/3,783 passed in
+  193.634 seconds (job wall time 3m29s), including the two new regressions.
+- An initial browser assertion compared complete ledger rows across boot and
+  caught harmless existing-receipt reconciliation annotations. The final assertion
+  checks call count and every admission/settlement field while allowing the two
+  reconciliation metadata fields to change. Full owner balances still compare equal.
+
+Sample pass lines, DE/390/light (the JSON includes all 40 cases). Displayed credits
+are available micro-USD divided by 10,000; the fixture shares a visitor wallet, so
+later rows also include earlier successful replies and explicit retries. **Every
+reconnect delta is zero.** Failed understanding visitor spend is zero in every row;
+provider settlement follows the unchanged AIT-198 receipt rules.
+
+| Failure kind | Credits after failure | Credits after reconnect | Provider settlement (micro-USD) | Settlement evidence |
+| --- | ---: | ---: | ---: | --- |
+| Received usage, invalid result | 990 | 990 | 100,000 | Received usage |
+| Fully received 400, no usage | 970 | 970 | 0 | Unbilled rejection |
+| 408, no usage | 950 | 950 | 802,567 | Conservative timeout |
+| 499, no usage | 930 | 930 | 802,567 | Conservative timeout |
+| 503, no usage | 910 | 910 | 802,567 | Conservative uncertainty |
+
+The English request has a conservative ceiling of 802,568 micro-USD; it also
+produces zero reconnect delta. No review gate was run.
