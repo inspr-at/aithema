@@ -196,10 +196,13 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
   }
 });
 
-for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${kind}: recorded reaction failure keeps footer Retry, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
+for (const kind of ['typed', 'live voice', 'waiting voice', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${kind}: recorded reaction failure keeps footer Retry, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-reaction-retry-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage();
+  const browser = await browserForFile(), page = await browser.newPage(), passes = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
   for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
@@ -215,8 +218,8 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
       session.transcript.push({ id: 'person', role: 'user', content: 'Wir vereinfachen die Auftragsbearbeitung.',
         ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
           kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) });
-      session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
-      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      session.operations = { inputRevision: inputRevision(session), running: kind === 'typed' ? ['reaction'] : [], lastFailure: null };
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, copy });
       window.reactionFailureCopy = copy.reasoningFailed;
     }, locale, kind);
     await settle(page);
@@ -225,17 +228,29 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
     assert.equal(pending.inlineHidden, true, `${kind} ${locale}/${width}: no false inline Retry while waiting`);
     assert.equal(pending.footerHidden, true, `${kind} ${locale}/${width}: no footer Retry without a failure`);
     assert.doesNotMatch(pending.notice, /couldn't be built|konnte gerade nicht erstellt/iu, `${kind}: no false failure while waiting`);
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const before = await boxes(page, targets);
     await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision,
       running: [], lastFailure: { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } } }));
     await settle(page);
     const failed = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
-      expected: window.reactionFailureCopy, inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden,
+      expected: window.reactionFailureCopy, occurrences: c.shadowRoot.textContent.split(window.reactionFailureCopy).length - 1,
+      replyNotice: c.shadowRoot.querySelector('.reaction-failure').textContent,
+      retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length, inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden,
       footerHidden: c.shadowRoot.querySelector('.retry').hidden, footerDisabled: c.shadowRoot.querySelector('.retry').disabled }));
-    assert.equal(failed.notice, failed.expected, `${kind} ${locale}/${width}: recorded reaction failure notice`);
+    assert.equal(failed.replyNotice, failed.expected, `${kind} ${locale}/${width}: recorded reaction failure notice`);
+    assert.equal(failed.occurrences, 1, 'reply failure sentence appears exactly once across the UI');
+    assert.notEqual(failed.notice, failed.expected, 'overview retains its own state');
+    assert.equal(failed.retries, 1, 'exactly one Retry');
     assert.equal(failed.inlineHidden, true, `${kind} ${locale}/${width}: reaction failure uses footer Retry`);
     assert.equal(failed.footerHidden, false, `${kind} ${locale}/${width}: recorded reaction failure keeps footer Retry`);
     assert.equal(failed.footerDisabled, false, `${kind} ${locale}/${width}: footer Retry is enabled`);
+    assert.deepEqual(await boxes(page, targets), before, 'single reply failure causes 0 px surrounding displacement');
+    passes.push({ head: evidenceCommit, kind, locale, width, theme: 'light', failureSentences: 1, retries: 1, layoutShiftPx: 0, pass: true });
+    console.log(`AIT-212 PASS single reply failure ${kind} ${locale} ${width} light: sentence once, one Retry, 0 px`);
+    if (evidence && kind === 'typed' && locale === 'de') await page.screenshot({ path: join(evidence, `ait212-de-${width}-reply-failure-light.png`), fullPage: false, captureBeyondViewport: false });
   }
+  if (evidence) await writeFile(join(evidence, `ait212-reply-failure-${kind.replaceAll(' ', '-')}-passes.json`), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
 
 

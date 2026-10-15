@@ -275,7 +275,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     if (running) { if (wake) running.reschedule = true; return; }
     const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
-    job.promise = Promise.resolve(after).then(async () => {
+    job.promise = Promise.resolve(after).catch(() => {}).then(async () => {
       try {
         while (!stop.signal.aborted) {
           job.reschedule = false;

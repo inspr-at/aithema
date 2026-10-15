@@ -1030,7 +1030,7 @@ export class AithemaSession extends HTMLElement {
       !locked && !reconciling && !this.#host?.usedUp;
     const overviewText = !hasPersonTurn ? copy.empty : preparing ? copy.preparingOverview
       : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ' · '}`
-      : this.#failure && !reconciling ? copy.reasoningFailed
+      : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed ? copy.noProjectDetails
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;

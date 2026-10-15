@@ -403,3 +403,28 @@ test('AIT-213 recovering understanding reveals the remaining reaction failure', 
     assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
   } finally { await handlers.close(); storage.close(); }
 });
+
+
+test('AIT-212 rejected reply job still runs the queued overview once and clears both jobs', async () => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent }), runs = [];
+  const setLaneFailure = storage.setLaneFailure.bind(storage);
+  storage.setLaneFailure = (id, failure) => {
+    if (failure.lane === 'reaction') throw new Error('fixture failure while recording reply failure');
+    return setLaneFailure(id, failure);
+  };
+  handlers.lanes.run = async (_id, lane) => {
+    runs.push(lane);
+    if (lane === 'reaction') throw new Error('fixture reply failure');
+    return 'completed';
+  };
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    storage.postTurn(session.id, 'queued-input', Buffer.from('A website'), 'A website');
+    assert.equal((await handlers.handle(request(`${session.id}/retry`, {}))).status, 202);
+    await waitFor(() => runs.includes('understanding'));
+    await handlers.idle();
+    assert.deepEqual(runs, ['reaction', 'understanding']);
+    const snapshot = await (await handlers.handle(request(session.id))).json();
+    assert.deepEqual(snapshot.operations.running, [], 'neither scheduler job is stranded');
+  } finally { await handlers.close(); storage.close(); }
+});
