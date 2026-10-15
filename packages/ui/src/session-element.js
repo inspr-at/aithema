@@ -916,7 +916,8 @@ export class AithemaSession extends HTMLElement {
     }
     const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
     const reconciling = analysis.rawReason === 'budget reconciling';
-    const cached = reconciling || this.#session.paused || this.#host?.usedUp && this.#session.understanding.inputRevision !== null;
+    const cached = reconciling || this.#session.paused && this.#session.pauseReason !== 'purpose' ||
+      (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
     for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
       node.style.minHeight = ''; delete node.dataset.redacted;
     }
