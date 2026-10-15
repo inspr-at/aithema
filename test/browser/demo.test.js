@@ -1067,7 +1067,8 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     page.on('request', recordPause);
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await until(page, key => sessionStorage.getItem(key) === null, journalKey);
-    await waitForShadow(page, '.status__label', { text: 'Still paused. Select Resume to continue.' });
+    await waitForShadow(page, '.status__label', { text: 'Connected' });
+    await waitForShadow(page, '.composer-reason', { text: 'Session paused' });
     await new Promise(resolve => setTimeout(resolve, 1000));
     assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts the pause');
     assert.deepEqual(pauses, [], 'no pause change without the person');

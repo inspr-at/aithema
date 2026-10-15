@@ -16,17 +16,17 @@ export const defaultCreditFormat = formatCredits;
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
-  #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null;
-  #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied;
+  #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
+  #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
   #emailAsk = null;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, admissionDenied, streaming }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
-    this.#admissionDenied = admissionDenied;
+    this.#admissionDenied = admissionDenied; this.#creditContext = creditContext;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
     const o = this.#options, bar = root.querySelector('.host-bar'), s = copy.hostSurface;
     root.querySelector('.workspace').toggleAttribute('data-host', true);
@@ -97,7 +97,7 @@ export class HostSurface {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
       this.#creditsPoll = setInterval(() => {
         const rail = this.#root.querySelector('.audio-rail'), running = rail.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
-        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
+        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || rail.hasAttribute('data-call-reconciling') || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
       }, 15_000);
       this.#creditsPoll.unref?.();
     }
@@ -120,6 +120,10 @@ export class HostSurface {
       const reason = event.data?.reason;
       if (event.type === 'credits.limit-reached' && (reason !== 'host-limit' || !this.#onCredits)) this.#status(this.#copy.hostSurface.credits.ended[reason] ?? this.#copy.hostSurface.credits.ended.session);
       this.#ended = reason ?? this.#ended ?? 'session';
+    }
+    if (event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state)) {
+      const endedCall = this.#creditContext?.();
+      if (endedCall && event.data.callId === endedCall.callId && event.data.providerSessionId === endedCall.providerSessionId) this.#creditClosing = endedCall;
     }
     if (['identity.state', 'identity.unlocked', 'credits.state', 'credits.limit-reached', 'conversation.end-requested', 'session.paused'].includes(event.type) ||
       event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state) ||
@@ -207,7 +211,9 @@ export class HostSurface {
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
-    const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current;
+    const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current, endedCall = this.#creditContext?.();
+    // Only receipts requested after this call's durable closing/ended can settle it.
+    const settlingCall = endedCall === this.#creditClosing && !endedCall?.settled ? endedCall : undefined;
     this.#creditsReads++;
     this.#verification?.setCreditsState('loading');
     try {
@@ -222,7 +228,7 @@ export class HostSurface {
       const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
       if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
-      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged });
+      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
       this.#emailAsk?.setCredits(this.#credits);
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.

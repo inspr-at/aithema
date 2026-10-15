@@ -144,7 +144,8 @@ for (const transport of ['webrtc', 'websocket']) {
       assert.equal(f.root.querySelector('.send').disabled, Boolean(hold));
       if (hold) {
         assert.equal(root.dataset.state, 'waiting');
-        assert.equal(f.root.querySelector('.status__label').textContent, en.paused);
+        assert.equal(f.root.querySelector('.status__label').textContent, en.connected);
+        assert.equal(f.root.querySelector('.composer-reason').textContent, en.paused);
         assert.equal(f.returned.length, 0, 'a superseded startup cannot return active media');
         assert.equal(f.sdk.acquired.length, 0);
         assert.ok(f.sdk.effects.filter(([name]) => name === 'setVolume').every(([, volume]) => volume === 0));

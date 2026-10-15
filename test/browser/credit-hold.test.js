@@ -65,7 +65,11 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         const voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
           async start(request) { const events = voiceEvents(); return { callId: request.callId, providerSessionId: 'hold-fixture', events,
             async setInput() {}, async setOutput() {}, async heartbeat() {}, async updateContext() {},
-            async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+            async close() {
+              // The server announces closing before its terminal can be lost.
+              c.receive({ type: 'voice.state', data: { callId: request.callId, providerSessionId: 'hold-fixture', state: 'closing' } });
+              events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null };
+            } }; } };
         c.setAttribute('motion', 'off');
         c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true } } });
         const legal = document.createElement('a'); legal.slot = 'legal'; legal.href = '/privacy'; legal.setAttribute('data-aithema-privacy', ''); c.replaceChildren(legal);
@@ -207,6 +211,8 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         await settle(page);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), draft, 'settlement keeps the draft');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').hasAttribute('title')), false);
+        const settledRail = await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent);
+        assert.equal(settledRail, locale === 'de' ? 'Anruf beendet.' : 'Call ended.', 'ledger-only settlement clears the rail without a voice terminal');
         const overview = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
           retry: c.shadowRoot.querySelector('.retry').hidden, summary: c.shadowRoot.querySelector('.summary-text').textContent }));
         assert.doesNotMatch(overview.notice, /nicht verfügbar|unavailable/iu); assert.equal(overview.retry, true, 'settlement offers no manual retry');
@@ -215,10 +221,10 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         assert.equal(shift, 0, `${locale}/${width}: settlement shifted the credit number by ${shift}px`);
         for (const theme of ['light', 'dark']) {
           await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme); await settle(page);
-          passes.push({ head: evidenceCommit, locale, width, theme, state: `${state}-settled`, draftKept: true, sendReenabled: true, layoutShiftPx: shift, pass: true });
+          passes.push({ head: evidenceCommit, locale, width, theme, state: `${state}-settled`, draftKept: true, sendReenabled: true, railText: settledRail, layoutShiftPx: shift, pass: true });
           if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}-settled.png`), fullPage: false, captureBeyondViewport: false });
         }
-        console.log(`AIT-173 PASS ${locale} ${width} ${state} settled: draft kept; send re-enabled automatically; overview kept; no error or retry; tooltip cleared; shift=${shift}px`);
+        console.log(`AIT-173 PASS ${locale} ${width} ${state} settled: draft kept; send re-enabled automatically; overview kept; no error or retry; tooltip cleared; shift=${shift}px; rail=${settledRail}`);
       }
     }
   }

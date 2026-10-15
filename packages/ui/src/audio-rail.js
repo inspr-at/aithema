@@ -1,4 +1,5 @@
 import { icon } from './icons.js';
+import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
 import { RecoveryNotices } from './recovery-notices.js';
 import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-lifecycle-controller.js';
@@ -105,6 +106,13 @@ export class AudioRail {
   }
   measureLabel() {
     const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    if (this.root.hasAttribute('data-message')) {
+      const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
+      const viewport = this.root.ownerDocument.documentElement.clientWidth;
+      const width = Math.min(280, viewport - 32);
+      const left = Math.max(16, Math.min(signal.left, viewport - 16 - width));
+      this.root.style.setProperty('--voice-message-left', `${left - signal.left}px`);
+    }
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
     const range = this.root.ownerDocument.createRange();
     range.selectNodeContents(label);
@@ -162,11 +170,11 @@ export class AudioRail {
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     // The session's one exhaustion announcement describes both credits and the saved conversation.
     this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
-    this.root.querySelector('.voice-state').textContent = usedUp ? c.voiceStates[creditEnding ? 'creditEnding' : 'usedUp'] : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
-      available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
+    setText(this.root.querySelector('.voice-state'), usedUp ? c.voiceStates[creditEnding ? 'creditEnding' : 'usedUp'] : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
+      available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured));
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
-    if (low) this.root.querySelector('.voice-state').textContent = c.voiceStates.low;
+    if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };
@@ -190,7 +198,7 @@ export class AudioRail {
     this.button('output').setAttribute('aria-pressed', String(this.output));
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
     for (const [name, cellName] of [['input', 'mic'], ['output', 'output']]) {
-      const cell = this.root.querySelector(`.voice-cell--${cellName}`), help = cell.querySelector('.voice-waiting-help'), waiting = state === 'waiting';
+      const cell = this.root.querySelector(`.voice-cell--${cellName}`), help = cell.querySelector('.voice-waiting-help'), waiting = state === 'waiting' && !usedUp;
       const resumeFirst = this.moved ? c.voiceResumeHereFirst : c.voiceResumeFirst;
       help.textContent = resumeFirst; help.hidden = !waiting;
       if (waiting) {
@@ -534,9 +542,17 @@ export class AudioRail {
     if (!this.session && this.state !== 'connecting') return;
     this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render();
   }
+  // A ledger receipt belongs to the ended identity captured before its request.
+  // A newer Start clears that identity, even when startup subsequently fails.
+  settleLedger(ended) {
+    if (!ended || ended !== this.endedCall || ended.settled || this.session || this.state !== 'idle') return;
+    ended.settled = true;
+    if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';
+    this.render();
+  }
   settlement(data) {
     const ended = this.endedCall;
-    if (this.session || !ended || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
+    if (this.session || !ended || ended.settled || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
       data.terminal?.closureConfirmed !== true || !data.terminal.usage || data.terminal.usage.costEstimated === true) return;
     ended.settled = true;
     if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';

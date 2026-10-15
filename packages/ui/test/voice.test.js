@@ -944,7 +944,8 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
     assert.deepEqual(resumes(calls), [], `${name}: no pause change without the person`);
     assert.equal(c.session.paused, true, `${name}: still paused`);
     const root = c.shadowRoot, resume = root.querySelector('.pause');
-    assert.equal(root.querySelector('.status__label').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
+    assert.equal(root.querySelector('.status__label').textContent, en.connected, `${name}: footer keeps the connection status`);
+    assert.equal(root.querySelector('.composer-reason').textContent, en.paused, `${name}: pause appears in the composer`);
     assert.equal(resume.textContent, en.resume); assert.equal(root.activeElement, resume, `${name}: Resume has focus`);
     c.remove();
   }
@@ -952,7 +953,8 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
   c.shadowRoot.querySelector('.pause').click(); await until(() => !c.session.paused, 'one click resumes');
   assert.deepEqual(resumes(calls).map(call => call.body), [{ paused: false }]);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.paused, 'the prompt ends with that pause');
+  assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.connected, 'the footer stays connected after another manual pause');
+  assert.equal(c.shadowRoot.querySelector('.composer-reason').textContent, en.paused, 'pause appears in the composer');
 });
 test('without BroadcastChannel a reload never closes the journaled call; the lease ends it (AIT-116 D4)', async t => {
   const { c, calls, storage, session } = await reloadOrphan(t, { record: { callId: 'old-call', providerSessionId: 'old-provider' }, channel: false });
@@ -1114,4 +1116,21 @@ test('AIT-136 withdrawal arriving during normal end reaches the already closing 
     assert.equal(rail.close('turn-withdrawn'), closing);
     assert.deepEqual(calls.map(options => options.reason), ['closed', 'turn-withdrawn']);
   } finally { held.resolve({ closureConfirmed: true }); await closing; }
+});
+
+test('AIT-186 F2: ledger and voice settlement paint exactly once, stale ledger identity is inert', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  rail.session.close = async () => { throw new Error('outage'); }; await rail.close();
+  const ended = rail.endedCall, render = t.mock.method(rail, 'render');
+  rail.settleLedger(ended);
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceEnded);
+  rail.settleLedger(ended);
+  rail.settlement({ ...ended, terminal: { closureConfirmed: true, usage: { costEstimated: false } } });
+  assert.equal(render.mock.callCount(), 1, 'one settlement repaint across ledger/voice duplicates');
+  rail.client.start = async () => ({ callId: 'next-ledger-call', providerSessionId: 'next-ledger-provider', events: voiceEvents(),
+    async setInput() {}, async setOutput() {}, async updateContext() {}, async close() { this.events.end(); return { closureConfirmed: true }; } });
+  await rail.start(); const paints = render.mock.callCount();
+  rail.settleLedger(ended);
+  assert.equal(render.mock.callCount(), paints, 'old ledger result cannot resurrect an ended rail');
+  assert.equal(root.dataset.call, 'active');
 });

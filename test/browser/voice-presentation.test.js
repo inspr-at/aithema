@@ -148,7 +148,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     };
   });
   if (evidence) await mkdir(evidence, { recursive: true });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     const label = `${width}-${theme}-${locale}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     await page.select('#theme', theme);
@@ -178,6 +178,8 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
           pause: visible('.pause'), resumeGlyph: visible('.pause .voice-icon--resume'),
           pauseEnabled: !root.querySelector('.pause').disabled, pauseTitle: root.querySelector('.pause').title,
           sessionPaused: c.session.paused, stop: visible('.voice-close'),
+          overview: root.querySelector('.notice').textContent, summary: root.querySelector('.summary-text').textContent,
+          footer: root.querySelector('.status__label').textContent, composer: root.querySelector('.composer-reason').textContent,
           boxes: ['.band', '.audio-rail', '.voice-cell--output', '.voice-signal', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'].map(selector => {
             const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
           }) };
@@ -243,6 +245,10 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     assert.equal(pausedAfterCall.resumeGlyph, true); assert.equal(pausedAfterCall.pauseGlyph, false);
     assert.equal(pausedAfterCall.pauseEnabled, true); assert.equal(pausedAfterCall.liveMic, false);
     assert.equal(pausedAfterCall.pauseTitle, locale === 'de' ? 'Fortsetzen' : 'Resume');
+    assert.equal(pausedAfterCall.overview, idle.overview, `${label}: F6 overview keeps its last content`);
+    assert.equal(pausedAfterCall.summary, idle.summary);
+    assert.equal(pausedAfterCall.footer, locale === 'de' ? 'Verbunden' : 'Connected', `${label}: F6 footer keeps connection status`);
+    assert.equal(pausedAfterCall.composer, locale === 'de' ? 'Gespräch pausiert' : 'Session paused');
     await page.mouse.move(0, 500); await settle(); await capture('paused-after-call');
     await clickPause();
     const resumed = await page.evaluate(() => globalThis.readEndedRail());

@@ -239,7 +239,7 @@ export async function displayMatrix(t, section) {
         });
         assert.ok(menus.every(n => n.bounds.left >= 0 && n.bounds.right <= width + .5), `${width}/${theme}/${locale}: menus fit`);
         assert.ok(menus.every(n => n.chevron), 'language and appearance use the shared SVG chevron');
-        for (const menu of menus.slice(width < 400 ? 1 : 0)) {
+        for (const menu of menus.filter(menu => menu.label.width > 0)) {
           assert.equal(menu.chevron.width, 10); assert.equal(menu.chevron.height, 10);
           assert.ok(Math.abs(menu.chevron.cy - menu.label.cy) <= .5, 'chevron is centred on its label');
           assert.equal(menu.path, menus[1].path); assert.equal(menu.gap, menus[1].gap);
@@ -306,8 +306,8 @@ export async function displayMatrix(t, section) {
         await shot('band-amended', width, 'light');
       }
     });
-    await t.test('r2 menu: icon-only below 400px, whole localized labels from 400px, no ellipsis', async () => {
-      for (locale of ['de', 'en']) for (const width of [390, 400, 1440]) {
+    await t.test('r2 menu: icon-only below 448px, whole localized labels from 448px, no ellipsis', async () => {
+      for (locale of ['de', 'en']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const menu = await shadow(page, c => {
           const n = c.shadowRoot.querySelector('.conversations-toggle'), label = n.querySelector('span'), style = getComputedStyle(label);
@@ -319,7 +319,7 @@ export async function displayMatrix(t, section) {
         });
         const name = locale === 'de' ? 'Gespräche' : 'Conversations';
         assert.equal(menu.name, name); assert.equal(menu.title, name); assert.equal(menu.label, name); assert.equal(menu.icon, 16);
-        assert.equal(menu.visible, width >= 400); assert.notEqual(menu.overflow, 'ellipsis');
+        assert.equal(menu.visible, width >= 448); assert.notEqual(menu.overflow, 'ellipsis');
         if (menu.visible) assert.equal(menu.fits, true, `${width}/${locale}: ${JSON.stringify(menu)}`);
         await shot('r2-band', width, 'light');
       }
