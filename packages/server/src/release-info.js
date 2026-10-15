@@ -7,5 +7,5 @@ try { runtime = JSON.parse(readFileSync(new URL('./release-runtime.json', import
 catch (error) { if (error.code !== 'ENOENT') throw error; }
 const source = { version: pkg.version, version_scheme: 'legacy', release_channel: 'stable', release_sequence: null };
 parseVersion(runtime ?? source);
-if (runtime && (!['release', 'dry-run'].includes(runtime.mode) || !/^[a-f0-9]{40}$/u.test(runtime.source?.commit))) throw new TypeError('Invalid artifact source commit');
+if (runtime && (!['candidate', 'release', 'dry-run'].includes(runtime.mode) || !/^[a-f0-9]{40}$/u.test(runtime.source?.commit))) throw new TypeError('Invalid artifact source commit');
 export const releaseInfo = Object.freeze(runtime ?? source);

@@ -7,8 +7,8 @@ export const localVoiceBinding = Object.freeze({ plugin: 'fake-voice', model: 'l
   effort: 'none', endpoint: 'https://example.test', accountRef: 'local-demo', secretRef: 'local-only',
   maxMicro: 0, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 3600,
   upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
-const localStarts = new WeakSet();
-export const isLocalVoice = plugin => localStarts.has(plugin?.start);
+import { markLocalVoice, isLocalVoice } from '../../../packages/server/src/local-voice-identity.js';
+export { isLocalVoice };
 
 function terminal(call, at, outcome = 'completed') {
   const end = call.endedAt ?? at, providerSeconds = Math.max(0, end - call.startedAt) / 1000;
@@ -111,5 +111,5 @@ export function createLocalVoiceProvider({ storage, now = Date.now }) {
   });
   const plugin = { manifest, health: options => voiceOperation(options, async () => ({ available: true })),
     start, ports: Object.freeze({ serverAdapter }) };
-  localStarts.add(start); return plugin;
+  markLocalVoice(start); return plugin;
 }

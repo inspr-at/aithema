@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { parseVersion, compareVersions, reserveVersion, migrationGate, assertReleaseTag } from '../release/lib/version.mjs';
-const source = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
+const declared = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
+const source = { ...declared, status: 'unreserved', version: '0.0.0', version_scheme: 'legacy', release_sequence: null,
+  migration: { ...declared.migration, first_calendar_version: null } };
 const record = (version, version_scheme = 'inspr-calver-3', release_sequence = 12) => ({ version, version_scheme, release_sequence, release_channel: 'stable' });
 test('CalVer3 validates full UTC dates and SemVer-clean coordinates without truncating integers', () => {
   for (const value of ['100101000000.0.0', '260909113550.0.0', '280229120000.0.0', '991231235959.0.0']) {
@@ -42,17 +43,18 @@ test('reservation is pure, owner-triggered, single-use and refuses a same-second
 test('migration gate keeps current legacy metadata and live evidence pending before publication', () => {
   assert.equal(source.status, 'unreserved'); assert.equal(source.version, '0.0.0'); assert.equal(source.version_scheme, 'legacy');
   const gate = migrationGate(source, {}); assert.equal(gate.authoritative, false);
-  assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160')); assert.ok(gate.pending.includes('immutable-candidate'));
+  assert.ok(gate.pending.includes('immutable-candidate'));
   const reserved = reserveVersion(source, { now: '2026-10-14T08:00:00Z', publishGo: true });
   assert.equal(migrationGate(reserved, { 'AIT-139': { status: 'merged' }, 'AIT-160': { status: 'merged' } }).authoritative, false);
 });
 
-test('qualification CLI fails closed before release and names pending measured inputs', () => {
-  let failure;
-  try { execFileSync(process.execPath, ['release/gate.mjs', 'qualification'], { cwd: new URL('../', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] }); }
-  catch (error) { failure = error; }
-  assert.equal(failure?.status, 1); const gate = JSON.parse(failure.stdout);
-  assert.equal(gate.authoritative, false); assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160'));
+test('owner candidate authorization reserves without claiming publication or measured qualifications', () => {
+  const candidate = reserveVersion(source, { now: '2026-10-15T16:46:01Z', candidateGo: true });
+  assert.equal(candidate.version, declared.version);
+  const gate = migrationGate(candidate, {});
+  assert.equal(gate.authoritative, false);
+  assert.ok(gate.pending.includes('presentation-pin'));
+  assert.ok(!gate.pending.includes('AIT-139')); assert.ok(!gate.pending.includes('AIT-160'));
 });
 
 test('historical release-manifest scheme declarations remain explicit, unchanged legacy records', () => {

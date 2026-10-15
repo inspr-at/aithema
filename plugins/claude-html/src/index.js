@@ -2,8 +2,8 @@ import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedE
 import { buildMessages } from './prompt.js';
 import { repairHTML, previousDocument, htmlArtifact } from './html-artifact.js';
 import { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';
-import { providerMaxPrice } from '../../openrouter/src/pricing.js';
-import { reconcileGeneration } from '../../openrouter/src/reconcile.js';
+import { providerMaxPrice } from '@inspr/aithema-plugin-openrouter/pricing';
+import { reconcileGeneration } from '@inspr/aithema-plugin-openrouter/reconcile';
 export { SYSTEM_PROMPT, buildMessages, revisionOf } from './prompt.js';
 export { repairHTML, htmlArtifact } from './html-artifact.js';
 export { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';

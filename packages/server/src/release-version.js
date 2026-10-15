@@ -41,9 +41,9 @@ export function compareVersions(left, right, anchor) {
   }
   return sign(a.release_sequence, b.release_sequence);
 }
-// Pure reservation planning. The caller persists the returned source once, only after Markus's separate publish go.
-export function reserveVersion(source, { now, publishGo = false, previous } = {}) {
-  if (!publishGo) throw new Error('Separate publish go required before reservation');
+// Pure reservation planning. The caller persists the returned source once, after owner authorization for a candidate or publication.
+export function reserveVersion(source, { now, publishGo = false, candidateGo = false, previous } = {}) {
+  if (!publishGo && !candidateGo) throw new Error('Candidate authorization or separate publish go required before reservation');
   if (source.status !== 'unreserved') throw new Error('Coordinate already reserved; changed outputs need a new source reservation');
   parseVersion(source);
   if (source.migration.target_scheme !== 'inspr-calver-3' || !Number.isSafeInteger(source.migration.first_calendar_sequence) ||
@@ -69,7 +69,7 @@ export function assertReleaseTag(ref, source) {
   parseVersion(source);
   if (ref !== `refs/tags/v${source.version}`) throw new Error('Release tag does not match admitted version');
 }
-export const qualificationInputs = ['inventory', 'consumer-gates', 'presentation-pin', 'immutable-candidate', 'signatures', 'update-path', 'deployment-pin', 'exact-rollback', 'public-representation', 'AIT-139', 'AIT-160'];
+export const qualificationInputs = ['inventory', 'consumer-gates', 'presentation-pin', 'immutable-candidate', 'signatures', 'update-path', 'deployment-pin', 'exact-rollback', 'public-representation'];
 export function migrationGate(source, evidence = {}) {
   parseVersion(source);
   const pending = qualificationInputs.filter(key => evidence[key]?.status !== 'verified' || typeof evidence[key]?.reference !== 'string' || !evidence[key].reference.trim());

@@ -17,7 +17,9 @@
     "demo": "node demo/server.js",
     "release:dry-run": "node release/dry-run.mjs",
     "release:pack": "node release/pack.mjs pack",
-    "release:verify": "node release/pack.mjs verify"
+    "release:verify": "node release/pack.mjs verify",
+    "release:consumer": "node release/consumer.mjs",
+    "release:candidate": "node release/candidate.mjs"
   },
   "devDependencies": {
     "happy-dom": "^20.11.2",
@@ -25,7 +27,7 @@
     "typescript": "5.9.3",
     "yaml": "2.8.2"
   },
-  "version": "0.0.0",
+  "version": "261015164601.0.0",
   "description": "Embeddable requirements conversation: core, server, web components and provider plugins",
   "license": "AGPL-3.0-only"
 }

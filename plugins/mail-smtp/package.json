@@ -1,10 +1,25 @@
 {
   "name": "@inspr/aithema-plugin-mail-smtp",
-  "private": true,
+  "private": false,
   "type": "module",
-  "exports": "./src/index.js",
-  "dependencies": { "nodemailer": "10.1.0" },
-  "engines": { "node": ">=24" },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "nodemailer": "10.1.0",
+    "@inspr/aithema-ui": "261015164601.0.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/mail-smtp"
+  }
 }

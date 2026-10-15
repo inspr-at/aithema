@@ -1,10 +1,10 @@
-import { collectPurposeReply } from '../../../packages/core/src/safeguards.js';
+import { collectPurposeReply } from '@inspr/aithema-core/safeguards';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
-import { operationScope } from '../../../packages/core/src/reasoning.js';
-import { voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
-import { ReplyOpenerStream, stripThanksOpener } from '../../../packages/core/src/reply-opener.js';
+import { PluginError, PLUGIN_ERROR_CODES } from '@inspr/aithema-core/invocation';
+import { operationScope } from '@inspr/aithema-core/reasoning';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
+import { aiTextOrigin } from '@inspr/aithema-core/text-origin';
+import { ReplyOpenerStream, stripThanksOpener } from '@inspr/aithema-core/reply-opener';
 import { readJson } from './server.js';
 import { runElevenLabsReply, elevenLabsReplyChunk, elevenLabsCompletion } from './reply.js';
 

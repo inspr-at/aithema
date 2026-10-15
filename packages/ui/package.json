@@ -1,16 +1,30 @@
 {
   "name": "@inspr/aithema-ui",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/session-element.js",
     "./i18n/en": "./src/i18n/en.js",
     "./voice-control": "./src/voice-control.js",
-    "./html-preview": "./src/html-preview.js"
+    "./html-preview": "./src/html-preview.js",
+    "./reply-audio": "./src/reply-audio.js",
+    "./page-replay": "./src/page-replay.js",
+    "./display": "./src/display.js"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "packages/ui"
+  },
+  "dependencies": {
+    "@inspr/aithema-core": "261015164601.0.0"
+  }
 }

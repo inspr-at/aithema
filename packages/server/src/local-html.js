@@ -1,5 +1,5 @@
 import { deepFreeze, beginInvocation, operationScope, verifyHTMLArtifact, PluginError } from '@inspr/aithema-core';
-import { manifest as htmlManifest, htmlArtifact, buildMessages, revisionOf } from '../../../plugins/claude-html/src/index.js';
+import { manifest as htmlManifest, htmlArtifact, buildMessages, revisionOf } from '@inspr/aithema-plugin-claude-html/index';
 
 const localGenerates = new WeakSet();
 export const isLocalHTML = plugin => localGenerates.has(plugin?.generate);

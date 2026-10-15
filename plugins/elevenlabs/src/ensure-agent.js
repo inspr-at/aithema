@@ -1,6 +1,6 @@
 import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
-import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
+import { aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { voiceOverrides } from './options.js';
 
 /** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */

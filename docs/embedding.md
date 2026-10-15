@@ -1,14 +1,67 @@
 # Embedding Aithema
 
-The reset generation is **release preparation only** (AIT-105/AIT-32).
-No reset package has been published. Development packages remain private at
-`0.0.0`; examples resolve the current workspace exports on Node.js 24 or newer.
-The future workspace tarball contains core, server, UI, all shipped plugin
-sources, the demo host, the dependency lock, rights notes and release provenance.
-It is one workspace artifact, rather than independently published npm packages.
-Extract a verified artifact, enter `package/`, and use `npm ci --omit=dev` to
-install its locked runtime dependencies. A consumer installing from npm will
-need the separately authorized publication and package-layout decision first.
+The first reset candidate uses **INSPR-CalVer3**; `release/version.json` is the
+single version authority. The root workspace is private. The release packer
+emits independently installable core, server, UI and twelve provider/integration
+plugin tarballs, with exact dependency pins, plus a retained workspace archive.
+No reset package has been published. Node.js 24 or newer is required.
+See [candidate notes](../release/notes.md) and the [registry recommendation](../release/README.md).
+
+## Consume Aithema as a module (START or another thin host)
+
+On the build runner, retain the candidate directory and its manifest digest.
+Run `npm run release:verify -- /path/to/candidate/first` before installing.
+From a separate host directory, install **all fifteen** module tarballs so npm
+can resolve their exact mutual dependencies without a registry publication:
+
+```sh
+npm install --save-exact /path/to/candidate/first/inspr-aithema-*.tgz
+```
+
+Commit the host's lockfile and retain the deployment pin, manifest and tarballs.
+Use `npm ci` with those retained paths for subsequent deployments. A browser
+bundler resolves the UI and its core dependency; an unbundled browser needs an
+import map for each exported package subpath. Workspace source browser URLs
+are converted to declared package subpaths by `release:pack`.
+
+The host supplies durable storage, authoritative identity/ownership and consent,
+and budget policy. The server and UI are mounted independently; the demo is
+an example host, not a dependency of START. A mock-only host can compose them as
+follows (the `ports` object is trusted START server configuration):
+
+```js
+import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { SQLiteBudgetLedger, createPluginRuntime, mockPresets, createHandlers } from '@inspr/aithema-server';
+import { httpAdapter } from '@inspr/aithema-server/http';
+
+export async function mountAithema(ports) {
+  const storage = ports.storage; // e.g. SQLiteStorage; host owns its lifecycle
+  const consent = ports.consent; // coverage, grant and withdraw; shared with runtime
+  const reasoning = createMockReasoning();
+  const registry = new PluginRegistry().register(reasoning);
+  const budget = new SQLiteBudgetLedger(storage, ports.budgetPolicy);
+  const pluginRuntime = createPluginRuntime({ storage, consent, reasoning, registry,
+    budget, presets: mockPresets() });
+  const handlers = createHandlers({ storage, consent, pluginRuntime,
+    ownership: ports.ownership, host: {
+      identity: ports.identity, library: ports.library, handover: ports.handover,
+      wallet: ports.wallet, walletForSession: ports.walletForSession, credits: ports.credits,
+      policy: ports.policy, privacyDocumentConfigured: ports.privacyDocumentConfigured,
+    } });
+  await handlers.resume();
+  return { middleware: httpAdapter(handlers.handle), handle: handlers.handle,
+    close: () => handlers.close() };
+}
+```
+
+Mount `middleware` in the host HTTP server, or route Web `Request` objects to
+`handle`. Pass the host's authenticated cookie/session token through
+`ownership.token`; ensure the same token reaches the web component. The browser
+example below creates and mounts `<aithema-session>`. Call `close()` before
+closing the host storage on shutdown. `walletForSession` supplies runtime
+owner admission; `wallet(ownerToken)` and `credits` supply the host account UI.
+For paid models, register the chosen plugin factory and supply qualified private
+bindings in the preset choices; mock presets alone never enable a paid route.
 
 ## Server handlers
 
@@ -165,14 +218,17 @@ protocol, not the CalVer3 package compatibility promise.
 
 ## Version source, release mapping and rollback
 
-`release/version.json` is the sole authority. It stays `legacy`, `0.0.0`,
-`status: unreserved` during preparation. The fixed `dry_run_version` is test
-input and never reserves a release. After Markus's separate publish go, reserve
-one actual UTC second through the pure `reserveVersion` planner and persist its
-returned record in that source before committing/tagging. Reuse it in every
+`release/version.json` is the sole authority. The owner-authorized candidate reserves
+one UTC second with `status: reserved`, sequence 12 and scheme `inspr-calver-3`.
+`reserveVersion` accepts explicit candidate authorization separately from a
+publish go. A candidate reservation authorizes no tag or registry publication.
+The fixed `dry_run_version` remains test input only. Reuse it in every
 output; build machines never choose their own coordinate. The channel's next
 reservation must be strictly later; a same-second collision waits for the next
-second. A reserved source cannot be edited to replace the artifact set.
+second. Retain the candidate source commit and manifest digest; rebuild that exact commit
+with the same toolchain. The source-commit argument to `release:pack` allows that
+reproduction after evidence-only commits. Changed product bytes require a new
+candidate and a new coordinate before publication.
 
 New reservations declare `inspr-calver-3` (**INSPR-CalVer3**),
 `YYMMDDhhmmss.0.0`; npm accepts this syntax. MINOR/PATCH stay zero and caret/tilde
@@ -221,16 +277,18 @@ legacy rollback continues through the original immutable v0.x artifacts.
 
 Merged implementation and deterministic tests prove code delivery. They do not
 prove measured provider performance, exchangeability, live deployment or adoption.
-`node release/gate.mjs qualification` intentionally fails during this prep.
+The independent cross-family review remains pending and is not run by the builder.
 The value-free migration inventory is `release/inventory.json`, owned by AIT-32.
 
 - [ ] Controller review of the version inventory, consumers, legacy anchor and compatibility window.
 - [ ] Independent review of the exact shared presentation source/config/manifest pins in `release/presentation.json`; reproduce the closure with upstream `scripts/versioning-bundle.mjs <full-source-commit> <config-sha256> <new-directory>` on the build runner. The source repository is private: public PR CI verifies the pinned offline closure, and never obtains broader source access or new credentials. A build runner with that exact source checkout can use `node release/verify-upstream-presentation.mjs <source-checkout>` to regenerate and compare all bytes. That independent source re-export/pin review remains pending, and the payload is not adoption evidence.
-- [ ] Reserve once after Markus's separate publish go; complete immutable candidate publication, signatures/attestation and digest retention then.
-- [ ] Verify candidate package install, public representation, update path, exact deployment pin and exact-artifact rollback against that candidate.
-- [ ] [AIT-139 soak report](https://aeon.barta.cm/p/AIT/AIT-139): German and English 60-minute live runs, barge-in, disruption, latency/deadline/retry/recovery measurements and final wallet reconciliation — **pending**. Offline merged part 1 is not the report.
-- [ ] [AIT-160 second-pipeline qualification](https://aeon.barta.cm/p/AIT/AIT-160): independent live exchangeability proof — **pending**. Fake transport conformance is not qualification.
-- [ ] Record evidence in AIT-32 before declaring CalVer3 authoritative; retain legacy readers until a separately approved compatibility change.
+- [x] Reserve the first candidate coordinate; build all package tarballs twice and verify identical digests (`release/candidate.mjs`).
+- [x] External consumer imports every documented symbol and runtime export, mounts handlers and web components, locks dependencies, updates the dependency pin and rolls back retained candidate bytes (`release/consumer.mjs`). This is scratch-host evidence, not a START production deployment.
+- [x] Wire tag-only GitHub artifact attestation (`.github/workflows/release.yml`); signed bundles are produced only by a future authorized tag build.
+- [x] AIT-139: **60-minute soak not measured** (Markus: “Kein Test”); explicitly stated in the release notes, not a release blocker.
+- [x] AIT-160: **second voice pipeline not yet proven** (parked); explicitly stated in the release notes, not a release blocker.
+- [ ] Independent presentation pin review stays with the cross-family gate.
+- [ ] Markus's separate Desk publish go; no tag, GitHub release or registry publication is performed here.
 
 Public code remains **AGPL-3.0-only** throughout core/server/UI/contract/plugins.
 D3 revised (2026-10-09) retains INSPR's rights and allows the planned special

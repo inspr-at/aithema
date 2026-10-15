@@ -15,6 +15,10 @@ concurrency:
 jobs:
   pack:
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -39,9 +43,15 @@ jobs:
         run: node release/pack.mjs pack dist/release "$GITHUB_REF"
       - name: Verify the same bytes
         run: node release/pack.mjs verify dist/release
-      # Only ephemeral CI transfer. npm, forge publication and signing require the later owner go.
+      - name: Attest the manifest and every immutable archive
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/release/*.tgz
+            dist/release/release-set.json
+      # Artifact retention only. Registry/forge publication remains a separate owner go.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aithema-reset-${{ github.ref_name }}
           path: dist/release/
-          retention-days: 14
+          retention-days: 90

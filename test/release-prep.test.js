@@ -20,6 +20,10 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-ui'));
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-plugin-elevenlabs'));
   verifyRelease(a.directory);
+  assert.equal(a.manifest.artifacts.filter(artifact => artifact.kind === 'module').length, 15);
+  writeFileSync(join(a.directory, 'release-set.json'), JSON.stringify({ ...a.manifest, artifacts: a.manifest.artifacts.slice(0, -1) }));
+  assert.throws(() => verifyRelease(a.directory), /Incomplete artifact set/);
+  writeFileSync(join(a.directory, 'release-set.json'), JSON.stringify(a.manifest));
   const sidecar = join(a.directory, 'release-set.json');
   writeFileSync(sidecar, JSON.stringify({ ...a.manifest, source: { ...a.manifest.source, commit: '1'.repeat(40) } }));
   assert.throws(() => verifyRelease(a.directory), /source commit/i);
@@ -54,7 +58,7 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.equal(lock.packages['packages/server'].version, pkg.version);
   assert.equal(lock.packages['packages/server'].dependencies['@inspr/aithema-core'], pkg.version);
   const declared = JSON.parse(readFileSync(join(fixture, 'release/version.json')));
-  const reserved = reserveVersion(declared, { now: '2026-10-14T08:00:00Z', publishGo: true });
+  const reserved = reserveVersion({ ...declared, status: 'unreserved', migration: { ...declared.migration, first_calendar_version: null } }, { now: '2026-10-14T08:00:00Z', publishGo: true });
   writeFileSync(join(fixture, 'release/version.json'), JSON.stringify(reserved)); git('add', 'release/version.json');
   git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'reserved fixture');
   const released = packRelease({ root: fixture, output: join(fixture, 'released'), ref: 'refs/tags/v' + reserved.version });
