@@ -20,7 +20,7 @@ document.addEventListener('change', event => {
 
 // If the module graph fails, expose the native fallback controls again. Until
 // definition, light-DOM utilities have no header slot and must not paint there.
-window.addEventListener('error', event => {
+document.addEventListener('error', event => {
   if (event.target?.matches?.('script[src="/demo/host.js"]')) {
     document.documentElement.dataset.hostUnavailable = '';
   }
