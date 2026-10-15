@@ -206,7 +206,7 @@ export class AithemaSession extends HTMLElement {
       setText(root.querySelector('.send .visually-hidden'), copy.send);
       setText(root.querySelector('.settings-open span'), copy.settings.open); root.querySelector('.settings-open').title = copy.settings.open;
       root.querySelector('.scale').setAttribute('aria-label', `${copy.talk} — ${copy.build}`);
-      this.#rail.copy = copy; this.#rail.render();
+      this.#rail.copy = copy; this.#renderVoice();
       this.#dialog.setCopy(copy); this.#connector?.setCopy(copy); this.#concept.setCopy(copy); this.#host?.setCopy(copy);
       this.#mountReveal();
       this.#paint('features'); this.#paint('transcript'); this.#paint('aside'); this.#paint('composer');
@@ -446,7 +446,7 @@ export class AithemaSession extends HTMLElement {
     this.#rail.motion = this.#motion;
     this.#mountReveal(version);
     // Recompute with the assigned rail, visible command and host credit surface.
-    this.#rail.render();
+    this.#renderVoice();
   }
   #mountReveal(version = { product: 'Aithema 2026.10', ...this.#options.host?.version }) {
     const root = this.shadowRoot;
@@ -649,7 +649,7 @@ export class AithemaSession extends HTMLElement {
     const exported = this.shadowRoot.querySelector('.export'), device = this.#session.processingPreset === 'device';
     if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
     else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
-    if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#rail.render(); } }
+    if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {
     const sessionId = this.#session.id;
@@ -677,7 +677,7 @@ export class AithemaSession extends HTMLElement {
       this.#session.featureMatrix = ack.featureMatrix; this.#session.engine = ack.engine;
     }
     this.#renderMode();
-    this.#render('features'); this.#render('composer'); this.#render('aside'); this.#render('transcript'); this.#rail.render();
+    this.#render('features'); this.#render('composer'); this.#render('aside'); this.#render('transcript'); this.#renderVoice();
   }
   #modeChanged(before) {
     if (this.#session.processingPreset === 'device') { this.#abort?.abort(); this.#abort = null; }
@@ -764,6 +764,7 @@ export class AithemaSession extends HTMLElement {
       if (sessionId === this.#session.id) { this.#render('aside'); this.#render('composer'); }
     }
   }
+  #renderVoice() { this.#anchored(() => this.#rail.render()); }
   #render(part) {
     if (['features', 'transcript', 'aside'].includes(part)) { this.#anchored(() => this.#paint(part)); return; }
     this.#paint(part);
@@ -1721,7 +1722,7 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
     }
-    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#rail.render();
+    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
   async #refreshFeatures() {
     if (this.#session.processingPreset === 'device') return;
@@ -1742,7 +1743,7 @@ export class AithemaSession extends HTMLElement {
       if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
       void this.#resumeDeferredAnalysis();
       this.#rail.reconcileAdmission();
-      this.#renderMode(); this.#rail.render(); this.#concept.update(this.#session); this.#dialog?.sync();
+      this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
