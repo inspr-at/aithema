@@ -76,7 +76,7 @@
     "reads": [
       "CI"
     ],
-    "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
+    "reason": "AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI"
   },
   "test/browser/operator-login.test.js": {
     "reads": [
@@ -142,7 +142,7 @@
       "GITHUB_EVENT_PATH",
       "GITHUB_SHA"
     ],
-    "reason": "Evidence/source provenance; release test matches the run identifier"
+    "reason": "Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload"
   },
   "test/browser/voice-presentation.test.js": {
     "reads": [

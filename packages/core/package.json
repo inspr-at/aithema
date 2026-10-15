@@ -29,7 +29,8 @@
     "./ui-html": "./src/ui-html.js",
     "./voice-components": "./src/voice-components.js",
     "./voice-lifecycle-controller": "./src/voice-lifecycle-controller.js",
-    "./voice-lifecycle": "./src/voice-lifecycle.js"
+    "./voice-lifecycle": "./src/voice-lifecycle.js",
+    "./plugin-contract": { "types": "./src/plugin-contract.d.ts" }
   },
   "engines": {
     "node": ">=24"

@@ -61,7 +61,8 @@ exports, and keep implementation-local imports within it. Add a new layer to the
 single policy table only when the architecture requires it; update this rendered
 table and add a negative fixture for the new forbidden edge. Export shared building
 blocks from their owning layer instead of reaching into another module's source.
-Run the boundary tests on the designated test worker and let PR CI run the suite.
+Run `node scripts/check-boundaries.mjs` or the boundary unit tests on the designated
+test worker and let PR CI run the suite.
 
 Scope is `packages/*` and `plugins/*`. AIT-205 (PR #173) separately guards `demo/`;
 the policy table's AIT-205 hook is the integration point once that PR merges.
@@ -101,7 +102,7 @@ they are not test coverage switches.
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/host-surface.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/matrix-coverage.js` | `CI` ×1 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
+| `test/browser/matrix-coverage.js` | `CI` ×1 | AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI |
 | `test/browser/operator-login.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/orb-reveal.test.js` | `CI` ×4 | Linux headless Chrome sandbox selection |
 | `test/browser/pause-phone.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
@@ -111,7 +112,7 @@ they are not test coverage switches.
 | `test/browser/start-look.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/start2-display-helpers.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/tick-followups.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
+| `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
 | `test/browser/voice-presentation.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |

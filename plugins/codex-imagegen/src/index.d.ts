@@ -1,4 +1,4 @@
-import type { PrivateBinding, UIGeneration, Terminal } from '../../../packages/core/src/plugin-contract.js';
+import type { PrivateBinding, UIGeneration, Terminal } from '@inspr/aithema-core/plugin-contract';
 import type { spawn } from 'node:child_process';
 
 export interface CodexImagegenBinding extends PrivateBinding {

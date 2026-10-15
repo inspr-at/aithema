@@ -120,3 +120,11 @@ export function checkBoundaries(root) {
   }
   return errors;
 }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = fileURLToPath(new URL('../', import.meta.url));
+  const errors = checkBoundaries(root);
+  for (const error of errors) console.error(error);
+  if (errors.length) process.exitCode = 1;
+  else console.log('Module boundaries: OK');
+}

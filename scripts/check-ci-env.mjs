@@ -9,10 +9,41 @@ const property = node => ts.isPropertyAccessExpression(node) ? node.name.text :
   (ts.isStringLiteral(node.argumentExpression) || ts.isNoSubstitutionTemplateLiteral(node.argumentExpression)) ? node.argumentExpression.text : undefined;
 const access = node => ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node);
 export function ciEnvReads(ast) {
-  const reads = [];
+  const reads = [], processes = new Set(['process']), environments = new Set();
+  const unwrap = node => ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node;
+  const isProcess = node => {
+    node = unwrap(node);
+    return ts.isIdentifier(node) && processes.has(node.text) || access(node) && property(node) === 'process' &&
+      ts.isIdentifier(node.expression) && node.expression.text === 'globalThis';
+  };
+  const isEnvironment = node => {
+    node = unwrap(node);
+    return ts.isIdentifier(node) && environments.has(node.text) || access(node) && property(node) === 'env' && isProcess(node.expression);
+  };
+  // Resolve direct aliases before counting reads, including imported process/env.
+  function aliases(node) {
+    if (ts.isImportDeclaration(node) && ['node:process', 'process'].includes(node.moduleSpecifier.text)) {
+      const clause = node.importClause;
+      if (clause?.name) processes.add(clause.name.text);
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) processes.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings)) for (const item of bindings.elements) {
+        if ((item.propertyName ?? item.name).text === 'env') environments.add(item.name.text);
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (isProcess(node.initializer)) processes.add(node.name.text);
+      if (isEnvironment(node.initializer)) environments.add(node.name.text);
+    }
+    ts.forEachChild(node, aliases);
+  }
+  aliases(ast);
   function visit(node) {
-    if (access(node) && property(node) === 'env' && ts.isIdentifier(node.expression) && node.expression.text === 'process') {
+    if ((access(node) || ts.isIdentifier(node)) && isEnvironment(node) &&
+      !(ts.isVariableDeclaration(node.parent) && node.parent.name === node) &&
+      !ts.isImportSpecifier(node.parent)) {
       const parent = node.parent;
+      if (ts.isPropertyAccessExpression(parent) && parent.name === node) return;
       const key = access(parent) && parent.expression === node ? property(parent) : undefined;
       if (key && ambient.test(key)) reads.push(key);
       else if (!key) {

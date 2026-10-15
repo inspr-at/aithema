@@ -32,6 +32,24 @@ test('ambient detector handles computed access, destructuring and process aliase
   assert.deepEqual(ciEnvReads(ast), ['CI', 'alias process', 'import node:process', 'process.env', 'process.env[name]'].sort());
 });
 
+test('CI declarations reject new variables, added reads, indirect aliases and stale entries', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-ci-env-'));
+  mkdirSync(resolve(dir, 'test'));
+  const file = resolve(dir, 'test/fixture.js');
+  const declared = { 'test/fixture.js': { reads: ['CI'], reason: 'Explicit matrix selection' } };
+  writeFileSync(file, 'process.env.CI;');
+  assert.deepEqual(checkCiEnv(dir, declared), []);
+  for (const source of ["process.env.CI; process.env.RUNNER_OS;", "process.env.CI; process.env.CI;",
+    "const e = process.env; e.CI;", "const p = process; p.env.GITHUB_ACTIONS;", "globalThis.process.env.CI;"]) {
+    writeFileSync(file, source);
+    // Equivalent direct global access still needs only the declared CI entry.
+    assert.equal(checkCiEnv(dir, declared).length, source.startsWith('globalThis') ? 0 : 1, source);
+  }
+  writeFileSync(file, '');
+  assert.equal(checkCiEnv(dir, declared).length, 1);
+  assert.equal(checkCiEnv(dir, { 'test/removed.js': { reads: ['CI'], reason: 'Removed fixture' } }).length, 1);
+});
+
 test('boundary fixtures reject forbidden layers, unexported paths, dev leaks and unknown imports', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'aithema-boundaries-'));
   const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };
