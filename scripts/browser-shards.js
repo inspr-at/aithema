@@ -32,6 +32,7 @@ export const browserTestWeights = {
   'test/browser/demo.test.js': 90.000, // AIT-199 latest max 67.766s, CI 38770896962-1; historical floor 90s
   'test/browser/email-ask.test.js': 130.000, // AIT-199 latest max 99.923s, CI 38732580354-1; historical floor 130s
   'test/browser/email-mail-space.test.js': 80.000, // AIT-199 latest max 62.288s, CI 38773142800-1; historical floor 80s
+  'test/browser/external-plugin.test.js': 20.000, // mbp2606 9eb0a6e76b-14883 (1.846s; rounded up + 10s margin)
   'test/browser/footer-width-sweep.test.js': 30.000, // AIT-199 latest max 13.022s, CI 38732580354-1; historical floor 30s
   'test/browser/host-surface.test.js': 20.000, // AIT-199 latest max 8.114s, CI 38732580354-1; historical floor 20s
   'test/browser/html-preview.test.js': 40.000, // AIT-199 latest max 9.122s, CI 38765085264-1; historical floor 40s

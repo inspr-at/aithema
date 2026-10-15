@@ -92,10 +92,11 @@ export const OFFLINE_CORPUS = Object.freeze([
   { reference: 'Änderungen für Österreich, täglich um 14 Uhr.', expected: 'Österreich' },
   { reference: 'Ja, ähm, ungefähr 42 Mitarbeiter.', expected: '42' },
 ]);
-export async function runOfflineQualification({ candidate, baseline, replyText = 'Welche Firma?' } = {}) {
+export async function runOfflineQualification({ candidate, baseline, candidateComponents, replyText = 'Welche Firma?' } = {}) {
   const budget = createQualificationBudget();
   let serial = 0;
-  const oracle = async item => {
+  const oracle = async (item, componentsFactory) => {
+    const components = componentsFactory ? await componentsFactory(item) : null;
     // Deterministic clock/PCM and synthetic ports exercise the actual server coordinator.
     // The timings deliberately represent a fixture, never measured vendor latency.
     let at = Date.now(), speechEndAt, firstAudioAt, stoppedAt, hypothesis;
@@ -104,12 +105,13 @@ export async function runOfflineQualification({ candidate, baseline, replyText =
     const coordinator = createComposedVoiceCoordinator({ sessionId: 'offline-qualification', callId: `offline-${sampleId}`,
       providerSessionId: `offline-generation-${sampleId}`, now: () => at,
       spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000,
+      ...(components ? { outputFormat: components.tts.format.encoding } : {}),
       authorize: async () => true, commitUtterance: async () => {},
-      admitComponent: async ({ role, signal, deadlineAt }) => {
-        const claim = budget.reserve({ attemptId: `${sampleId}-${role}-${++componentIndex}`, maxMicro: 0 });
+      admitComponent: async ({ role, request, signal, deadlineAt }) => {
+        const claim = budget.reserve({ attemptId: `${sampleId}-${role}-${++componentIndex}`, maxMicro: components?.[role].estimateCost(request) ?? 0 });
         return { signal, deadlineAt, attempt: claim, report: terminal => claim.report(terminal) };
       },
-      stt: { async *stream({ audio }, options) {
+      stt: components?.stt ?? { async *stream({ audio }, options) {
         await options.attempt.consume(); for await (const bytes of audio) void bytes;
         yield { text: item.reference, final: true };
         await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
@@ -119,11 +121,11 @@ export async function runOfflineQualification({ candidate, baseline, replyText =
         yield { type: 'delta', text: replyText };
         yield { type: 'completion', replyId: `offline-reply-${sampleId}`, text: replyText };
       } },
-      tts: { async *speak(request, options) {
+      tts: components?.tts ?? { async *speak(request, options) {
         await options.attempt.consume(); at = speechEndAt + 900; yield new Uint8Array(4);
         await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
       } },
-      relay: { audio() { firstAudioAt ??= at; }, silence() { stoppedAt = at; },
+      relay: { audio() { at = speechEndAt + 900; firstAudioAt ??= at; }, silence() { stoppedAt = at; },
         event(event) { if (event.type === 'final' && event.role === 'user') hypothesis = event.text; } },
     });
     try {
@@ -142,7 +144,7 @@ export async function runOfflineQualification({ candidate, baseline, replyText =
     return evaluateQualification(samples);
   }
   // Transport functions are host-injected offline observations. There is no key or live runner here.
-  const candidateResult = await run(candidate), baselineResult = await run(baseline);
+  const candidateResult = await run(candidate ?? (item => oracle(item, candidateComponents))), baselineResult = await run(baseline);
   return { mode: 'offline', evidence: 'synthetic-coordinator-only', spendMicro: budget.snapshot().exposureMicro,
     samples: OFFLINE_CORPUS.length, componentAttempts: budget.snapshot().records.length, candidate: candidateResult, baseline: baselineResult };
 }
