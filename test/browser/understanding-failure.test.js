@@ -40,7 +40,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     const before = await boxes(page, targets);
     const held = await shadow(page, c => c.shadowRoot.querySelector('.host-credits__amount').textContent);
     await shadow(page, c => {
-      const input = c.shadowRoot.querySelector('textarea'); input.focus(); input.value = 'I am still typing';
+      const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'I am still typing';
       window.retryFocusPulls = [];
       c.shadowRoot.addEventListener('focusin', event => { if (event.target.matches('.overview-retry, .retry')) window.retryFocusPulls.push(event.target.className); });
     });
@@ -117,7 +117,7 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
     const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
     const before = await boxes(page, targets);
     await shadow(page, c => {
-      const input = c.shadowRoot.querySelector('textarea'); input.focus(); input.value = 'Ich schreibe weiter';
+      const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'Ich schreibe weiter';
       window.retryFocusPulls = [];
       c.shadowRoot.addEventListener('focusin', event => { if (event.target.matches('.overview-retry, .retry')) window.retryFocusPulls.push(event.target.className); });
       c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision, running: [], lastFailure: null } });
@@ -141,7 +141,7 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
   if (evidence) await writeFile(join(evidence, 'ait198-stuck-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
 
-for (const kind of ['typed', 'live voice', 'facade pending']) test(`AIT-198 ${kind}: no false failure during reply event gaps, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
+for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${kind}: no false failure during reply event gaps, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-reply-gap-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage();
@@ -164,7 +164,8 @@ for (const kind of ['typed', 'live voice', 'facade pending']) test(`AIT-198 ${ki
           inlineHidden: r.querySelector('.overview-retry').hidden, footerHidden: r.querySelector('.retry').hidden });
       };
       c.receive({ seq: 1, type: 'turn.final', data: { id: 'person', role: 'user', content: 'Wir vereinfachen die Auftragsbearbeitung.',
-        ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } : {}) } });
+        ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
+          kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) } });
       window.captureGap('person final before lane.status');
       window.gapRevision = inputRevision(c.session);
     }, locale, kind);

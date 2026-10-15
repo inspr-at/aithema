@@ -984,12 +984,13 @@ test('AIT-198 typed turn waits for current lane.status without flashing a stuck 
   assertInlineRetry(c, 'confirmed idle still exposes a genuinely stuck reply');
 });
 
-for (const source of ['live call', 'facade pending']) test(`AIT-198 ${source}: no failed overview from person final through assistant final`, () => {
+for (const source of ['live call', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${source}: no failed overview from person final through assistant final`, () => {
   const c = setup(), session = c.session;
   if (source === 'live call') session.voiceLifecycle = { callId: 'voice-call', providerSessionId: 'voice-provider', epoch: 1, state: 'active' };
   c.configure({ copy: en, session });
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Voice detail',
-    ...(source === 'facade pending' ? { voiceCallId: 'voice-call', voiceProviderId: 'voice-provider' } : {}) } });
+    ...(source === 'facade pending' ? { voiceCallId: 'voice-call', voiceProviderId: 'voice-provider' } :
+      source === 'spoken facade pending' ? { callId: 'voice-call', providerSessionId: 'voice-provider' } : {}) } });
   const revision = inputRevision(c.session);
   assertNoFailedOverview(c, 'person final');
   c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
