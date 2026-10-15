@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 
 async function run(label, command, args, env = {}) {
   const started = performance.now();
-  const child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const childEnv = { ...process.env, ...env };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const child = spawn(command, args, { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   child.stdout.on('data', chunk => { output += chunk; });
   child.stderr.on('data', chunk => { output += chunk; });
@@ -14,6 +16,7 @@ async function run(label, command, args, env = {}) {
   console.log(`${label}: exit=${code}, duration_ms=${(performance.now() - started).toFixed(1)}`);
   console.log(output.split('\n').filter(line => /# (tests|pass|fail|duration_ms)|reflected in understanding:/.test(line)).join('\n'));
   if (code !== 0) console.log(output);
+  assert.match(output, /# tests [1-9][0-9]*/, `${label} must actually execute tests`);
   return code;
 }
 
