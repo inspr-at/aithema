@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { parseVersion, compareVersions, reserveVersion, migrationGate, assertReleaseTag } from '../release/lib/version.mjs';
 const declared = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
 const source = { ...declared, status: 'unreserved', version: '0.0.0', version_scheme: 'legacy', release_sequence: null,
@@ -70,4 +71,34 @@ test('historical release-manifest scheme declarations remain explicit, unchanged
       first_calendar_version: '261014080000.0.0', first_calendar_sequence: 12 };
     assert.equal(compareVersions(parsed, record('261014080000.0.0'), anchor), -1);
   }
+});
+
+test('candidate version gate admits the existing reservation and exact mirrored coordinate without reserving', () => {
+  const root = new URL('../', import.meta.url);
+  assert.equal(declared.status, 'reserved');
+  assert.equal(declared.version_scheme, 'inspr-calver-3');
+  const original = readFileSync(new URL('release/version.json', root), 'utf8');
+  execFileSync(process.execPath, [new URL('release/gate.mjs', root).pathname,
+    'tag', `refs/tags/v${declared.version}`], { stdio: 'pipe' });
+  const history = JSON.parse(readFileSync(new URL('release/history.json', root)));
+  const previous = history.releases.at(-1);
+  assert.equal(declared.release_sequence, previous.release_sequence + 1);
+  assert.equal(compareVersions(previous, declared, declared.migration), -1);
+  const paths = ['package.json', ...['packages', 'plugins'].flatMap(directory =>
+    readdirSync(new URL(directory + '/', root)).map(name => `${directory}/${name}/package.json`))];
+  const lock = JSON.parse(readFileSync(new URL('package-lock.json', root)));
+  const packages = paths.map(path => [path, JSON.parse(readFileSync(new URL(path, root)))]);
+  const names = new Set(packages.map(([, pkg]) => pkg.name));
+  assert.equal(lock.version, declared.version);
+  for (const [path, pkg] of packages) {
+    assert.equal(pkg.version, declared.version, path);
+    const key = path === 'package.json' ? '' : path.slice(0, -'/package.json'.length);
+    assert.equal(lock.packages[key].version, declared.version, `lock ${key}`);
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      for (const [name, version] of Object.entries(pkg[field] ?? {})) {
+        if (names.has(name)) assert.equal(version, declared.version, `${path} ${name}`);
+      }
+    }
+  }
+  assert.equal(readFileSync(new URL('release/version.json', root), 'utf8'), original);
 });

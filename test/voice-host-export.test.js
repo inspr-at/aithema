@@ -79,7 +79,7 @@ test('local voice production requires an explicit boolean simulator opt-in', asy
   for (const allowProductionSimulator of [undefined, false, 'true', 1]) {
     assert.throws(() => createLocalVoiceProvider({ storage, allowProductionSimulator }), /production requires allowProductionSimulator: true/u);
   }
-  assert.ok(isLocalVoice(createLocalVoiceProvider({ storage, allowProductionSimulator: true }).start));
+  assert.ok(isLocalVoice(createLocalVoiceProvider({ storage, allowProductionSimulator: true })));
   process.env.NODE_ENV = 'development';
-  assert.ok(isLocalVoice(createLocalVoiceProvider({ storage }).start));
+  assert.ok(isLocalVoice(createLocalVoiceProvider({ storage })));
 });
