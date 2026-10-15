@@ -115,7 +115,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const added = current.transcript.filter(turn => turn.role === 'user').slice(before);
     if (current.inputRevision - source.inputRevision !== added.length || !added.length) return false;
     const original = storage.safeguards(source.id, inputRevision(source));
-    if (!original.assessed || original.offTopic) return false;
+    // AIT-197 may recover older project input from an off-topic snapshot.
+    // That admitted project work owns the same receipt protection as direct input.
+    if (!original.assessed || original.offTopic && !storage.purposeAssessmentInput(source)) return false;
     return true;
   };
   // Publishing an older result additionally requires every new turn to be off-topic.
