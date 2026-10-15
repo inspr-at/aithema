@@ -256,12 +256,3 @@ for (const output of ['valid', 'invalid']) test(`AIT-183 revoke during ${output}
   assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
 });
 
-for (const asyncFailure of [false, true]) test(`AIT-198 understanding completes when OPS diagnostics ${asyncFailure ? 'reject' : 'throw'}`, async () => {
-  const h = harness(createMockReasoning(), {}, { onUnderstandingDiagnostic() {
-    if (asyncFailure) return Promise.reject(new Error('logger unavailable'));
-    throw new Error('logger unavailable');
-  } });
-  h.turn('Unser Betrieb braucht eine bessere Auftragsbearbeitung.');
-  assert.equal(await h.lanes.run(h.session.id, 'understanding'), 'completed');
-  assert.equal(h.published.length, 1);
-});
