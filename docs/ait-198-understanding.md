@@ -1,123 +1,136 @@
-# AIT-198 investigation and OPS handoff
+# AIT-198 round 2: understanding requests and failure recovery
 
-The superseding-turn charge is reproduced and fixed. The reported production
-failure for a held, isolated in-scope turn is **not yet explained**. Do not treat
-this draft as proof that the 19/19 production failure is resolved.
+The strict understanding request sent the full host schema, including numeric
+`minimum`/`maximum`, while AIT-181 had already removed those constraints from
+reply requests. A fake provider rejecting those keywords with HTTP 400 reproduces
+the production ledger shape: `uncertain`, no usage, settled=max=18,314 micro.
+The shared portable schema fixes that reproduction. OPS must still run the live
+diagnostic to establish whether this is the cause of the production incident.
 
-## Evidence
+## Red and green evidence
 
-All test execution below used mbp2606 through remote-browser.sh. No env files
-were opened and no live provider calls were made by the builder.
+All execution uses mbp2606 through remote-browser.sh. The builder does not open
+env files, make live provider calls, or run review gates.
 
-- Red: committed test head `222e216`, 2/3 pass. Reply latency 1 s, analysis
-  latency 6 s, actual OpenRouter adapter, handlers, scope gate, admission and
-  SQLite ledger, with fake fetch only. A second in-scope turn at 2 s aborts the
-  first analysis: `outcome=uncertain`, `usage=null`, settled=max=18314 micro.
-  The replacement completes at actual cost 110 micro.
-- Green: fix head `8e677c6`, 227/227 targeted tests pass, including all three
-  slow-provider cases, budget and cancellation tests, safeguards, adapter,
-  account-cap and diagnostic tests. The superseded paid analysis now finishes
-  with usage and actual cost; only the current project revision publishes.
-- The isolated in-scope DE case and the off-topic-at-2-s case already passed on
-  `222e216` before the fix. The isolated case also passes against the reported
-  bad deployment `b47a7fb4` (detached probe `89c4969`, 1/1 pass). There is no
-  justified good/bad predicate for bisecting the isolated production failure.
-- `onScope` does not call `lanes.supersede` at `b47a7fb4`
-  (`packages/server/src/handlers.js:109-111`). That call was added by
-  `93e05c21` on October 15 for AIT-188; it cannot explain failures beginning
-  with the earlier b47a7fb deployment. Identical input/selection also does not
-  satisfy the cancellation condition in `SessionLanes.supersede`.
+- `2b074da`: lifecycle 5/9 pass. The portable-schema, separately admitted retry,
+  unknown-spend refund and actual-spend refund assertions fail. The fake uses the
+  real adapter, purpose gate, handlers, admission, SQLite ledger and owner wallet.
+- `4948772`: lifecycle + adapter 49/49 pass. The bounds-rejecting fake now produces
+  one completed analysis, actual cost 110 micro and `understanding.updated`.
+  A separate constrained-400 fake requires exactly two admissions: one strict,
+  one prompt-only, with distinct attempt IDs and one successful publication.
+  Bounds remain enforced host-side; an out-of-range readiness value still fails.
+- `5e4cc58`: the qualified browser fixture reaches and fails the required failure
+  copy assertion. Subsequent checks require actual owner-wallet release, quiet
+  ink, no alert box, working inline Retry, recovery without reload and exact
+  zero displacement in DE/EN at 390/1440, for uncertain and known-cost failures.
+- `1af40af`: diagnostic 3/4 pass; the seeded case fails the new unseeded sequence
+  assertion. Its replacement uses a controlled fake gate instead of a timing sleep.
+- The browser fixture also caught a schema-free feature-availability quote being
+  incorrectly refused after schema normalization. `e5cbf32` preserves these quotes;
+  they never send a provider request.
 
-## Confirmed cancellation cause and fix
+The two fixed 2-second turn waits now poll for an actual dispatched ledger row.
+Fake provider latency remains intentional in the original slow-provider tests.
+No assertion tolerance was widened. `ca71ae6` passes all eight UI cases with
+exact 0 px geometry, including recovery through the inline retry. The overview
+content area and build-readiness row reserve their final size before results.
+The crash-recovery refund regression was red at `602e4ec`; recovery now releases
+the visitor flag while retaining provider liability, with late-receipt coverage.
 
-`f2e9f71e46d3a7b52be7a8db4b409ff86604c27a` introduced unconditional stale-input
-transport abortion in `next/packages/core/src/lanes.js:13-16` (now
-`packages/core/src/lanes.js:26-35`). AIT-188 (`93e05c21`) preserved it for new
-in-scope project revisions while allowing off-topic-only suffixes to survive.
-This is the confirmed cause of the reproduced **superseding-turn** defect,
-not a proven regression commit for the isolated production incident.
+## Request parameters
 
-The lane now distinguishes provider lifetime from permission to publish:
+Both reply and understanding strict requests use the same recursive portable
+schema: type, enum, description, properties, items, anyOf, $defs and $ref, with
+required keys and `additionalProperties: false` derived for objects. Numeric
+bounds, lengths, patterns and other validation constraints remain in the full
+host schema. Prompt-only compatibility carries the full schema in the prompt
+and validates the result against that same host schema.
 
-- An admitted project analysis survives append-only person turns, retaining its
-  original request. A replacement waits for its receipt before starting.
-- An old result publishes only when AIT-188's suffix classification permits it;
-  new project input still invalidates publication of the old assessment.
-- Off-topic content cannot enter the already-dispatched request. Off-topic-only
-  suffixes and purpose pause retain the original project assessment.
-- Consent, withdrawal, erasure, corrections, upload/locale/identity revisions and
-  changes to the selected processing still invalidate the operation.
+A constrained HTTP 4xx admits at most one prompt-only retry, after the first
+attempt settles. Each attempt repeats normal consent, budget and price checks.
+Cancellation, stale input and deadline checks still fence the retry. Unknown
+first-attempt provider spend stays conservative even when the retry succeeds.
 
-The full unit run at `715b527` additionally exposed a voice Resume wake-up
-race (3550/3551 passed). A background assessment that deferred during Pause
-was not scheduled by voice Resume. The shared resume event now wakes the
-appropriate lanes, and a Resume wake-up arriving while a job is finishing
-is retained for one rerun. Ordinary concurrent requests still join the pending
-job, without automatically retrying a paid provider failure. The existing voice assertion is unchanged; a new
-deterministic test holds admission until paused, verifies no charged attempt,
-then requires a current assessment after Resume.
+Parameter review against OpenRouter's official documentation:
 
-## Budget finding
+- Keep `provider.require_parameters: true`: routing must honor requested schema,
+  output ceiling and reasoning controls. Prompt-only retry omits response_format.
+- Keep `provider.max_price` in USD per million tokens: it enforces the qualified
+  price ceiling, independently from the local reservation.
+- Keep `allow_fallbacks: false` and explicitly configured `only`/`ignore` policy.
+  Remove the implicit Azure exclusion: it is irrelevant to Anthropic and should
+  not silently constrain unrelated model routes. Explicit exclusions still work.
+- Keep the unified `reasoning` control: `{enabled:false}` for none, otherwise the
+  validated configured effort. This avoids implicit reasoning spend and uses
+  OpenRouter's documented Anthropic translation. Do not send duplicate native
+  effort/thinking parameters or a second reasoning token budget.
+- Keep receipt usage and streaming usage options for accounting.
 
-`packages/core/src/invocation.js:37-52` settles on abort. Before dispatch it
-reports a zero-usage cancellation. After dispatch it uses known usage (or an
-authoritative provider cost for OpenRouter); without evidence it reports
-`uncertain`. `packages/server/src/budget.js:291-301` releases unconsumed claims,
-charges known usage/cost, and retains the maximum for an unknown dispatched
-outcome. Runtime finish also conservatively settles a plugin that omitted its
-terminal (`packages/server/src/plugin-runtime.js`).
+Sources: [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection),
+[reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
+This is a portability review, not a claim of a live Anthropic verification.
 
-The cancelled partial-stream/account-cap and admission/withdrawal tests confirm
-these distinctions. OpenRouter's unknown authoritative cost cannot be called
-zero merely because a transport was closed: the upstream may have continued
-and billed the request. Its account hold remains conservative until receipt
-reconciliation. The fix prevents avoidable cancellation from destroying the
-receipt; it does not silently refund genuinely unknown provider liabilities.
+## Visitor credits and provider liability
 
-## Container log counters
+Failed or uncertain understanding attempts release visitor credits on settlement.
+A durable `visitor_credit_released` flag separates the visitor wallet from the
+provider ledger. The owner wallet excludes released rows from display and future
+owner-credit admission. Provider costs, actual receipts, per-session technical
+budget and account spend caps retain their original conservative accounting.
+Late reconciliation cannot re-charge a released visitor attempt. A plugin that
+reports completed usage but then fails host validation also releases its credits.
+The UI refreshes footer credits from the failure event, with no polling interval
+required. The inline failure notice uses quiet ink and the required DE/EN copy;
+the next successful event restores the usual overview.
 
-Next to reply counters, handlers emit value-free objects with `count: 1` and
-`lane: 'understanding'`:
-
-`understanding.started`, `understanding.completed`, `understanding.superseded`,
-`understanding.deferred`, `understanding.aborted`, `understanding.uncertain`,
-and `understanding.failed`.
-
-`uncertain` records actual ledger settlement, separately from the lane result.
-`aborted`/`failed` include only fixed reasons such as `revoked`, `deadline`,
-`provider-4xx`, `provider-5xx`, `invalid-output`, or `provider`. No session IDs,
-turns, provider responses, credentials, or model values are logged. Logger
-failure cannot interrupt processing. Compare aborted/started and
-uncertain/started counts to detect a 100% failure rate.
+Local deadline, revoke, erase and consent/input fences after dispatch still report
+uncertain provider cost when no authoritative receipt exists
+(`packages/core/src/invocation.js`, `packages/server/src/budget.js`). Before
+dispatch they report zero usage. A fetch abort before response headers gives no
+generation ID and may leave the provider running. An input-only estimate cannot
+safely bound that liability: the provider may generate and bill the full output
+allowance after the client disconnects. No provider-side reduction to the input
+estimate is proposed without an authoritative no-generation/cancellation receipt.
+The visitor refund is independent of this provider liability.
 
 ## OPS diagnostic
 
-With the host configuration already injected into the process, OPS runs:
+With configuration already injected into the process, OPS runs:
 
 ```sh
 node scripts/understanding-diagnostic.mjs --allow-live
 ```
 
-The command never loads configuration files, refuses CI and missing
-`--allow-live`, caps outbound requests at three (including retries), uses a
-separate in-memory ledger and an account cap of at most $1, and exits nonzero
-unless both cases pass:
+The command never loads configuration files, refuses CI and missing --allow-live,
+uses isolated in-memory storage and a provider account cap of at most $1. Both the
+wire wrapper and admission wrapper independently enforce a total of three calls,
+including compatibility retries. No builder live calls are needed.
 
-1. In-scope DE project only: one completed analysis with usage and publication.
-2. A separate in-scope project, followed by off-topic input 250 ms after analysis
-   admission: retained publication with usage, confirmed off-topic scope, no
-   max-charged uncertain analysis.
+The two reports share one analysis to keep the total at three calls:
 
-To fit two independent analyses and a real off-topic classification into three
-calls, the synthetic initial project scope is explicitly seeded in host storage.
-The command reports `project_scope_seeded: true`; it does not claim to test
-live in-scope classification. The AIT-181 reply diagnostic tests that separately.
-All analysis, off-topic reply, admission, ledger and publication paths are real.
-The independent fetch cap and pre-admission cap prevent extra calls even if
-scope is misclassified. Output contains only case names, booleans, counts and
-fixed outcome/reason enums. `overlapped: false` fails the overlap case rather
-than claiming to have tested a race that did not occur.
+1. `live-sequence-de`: first visitor project turn -> real reply -> persisted
+   onScope classification -> understanding. No scope seeding.
+2. `in-then-off-de`: off-topic input as soon as that analysis is dispatched; a
+   real off-topic reply classifies it while the original project analysis runs.
+   The original analysis must complete with usage and publish once.
 
-OPS should retain the value-free output and, for a held production failure,
-provide elapsed dispatch-to-terminal time, HTTP/error class and cancellation
-or deadline reason. These distinguish the still-unexplained isolated failure.
+Both reports include `project_scope_seeded:false`, `shared_analysis:true`,
+`reply_before_understanding`, per-attempt `dispatch_to_terminal_ms`, fixed
+`outcome_reason`, HTTP/cancellation failure reasons and lane counts. A missed
+overlap fails the overlap case; cap exhaustion or misclassification fails the run.
+Only booleans, counts, timings and fixed enums are printed, never turns, provider
+responses, identifiers, model output or secrets. OPS retains this value-free
+output before deployment. The two cases are one shared sequence, not two
+independent isolated analyses.
+
+## Retained round-1 findings
+
+The earlier slow-provider tests independently reproduced a superseding-project
+turn abort, introduced by `f2e9f71`. That is separate from the isolated production
+failure. Admitted project analysis now finishes its original request and retains
+its receipt; a replacement waits, and only the permitted revision publishes.
+Off-topic content cannot enter the paid original request. Consent, corrections,
+erasure, withdrawal, locale and processing-choice changes still invalidate it.
+The voice Resume assessment wake-up fix and value-free lane outcome counters
+remain covered by the existing tests.
