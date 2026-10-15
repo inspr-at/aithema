@@ -185,12 +185,17 @@ export class PhoneComposerViewport {
     this.noticesObserver?.disconnect();
     const Mutation = this.view?.MutationObserver;
     if (Mutation) {
+      this.recoveryNotice = this.root.querySelector('.voice-notice--recovered').textContent;
       this.noticesObserver = new Mutation(records => {
         // Reflected hidden assignments also report idempotent renders. They
         // are not new notices and must not move a row under the pointer.
         const changed = records.some(record => record.type !== 'attributes' ||
           record.oldValue !== record.target.getAttribute(record.attributeName));
-        if (changed && this.view.matchMedia('(max-width:600px)').matches) this.onNoticesChange();
+        const recovery = this.root.querySelector('.voice-notice--recovered').textContent;
+        // Ordinary last-reply controls are painted with the transcript, whose
+        // pointer anchor owns that update. Recovery notices arrive independently.
+        if (changed && (recovery || this.recoveryNotice) && this.view.matchMedia('(max-width:600px)').matches) this.onNoticesChange();
+        this.recoveryNotice = recovery;
       });
       this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] });
     }
