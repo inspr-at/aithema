@@ -289,6 +289,11 @@ test('AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcri
     assert.ok(view.transcriptHeight >= 100, `${mode}: transcript >=100px ${JSON.stringify(view)}`);
     assert.equal(view.inViewport, true);
     await record(t, 'r2-keyboard', page, `de-${theme}-${width}-${mode}`, view);
+    assert.equal(await shadow(page, c => {
+      c.shadowRoot.querySelector('.attach').focus({ preventScroll: true });
+      (visualViewport ?? window).dispatchEvent(new Event('resize'));
+      return getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display;
+    }), 'none', 'footer stays hidden while keyboard remains open after focus moves');
     if (mode === 'overlay') await closeOverlay(page); else { await page.setViewport({ width, height: width === 393 ? 852 : 844 }); await frame(page); }
     assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'footer returns when keyboard closes');
   }
