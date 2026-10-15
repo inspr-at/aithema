@@ -303,6 +303,9 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .scale::after { content:''; left:calc(100% - .4rem); background:var(--aithema-amber); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-amber) 50%,var(--aithema-line)); }
 .scale-labels { display:flex; justify-content:space-between; height:1.4rem; font-size:.72rem; color:var(--aithema-muted); }
 .readiness p { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-ink); } .readiness p:empty { display:none; }
+/* Keep the build row before the first result so retry recovery cannot move the pane. */
+.readiness .build-progress { min-height:1.35em; }
+.readiness .build-progress:empty { display:block; }
 .analysis-content { min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable; overflow-wrap:anywhere;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;
@@ -333,6 +336,7 @@ summary::after { content:''; width:.45rem; height:.45rem; margin:0 .25rem .2rem;
 details[open] summary::after { transform:rotate(225deg); }
 summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,transparent); }
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
+.overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
 .export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; }
@@ -396,7 +400,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-understanding="absent"] .understanding { display:none; }
   .workspace[data-reveal] .understanding { animation:rise-in 420ms ease-out; }
   .transcript-shell { height:clamp(20rem,60svh,36rem); }
-  .understanding { max-height:none; } .analysis-content { max-height:440px; overflow:auto; }
+  .understanding { max-height:none; } .analysis-content { height:440px; max-height:440px; overflow:auto; }
 }
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {

@@ -57,7 +57,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id WHERE w.owner_hash=? AND w.released=0 AND b.attempt_id IS NULL`).get(ownerHash).n;
       const readBalance = () => {
         const { limitMicro } = visitorCredits.policy(ownerHash);
-        const breakdown = costs.breakdown(undefined, { ownerHash });
+        const breakdown = costs.breakdown(undefined, { ownerHash, visitorCredits: true });
         // A wallet reservation and its ledger row are one operation, including after restart.
         breakdown.reservedMicro += unjournalledMicro();
         return { limitMicro, ...breakdown,
