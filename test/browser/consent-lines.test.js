@@ -134,6 +134,8 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     }
     const labels = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.consent-item label')].map(n => n.textContent));
     if (locale === 'de') assert.ok(labels.includes('Sprache mit ElevenLabs'), 'voice legal document uses the screen language');
+    const primary = await shadow(page, c => ({ label: c.shadowRoot.querySelector('.done-label').textContent, saves: c.shadowRoot.querySelector('.done').classList.contains('consent-save') }));
+    assert.deepEqual(primary, { label: locale === 'de' ? 'Einwilligung speichern' : 'Save consent', saves: true }, 'the fixed Settings primary action explicitly saves consent');
     const focused = await shadow(page, c => c.shadowRoot.activeElement.value);
     assert.equal(focused, item);
     await record(t, page, label + '-settings', { focused, item });

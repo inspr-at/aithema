@@ -2,18 +2,28 @@ import { setText } from './dom.js';
 
 /** The host's current, versioned consent document, edited inside Settings. */
 export class ConsentSettings {
-  #root; #copy; #ports; #document; #epoch = 0; #busy = false;
+  #button; #root; #copy; #ports; #document; #epoch = 0; #busy = false;
   constructor({ root, copy, ports }) {
     this.#root = root; this.#copy = copy; this.#ports = ports;
     root.innerHTML = '<p class="consent-intro"></p><fieldset class="consent-items" aria-label=""></fieldset><p class="consent-withdrawal"></p><p class="consent-status" role="status"></p><button class="consent-save" type="button"></button>';
-    root.querySelector('.consent-save').addEventListener('click', () => void this.#save());
+    if (ports.saveButton) root.querySelector('.consent-save').remove();
+    this.#button = ports.saveButton ?? root.querySelector('.consent-save');
+    this.#button.addEventListener('click', event => {
+      if (ports.saveButton && root.hidden) return;
+      if (ports.saveButton) { event.preventDefault(); event.stopImmediatePropagation(); }
+      void this.#save();
+    }, { capture: true });
     this.setCopy(copy);
   }
-  setCopy(copy) { this.#copy = copy; setText(this.#root.querySelector('.consent-save'), copy.featureConsent.save); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
-  close() { this.#epoch++; this.#root.hidden = true; }
+  setCopy(copy) { this.#copy = copy; if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
+  get active() { return !this.#root.hidden; }
+  close() {
+    this.#epoch++; this.#root.hidden = true;
+    if (this.#ports.saveButton) { this.#button.classList.remove('consent-save'); this.#button.disabled = false; }
+  }
   async open(feature) {
     const epoch = ++this.#epoch; this.#document = null; this.#busy = true;
-    this.#root.hidden = false; this.#root.querySelector('.consent-items').replaceChildren();
+    this.#root.hidden = false; this.#button.classList.add('consent-save'); this.#root.querySelector('.consent-items').replaceChildren();
     this.#status(this.#copy.host.consentPage.loading); this.#paintBusy();
     try {
       const doc = await this.#ports.load();
@@ -52,7 +62,8 @@ export class ConsentSettings {
   #status(text) { setText(this.#root.querySelector('.consent-status'), text); }
   #paintBusy() {
     this.#root.querySelector('fieldset').disabled = this.#busy || !this.#document;
-    this.#root.querySelector('.consent-save').disabled = this.#busy || !this.#document;
+    this.#button.disabled = this.#busy || !this.#document;
+    this.#ports.changed?.();
   }
   async #save() {
     if (this.#busy || !this.#document) return;

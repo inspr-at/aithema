@@ -75,7 +75,7 @@ export class SettingsDialog {
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
-    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, save: ports.saveConsent, done: () => this.close() } });
+    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => this.close() } });
     if (operator) this.#operator = new OperatorSettings({ parent: this.#q('.general'), copy: this.#copy, operator });
   }
   get open() { return this.#dialog.open; }
@@ -597,9 +597,9 @@ export class SettingsDialog {
     const consent = state.consent;
     this.#q('.general-consent').textContent = c.consentStates[consent] ?? '';
     this.#q('.general-recommended').disabled = device || !info?.defaults;
-    this.#q('.save-status').textContent = this.#status || c.autosave;
+    this.#q('.save-status').textContent = this.#consentEditor?.active ? this.#copy.host.consentPage.legend : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
-    this.#q('.done-label').textContent = this.#continue ? c.continue : c.done;
+    this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#copy.featureConsent.save : this.#continue ? c.continue : c.done;
     this.#dialog.setAttribute('aria-busy', String(this.#busy));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';
     this.#showHelp();
