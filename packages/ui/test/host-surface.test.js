@@ -55,6 +55,43 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
 
+for (const fails of [false, true]) test(`AIT-195: reattach after cooldown repaints immediately when load ${fails ? 'fails' : 'is pending'}`, async t => {
+  let now = Date.now(), reattaching = false;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const reply = Promise.withResolvers();
+  const { c, root, calls } = setup(t, { host: { verification: true }, session: { identity: pending() },
+    routes: {
+      'GET /identity': () => reattaching ? reply.promise : Response.json({ identity: pending() }),
+      'GET /visitor/email': () => Response.json({}, { status: 503 }),
+    } });
+  t.after(() => reply.resolve(Response.json({}, { status: 503 })));
+  await tick(8);
+  const resends = [...root.querySelectorAll('.verify-resend')];
+  const notes = [...root.querySelectorAll('.verify__note')];
+  assert.equal(resends.length, 2, 'both inline and dialog forms are covered');
+  assert.ok(resends.every(button => button.getAttribute('aria-disabled') === 'true'));
+  assert.ok(notes.every(note => note.textContent.includes('60')));
+  c.remove(); now += 60_001; reattaching = true;
+  const reads = calls.filter(call => call.path === '/identity').length;
+  document.body.append(c);
+  assert.equal(calls.filter(call => call.path === '/identity').length, reads + 1, 'reattach starts a fresh load');
+  const assertReady = () => {
+    for (const button of resends) {
+      assert.equal(button.disabled, false, 'resend is enabled');
+      assert.equal(button.getAttribute('aria-disabled'), 'false', 'expired cooldown is no longer aria-disabled');
+      assert.equal(button.textContent, v.resend, 'resend has no countdown text');
+    }
+    for (const note of notes) assert.equal(note.textContent, '', 'countdown note is cleared');
+  };
+  assertReady(); // No microtask or timer may be needed to correct the reattached DOM.
+  if (fails) {
+    reply.reject(new Error('identity load unavailable'));
+    await tick(8);
+    assertReady();
+  }
+});
+
 test('AIT-193: disconnect clears the verification countdown; reconnect starts one countdown', async t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   const intervals = t.mock.method(globalThis, 'setInterval');
