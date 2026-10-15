@@ -11,7 +11,7 @@ import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
 // Startup owns its failures, including rejection values without a stack or message.
 function signalStartupFailure() {
-  document.dispatchEvent(new Event('aithema-host-failed'));
+  document.dispatchEvent(new document.defaultView.Event('aithema-host-failed'));
 }
 async function startup() {
   document.documentElement.dataset.hostStarted = '';
@@ -203,4 +203,4 @@ if (binding.operatorLogin && location.hash === '#settings-general') {
     signalStartupFailure();
   }
 }
-void startup().catch(signalStartupFailure);
+await startup().catch(signalStartupFailure);
