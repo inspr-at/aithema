@@ -4,6 +4,18 @@ import { join } from 'node:path';
 import { evaluateQualification } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
 
+
+function blindWav(pcm, format) {
+  const width = format.encoding === 'pcm_s16le' ? 2 : 4;
+  if (pcm.byteLength % width || format.sampleRateHz < 8000 || format.sampleRateHz > 96000) throw new TypeError('Invalid blind PCM format');
+  const wav = Buffer.alloc(44 + pcm.byteLength);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + pcm.byteLength, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(width === 2 ? 1 : 3, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(format.sampleRateHz, 24); wav.writeUInt32LE(format.sampleRateHz * width, 28);
+  wav.writeUInt16LE(width, 32); wav.writeUInt16LE(width * 8, 34); wav.write('data', 36); wav.writeUInt32LE(pcm.byteLength, 40);
+  wav.set(pcm, 44); return wav;
+}
+
 export const PRELIVE_CHECKS = Object.freeze([
   'authenticatedRelay', 'physicalBrowserMedia', 'consentAndHolds', 'verifiedTariffsAndRounding',
   'authenticatedReceipts', 'sttEmptyCommitAndMinimumDuration', 'ttsFinalFlag', 'pcmOutputAndAccountModels',
@@ -73,8 +85,8 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
       }
       if (randomInt(2)) pair.reverse();
       for (const [slot, entry] of pair.entries()) {
-        const file = `${index + 1}-${slot ? 'B' : 'A'}.pcm`;
-        await writeFile(join(outputDirectory, file), entry.audio, { flag: 'wx', mode: 0o600 });
+        const file = `${index + 1}-${slot ? 'B' : 'A'}.wav`;
+        await writeFile(join(outputDirectory, file), blindWav(entry.audio, entry.format), { flag: 'wx', mode: 0o600 });
         blind.push({ sample: index + 1, label: slot ? 'B' : 'A', file, format: entry.format });
         answerKey.push({ file, lane: entry.lane });
       }

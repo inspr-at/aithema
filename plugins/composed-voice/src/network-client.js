@@ -3,8 +3,8 @@
 export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, headers = {} } = {}) {
   return async function openRelay(grant) {
     const lifetime = new AbortController(); let connectionId, closed = false;
-    async function post(action, body, binary = false) {
-      const response = await request(url, { method: 'POST', credentials: 'same-origin', signal: lifetime.signal,
+    async function post(action, body, binary = false, signal = lifetime.signal) {
+      const response = await request(url, { method: 'POST', credentials: 'same-origin', signal,
         headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
           'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) },
         body: binary ? body : JSON.stringify(body ?? {}) });
@@ -26,8 +26,8 @@ export function createNetworkRelayClient({ url = '/composed/relay', fetch: reque
       command: async (name, ...args) => (await post('command', { name, args })).result,
       async disconnect() {
         if (closed) return;
-        closed = true;
-        try { await post('disconnect'); } catch { /* Loss cannot obstruct recovery or local teardown. */ } finally { lifetime.abort(); }
+        closed = true; lifetime.abort();
+        try { await post('disconnect', {}, false, AbortSignal.timeout(1000)); } catch { /* Loss cannot obstruct recovery or local teardown. */ }
       },
     };
   };

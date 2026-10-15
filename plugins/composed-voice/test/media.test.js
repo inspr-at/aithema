@@ -158,14 +158,13 @@ test('AIT-160: a hide during explicit generation recovery supersedes the pending
 
 test('AIT-160: network factory binds grants to stored session owner and keeps acknowledged pause durable', async t => {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'alice' });
-  t.after(() => storage.close());
   const plugin = createComposedVoice({ enabled: true, storage, stt: { stream() {} }, tts: { speak() {} },
     replyExecutor: { execute() {} }, authorize: async () => true, commitUtterance: async () => {}, admitComponent: async () => {},
     authenticateRelay: request => request.headers.get('x-owner') });
   const call = await plugin.start({ callId: 'network-call', sessionId: session.id, ownerToken: 'alice' }, {
     deadlineAt: Date.now() + 5000, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000,
     attempt: { attemptId: 'network-parent', claimId: 'network-parent-claim', maxMicro: 0, consume() {} }, report() {} });
-  t.after(() => call.close());
+  t.after(async () => { await call.close(); storage.close(); });
   const post = (owner, action, value, connectionId) => plugin.networkRelay.handle(new Request('http://localhost/composed/relay', {
     method: 'POST', headers: { 'x-owner': owner, 'x-composed-action': action, ...(connectionId ? { 'x-composed-connection': connectionId } : {}) }, body: JSON.stringify(value) }));
   assert.equal((await post('bob', 'open', call.grant)).status, 403);

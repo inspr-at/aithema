@@ -58,6 +58,7 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
   assert.equal(report.budget.exposureMicro, 6); assert.equal(report.budget.records.length, 6);
   const blind = JSON.parse(await readFile(join(outputDirectory, 'blind.json')));
   assert.deepEqual(blind.map(row => row.label), ['A', 'B']); assert.ok(blind.every(row => !Object.hasOwn(row, 'lane')));
+  assert.equal((await readFile(join(outputDirectory, blind[0].file))).subarray(0, 4).toString(), 'RIFF');
   assert.equal(JSON.parse(await readFile(join(outputDirectory, 'ops-answer-key.json'))).length, 2);
   await assert.rejects(runLiveQualification(options), /Run already claimed/);
 });

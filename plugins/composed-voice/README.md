@@ -307,7 +307,7 @@ metrics; server/browser wall clocks are never subtracted. `report.json` includes
 WER, entity accuracy, first-audio p50/p95, maximum barge-in stop time and the shared
 budget. `observations.json` preserves the real timing trace; `budget-final.json`
 retains the final checkpoint even on failure when the output directory exists.
-`blind.json` plus randomized per-utterance A/B `.pcm` files and explicit formats
+`blind.json` plus randomized per-utterance A/B `.wav` files and explicit formats
 are Markus's listening material. Keep `ops-answer-key.json` and the provider-labeled
 report private to OPS until Markus records his blind preference. `qualified`
 remains false while that separate human decision is pending.
