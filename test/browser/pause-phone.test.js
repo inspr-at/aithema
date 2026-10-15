@@ -15,7 +15,12 @@ async function fixture(t, touch = true) {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: [
+      ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []),
+      // Headless Linux has no physical pointer. Configure the desktop fixture's
+      // native media capabilities explicitly; keep the fine-pointer assertion.
+      ...(!touch ? ['--blink-settings=primaryPointerType=4,availablePointerTypes=4'] : []),
+    ] });
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage();
   page.phoneTouch = touch;
