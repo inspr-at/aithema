@@ -57,10 +57,12 @@ export const questionCardStyles = `
   .workspace[data-question-compact] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
   .workspace[data-question-compact] textarea { height:44px; min-height:44px; }
   .workspace[data-question-compact] .composer-actions { gap:6px; }
+  .workspace[data-question-compact] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
   .workspace[data-question-compact] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
   .workspace[data-question-compact] .conversation { row-gap:4px;
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 12px); }
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 36px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
+  .workspace[data-question-compact] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
@@ -105,6 +107,10 @@ export class QuestionCard {
       if (this.frame != null) return;
       this.frame = this.view.requestAnimationFrame(() => { this.frame = null; this.reserve(); });
     };
+    this.viewportResize = () => {
+      this.followOnResize ??= this.followsTranscript();
+      this.scheduleReserve();
+    };
     this.connect();
   }
   connect() {
@@ -113,12 +119,15 @@ export class QuestionCard {
       this.observer ??= new Resize(this.scheduleReserve);
       this.observer.observe(this.card); this.observer.observe(this.root.querySelector('.transcript-shell'));
     }
-    this.view?.addEventListener('resize', this.scheduleReserve);
-    this.view?.visualViewport?.addEventListener('resize', this.scheduleReserve);
+    this.view?.addEventListener('resize', this.viewportResize);
+    this.view?.visualViewport?.addEventListener('resize', this.viewportResize);
   }
   reserve() {
     if (this.root.querySelector('.conversation').hidden) return;
     const shell = this.root.querySelector('.transcript-shell');
+    const viewportChanged = this.followOnResize !== undefined;
+    const following = this.followOnResize ?? this.followsTranscript();
+    this.followOnResize = undefined;
     // Add back the existing reservation to measure the unobstructed scrollport.
     // Preserve 128px for the latest reply, its fade and the Latest control.
     const available = shell.getBoundingClientRect().height + (this.height ?? 0);
@@ -145,14 +154,17 @@ export class QuestionCard {
     // Releasing space enlarges the scrollport. At the bottom that would clamp
     // scrollTop and move every visible line. Wait until enough content remains
     // below the reading position, then release without following the new end.
-    this.held = measured < previous && (!this.followsTranscript() || this.held);
+    this.held = measured < previous && (!following || this.held);
     const release = this.held && scrollTop <= Math.max(0, shell.scrollHeight - shell.clientHeight - (previous - measured));
     const height = this.held && !release ? previous : measured;
-    if (this.height === height) return;
+    if (this.height === height) {
+      if (viewportChanged && following) this.onResize?.({ following });
+      return;
+    }
     this.height = height;
     this.root.querySelector('.conversation').style.setProperty('--question-card-height', `${height}px`);
     if (release) { this.held = false; shell.scrollTop = scrollTop; }
-    else this.onResize?.();
+    else this.onResize?.({ following });
   }
   update(question, copy, unavailable, sending = false) {
     const focused = this.card.contains(this.root.activeElement);
@@ -187,8 +199,8 @@ export class QuestionCard {
   }
   destroy() {
     this.observer?.disconnect();
-    this.view?.removeEventListener('resize', this.scheduleReserve);
-    this.view?.visualViewport?.removeEventListener('resize', this.scheduleReserve);
+    this.view?.removeEventListener('resize', this.viewportResize);
+    this.view?.visualViewport?.removeEventListener('resize', this.viewportResize);
     if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
     this.frame = null;
   }

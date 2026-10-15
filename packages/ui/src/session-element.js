@@ -285,7 +285,7 @@ export class AithemaSession extends HTMLElement {
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#follow && !this.#onTranscript,
-      onResize: () => { if (this.#follow && !this.#onTranscript) this.#scrollToLatest(); } });
+      onResize: ({ following }) => { if (following && !this.#onTranscript) this.#scrollToLatest(); } });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
     for (const [index, line] of (this.#copy.entrance?.promise ?? []).entries()) { if (index) promise.append(' '); promise.append(node('span', '', line)); }

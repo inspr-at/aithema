@@ -195,23 +195,23 @@ test('AIT-225: a held reservation releases only when the scroll position cannot 
 });
 
 test('AIT-225: scroll and visual viewport resize reservations coalesce into one animation frame and disconnect cleanly', t => {
-  const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}`;
-  const descriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport'), viewport = new window.EventTarget();
-  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
-  t.after(() => { if (descriptor) Object.defineProperty(window, 'visualViewport', descriptor); else delete window.visualViewport; });
+  const descriptor = Object.getOwnPropertyDescriptor(view, 'visualViewport'), viewport = new view.EventTarget();
+  Object.defineProperty(view, 'visualViewport', { configurable: true, value: viewport });
+  t.after(() => { if (descriptor) Object.defineProperty(view, 'visualViewport', descriptor); else delete view.visualViewport; });
   const frames = [], cancelled = [];
-  t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
-  t.mock.method(window, 'cancelAnimationFrame', id => cancelled.push(id));
+  t.mock.method(view, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  t.mock.method(view, 'cancelAnimationFrame', id => cancelled.push(id));
   const card = new QuestionCard({ root, send() {} });
   let calls = 0; t.mock.method(card, 'reserve', () => calls++);
-  card.scheduleReserve(); card.scheduleReserve(); viewport.dispatchEvent(new window.Event('resize'));
-  window.dispatchEvent(new window.Event('resize'));
+  card.scheduleReserve(); card.scheduleReserve(); viewport.dispatchEvent(new view.Event('resize'));
+  view.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 1); assert.equal(calls, 0, 'events do no synchronous layout work');
   frames[0](); assert.equal(calls, 1);
-  viewport.dispatchEvent(new window.Event('resize'));
+  viewport.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 2, 'a later visual viewport resize schedules fresh geometry');
   card.destroy(); assert.deepEqual(cancelled, [2]);
-  viewport.dispatchEvent(new window.Event('resize')); window.dispatchEvent(new window.Event('resize'));
+  viewport.dispatchEvent(new view.Event('resize')); view.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 2, 'disconnect removes both resize listeners');
 });
