@@ -65,7 +65,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
     throw new TypeError('Admission and revocation require the same consent port');
   }
-  const listeners = new Map(), jobs = new Map(), failures = new Map(), laneFailures = new Map(), stop = new AbortController();
+  const listeners = new Map(), jobs = new Map(), stop = new AbortController();
   if (host?.walletForSession) pluginRuntime.setOwnerWallet?.(session => host.walletForSession(session));
   let recovery = null, costTimer, costRecovery;
   const reconcileCostsLater = () => {
@@ -84,16 +84,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     // Work that deferred while paused needs a wake-up even without a new turn.
     if (event.type === 'session.paused' && event.data.paused === false) schedule(id, { wake: true });
   };
-  const clearFailures = id => {
-    failures.delete(id);
-    for (const lane of ['reaction', 'understanding']) laneFailures.delete(`${id}:${lane}`);
-  };
-  const operations = session => {
-    const revision = inputRevision(session), failure = failures.get(session.id);
-    if (failure && failure.inputRevision !== revision) clearFailures(session.id);
-    return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
-      lastFailure: failure?.inputRevision === revision ? failure : null };
-  };
+  const clearFailures = id => storage.clearLaneFailures(id);
+  const currentFailures = session => storage.laneFailures(session.id)
+    .filter(failure => failure.inputRevision === inputRevision(session));
+  const operations = session => ({ inputRevision: inputRevision(session),
+    running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
+    // One visible Retry; recovering one lane reveals any other failed lane.
+    lastFailure: currentFailures(session).at(-1) ?? null });
   const snapshot = async id => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
@@ -250,18 +247,20 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     voiceHandlers?.stopSession(id, reason);
     await cancelled;
   }
-  function schedule(id, { wake = false, reconnect = false } = {}) {
+  function schedule(id, { wake = false, reconnect = false, retry = false } = {}) {
     let requested;
     if (purposePolicy) {
       const session = storage.get(id), scoped = storage.safeguards(id, inputRevision(session));
       requested = storage.purposeAssessmentInput(session) ? ['understanding'] : [];
       if (!scoped.assessed && session.pauseReason !== 'purpose' && !(voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id))) requested.unshift('reaction');
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
-    const revision = inputRevision(storage.get(id));
+    // An explicit Retry can recover a recorded lane even when ordinary
+    // scheduling currently requests only understanding (for example active voice).
+    if (retry) requested = [...new Set([...requested, ...currentFailures(storage.get(id)).map(failure => failure.lane)])];
     for (const lane of requested) {
       // Opening a stream is not consent to another paid attempt. Keep each
       // recorded current-revision lane failure until the existing Retry path.
-      if (reconnect && laneFailures.get(`${id}:${lane}`)?.inputRevision === revision) continue;
+      if (reconnect && currentFailures(storage.get(id)).some(failure => failure.lane === lane)) continue;
       scheduleLane(id, lane, { wake });
     }
     status(id);
@@ -280,18 +279,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           const started = storage.get(id), revision = inputRevision(started), work = laneKey(started, lane);
           try {
             await lanes.run(id, lane, { signal: stop.signal });
-            laneFailures.delete(key);
-            const failure = failures.get(id);
-            if (inputRevision(storage.get(id)) === revision && failure?.inputRevision === revision && failure.lane === lane) {
-              failures.delete(id);
-            }
+            storage.clearLaneFailures(id, lane);
           } catch (error) {
             // Work superseded by new input or a changed processing choice reruns instead of failing.
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
               const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true,
                 ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
-              laneFailures.set(key, failure);
-              failures.set(id, failure);
+              storage.setLaneFailure(id, failure);
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }
           }
@@ -465,7 +459,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         return json(event, 200);
       }
       if (action === 'retry' && request.method === 'POST') {
-        schedule(id); return json({ accepted: true }, 202);
+        schedule(id, { retry: true }); return json({ accepted: true }, 202);
       }
       if (action === 'pause' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
@@ -642,7 +636,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           for (const id of storage.list()) {
             if (stop.signal.aborted) break;
             if (!unfinished(storage.get(id))) continue;
-            schedule(id);
+            schedule(id, { reconnect: true });
             await Promise.allSettled([...jobs.values()].filter(job => job.id === id).map(job => job.promise));
           }
         })().finally(() => { recovery = null; });

@@ -387,22 +387,25 @@ for (const failed of [['reaction'], ['reaction', 'understanding']]) test(`AIT-21
 
 test('AIT-213 recovering understanding reveals the remaining reaction failure', async () => {
   const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
-  const reaction = deferred(), understanding = deferred();
-  handlers.lanes.run = async () => { throw new Error('failure'); };
+  const calls = { reaction: 0, understanding: 0 };
+  let failing = true;
+  handlers.lanes.run = async (id, lane) => { calls[lane]++; if (failing) throw new Error('failure'); };
   try {
     const session = storage.create({ demo: true, ownerToken: testToken });
     await turn(handlers, session.id, 'first', 'A website'); await handlers.idle();
     assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure.lane, 'understanding');
-    handlers.lanes.run = async (id, lane) => {
-      if (lane === 'reaction') await reaction.promise;
-      else understanding.resolve();
-    };
-    await handlers.handle(request(`${session.id}/retry`, {})); await understanding.promise;
-    // A snapshot yields until understanding completion; reaction has not recovered yet.
+    failing = false;
+    // Exercise the understanding-only scheduler path, also used during active voice.
+    handlers.lanes.onScope(session.id, 'in', inputRevision(storage.get(session.id)));
+    await handlers.idle();
     const snapshot = await handlers.handle(request(session.id)).then(r => r.json());
     assert.equal(snapshot.operations.lastFailure?.lane, 'reaction');
     assert.equal(snapshot.operations.lastFailure.retryable, true);
-    reaction.resolve(); await handlers.idle();
+    const stream = await handlers.handle(request(`${session.id}/events`));
+    await stream.body.cancel(); await handlers.idle();
+    assert.equal(calls.reaction, 1, 'reconnect still skips the remaining failed lane');
+    await handlers.handle(request(`${session.id}/retry`, {})); await handlers.idle();
+    assert.equal(calls.reaction, 2, 'visible Retry recovers the remaining lane once');
     assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
-  } finally { reaction.resolve(); await handlers.close(); storage.close(); }
+  } finally { await handlers.close(); storage.close(); }
 });

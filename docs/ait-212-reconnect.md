@@ -5,7 +5,23 @@ against its recorded current-input-revision failure before scheduling. Failed la
 are skipped independently, including when both lanes failed. The existing Retry
 endpoint uses normal scheduling and existing in-flight deduplication, admission
 and terminal settlement. Successful attempts clear the lane's failure; input
-revision changes and invalidation release obsolete failure state.
+revision changes ignore obsolete failure state; invalidation clears it.
+
+AIT-213 stores sanitized per-session/per-lane failures in SQLite `lane_failures`,
+including the input revision. Records survive handler recreation, database reopen,
+restart and deployment. Both boot recovery and event-stream reconnect skip current
+failed lanes. `operations.lastFailure` is derived from the remaining current-revision
+records: after understanding recovers, a remaining reaction failure becomes visible
+through the existing single Retry. Explicit Retry also includes recorded failed lanes
+when ordinary scheduling requests only understanding (for example during voice).
+There is no provider diagnostic or person-authored content in these records.
+
+A deliberate **Resume** from the person (text or voice pause/resume) uses normal
+scheduling and may re-run a failed lane because the person chose to continue. This
+is distinct from the server's boot `handlers.resume()`, which preserves failures.
+The existing settlement and credits rules remain unchanged: a fully received 4xx
+without usage settles at zero, except 408/499; timeouts and uncertain failures settle
+conservatively. A reconnect adds no charge regardless of the failed attempt's cost.
 
 `unfinished` also consults the existing purpose-assessment recovery selector, so an
 earlier unassessed in-scope turn survives a later all-off-topic pause. Repeated
@@ -49,3 +65,27 @@ Additional server coverage at `55a2a35a53`: run `55a2a35a53-96212` passed
 94/94 in 1.644 seconds, including reaction-only and simultaneous two-lane
 failures. Three reconnects leave each failed lane at one call; explicit Retry
 recovers each failed lane exactly once.
+
+## Round 2 / AIT-213 evidence
+
+The signed main merge was conflict-free (no manual merge hunks); both the AIT-212
+changes and main's package exports/release tooling are retained.
+
+Red commit `b794b8f6b6`, mbp2606 run `b794b8f6b6-85441`: 17/19 handler tests
+passed. The disk-backed restart regression and remaining-lane visibility regression
+both failed. The restart test closes handlers and SQLite, reopens the same database,
+runs boot recovery and reconnects three times; it requires zero new calls, admissions
+and settlements, one exposed failure, one deduplicated explicit Retry and later work
+for a new turn. The partial recovery regression uses the understanding-only scheduler
+path and requires the remaining reaction failure to stay visible and retryable.
+
+The browser matrix extends Tick's existing approved post-reconnect presentation
+without changing UI code, copy, font stacks or layout. Every DE/EN × 390/1440 ×
+light/dark case now covers received usage, unbilled 400, timeout 408, timeout 499 and
+uncertain 503. Each closes handlers and SQLite, reopens the database, runs boot
+recovery, reconnects, asserts exactly one visible enabled Retry, and verifies one
+explicit retry attempt. Pass lines and JSON record available credits immediately
+after failure and after reconnect and assert equality of the entire owner balance.
+They also distinguish provider settlement at zero, with received usage, or
+conservatively; failed understanding visitor charges remain governed by AIT-198.
+Viewport evidence retains reduced motion, settled animations and loaded fonts.

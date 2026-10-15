@@ -10,7 +10,8 @@ import { openRouterConfig } from '../../demo/openrouter-config.js';
 import { start2PurposePolicy } from '../../demo/safeguards.js';
 const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
 
-const storage = new SQLiteStorage(), owner = 'understanding-fixture-owner';
+let storage = new SQLiteStorage(process.argv[2]);
+const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
 let release, success = false, current, providerCalls = 0;
@@ -28,15 +29,19 @@ const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: con
     }
     if (!success) {
       const verdict = await new Promise(resolve => { release = resolve; });
+      if (['400', '408', '499'].includes(verdict)) return Response.json({ error: { message: 'fixture rejection' } }, { status: Number(verdict) });
       if (verdict === 'uncertain') return new Response(null, { status: 503 });
       return Response.json({ usage, choices: [{ finish_reason: 'length', message: { content: '{}' } }] });
     }
     return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }] });
   } });
-const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(plugin),
+const makeHandlers = () => {
+  const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(plugin),
   presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction, understanding: config.understanding }, policy: { endpoints: [config.reaction.endpoint] } } } });
-const host = createDemoHost({ storage, ownerGuard: false });
-const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, host, consent });
+  const host = createDemoHost({ storage, ownerGuard: false });
+  return createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, host, consent });
+};
+let handlers = makeHandlers();
 const call = (action, data) => handlers.handle(new Request(`http://fixture/api/sessions/${current.id}/${action}`, {
   method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: JSON.stringify(data),
 }));
@@ -53,6 +58,12 @@ const { server, url } = await listen(async request => {
     return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
   }
   if (path === '/settle') { release(u.searchParams.get('verdict')); await handlers.idle(); return Response.json({ ok: true }); }
+  if (path === '/restart') {
+    await handlers.close(); storage.close();
+    storage = new SQLiteStorage(process.argv[2]); handlers = makeHandlers();
+    await handlers.resume(); await handlers.idle();
+    return Response.json({ ok: true });
+  }
   if (path === '/stats') {
     await handlers.idle();
     return Response.json({ providerCalls, attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });

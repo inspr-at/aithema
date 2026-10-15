@@ -239,7 +239,7 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
 });
 
 
-test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D', { timeout: 90_000 }, async t => {
+test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D', { timeout: 150_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-reconnect-failure-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), passes = [];
@@ -247,7 +247,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  for (const locale of ['de', 'en']) for (const width of [390, 1440]) for (const theme of ['light', 'dark']) {
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) for (const theme of ['light', 'dark']) for (const kind of ['failed', '400', '408', '499', 'uncertain']) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
@@ -258,9 +258,17 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
       c.configure({ session, copy, host: { credits: true } });
       window.failedCopy = `${copy.understandingFailed} · ${copy.understandingRetry}`;
     }, locale, theme);
-    await page.evaluate(() => fetch('/settle?verdict=failed'));
+    await page.evaluate(kind => fetch('/settle?verdict=' + kind), kind);
     await until(page, () => document.querySelector('aithema-session').session.operations?.lastFailure?.lane === 'understanding');
     const before = await page.evaluate(async () => (await fetch('/stats')).json());
+    const credits = () => page.evaluate(async () => (await (await fetch(`/api/sessions/${document.querySelector('aithema-session').session.id}/credits`)).json()).balance.owner);
+    const creditsAfterFailure = await credits();
+    const failedAttempt = before.attempts.at(-1);
+    assert.equal(failedAttempt.state, 'settled');
+    if (kind === '400') assert.equal(failedAttempt.settled_micro, 0, 'fully received 4xx without usage settles at zero');
+    else assert.ok(failedAttempt.settled_micro > 0, 'usage or conservative provider settlement recorded');
+    // Restart real handlers and reopen SQLite before the client reconnects.
+    await page.evaluate(() => fetch('/restart'));
     // A healthy fake on reconnect makes a silent rerun finish deterministically.
     await page.evaluate(() => fetch('/success'));
     const connected = page.waitForResponse(r => r.url().endsWith('/events') && r.status() === 200);
@@ -268,6 +276,8 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     await connected;
     const after = await page.evaluate(async () => (await fetch('/stats')).json());
     assert.deepEqual(after, before, 'reconnect makes zero provider calls, admissions or settlements');
+    const creditsAfterReconnect = await credits();
+    assert.deepEqual(creditsAfterReconnect, creditsAfterFailure, 'restart/reconnect never charges credits');
     await settle(page);
     const failed = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
       expected: window.failedCopy, retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
@@ -275,7 +285,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     assert.equal(failed.notice, failed.expected); assert.equal(failed.retries, 1); assert.equal(failed.enabled, true); assert.equal(failed.failure, 'understanding');
     if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
     await settle(page);
-    if (evidence) await page.screenshot({ path: join(evidence, `ait212-${locale}-${width}-${theme}-reconnected.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence) await page.screenshot({ path: join(evidence, `ait212-${locale}-${width}-${theme}-${kind}-reconnected.png`), fullPage: false, captureBeyondViewport: false });
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')),
       shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click())]);
     assert.equal(response.status(), 202);
@@ -284,8 +294,8 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     assert.equal(retried.providerCalls, before.providerCalls + 1);
     assert.equal(retried.attempts.length, before.attempts.length + 1);
     assert.equal(retried.attempts.at(-1).state, 'settled');
-    passes.push({ head: evidenceCommit, locale, width, theme, reconnectCalls: 0, reconnectSettlements: 0, retries: 1, explicitRetryAttempts: 1, pass: true });
-    console.log(`AIT-212 PASS ${locale} ${width} ${theme}: reconnect 0 calls/settlements; one Retry; explicit Retry 1 settled attempt`);
+    passes.push({ head: evidenceCommit, locale, width, theme, kind, creditsAfterFailure: creditsAfterFailure.availableMicro, creditsAfterReconnect: creditsAfterReconnect.availableMicro, providerSettlementMicro: failedAttempt.settled_micro, settlement: kind === '400' ? 'zero: fully received 4xx without usage' : kind === 'failed' ? 'received usage' : 'conservative: timeout or uncertain', reconnectCalls: 0, reconnectSettlements: 0, retries: 1, explicitRetryAttempts: 1, pass: true });
+    console.log(`AIT-212 PASS ${locale} ${width} ${theme} ${kind}: credits ${creditsAfterFailure.availableMicro} = ${creditsAfterReconnect.availableMicro}; provider settlement ${failedAttempt.settled_micro} (${passes.at(-1).settlement}); restart/reconnect 0 calls/settlements; one Retry; explicit Retry 1 settled attempt`);
   }
   if (evidence) await writeFile(join(evidence, 'ait212-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
