@@ -15,8 +15,9 @@ for (const [name, body] of [
     writeFileSync(fixture, `const test = require('node:test');\n${body}\n`);
     const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
     const result = spawnSync(process.execPath, ['--test', '--test-timeout=200', fixture], {
-      env: childEnv, encoding: 'utf8', timeout: 5000,
+      env: childEnv, encoding: 'utf8', timeout: 5000, detached: true,
     });
+    try { process.kill(-result.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     const output = result.stdout + result.stderr;
     assert.equal(result.error, undefined, 'the runner must exit before the outer watchdog');
     assert.equal(result.status, 1, output);

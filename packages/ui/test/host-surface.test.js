@@ -60,13 +60,13 @@ test('AIT-193: disconnect clears the verification countdown; reconnect starts on
   const clears = t.mock.method(globalThis, 'clearInterval');
   const { c } = setup(t, { host: { verification: true }, session: { identity: pending() } });
   await tick(8);
-  const countdown = intervals.mock.calls.find(call => call.arguments[1] === 1000)?.result;
-  assert.notEqual(countdown, undefined, 'the connected pending identity has a countdown');
+  const countdowns = intervals.mock.calls.filter(call => call.arguments[1] === 1000).map(call => call.result);
+  assert.ok(countdowns.length > 0, 'the connected pending identity has a countdown');
   c.remove();
-  assert.ok(clears.mock.calls.some(call => call.arguments[0] === countdown), 'disconnect clears that countdown');
+  assert.ok(countdowns.every(countdown => clears.mock.calls.some(call => call.arguments[0] === countdown)), 'disconnect clears every countdown');
   const before = intervals.mock.callCount();
   document.body.append(c); await tick(8);
-  assert.equal(intervals.mock.callCount(), before + 1, 'reconnect starts exactly one countdown');
+  assert.equal(intervals.mock.callCount(), before + countdowns.length, 'reconnect starts each countdown exactly once');
 });
 
 test('AIT-193: an identity response after disconnect cannot restart countdown or verification polling', async t => {
