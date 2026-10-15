@@ -294,7 +294,8 @@ test('AIT-197 R2 A and real save: consent starts overview and missing reply exac
 
 test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN', async t => {
   const page = await fixture(t, true);
-  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    await page.select('#theme', theme);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     const session = await shadow(page, async c => {
       await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
@@ -311,11 +312,13 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
     try { await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing'); }
     catch (error) { t.diagnostic(JSON.stringify(await shadow(page, c => ({ active: c.shadowRoot.activeElement?.outerHTML, editor: c.shadowRoot.querySelector('.consent-editor').outerHTML, open: c.shadowRoot.querySelector('dialog.settings').open })))); throw error; }
     await frame(page); const before = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
+    assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none', 'save has the check icon');
+    await record(t, page, `r3-${locale}-${theme}-${width}-save-check`, { check: true });
     await page.keyboard.press('Space'); await frame(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent), locale === 'de' ? 'Widerrufen und Gespräch beenden' : 'Withdraw and end conversation');
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none', 'withdraw has no check icon');
     assert.deepEqual(await boxes(page, ['.done', '.settings__footer', '.settings__body']), before, 'label swap shifts 0 px');
-    await record(t, page, `${locale}-${width}-withdraw-label`, { shiftPx: 0 });
+    await record(t, page, `${locale}-${theme}-${width}-withdraw-label`, { shiftPx: 0 });
     page.forceSnapshot = null;
     await page.locator('aithema-session >>> .consent-save').click();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
@@ -400,4 +403,11 @@ test('AIT-197 R3: idle person turns never claim preparing; empty transcript outr
   await scene(page, 'en', 'light', 1440, ['analysis']);
   await shadow(page, async c => { const { en: copy } = await import('/packages/ui/src/i18n/en.js'); const session = structuredClone(c.session); session.transcript = []; session.operations.running = []; c.configure({ session, copy }); });
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Your overview appears here after the first sentence.');
+});
+
+test('AIT-197 R3: save consent visibly retains the check icon', async t => {
+  const page = await fixture(t); await scene(page, 'de', 'light', 390, ['voice']);
+  await page.locator('aithema-session >>> .voice-state button').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'voice-elevenlabs');
+  assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none');
 });
