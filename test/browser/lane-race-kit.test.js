@@ -44,7 +44,7 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
       assert.equal(state.retries, 1, JSON.stringify({ pair, order, failed, state }));
     } else assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
     if (pair.includes('understanding') && !(failed && order[0] === 'understanding')) assert.equal(state.summary, 'Ein Überblick. An overview.');
-    assert.doesNotMatch(state.notice, /wird erstellt|wird aktualisiert|building|updating/iu, 'no overview stays busy after work settled');
+    assert.doesNotMatch(state.notice, /wird erstellt|wird aktualisiert|building|updating/iu, `no overview stays busy after work settled: ${JSON.stringify({ pair, order, failed, state, session: result.session })}`);
   }
   // Direct lane races do not record handler failures. Exercise the real retry
   // scheduler as well, so the UI receives each retryable failure in its snapshot.
