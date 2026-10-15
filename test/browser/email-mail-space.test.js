@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
@@ -165,6 +165,7 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
     }
     await browser.close(); browser = null;
   }
+  assertMatrixCaseCount('mail-reservation', rows.length);
   if (evidence) {
     await writeFile(join(evidence, 'ait-171-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, rows, shots }, null, 2));
     await writeFile(join(evidence, 'email-save-geometry.json'), JSON.stringify(saves, null, 2));
@@ -259,6 +260,7 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
     }
     await browser.close(); browser = null;
   }
+  assertMatrixCaseCount('mail-latch', rows.length);
   if (evidence) await writeFile(join(evidence, 'ait-171-latch-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, rows, shots }, null, 2));
 });
 

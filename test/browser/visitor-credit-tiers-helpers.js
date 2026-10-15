@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { fullMatrix, matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
@@ -461,10 +461,11 @@ export async function visitorCreditMatrix(t, locales) {
     assert.deepEqual(problems, []);
     await browser.close(); browser = null;
   }
+  assertMatrixCaseCount('visitor-credit', states.length);
   const stamp = rows => rows.map(row => ({ head, branchHead, ...row }));
   if (evidence) await writeFile(join(evidence, `a2-${locales.join('-')}-pass-lines.json`), JSON.stringify({ head, branchHead, runner: 'remote/CI', source: 'shipped component with owner-route fixtures; language selected through the picker', passLines: stamp(passLines), uiChecks: stamp(uiChecks), states, captures }, null, 2));
   for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog'].includes(row.state))) {
     t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state}${row.displacementPx === 0 ? ' 0 px layout shift' : ''} ${JSON.stringify(row)}`);
   }
-  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${locales.length * 2 * (fullMatrix ? 3 : 1)} viewport/theme/language combinations`);
+  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${locales.length * 2 * matrixWidths([1440, 1024, 390], 'light', 2).length} viewport/theme/language combinations`);
 }

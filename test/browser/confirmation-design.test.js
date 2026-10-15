@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { browserForFile } from './shared-browser.js';
-import { fullMatrix, matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { createIdentity, reduceIdentity } from '@inspr/aithema-core';
 import { SQLiteStorage } from '../../packages/server/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
@@ -202,7 +202,8 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
   assert.equal(f.host.visitor(plain.owner).tier, 'emailConfirmed');
   assert.equal(f.lastPost().origin, f.url); assert.equal(f.lastPost().referer, f.url + '/');
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
-  assert.equal(shots.length, fullMatrix ? 80 : 40);
+  assertMatrixCaseCount('confirmation-mail', shots.filter(name => name.startsWith('c2-mail-')).length);
+  assertMatrixCaseCount('confirmation-landing', shots.filter(name => name.startsWith('c2-landing-')).length);
   pass.push(`PASS head=${head} ${shots.length} viewport shots; all 9 landing states; CSP; GET never redeems; one POST; BFCache reset; reduced motion; no-script confirmation; no remote requests`);
   if (evidence) {
     await writeFile(join(evidence, 'c2-pass-lines.txt'), pass.join('\n') + '\n');

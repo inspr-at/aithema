@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { fullMatrix, matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
@@ -140,7 +140,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
     // Full evidence replays every width; CI rotates widths at fixture boundaries.
     // Both theme screenshots and assertions are
     // taken from each resulting state instead of replaying every interaction.
-    for (let width of fullMatrix ? [390, 1024, 1440] : [390]) {
+    for (let width of matrixWidths([390, 1024, 1440], 'light')) {
       await page.setViewport({ width, height: 1000 });
       const setTheme = async theme => {
         await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
@@ -153,7 +153,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       let targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
       let baseline, stateGroup = 0;
       const begin = async (options = {}, widths = [390, 1024, 1440]) => {
-        if (!fullMatrix) width = matrixWidths(widths, 'light', stateGroup++)[0];
+        stateGroup++; // Each floor width replays every fixture, as in full evidence.
         await page.setViewport({ width, height: 1000 });
         label = `${locale}-${width}`;
         targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
@@ -272,6 +272,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
     }
     await browser.close(); browser = null;
   }
+  assertMatrixCaseCount('email-ask', passes.length);
   if (evidence) await writeFile(join(evidence, 'ait164-pass-lines.json'), JSON.stringify({ head: evidenceCommit, runner: 'mbp2606/CI', captures: 'viewport', passes }, null, 2));
   t.diagnostic(`AIT-164 HEAD ${evidenceCommit}: ${passes.length} viewport state checks PASS; layout shift 0 px`);
 });

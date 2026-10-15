@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -74,7 +74,10 @@ export async function displayMatrix(t, section) {
     });
     const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], reveals = [];
     if (evidence) await mkdir(evidence, { recursive: true });
+    let coverageGroup;
+    const caseCounts = { 'integrated-flow': 0, 'integrated-narrow': 0 };
     const shot = async (state, width, theme, preserveFocus = false) => {
+      if (coverageGroup) caseCounts[coverageGroup]++;
       const name = `${state}-${width}-${theme}-${locale}.png`;
       if (!preserveFocus) await shadow(page, c => { const active = c.shadowRoot.activeElement; if (active && !c.shadowRoot.querySelector('.conversations-menu').contains(active)) active.blur(); });
       if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: false }); files.push(name); }
@@ -382,6 +385,7 @@ export async function displayMatrix(t, section) {
       }
     });
     } else {
+    coverageGroup = 'integrated-flow';
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.select('#theme', theme);
@@ -536,6 +540,8 @@ export async function displayMatrix(t, section) {
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
     }
+    assertMatrixCaseCount('integrated-flow', caseCounts['integrated-flow']);
+    coverageGroup = 'integrated-narrow';
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([320, 600, 680, 768, 900, 1000], theme, 1)) {
       await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
       const row = await shadow(page, c => {
@@ -558,6 +564,8 @@ export async function displayMatrix(t, section) {
       }
       await menuEvidence(width, theme);
     }
+    assertMatrixCaseCount('integrated-narrow', caseCounts['integrated-narrow']);
+    coverageGroup = undefined;
     locale = 'de'; await page.setViewport({ width: 1440, height: 900 }); await page.select('#theme', 'light'); await scene('conversation');
     const footer = await boxes(page, ['.display-foot', '.engine-info', '.composer']);
     await page.hover('aithema-session >>> .engine-info'); sameBoxes(footer, await boxes(page, ['.display-foot', '.engine-info', '.composer']), 'footer model hover');

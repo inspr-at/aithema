@@ -19,7 +19,7 @@ test('CI artifacts keep deterministic width rotation; full evidence retains ever
   const base = { ...process.env }; delete base.CI; delete base.AITHEMA_EVIDENCE_DIR;
   const ci = selection({ ...base, CI: 'true', AITHEMA_EVIDENCE_DIR: '/tmp/evidence' });
   assert.deepEqual(ci, { fullMatrix: false, groups: [
-    [[390], [1024]], [[1024], [1440]], [[1440], [390]],
+    ...Array.from({ length: 3 }, () => [[390, 1440, 1024], [390, 1440, 1024]]),
   ] });
   assert.deepEqual(selection(base), ci);
   assert.deepEqual(selection({ ...base, AITHEMA_EVIDENCE_DIR: '/tmp/evidence' }), {
@@ -52,4 +52,27 @@ test('executed case guard rejects a dropped state or width in CI and full eviden
   assert.equal(matrixCaseTotals['email-ask'].full, 296);
   assert.equal(matrixCaseTotals['visitor-credit'].full, 444);
   assert.throws(() => assertMatrixCaseCount('unregistered', 0), /Unknown matrix group/);
+});
+
+test('Tick width-specific DOM pass lines retain every original width in PR CI', () => {
+  for (const [file, widths] of [
+    ['tick-followups.test.js', '[390, 393, 400, 412, 430, 440, 447, 448, 460, 480, 500, 550, 1024, 1440]'],
+    ['pause-phone.test.js', '[390, 393]'],
+  ]) {
+    const source = readFileSync(new URL(`./browser/${file}`, import.meta.url), 'utf8');
+    assert.ok(source.includes(`for (const width of ${widths})`), `${file}: original DOM width sweep`);
+    assert.ok(!source.includes('matrixWidths('), `${file}: width-specific and 0 px shift assertions must not rotate`);
+  }
+});
+
+test('every rotated group has a live executed-count assertion', async () => {
+  const { matrixCaseTotals } = await import('./browser/matrix-coverage.js');
+  const files = ['start2-display.test.js', 'start2-display-matrix-helpers.js',
+    'start2-display-continuity.test.js', 'confirmation-design.test.js',
+    'email-mail-space.test.js', 'email-ask.test.js', 'visitor-credit-tiers-helpers.js'];
+  const source = files.map(file => readFileSync(new URL(`./browser/${file}`, import.meta.url), 'utf8')).join('\n');
+  assert.equal(Object.keys(matrixCaseTotals).length, 17);
+  for (const group of Object.keys(matrixCaseTotals)) {
+    assert.ok(source.includes(`assertMatrixCaseCount('${group}',`), `${group}: executable guard required`);
+  }
 });

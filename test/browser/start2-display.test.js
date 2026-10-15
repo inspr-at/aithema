@@ -6,7 +6,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -141,6 +141,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     }
     assert.equal(samePaint(originalPaint, restoredPaint), true, `${label}: scrolling back restores main's paint`);
   }
+  assertMatrixCaseCount('display-band', passLines.length);
   if (evidence) await writeFile(join(evidence, 'ait155-band-pass-lines.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', passLines }, null, 2));
   for (const row of passLines) t.diagnostic(`PASS head=${row.head} ${row.locale}-${row.theme}-${row.width}/${row.state} 0 px layout shift${row.textPixels ? `; ${row.textPixels} opaque pixels over text` : '; AIT-131 main paint preserved'}`);
 });
@@ -230,6 +231,7 @@ test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewpor
     await shot('open'); await page.keyboard.press('Escape'); assert.equal(await page.$eval('#demo-account', n => n.open), false);
     checks.push({ width, theme, locale, folded, control, panel });
   }
+  assertMatrixCaseCount('display-account', checks.length);
   if (evidence) await writeFile(join(evidence, 'r3-demo-account-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, files, checks }, null, 2));
 });
 
@@ -312,6 +314,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
       await page.keyboard.press('Escape');
     });
   }
+  assertMatrixCaseCount('display-settings-footer', checks.length);
   if (evidence) await writeFile(join(evidence, 'ait-147-settings-footer-evidence.json'), JSON.stringify({ ticket: 'AIT-147', commit: evidenceCommit, files, checks }, null, 2));
 });
 
@@ -370,6 +373,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
     } else await page.keyboard.press('Escape');
     checks.push({ width, theme, locale, state, entry });
   }
+  assertMatrixCaseCount('display-settings-email', checks.length);
   if (evidence) await writeFile(join(evidence, 'r3-settings-email-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, files, checks }, null, 2));
 });
 
@@ -459,6 +463,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       }
     }
   });
+  assertMatrixCaseCount('display-canvas', checks.filter(check => 'cause' in check).length);
   await t.test('the reveal orb has a 44px hit area around its 40px visual', async () => {
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 5)) {
       await scene(locale, theme, width);
@@ -477,6 +482,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       checks.push({ locale, theme, width, visual, target });
     }
   });
+  assertMatrixCaseCount('display-orb', checks.filter(check => 'target' in check).length);
   await t.test('conversations menu corners stay painted above the second band row at medium widths', async () => {
     for (const width of [600, 680, 768, 900, 1000]) {
       await scene('de', 'light', width);
@@ -512,7 +518,9 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     return request.continue();
   });
   if (evidence) await mkdir(evidence, { recursive: true });
+  let heldCases = 0;
   const shot = async (state, width, theme, locale) => {
+    heldCases++;
     if (!evidence || width === 1024) return;
     await shadow(page, c => c.shadowRoot.activeElement?.blur()); await page.mouse.move(0, 0);
     const name = `ait-138-${state}-${width}-${theme}-${locale}.png`;
@@ -610,6 +618,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
       disabledControls, noLayoutShift: true, noHorizontalOverflow: true, pass: true });
   }
   assert.deepEqual(errors, []);
+  assertMatrixCaseCount('display-held', heldCases);
   if (evidence) await writeFile(join(evidence, 'ait-138-ui-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138', commit: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
 });
@@ -630,7 +639,9 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
     return request.continue();
   });
   if (evidence) await mkdir(evidence, { recursive: true });
+  let noticeCases = 0;
   const shot = async (name, label) => {
+    noticeCases++;
     const file = `ait-138-c-${name}-${label}.png`; files.push(file);
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
   };
@@ -842,6 +853,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
     });
   }
   assert.deepEqual(errors, []);
+  assertMatrixCaseCount('display-notices', noticeCases);
   if (evidence) await writeFile(join(evidence, 'ait-138-c-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 c', commit: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
 });
