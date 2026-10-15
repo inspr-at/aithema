@@ -57,6 +57,12 @@ test('AIT-200: an external package supplies replies, overview, cost receipts and
     return c.session.transcript.some(t => t.role === 'assistant' && t.content === reply) &&
       c.session.understanding.summary === summary && c.shadowRoot.querySelector('.analysis-content').textContent.includes(summary);
   }, {}, { reply, summary });
+  // Wait for the reference UI's opening transition, not an arbitrary delay.
+  await page.waitForFunction(() => {
+    const root = document.querySelector('aithema-session').shadowRoot, workspace = root.querySelector('.workspace');
+    const text = root.querySelector('.summary-text').getBoundingClientRect(), pane = root.querySelector('.understanding').getBoundingClientRect();
+    return !workspace.hasAttribute('data-reveal') && text.width > 0 && text.left >= pane.left && text.right <= pane.right && text.bottom <= innerHeight;
+  });
   const current = await page.$eval('aithema-session', c => ({ model: c.session.transcript.at(-1).model,
     provider: c.session.transcript.at(-1).provider, assessed: c.session.understanding.readinessAssessed,
     replyVisible: c.shadowRoot.querySelector('.transcript-shell').textContent }));
