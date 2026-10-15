@@ -126,7 +126,7 @@ for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'othe
     if (variant === 'genuine') {
       assert.equal(isLocalVoice(entry), true);
       assert.deepEqual(offered, [MOCK_PROCESSING_SCOPE]);
-      assert.equal((await runtime.matrix(session)).best.voice.available, true);
+      assert.equal((await runtime.checkVoice(session, { textReplay: true })).plugin, entry);
       assert.equal((await runtime.speakText({ session, turnId: 'reply' })).kind, 'audio');
     } else {
       // Check consent discovery first: the original attack offered mock consent.
