@@ -212,7 +212,9 @@ export class PhoneComposerViewport {
           record.oldValue !== record.target.getAttribute(record.attributeName));
         // Both recovery notices and ordinary last-reply controls are last
         // items on phones. Run after their render, without needing a pointer.
-        if (changed && this.view.matchMedia('(max-width:600px)').matches) {
+        // Same-size label/text renders must not undo a transcript pointer anchor.
+        const height = notices.getBoundingClientRect().height;
+        if (changed && height !== this.noticeHeight && this.view.matchMedia('(max-width:600px)').matches) {
           if (this.followsTranscript()) notices.style.minHeight = '';
           else {
             // Retain only the room a removed last item would clamp away while
