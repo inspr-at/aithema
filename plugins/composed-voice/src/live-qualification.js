@@ -4,15 +4,30 @@ import { join } from 'node:path';
 import { evaluateQualification } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
 
+const BLIND_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
 function blindWav(pcm, format) {
   const width = format.encoding === 'pcm_s16le' ? 2 : 4;
   if (pcm.byteLength % width || format.sampleRateHz < 8000 || format.sampleRateHz > 96000) throw new TypeError('Invalid blind PCM format');
-  const wav = Buffer.alloc(44 + pcm.byteLength);
-  wav.write('RIFF', 0); wav.writeUInt32LE(36 + pcm.byteLength, 4); wav.write('WAVEfmt ', 8);
-  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(width === 2 ? 1 : 3, 20); wav.writeUInt16LE(1, 22);
-  wav.writeUInt32LE(format.sampleRateHz, 24); wav.writeUInt32LE(format.sampleRateHz * width, 28);
-  wav.writeUInt16LE(width, 32); wav.writeUInt16LE(width * 8, 34); wav.write('data', 36); wav.writeUInt32LE(pcm.byteLength, 40);
-  wav.set(pcm, 44); return wav;
+  // Conceal provider-specific bit depths/rates in Markus's listening files.
+  const frames = pcm.byteLength / width, count = Math.ceil(frames * BLIND_FORMAT.sampleRateHz / format.sampleRateHz);
+  const audio = Buffer.alloc(count * 2), source = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const sample = index => {
+    const value = width === 2 ? source.getInt16(index * width, true) / 32768 : source.getFloat32(index * width, true);
+    if (!Number.isFinite(value)) throw new TypeError('Invalid blind PCM sample');
+    return Math.max(-1, Math.min(1, value));
+  };
+  for (let index = 0; index < count; index++) {
+    const position = index * format.sampleRateHz / BLIND_FORMAT.sampleRateHz, left = Math.min(frames - 1, Math.floor(position)),
+      right = Math.min(frames - 1, left + 1), fraction = position - left;
+    const value = sample(left) * (1 - fraction) + sample(right) * fraction;
+    audio.writeInt16LE(Math.round(value * (value < 0 ? 32768 : 32767)), index * 2);
+  }
+  const wav = Buffer.alloc(44 + audio.byteLength);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + audio.byteLength, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(BLIND_FORMAT.sampleRateHz, 24); wav.writeUInt32LE(BLIND_FORMAT.sampleRateHz * 2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(audio.byteLength, 40);
+  wav.set(audio, 44); return wav;
 }
 
 export const PRELIVE_CHECKS = Object.freeze([
@@ -93,8 +108,8 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
       for (const [slot, entry] of pair.entries()) {
         const file = `${index + 1}-${slot ? 'B' : 'A'}.wav`;
         await writeFile(join(outputDirectory, file), blindWav(entry.audio, entry.format), { flag: 'wx', mode: 0o600 });
-        blind.push({ sample: index + 1, label: slot ? 'B' : 'A', file, format: entry.format });
-        answerKey.push({ file, lane: entry.lane });
+        blind.push({ sample: index + 1, label: slot ? 'B' : 'A', file, format: BLIND_FORMAT });
+        answerKey.push({ file, lane: entry.lane, sourceFormat: entry.format });
       }
       await writeFile(join(outputDirectory, 'observations.json'), JSON.stringify(samples, null, 2), { mode: 0o600 });
     }

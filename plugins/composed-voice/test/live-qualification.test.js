@@ -44,7 +44,8 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
       }
       events.forEach(onTiming);
       return { hypothesis: 'Müller GmbH', entities: [{ expected: 'Müller GmbH', actual: 'Müller GmbH' }],
-        ttsPCM: new Uint8Array([1, 2]), ttsFormat: { encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 } };
+        ttsPCM: lane === 'candidate' ? new Uint8Array([0, 0, 128, 62]) : new Uint8Array([0, 32]),
+        ttsFormat: { encoding: lane === 'candidate' ? 'pcm_f32le' : 'pcm_s16le', sampleRateHz: 24000, channels: 1 } };
     },
     async reconcile({ snapshot, reconcile }) {
       for (const row of snapshot.records.filter(row => !row.receipt)) await reconcile({ attemptId: row.attemptId,
@@ -58,7 +59,10 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
   assert.equal(report.budget.exposureMicro, 6); assert.equal(report.budget.records.length, 6);
   const blind = JSON.parse(await readFile(join(outputDirectory, 'blind.json')));
   assert.deepEqual(blind.map(row => row.label), ['A', 'B']); assert.ok(blind.every(row => !Object.hasOwn(row, 'lane')));
-  assert.equal((await readFile(join(outputDirectory, blind[0].file))).subarray(0, 4).toString(), 'RIFF');
+  const wavs = await Promise.all(blind.map(row => readFile(join(outputDirectory, row.file))));
+  assert.ok(wavs.every(wav => wav.subarray(0, 4).toString() === 'RIFF' && wav.readUInt16LE(20) === 1 && wav.readUInt16LE(34) === 16));
+  assert.ok(blind.every(row => row.format.encoding === 'pcm_s16le' && row.format.sampleRateHz === 24000));
+  assert.deepEqual(wavs[0], wavs[1]);
   assert.equal(JSON.parse(await readFile(join(outputDirectory, 'ops-answer-key.json'))).length, 2);
   await assert.rejects(runLiveQualification(options), /Run already claimed/);
 });

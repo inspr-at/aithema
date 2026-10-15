@@ -310,7 +310,9 @@ WER, entity accuracy, first-audio p50/p95, maximum barge-in stop time and the sh
 budget. `observations.json` preserves the real timing trace; `budget-final.json`
 retains the final checkpoint even on failure when the output directory exists.
 `blind.json` plus randomized per-utterance A/B `.wav` files and explicit formats
-are Markus's listening material. Keep `ops-answer-key.json` and the provider-labeled
+are Markus's listening material. Both lanes are normalized to PCM16 mono 24 kHz
+so format metadata cannot reveal the provider; source formats remain in the OPS
+answer key. Keep `ops-answer-key.json` and the provider-labeled
 report private to OPS until Markus records his blind preference. `qualified`
 remains false while that separate human decision is pending.
 
