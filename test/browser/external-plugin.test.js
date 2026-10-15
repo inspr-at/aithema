@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { join } from 'node:path';
+import puppeteer from './launch.js';
+import { browserPath } from '../../scripts/install-test-browser.js';
 import { startChild } from '../helpers.js';
 import { chargedMicro, consentItem, reply, summary, usage } from '../fixtures/external-plugin/index.js';
 
-async function browserPath() {
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name))) ];
-  for (const path of candidates) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
-  throw new Error('No browser available on the remote test runner');
-}
 test('AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration', { timeout: 90_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-external-browser-'));
   let browser;
