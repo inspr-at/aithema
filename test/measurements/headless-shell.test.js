@@ -29,8 +29,12 @@ async function measure(output, variant, executable) {
   for (const [file, pattern] of batch) {
     const started = performance.now();
     const baseline = variant === 'old-full-chrome' ? ['--import', './test/measurements/full-chrome-baseline.js'] : [];
+    const childEnv = { ...process.env, CI: '1', CHROME_PATH: executable, AITHEMA_EVIDENCE_DIR: dir };
+    // A nested `node --test` otherwise sees itself as an existing test worker
+    // and silently skips every requested file (Node's recursive-run guard).
+    delete childEnv.NODE_TEST_CONTEXT;
     const child = spawn(process.execPath, [...baseline, '--test', '--test-concurrency=1', `--test-name-pattern=${pattern}`, file], {
-      env: { ...process.env, CI: '1', CHROME_PATH: executable, AITHEMA_EVIDENCE_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: childEnv, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let log = ''; child.stdout.on('data', chunk => { log += chunk; }); child.stderr.on('data', chunk => { log += chunk; });
     const sample = () => {
