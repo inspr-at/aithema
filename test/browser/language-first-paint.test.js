@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
+import { icon } from '../../packages/ui/src/icons.js';
 import { evidenceCommit } from './start2-display-helpers.js';
 
 // The production font stack is deliberately unchanged. Evidence uses reduced
@@ -80,7 +81,8 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
             } else {
               if (label?.textContent) window.earlyWrongLabel = label.textContent;
               const utilities = [...document.querySelectorAll('.host-actions .utility')];
-              window.preHeaderFrames.push({ time: performance.now(), painted: utilities.some(node => {
+              const title = document.querySelector('.wordmark')?.getBoundingClientRect();
+              window.preHeaderFrames.push({ title: title ? [title.x, title.y, title.width, title.height] : null, time: performance.now(), painted: utilities.some(node => {
                 const r = node.getBoundingClientRect(), style = getComputedStyle(node);
                 return r.width > 0 && r.height > 0 && style.visibility === 'visible' && style.display !== 'none';
               }), boxes: utilities.length ? window.controlBoxes() : null });
@@ -93,6 +95,10 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
         await page.waitForFunction(() => window.headerFrames.length > 0 && window.releaseLanguagePaint);
         const initial = await page.evaluate(() => window.headerFrames[0]);
         assert.equal(initial.theme, storedTheme);
+        const expectedIcon = await page.evaluate(markup => {
+          const node = document.createElement('span'); node.innerHTML = markup; return node.innerHTML;
+        }, icon({ light: 'sun', dark: 'moon', system: 'system' }[storedTheme]));
+        assert.equal(initial.themeIcon, expectedIcon, 'first header frame shows the stored theme icon');
         assert.equal(initial.themeLabel, '', 'theme label is blank until the screen language resolves');
         assert.equal(initial.label, '', 'first header frame has the reserved blank label');
         for (const [control, box] of Object.entries(initial.boxes)) {
@@ -119,7 +125,7 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
           cancelAnimationFrame(window.headerFrameRequest);
           return { preHeaderFrames: window.preHeaderFrames, firstPaint: performance.getEntriesByName('first-paint')[0]?.startTime, theme: document.querySelector('#theme').value, themeLabel: document.querySelector('#theme-value').textContent, themeIcon: document.querySelector('#theme-icon').innerHTML, frames: window.headerFrames, early: window.earlyWrongLabel, language: document.documentElement.lang,
             label: document.querySelector('#language-value').textContent, locale: document.querySelector('#locale').value,
-            boxes: window.controlBoxes(), session: document.querySelector('aithema-session').session.locale };
+            title: (() => { const r = document.querySelector('.wordmark').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })(), boxes: window.controlBoxes(), session: document.querySelector('aithema-session').session.locale };
         });
         assert.equal(result.early, undefined);
         assert.equal(result.theme, storedTheme);
@@ -142,6 +148,11 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
         if (evidence && theme === 'light' && ((preference === 'de' && width === 390 && storedTheme === 'dark') || (preference === 'en' && width === 1440 && storedTheme === 'light'))) await page.screenshot({ path: join(evidence, `${name}-loaded.png`), fullPage: false, captureBeyondViewport: false });
         const pass = `AIT-206 PASS head=${evidenceCommit} ${name}: first paint blank/reserved; loaded ${result.label}=${result.session}; pre-header frames=${result.preHeaderFrames.length} (utilities unpainted); first-header-to-loaded displacement 0 px; stored theme=${result.theme}/${result.themeLabel}, icon stable; boxes=${JSON.stringify(result.boxes)}`;
         passes.push(pass); console.log(pass);
+        const earlyTitle = result.preHeaderFrames.find(frame => frame.time >= result.firstPaint && frame.title?.[2] > 0)?.title;
+        if (earlyTitle && JSON.stringify(earlyTitle) !== JSON.stringify(result.title)) {
+          const note = `AIT-210 startup skeleton follow-up ${name}: pre-header wordmark=${JSON.stringify(earlyTitle)}; loaded=${JSON.stringify(result.title)}; rail absent before header; utility displacement remains 0 px`;
+          passes.push(note); console.log(note);
+        }
         await page.close();
       }
     } finally { await browser.close(); }
