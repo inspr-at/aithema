@@ -49,7 +49,7 @@ test('AIT-206: fresh EN/DE browsers and stored choices never paint the wrong lan
         });
         const navigation = page.goto(demo.url, { waitUntil: 'domcontentloaded' });
         await page.waitForSelector('#language-value', { visible: false });
-        await page.evaluate(() => document.fonts.ready);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const initial = await page.$eval('#language-value', n => ({ label: n.textContent, width: n.getBoundingClientRect().width }));
         assert.equal(initial.label, '', 'unknown language is blank even while the host module is delayed');
         assert.ok(initial.width > 0, 'blank language box is reserved');
