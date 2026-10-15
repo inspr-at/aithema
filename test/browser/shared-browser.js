@@ -8,9 +8,15 @@ import puppeteer from 'puppeteer-core';
 import { browserPath } from './start2-display-helpers.js';
 
 let launch, directory, resetPage;
+const fixtures = [];
 after(async () => {
-  try { if (launch) await (await launch).close(); }
-  finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+  // Finish every fixture reset before closing the file-owned protocol connection.
+  // Fixture hooks and the file hook can both request the same idempotent close.
+  try { for (const fixture of fixtures) await fixture.close(); }
+  finally {
+    try { if (launch) await (await launch).close(); }
+    finally { if (directory) await rm(directory, { recursive: true, force: true }); }
+  }
 });
 
 export async function browserForFile() {
@@ -28,23 +34,33 @@ export async function browserForFile() {
   // Reuse the default context, resetting cookies and every visited frame origin
   // between fixtures. Each former launch owns fresh pages; tests stay serial.
   let closing;
-  return {
+  const fixture = {
     browser: () => browser,
     cookies: () => context.cookies(),
     setCookie: (...cookies) => context.setCookie(...cookies),
     async newPage() { const page = await context.newPage(); pages.push(page); return page; },
     close: () => closing ??= (async () => {
-      const origins = new Set(pages.flatMap(page => page.frames().map(frame => frame.url()))
-        .filter(url => /^https?:/u.test(url)).map(url => new URL(url).origin));
-      // Close pages first so an unload handler cannot write storage after reset.
-      await Promise.all(pages.filter(page => !page.isClosed()).map(page => page.close()));
-      const session = await resetPage.createCDPSession();
       try {
-        for (const origin of origins) await session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' });
-      } finally { await session.detach(); }
-      const cookies = await context.cookies();
-      if (cookies.length) await context.deleteCookie(...cookies);
-      await context.clearPermissionOverrides();
+        if (!browser.connected) return;
+        const origins = new Set(pages.flatMap(page => page.frames().map(frame => frame.url()))
+          .filter(url => /^https?:/u.test(url)).map(url => new URL(url).origin));
+        // Close pages first so an unload handler cannot write storage after reset.
+        await Promise.all(pages.filter(page => !page.isClosed()).map(page => page.close()));
+        const session = await resetPage.createCDPSession();
+        try {
+          for (const origin of origins) await session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' });
+        } finally { await session.detach(); }
+        const cookies = await context.cookies();
+        if (cookies.length) await context.deleteCookie(...cookies);
+        await context.clearPermissionOverrides();
+      } catch (error) {
+        // Chrome can exit while closing the final page. File teardown closes the
+        // process and removes its profile, which also clears all fixture storage.
+        // A live connection must still report every storage/protocol failure.
+        if (browser.connected) throw error;
+      }
     })(),
   };
+  fixtures.push(fixture);
+  return fixture;
 }
