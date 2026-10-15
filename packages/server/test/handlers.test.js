@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 import { createMockReasoning, inputRevision, PluginError } from '@inspr/aithema-core';
@@ -57,18 +60,22 @@ for (const check of ['abort', 'reply']) test(`superseding a held understanding c
   } finally { held.resolve(); await handlers.close(); storage.close(); }
 });
 
-for (const action of ['reconnect', 'retry']) test(`AIT-212 failed paid understanding: ${action}`, async () => {
-  const storage = new SQLiteStorage(), mock = createMockReasoning(); let calls = 0;
+for (const action of ['reconnect', 'retry', 'restart']) test(`AIT-212 failed paid understanding: ${action}`, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ait213-'));
+  const path = join(dir, 'sessions.sqlite');
+  let storage = new SQLiteStorage(path);
+  const mock = createMockReasoning(); let calls = 0;
   const reasoning = { ...mock, async structured(...args) {
     if (++calls === 1) throw new Error('private provider diagnostic');
     return mock.structured(...args);
   } };
-  const runtime = instrumentedMockRuntime(storage, reasoning), admissions = [], settlements = [];
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: { ...runtime, async admit(args) {
+  const admissions = [], settlements = [];
+  const makeHandlers = () => { const runtime = instrumentedMockRuntime(storage, reasoning);
+    return createHandlers({ storage, reasoning, pluginRuntime: { ...runtime, async admit(args) {
     const admitted = await runtime.admit(args); admissions.push(args.lane);
     return { ...admitted, async finish(result) { settlements.push({ lane: args.lane, ...result }); return admitted.finish(result); } };
-  } } });
-  let subscription;
+  } } }); };
+  let handlers = makeHandlers(), subscription;
   try {
     const s = storage.create({ demo: true, ownerToken: testToken });
     await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
@@ -80,7 +87,12 @@ for (const action of ['reconnect', 'retry']) test(`AIT-212 failed paid understan
     const other = storage.create({ demo: true, ownerToken: testToken });
     assert.equal((await handlers.handle(request(other.id)).then(r => r.json())).operations.lastFailure, null);
     const before = { admissions: admissions.length, settlements: settlements.length };
-    if (action === 'reconnect') {
+    if (action === 'restart') {
+      await handlers.close(); storage.close();
+      storage = new SQLiteStorage(path); handlers = makeHandlers();
+      await handlers.resume(); await handlers.idle();
+    }
+    if (action !== 'retry') {
       for (let i = 0; i < 3; i++) {
         subscription = await handlers.handle(request(`${s.id}/events?after=${snapshot.seq}`));
         await subscription.body.cancel(); subscription = null; await handlers.idle();
@@ -105,7 +117,11 @@ for (const action of ['reconnect', 'retry']) test(`AIT-212 failed paid understan
     assert.equal(storage.get(s.id).understanding.inputRevision, inputRevision(snapshot));
     assert.equal(storage.get(s.id).understanding.draft, false);
     assert.equal((await handlers.handle(request(s.id)).then(r => r.json())).operations.lastFailure, null);
-  } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); }
+    if (action === 'restart') {
+      await turn(handlers, s.id, 'newer', 'A newer turn'); await handlers.idle();
+      assert.equal(calls, 3, 'a newer revision still runs after recovery');
+    }
+  } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a turn queued at scheduler completion is never lost', async () => {
@@ -366,4 +382,27 @@ for (const failed of [['reaction'], ['reaction', 'understanding']]) test(`AIT-21
     assert.deepEqual(calls, { reaction: 2, understanding: failed.includes('understanding') ? 2 : 1 });
     assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
   } finally { await handlers.close(); storage.close(); }
+});
+
+
+test('AIT-213 recovering understanding reveals the remaining reaction failure', async () => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
+  const reaction = deferred(), understanding = deferred();
+  handlers.lanes.run = async () => { throw new Error('failure'); };
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    await turn(handlers, session.id, 'first', 'A website'); await handlers.idle();
+    assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure.lane, 'understanding');
+    handlers.lanes.run = async (id, lane) => {
+      if (lane === 'reaction') await reaction.promise;
+      else understanding.resolve();
+    };
+    await handlers.handle(request(`${session.id}/retry`, {})); await understanding.promise;
+    // A snapshot yields until understanding completion; reaction has not recovered yet.
+    const snapshot = await handlers.handle(request(session.id)).then(r => r.json());
+    assert.equal(snapshot.operations.lastFailure?.lane, 'reaction');
+    assert.equal(snapshot.operations.lastFailure.retryable, true);
+    reaction.resolve(); await handlers.idle();
+    assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
+  } finally { reaction.resolve(); await handlers.close(); storage.close(); }
 });
