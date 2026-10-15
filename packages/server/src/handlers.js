@@ -101,10 +101,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
-  // Retain only an assessment already admitted for project input. Every later
-  // input must be a classified off-topic user turn; all consent, locale,
-  // correction, upload and identity revision guards remain strict.
-  const retainUnderstanding = (source, current, pending = false) => {
+  // New turns may obsolete a paid assessment but must let it collect its receipt.
+  // Consent, locale, correction, upload and identity revisions remain strict.
+  const keepUnderstanding = (source, current) => {
     if (!purposePolicy || current.consentWithdrawn || current.tombstone) return false;
     const suffix = inputRevision(source).split(':').slice(1).join(':');
     if (inputRevision(current).split(':').slice(1).join(':') !== suffix) return false;
@@ -113,6 +112,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     if (current.inputRevision - source.inputRevision !== added.length || !added.length) return false;
     const original = storage.safeguards(source.id, inputRevision(source));
     if (!original.assessed || original.offTopic) return false;
+    return true;
+  };
+  // Publishing an older result additionally requires every new turn to be off-topic.
+  const retainUnderstanding = (source, current, pending = false) => {
+    if (!keepUnderstanding(source, current)) return false;
+    const suffix = inputRevision(source).split(':').slice(1).join(':');
+    const before = source.transcript.filter(turn => turn.role === 'user').length;
+    const added = current.transcript.filter(turn => turn.role === 'user').slice(before);
     return added.every((_, index) => {
       const state = storage.safeguards(source.id, `${source.inputRevision + index + 1}:${suffix}`);
       return state.assessed ? state.offTopic : pending;
@@ -132,7 +139,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       set.add(check); signal.addEventListener('abort', done, { once: true }); check();
     });
   };
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, settleUnderstanding,
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, keepUnderstanding, settleUnderstanding,
     offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
@@ -147,6 +154,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     onOpenerStripped() {
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
+    },
+    onUnderstandingDiagnostic({ outcome, reason }) {
+      try { Promise.resolve(log({ event: `understanding.${outcome}`, count: 1, lane: 'understanding',
+        ...(reason ? { reason } : {}) })).catch(() => {}); }
+      catch { /* Diagnostics cannot interrupt an assessment. */ }
     },
     onReplyDiagnostic({ lane, kind, reason, attemptCount }) {
       const event = { fallback: 'reply.fallback', 'schema-retry': 'reply.schema-retry', 'missing-scope': 'reply.scope-missing' }[kind];

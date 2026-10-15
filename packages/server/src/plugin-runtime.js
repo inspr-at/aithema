@@ -891,6 +891,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           throw new PluginError('already-claimed');
         }
         const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
+        try { Promise.resolve(options.onTerminal?.({ outcome: settlement.outcome })).catch(() => {}); }
+        catch { /* Diagnostics cannot interrupt settlement. */ }
         if (typeof terminal.servedModel === 'string' && terminal.servedModel.trim()) producer.model = terminal.servedModel;
         return settlement;
       };

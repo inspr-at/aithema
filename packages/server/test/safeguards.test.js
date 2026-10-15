@@ -458,7 +458,8 @@ for (const next of ['project', 'withdrawal']) test(`AIT-188 V1: ${next} still in
   await waitForPurpose(() => f.assessments.length === 1);
   if (next === 'project') {
     await f.handlers.handle(req(f.session.id, 'turns', { content: 'New project: order processing.', clientEventId: 'next' }));
-    await waitForPurpose(() => f.assessments.length === 2);
+    await waitForPurpose(() => f.calls.length === 2);
+    assert.equal(f.assessments.length, 1, 'the admitted project analysis finishes before its replacement starts');
   } else assert.equal((await f.handlers.handle(req(f.session.id, 'withdraw', { turnId: f.storage.get(f.session.id).transcript[0].id }))).status, 200);
   gate.resolve(); await f.handlers.idle();
   const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
