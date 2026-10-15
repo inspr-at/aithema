@@ -422,7 +422,7 @@ export class AithemaSession extends HTMLElement {
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
-      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding,
+      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
       streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
@@ -593,8 +593,9 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
   }
-  #creditsChanged({ allowanceChanged = false } = {}) {
+  #creditsChanged({ allowanceChanged = false, settledCall } = {}) {
     if (!this.#host) return;
+    if (settledCall) this.#rail?.settleLedger(settledCall);
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
     const textReason = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason;
     const deniedText = !this.#hasLiveCall() && ['budget denied', 'budget reconciling'].includes(textReason);

@@ -17,16 +17,16 @@ export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null;
-  #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied;
+  #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
   #emailAsk = null;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, admissionDenied, streaming }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, creditContext, admissionDenied, streaming }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
-    this.#admissionDenied = admissionDenied;
+    this.#admissionDenied = admissionDenied; this.#creditContext = creditContext;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
     const o = this.#options, bar = root.querySelector('.host-bar'), s = copy.hostSurface;
     root.querySelector('.workspace').toggleAttribute('data-host', true);
@@ -207,7 +207,7 @@ export class HostSurface {
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
-    const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current;
+    const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current, endedCall = this.#creditContext?.();
     this.#creditsReads++;
     this.#verification?.setCreditsState('loading');
     try {
@@ -222,7 +222,7 @@ export class HostSurface {
       const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
       if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
-      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged });
+      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged, settledCall: previous?.reconciling === true && this.#credits.reconciling === false ? endedCall : undefined });
       this.#emailAsk?.setCredits(this.#credits);
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.

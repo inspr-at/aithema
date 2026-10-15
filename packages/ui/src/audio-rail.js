@@ -534,9 +534,17 @@ export class AudioRail {
     if (!this.session && this.state !== 'connecting') return;
     this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render();
   }
+  // A ledger receipt belongs to the ended identity captured before its request.
+  // A newer Start clears that identity, even when startup subsequently fails.
+  settleLedger(ended) {
+    if (!ended || ended !== this.endedCall || ended.settled || this.session || this.state !== 'idle') return;
+    ended.settled = true;
+    if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';
+    this.render();
+  }
   settlement(data) {
     const ended = this.endedCall;
-    if (this.session || !ended || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
+    if (this.session || !ended || ended.settled || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
       data.terminal?.closureConfirmed !== true || !data.terminal.usage || data.terminal.usage.costEstimated === true) return;
     ended.settled = true;
     if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';
