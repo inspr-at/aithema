@@ -93,10 +93,14 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
       const r = c.shadowRoot, line = r.querySelector(selector);
       return { text: line.textContent, lines: [...r.querySelectorAll('[data-consent-feature]')].filter(n => n.textContent === expected).length,
         action: line.querySelector('button')?.textContent, placeholder: r.querySelector('.notice').textContent,
-        italic: getComputedStyle(line).fontStyle };
+        italic: getComputedStyle(line).fontStyle,
+        actionWrap: getComputedStyle(line.querySelector('button')).whiteSpace,
+        actionWidth: line.querySelector('button').getBoundingClientRect().width,
+        actionScrollWidth: line.querySelector('button').scrollWidth };
     }, { selector, expected });
     assert.equal(state.text, expected, label); assert.equal(state.lines, 1, label + ': once in its own place');
-    assert.equal(state.action, words[locale].action); assert.equal(state.italic, 'normal');
+    assert.equal(state.action, words[locale].action); assert.equal(state.italic, 'normal'); assert.equal(state.actionWrap, 'nowrap');
+    assert.ok(state.actionWidth >= state.actionScrollWidth, 'action text fits without splitting the word');
     if (feature === 'analysis') assert.equal(state.placeholder, expected, 'blocked overview never promises the placeholder');
     if (feature === 'analysis') {
       await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
@@ -114,6 +118,8 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
       t.diagnostic(JSON.stringify(await shadow(page, c => ({ open: c.shadowRoot.querySelector('dialog.settings').open, focused: c.shadowRoot.activeElement?.outerHTML, status: c.shadowRoot.querySelector('.consent-status').textContent }))));
       throw error;
     }
+    const labels = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.consent-item label')].map(n => n.textContent));
+    if (locale === 'de') assert.ok(labels.includes('Sprache mit ElevenLabs'), 'voice legal document uses the screen language');
     const focused = await shadow(page, c => c.shadowRoot.activeElement.value);
     assert.equal(focused, item);
     await record(t, page, label + '-settings', { focused, item });
@@ -144,4 +150,19 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
     c.configure({ session, copy });
   });
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…');
+});
+
+test('AIT-197 C1: the local host consent editor saves through the real endpoint without navigating', async t => {
+  const page = await fixture(t); await page.setViewport({ width: 390, height: 844 });
+  await shadow(page, async c => {
+    const { de: copy } = await import('/packages/ui/src/i18n/de.js');
+    const session = structuredClone(globalThis.consentSeed);
+    session.locale = 'de'; session.transcript = [{ id: 'local-user', role: 'user', content: 'Wir brauchen eine Website.' }];
+    c.configure({ session, copy });
+  });
+  await page.locator('aithema-session >>> .notice button').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing');
+  await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
+  await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  assert.equal(await shadow(page, c => c.session.featureMatrix.best.analysis.available), true);
 });

@@ -507,7 +507,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'GET' && consent.describe) {
         const document = await consent.describe(id);
         const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-          pluginRuntime.scopes(authorized, { feature }).map(scope => scope.purpose).filter(purpose => document.items?.some(item => item.id === purpose)))]]));
+          pluginRuntime.scopes(authorized, { feature }).map(scope => document.mock && scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
+            .filter(purpose => document.mock ? purpose === 'mock-processing' : document.items?.some(item => item.id === purpose)))]]));
         return json({ ...document, features });
       }
       if (action === 'erase' && request.method === 'POST') {

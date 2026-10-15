@@ -5,11 +5,11 @@ export class ConsentSettings {
   #root; #copy; #ports; #document; #epoch = 0; #busy = false;
   constructor({ root, copy, ports }) {
     this.#root = root; this.#copy = copy; this.#ports = ports;
-    root.innerHTML = '<p class="consent-intro"></p><fieldset class="consent-items"></fieldset><p class="consent-withdrawal"></p><p class="consent-status" role="status"></p><button class="consent-save" type="button"></button>';
+    root.innerHTML = '<p class="consent-intro"></p><fieldset class="consent-items" aria-label=""></fieldset><p class="consent-withdrawal"></p><p class="consent-status" role="status"></p><button class="consent-save" type="button"></button>';
     root.querySelector('.consent-save').addEventListener('click', () => void this.#save());
     this.setCopy(copy);
   }
-  setCopy(copy) { this.#copy = copy; setText(this.#root.querySelector('.consent-save'), copy.featureConsent.save); }
+  setCopy(copy) { this.#copy = copy; setText(this.#root.querySelector('.consent-save'), copy.featureConsent.save); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
   close() { this.#epoch++; this.#root.hidden = true; }
   async open(feature) {
     const epoch = ++this.#epoch; this.#document = null; this.#busy = true;
@@ -19,13 +19,16 @@ export class ConsentSettings {
       const doc = await this.#ports.load();
       if (epoch !== this.#epoch) return;
       const ids = doc.features?.[feature];
+      if (doc.mock === true) doc.items = [{ id: 'mock-processing', version: 1, title: this.#copy.host.consentTitle,
+        recipients: this.#copy.host.consentPage.mockRecipients, text: `${this.#copy.host.consentUse.off} ${this.#copy.host.consentPage.mockConsequence}` }];
       if (!Array.isArray(doc.items) || !Array.isArray(doc.selected) || !ids?.length || !ids.every(id => doc.items.some(item => item.id === id))) throw new Error('Consent document unavailable');
       this.#document = doc;
       const fieldset = this.#root.querySelector('.consent-items');
-      setText(this.#root.querySelector('.consent-intro'), this.#copy.processingConsent.intro);
-      setText(this.#root.querySelector('.consent-withdrawal'), this.#copy.processingConsent.withdrawal);
+      setText(this.#root.querySelector('.consent-intro'), doc.mock ? this.#copy.host.consentPage.intro : this.#copy.processingConsent.intro);
+      setText(this.#root.querySelector('.consent-withdrawal'), doc.mock ? this.#copy.host.consentPage.mockTerms : this.#copy.processingConsent.withdrawal);
       for (const item of doc.items) {
-        const translated = this.#copy.processingConsent.items[item.id];
+        const supplied = this.#ports.presentation?.translations?.find(entry => entry.locale === this.#copy.display.locale)?.consentItem;
+        const translated = supplied?.id === item.id ? supplied : this.#copy.processingConsent.items[item.id];
         const legal = translated?.version === item.version ? { ...item, ...translated } : item;
         const row = document.createElement('div'); row.className = 'consent-item';
         const label = document.createElement('label'), box = document.createElement('input'), title = document.createElement('span');

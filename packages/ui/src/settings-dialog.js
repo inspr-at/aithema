@@ -75,7 +75,7 @@ export class SettingsDialog {
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
-    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, save: ports.saveConsent, done: () => this.close() } });
+    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, save: ports.saveConsent, done: () => this.close() } });
     if (operator) this.#operator = new OperatorSettings({ parent: this.#q('.general'), copy: this.#copy, operator });
   }
   get open() { return this.#dialog.open; }

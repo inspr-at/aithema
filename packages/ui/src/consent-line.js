@@ -15,8 +15,8 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     line.dataset.focusKey = action.dataset.focusKey = `consent-${feature}`;
   }
   const action = line.querySelector('.consent-action');
-  setText(line.querySelector('.consent-line-copy'), blocked ? `${copy.featureConsent[feature]} · ` : text ?? '');
-  setText(action, blocked ? copy.featureConsent.action : ''); action.hidden = !blocked;
-  if (blocked) line.dataset.consentFeature = feature; else delete line.dataset.consentFeature;
+  setText(line.querySelector('.consent-line-copy'), `${copy.featureConsent[feature]} · `);
+  setText(action, copy.featureConsent.action);
+  line.dataset.consentFeature = feature;
   return blocked;
 }
