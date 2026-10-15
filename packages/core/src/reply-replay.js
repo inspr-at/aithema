@@ -37,7 +37,7 @@ export function createReplyReplay({ current, synthesize, playAudio, onState = ()
           if (!valid()) { player?.stop(); throw new PluginError('cancelled'); }
           entry.player = player; onState(true);
           Promise.resolve(player.finished).then(
-            completed => { if (active === entry) stop(completed !== false); },
+            completed => { if (active === entry) stop(completed === true); },
             () => { if (active === entry) stop(); });
           return { kind: 'audio', text: reply.text };
         });

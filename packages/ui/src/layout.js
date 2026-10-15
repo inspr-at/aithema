@@ -151,6 +151,7 @@ export class PhoneComposerViewport {
       const movedNotices = notices.parentNode !== parent;
       if (movedNotices) parent.append(notices);
       if (!phone) notices.style.minHeight = '';
+      if (phone) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
@@ -204,17 +205,22 @@ export class PhoneComposerViewport {
     const Mutation = this.view?.MutationObserver;
     if (Mutation) {
       const notices = this.root.querySelector('.voice-notices'), shell = this.root.querySelector('.transcript-shell');
+      const list = shell.querySelector('ol');
+      const phoneNotices = () => notices.parentNode === shell;
+      const reservation = () => phoneNotices() ? notices.style.minHeight : list.style.paddingBottom;
+      const reserve = value => { if (phoneNotices()) notices.style.minHeight = value; else list.style.paddingBottom = value; };
       const inlineHeight = () => {
         const actions = this.root.querySelector('.turn > .voice-reply-actions');
         return actions?.getBoundingClientRect().height ?? 0;
       };
-      const endHeight = this.endHeight = () => notices.getBoundingClientRect().height + inlineHeight();
+      const endHeight = this.endHeight = () => inlineHeight() + (phoneNotices()
+        ? notices.getBoundingClientRect().height : parseFloat(list.style.paddingBottom) || 0);
       this.noticeHeight = endHeight();
       this.noticeScrollTop = shell.scrollTop;
       this.noticeScroll ??= () => {
         this.noticeScrollTop = shell.scrollTop;
-        if (this.followsTranscript() && notices.style.minHeight) {
-          notices.style.minHeight = '';
+        if (this.followsTranscript() && reservation()) {
+          reserve('');
           // The next row must compare against the released height, not the
           // reading reservation that just went away.
           this.noticeHeight = endHeight();
@@ -234,16 +240,16 @@ export class PhoneComposerViewport {
           return relevant && (record.type !== 'attributes' ||
             record.oldValue !== record.target.getAttribute(record.attributeName));
         });
-        // Both recovery notices and ordinary last-reply controls are last
-        // items on phones. Run after their render, without needing a pointer.
+        // Inline reply controls are last items at every width; recovery
+        // notices join them on phones. Run after render, without a pointer.
         // Same-size label/text renders must not undo a transcript pointer anchor.
         const height = endHeight();
-        if (changed && height !== this.noticeHeight && this.view.matchMedia('(max-width:600px)').matches) {
-          if (this.followsTranscript()) notices.style.minHeight = '';
+        if (changed && height !== this.noticeHeight) {
+          if (this.followsTranscript()) reserve('');
           else {
             // Retain only the room a removed last item would clamp away while
             // reading. Release it when the person next follows the bottom.
-            notices.style.minHeight = `${Math.max(0, this.noticeHeight - inlineHeight())}px`;
+            reserve(`${Math.max(0, this.noticeHeight - inlineHeight())}px`);
             shell.scrollTop = this.noticeScrollTop;
           }
           this.onNoticesChange();
