@@ -970,7 +970,8 @@ export class AithemaSession extends HTMLElement {
     if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || Boolean(running) || !(this.#failure || hasPersonTurn &&
       (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
     // Missing reply with no active work or recorded failure is also a stuck attempt.
-    const stuck = missingReply && !running && !this.#failure && analysis.available;
+    // Pausing preserves the overview; its existing inline retry becomes disabled.
+    const stuck = missingReply && !running && !this.#failure && (analysis.available || this.#session.paused);
     const failedOverview = (this.#failure && this.#failureLane === 'understanding' || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
     const overviewRetry = root.querySelector('.overview-retry');
