@@ -148,7 +148,8 @@ export class PhoneComposerViewport {
       const phone = view?.matchMedia('(max-width:600px)').matches;
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
-      if (notices.parentNode !== parent) parent.append(notices);
+      const movedNotices = notices.parentNode !== parent;
+      if (movedNotices) parent.append(notices);
       if (!phone) notices.style.minHeight = '';
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
@@ -173,6 +174,13 @@ export class PhoneComposerViewport {
         // briefly enlarge the transcript and clamp its saved scroll position.
         if (key === '--phone-dock' && value === 0) continue;
         workspace.style.setProperty(key, `${value}px`);
+      }
+      // A breakpoint changes the notice reservation without changing its
+      // children. The next transcript event must not reuse the desktop height
+      // and scroll past a pointer anchor established in the phone viewport.
+      if (movedNotices && this.endHeight) {
+        this.noticeHeight = this.endHeight();
+        this.noticeScrollTop = root.querySelector('.transcript-shell').scrollTop;
       }
     };
     // focusout fires before activeElement changes; settle it in this frame.
@@ -200,7 +208,7 @@ export class PhoneComposerViewport {
         const actions = this.root.querySelector('.turn > .voice-reply-actions');
         return actions?.getBoundingClientRect().height ?? 0;
       };
-      const endHeight = () => notices.getBoundingClientRect().height + inlineHeight();
+      const endHeight = this.endHeight = () => notices.getBoundingClientRect().height + inlineHeight();
       this.noticeHeight = endHeight();
       this.noticeScrollTop = shell.scrollTop;
       this.noticeScroll ??= () => {
@@ -217,8 +225,15 @@ export class PhoneComposerViewport {
       this.noticesObserver = new Mutation(records => {
         // Reflected hidden assignments also report idempotent renders. They
         // are not new notices and must not move a row under the pointer.
-        const changed = records.some(record => record.type !== 'attributes' ||
-          record.oldValue !== record.target.getAttribute(record.attributeName));
+        const actions = this.root.querySelector('.voice-reply-actions');
+        const changed = records.some(record => {
+          // Transcript uploads and text paints do not own the action row.
+          // Observe the list only to see that existing row move in or out.
+          const relevant = notices.contains(record.target) || actions?.contains(record.target) ||
+            record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].includes(actions);
+          return relevant && (record.type !== 'attributes' ||
+            record.oldValue !== record.target.getAttribute(record.attributeName));
+        });
         // Both recovery notices and ordinary last-reply controls are last
         // items on phones. Run after their render, without needing a pointer.
         // Same-size label/text renders must not undo a transcript pointer anchor.
