@@ -232,5 +232,23 @@
       "destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }"
     ],
     "reason": "Pinned fake-CDP fixture controls; exact destructured keys and aliases required"
+  },
+  "test/fixtures/lane-race-ait197-proof.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-201 legacy-lane red proof forwards the child environment after removing NODE_TEST_CONTEXT"
+  },
+  "test/fixtures/lane-race-proof.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-201 lane-race red proof forwards the child environment after removing NODE_TEST_CONTEXT"
+  },
+  "test/fixtures/lane-race-validation.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "AIT-201 lane-race validation forwards the child environment after removing NODE_TEST_CONTEXT"
   }
 }
