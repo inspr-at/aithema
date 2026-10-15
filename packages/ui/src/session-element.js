@@ -946,8 +946,8 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
-      : stale ? copy.stale : u.draft ? copy.draft : copy.final;
+    if (!this.#host?.usedUp && (this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) root.querySelector('.notice').textContent = !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');

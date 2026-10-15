@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { pausedOverview } from '../fixtures/pause-overview.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, settle, boxes, evidenceCommit } from './start2-display-helpers.js';
 
@@ -19,8 +20,14 @@ async function fixture(t) {
   const page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
-  page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
-    ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue());
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
+    // Server-scenario events are replayed into this isolated UI host. Its empty
+    // demo stream stays genuinely open; it does not own the replay's cursor.
+    if (path.endsWith('/events')) return request.continue({ headers: { ...request.headers(), 'last-event-id': '0' } });
+    return request.continue();
+  });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.tickSeed = c.session; });
@@ -85,7 +92,7 @@ async function metrics(page) {
     const pauses = [...r.querySelectorAll('*')].filter(n => !n.closest('style, [aria-hidden="true"], .sr-only, .visually-hidden, .features') && getComputedStyle(n).visibility === 'visible' && n.getClientRects().length)
       .filter(n => [...n.childNodes].some(t => t.nodeType === Node.TEXT_NODE && /pausiert|paused/iu.test(t.textContent)));
     return { composer: { x: b.x, y: b.y, width: b.width, height: b.height, bottom: b.bottom },
-      viewport: { top, bottom }, footerTop: f.top, inViewport: b.top >= top && b.bottom <= bottom && b.bottom <= f.top,
+      viewport: { top, bottom }, footerTop: f.top, footer: r.querySelector('.status__label').textContent, connected: r.querySelector('.status').hasAttribute('data-connected'), inViewport: b.top >= top && b.bottom <= bottom && b.bottom <= f.top,
       newVisible: !action.hidden && a.top >= top && a.bottom <= bottom && a.bottom <= f.top,
       pauseElements: pauses.length, pauseTextElements: pauses.map(n => ({ className: n.className, text: n.textContent })), pausesInComposer: pauses.every(n => n.closest('.composer-shell')),
       focused: r.activeElement?.id, transcriptHeight: r.querySelector('.transcript-shell').clientHeight };
@@ -132,6 +139,21 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     await page.keyboard.press('Tab');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'attach');
     await record(t, 'L2', page, `${locale}-${theme}-${width}-keyboard`, keyboard);
+    await page.setViewport({ width, height: 844 }); await frame(page);
+    await page.evaluate(() => {
+      globalThis.nativeViewport = visualViewport;
+      const viewport = new EventTarget(); Object.assign(viewport, { height: 440, offsetTop: 30, scale: 1 });
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+      // Reconnect while the visual viewport differs from the layout viewport.
+      const c = document.querySelector('aithema-session'); c.remove(); document.querySelector('main').append(c);
+      c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+      viewport.dispatchEvent(new Event('resize'));
+    }); await frame(page);
+    const overlay = await metrics(page);
+    assert.equal(overlay.inViewport, true, `overlay keyboard: ${JSON.stringify(overlay)}`);
+    assert.equal(overlay.focused, 'message');
+    await record(t, 'L2', page, `${locale}-${theme}-${width}-overlay-keyboard`, overlay);
+    await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.nativeViewport }); dispatchEvent(new Event('resize')); });
   }
 });
 
@@ -160,5 +182,41 @@ test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause 
     assert.equal(view.pausesInComposer, true);
     assert.deepEqual(await boxes(page, ['.concept-bar', '.composer', '.display-foot']), before, `${label}: shift 0 px`);
     await record(t, 'L1', page, label, { ...view, stage, afterStage, shiftPx: 0 });
+  }
+});
+
+test('AIT-188 V1: settled project overview replaces the placeholder after purpose pause, DE/EN L/D phone/desktop', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) {
+    const scenario = await pausedOverview(locale);
+    for (const theme of ['light', 'dark']) for (const width of [390, 393, 1440]) {
+      await scene(page, locale, theme, width);
+      await page.setViewport({ width, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
+      await page.evaluate(async ({ before, locale }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        document.querySelector('aithema-session').configure({ copy, session: { ...before, id: globalThis.tickSeed.id } });
+      }, { before: scenario.before, locale }); await frame(page);
+      const baseline = (await metrics(page)).composer;
+      await shadow(page, (c, events) => { for (const event of events) c.receive({ ...event, sessionId: c.session.id }); }, scenario.events);
+      await frame(page);
+      const overview = await shadow(page, c => ({ summary: c.shadowRoot.querySelector('.summary-text').textContent,
+        visible: !c.shadowRoot.querySelector('.summary').hidden, notice: c.shadowRoot.querySelector('.notice').textContent,
+        placeholder: globalThis.tickSeed.understanding.summary }));
+      assert.equal(overview.visible, true);
+      assert.equal(overview.summary, scenario.after.understanding.summary);
+      assert.doesNotMatch(overview.notice, /Nach dem ersten Satz|After the first sentence|wird aktualisiert|Updating/u);
+      assert.deepEqual((await metrics(page)).composer, baseline, 'analysis settlement moves composer 0 px');
+      if (width < 600) await shadow(page, c => {
+        const r = c.shadowRoot, aside = r.querySelector('.understanding').getBoundingClientRect();
+        scrollTo(0, scrollY + aside.top - r.querySelector('.band').getBoundingClientRect().height - 12);
+      });
+      await frame(page);
+      const view = await metrics(page);
+      assert.equal(view.connected, true, 'overview keeps open event stream');
+      assert.equal(view.inViewport, true, 'overview reading keeps phone composer in view');
+      assert.deepEqual(view.composer, baseline, 'overview scrolling moves composer 0 px');
+      await record(t, 'V1', page, `${locale}-${theme}-${width}-settled-overview`, { ...view, ...overview,
+        assessments: scenario.assessments, offTopicTurns: scenario.offTopicTurns, shiftPx: 0 });
+    }
   }
 });
