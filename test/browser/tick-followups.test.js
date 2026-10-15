@@ -71,3 +71,62 @@ test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 1
     await evidence('F1', page, label, values); t.diagnostic(`PASS F1 ${label}: ${JSON.stringify(values)}`);
   }
 });
+
+async function voiceScene(page, locale, theme, width) {
+  await scene(page, locale, theme, width);
+  await page.evaluate(async locale => {
+    const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
+    if (!globalThis.tickRailHook) {
+      const render = AudioRail.prototype.render;
+      AudioRail.prototype.render = function () { globalThis.tickRail = this; return render.call(this); };
+      globalThis.tickRailHook = true;
+    }
+    const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+    const { voiceEvents } = await import('/packages/core/src/live-voice.js');
+    const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+    const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
+    session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
+    session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true }]));
+    session.transcript = [{ id: 'tick-user', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
+    c.configure({ copy, session, host: { library: true }, voicePresentation: manifest.presentation,
+      voiceClient: { manifest, async start({ callId }) {
+        const events = voiceEvents();
+        return { callId, providerSessionId: 'tick-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+          async close() { events.end(); return { closureConfirmed: false, reconciliationPending: true }; } };
+      } } });
+    document.documentElement.lang = locale;
+  }, locale);
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+  await settle();
+}
+const railBoxes = ['.band', '.audio-rail', '.voice-cell--output', '.voice-signal', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'];
+
+test('AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) for (const state of ['voice-used-up', 'after-call-used-up']) {
+    await voiceScene(page, locale, theme, width);
+    if (state === 'after-call-used-up') await page.evaluate(async () => { await globalThis.tickRail.start(); await globalThis.tickRail.close(); });
+    const before = await boxes(page, railBoxes);
+    await page.evaluate(state => {
+      const rail = globalThis.tickRail;
+      if (state === 'voice-used-up') { rail.state = 'waiting'; rail.paused = true; rail.session = { callId: 'used-up-call', providerSessionId: 'used-up-provider' }; }
+      rail.usedUp = () => true; rail.render(); rail.waveform.baseline();
+    }, state);
+    await settle();
+    const view = await shadow(page, c => {
+      const r = c.shadowRoot, visible = selector => getComputedStyle(r.querySelector(selector)).visibility === 'visible';
+      return { visible: ['.pause', '.pause .voice-icon', '.pause .voice-icon--resume', '.voice-input', '.voice-close', '.voice-retry'].filter(visible),
+        start: visible('.voice-start'), startDisabled: r.querySelector('.voice-start').disabled, speaker: visible('.voice-output'),
+        line: visible('.voice-wave'), transform: getComputedStyle(r.querySelector('.voice-wave')).transform,
+        railText: r.querySelector('.voice-state').textContent };
+    });
+    const label = `${locale}-${theme}-${width}-${state}`;
+    assert.deepEqual(view.visible, [], `${label}: no dead pause, mic or stop controls`);
+    assert.equal(view.start, true); assert.equal(view.startDisabled, true); assert.equal(view.speaker, true); assert.equal(view.line, true);
+    assert.equal(view.transform, 'none', 'the calm line is drawn at full stroke height');
+    assert.equal(view.railText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up');
+    assert.deepEqual(await boxes(page, railBoxes), before, `${label}: 0 px shift`);
+    const values = { ...view, shiftPx: 0 }; await evidence('F3', page, label, values); t.diagnostic(`PASS F3 ${label}: ${JSON.stringify(values)}`);
+    await page.evaluate(() => { globalThis.tickRail.session = null; });
+  }
+});
