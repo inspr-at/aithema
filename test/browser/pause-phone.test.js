@@ -254,6 +254,10 @@ test('AIT-189: reloaded purpose/session pauses match unpaused stage, visual draf
     const livePause = await boxes(page, selectors);
     assert.deepEqual(livePause, before, 'live pause shift 0 px');
     page.reloadSession = await shadow(page, c => c.session);
+    // A real server snapshot gates a configured visual with session paused while
+    // carrying its underlying verdict for presentation only (server-tested).
+    if (enabled) page.reloadSession.featureMatrix.best.html = { available: false, reason: 'session paused',
+      unpaused: page.reloadSession.featureMatrix.best.html };
     await page.evaluate(async locale => {
       const { localeKey, remember } = await import('/demo/page-preferences.js'); remember(localeKey, locale);
     }, locale);

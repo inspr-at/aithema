@@ -380,7 +380,9 @@ for (const copy of [de, en]) for (const enabled of [true, false]) for (const rea
     assert.ok(before.trim(), 'non-paused stage has text');
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, ...(reason === 'purpose' ? { reason } : {}) } });
     assert.equal(stage(c.shadowRoot), before, 'live pause retains stage');
-    c.configure({ copy, session: c.session });
+    const reloaded = structuredClone(c.session);
+    if (enabled) reloaded.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: session.featureMatrix.best.html };
+    c.configure({ copy, session: reloaded });
     assert.equal(stage(c.shadowRoot), before, 'freshly mounted paused stage equals same non-paused state');
     assert.equal(c.shadowRoot.querySelector('.concept-request').disabled, true, 'pause still gates generation');
     assert.doesNotMatch(stage(c.shadowRoot), /paused|pausiert/iu, 'pause copy stays in composer');
