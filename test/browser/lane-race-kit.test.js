@@ -34,12 +34,28 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
       await document.fonts.ready;
       await new Promise(resolve => requestAnimationFrame(resolve));
     }, result.session);
+    // The subscription can start real recovery after the settled direct-lane
+    // snapshot. Observe and settle that work rather than asserting idle early.
+    const observed = await page.evaluate(async () => (await fetch('/observe-recovery')).json());
+    if (observed.operations.running.includes('understanding') && !observed.understanding.readinessAssessed) {
+      await until(page, () => document.querySelector('aithema-session').session.operations?.running.includes('understanding'));
+      const pendingNotice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
+      assert.match(pendingNotice, /wird erstellt|building/iu, 'real recovery owns the preparation slot until settled');
+    }
+    const recovery = await page.evaluate(async () => (await fetch('/settle-recovery')).json());
+    assert.deepEqual(recovery.session.operations.running, []);
+    for (const c of Object.values(recovery.counters)) {
+      assert.equal(c.started, c.completed + c.superseded + c.deferred + c.aborted + c.uncertain + c.failed);
+      assert.equal(c.inFlight, 0, 'reconnect recovery leaves no admitted attempt pending');
+    }
+    await until(page, () => document.querySelector('aithema-session').session.operations?.running.length === 0);
     const state = await shadow(page, c => {
       const r = c.shadowRoot;
       return { retries: [...r.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
         notice: r.querySelector('.notice').textContent, summary: r.querySelector('.summary-text').textContent, renderedSession: c.session };
     });
-    const failureLane = result.session.operations.lastFailure?.lane;
+    assert.deepEqual(state.renderedSession.operations.running, []);
+    const failureLane = recovery.session.operations.lastFailure?.lane;
     if (['reaction', 'understanding'].includes(failureLane)) {
       assert.equal(state.retries, 1, JSON.stringify({ pair, order, failed, state }));
     } else assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
@@ -52,13 +68,15 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
     const session = await page.evaluate(async lane => (await fetch('/retry-failure?lane=' + lane)).json(), lane);
     assert.equal(session.operations.lastFailure.lane, lane);
     assert.equal(session.operations.lastFailure.retryable, true);
-    const retries = await shadow(page, async (c, session) => {
+    await shadow(page, async (c, session) => {
       const { de: copy } = await import('/packages/ui/src/i18n/de.js');
       c.setAttribute('motion', 'off'); c.configure({ session, copy });
       await document.fonts.ready;
       await new Promise(resolve => requestAnimationFrame(resolve));
-      return [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length;
     }, session);
+    await page.evaluate(async () => (await fetch('/settle-recovery')).json());
+    await until(page, () => document.querySelector('aithema-session').session.operations?.running.length === 0);
+    const retries = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length);
     assert.equal(retries, 1, `${lane} failure shows exactly one Retry`);
   }
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;

@@ -3248,6 +3248,15 @@ unbilled refusal. No test sleeps or live provider calls are needed. Run
 `test/fixtures/lane-race-proof.js` separately in an isolated disposable checkout
 for the AIT-198 role-order red/restored-green proof; it restores `prompts.js`
 byte-for-byte in `finally` and must not run beside the normal suite.
+`test/fixtures/lane-race-ait197-proof.js` uses the same isolated-run rule for
+three UI hunk reversions: pending overview through pause/resume (`e155043`),
+preparation ending at assistant final (`be304ae`), and deliberate purpose stop
+versus a stuck reply (`e5bb795`). Each reversion must fail its specific assertion,
+then pass after `session-element.js` is restored byte-for-byte. The race kit also
+recovers project-only input after consent during a purpose pause, including a
+schema compatibility retry, balanced attempts, and no replacement reply.
+Authorized purpose assessments retain provider-failure outcomes during that pause;
+the pause alone does not classify their failed attempts as deferred.
 
 Every start2 post-deploy smoke must include **in-scope DE + EN turns and an off-topic
 turn**. Both in-scope turns must show a specific model reply to the project, beyond
