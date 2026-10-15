@@ -134,8 +134,8 @@ export class FooterPopups {
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
 export class PhoneComposerViewport {
-  constructor(root, { onNoticesChange = () => {} } = {}) {
-    this.onNoticesChange = onNoticesChange;
+  constructor(root, { onNoticesChange = () => {}, followsTranscript = () => true } = {}) {
+    this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
       const view = this.view, viewport = view?.visualViewport;
@@ -148,9 +148,8 @@ export class PhoneComposerViewport {
       const phone = view?.matchMedia('(max-width:600px)').matches;
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
-      if (notices.parentNode !== parent) {
-        parent.append(notices);
-      }
+      if (notices.parentNode !== parent) parent.append(notices);
+      if (!phone) notices.style.minHeight = '';
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       if (phone) this.fullHeight = Math.max(this.fullHeight ?? 0, view.innerHeight, height);
@@ -185,6 +184,16 @@ export class PhoneComposerViewport {
     this.noticesObserver?.disconnect();
     const Mutation = this.view?.MutationObserver;
     if (Mutation) {
+      const notices = this.root.querySelector('.voice-notices'), shell = this.root.querySelector('.transcript-shell');
+      this.noticeHeight = notices.getBoundingClientRect().height;
+      this.noticeScrollTop = shell.scrollTop;
+      this.noticeScroll ??= () => {
+        this.noticeScrollTop = shell.scrollTop;
+        if (this.followsTranscript() && notices.style.minHeight) {
+          notices.style.minHeight = ''; this.onNoticesChange();
+        }
+      };
+      shell.addEventListener('scroll', this.noticeScroll, { passive:true });
       this.recoveryNotice = this.root.querySelector('.voice-notice--recovered').textContent;
       this.noticesObserver = new Mutation(records => {
         // Reflected hidden assignments also report idempotent renders. They
@@ -194,7 +203,18 @@ export class PhoneComposerViewport {
         const recovery = this.root.querySelector('.voice-notice--recovered').textContent;
         // Ordinary last-reply controls are painted with the transcript, whose
         // pointer anchor owns that update. Recovery notices arrive independently.
-        if (changed && (recovery || this.recoveryNotice) && this.view.matchMedia('(max-width:600px)').matches) this.onNoticesChange();
+        if (changed && (recovery || this.recoveryNotice) && this.view.matchMedia('(max-width:600px)').matches) {
+          if (this.followsTranscript()) notices.style.minHeight = '';
+          else {
+            // Retain only the room a removed last item would clamp away while
+            // reading. Release it when the person next follows the bottom.
+            notices.style.minHeight = `${this.noticeHeight}px`;
+            shell.scrollTop = this.noticeScrollTop;
+          }
+          this.onNoticesChange();
+        }
+        this.noticeHeight = notices.getBoundingClientRect().height;
+        this.noticeScrollTop = shell.scrollTop;
         this.recoveryNotice = recovery;
       });
       this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] });
@@ -202,6 +222,7 @@ export class PhoneComposerViewport {
     this.paint();
   }
   destroy() {
+    this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
     this.noticesObserver?.disconnect();
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.paint);
