@@ -162,13 +162,15 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
             duplicateBlocked: !form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })) });
         }, { once: true }));
         const postCount = f.posts();
-        const postResponse = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/confirm-email');
         await page.click('button[type=submit]');
         await held.arrived;
         const submitted = await submission, during = submitted.geometry;
         assert.equal(submitted.busy, 'true'); assert.equal(submitted.disabled, 'true');
         assert.equal(submitted.status, confirmationCopy[locale].ready.busy); assert.equal(submitted.duplicateBlocked, true);
         await shot(`c2-landing-confirming-${locale}-${theme}-${width}`);
+        // The server cannot respond while held. Start its timeout after busy-state
+        // evidence, so screenshot time is not charged to the POST response.
+        const postResponse = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/confirm-email');
         const navigation = page.waitForNavigation({ waitUntil: 'networkidle0' });
         held.release(); const [response] = await Promise.all([postResponse, navigation]);
         await page.waitForSelector('[data-confirmation-state=confirmed]');
