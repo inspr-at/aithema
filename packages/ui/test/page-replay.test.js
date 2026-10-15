@@ -18,3 +18,14 @@ test('AIT-154: a newer shown reply refuses page playback while synthesis is pend
   await Promise.resolve(); current = false; release({ kind: 'audio', audio: {} });
   await assert.rejects(pending, { code: 'unavailable' }); assert.equal(plays, 0);
 });
+
+for (const ending of ['complete', 'Stop', 'error']) test(`AIT-190: page replay reports ${ending} separately from played-through audio`, async () => {
+  const finished = Promise.withResolvers(), states = [];
+  const player = createPageReplay({ control: { speakText: async () => ({ kind: 'audio', audio: {} }) },
+    playAudio: async () => ({ stop() {}, finished: finished.promise }) });
+  await player.replay({ turnId: 'last', text: 'Last reply' }, { onState: (playing, detail) => states.push({ playing, completed: Boolean(detail?.completed) }) });
+  if (ending === 'Stop') player.stop();
+  else finished.resolve(ending === 'complete');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(states, [{ playing: true, completed: false }, { playing: false, completed: ending === 'complete' }]);
+});
