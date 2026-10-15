@@ -5,10 +5,10 @@ import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCanc
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
-import { isLocalVoice } from './local-voice-identity.js';
+import { localVoiceImplementation } from './voice-provider.js';
 import { createImageBinding, imagePluginBinding } from './image-binding.js';
-import { isLocalImages } from './local-images.js';
-import { isLocalHTML } from './local-html.js';
+import { localImagesImplementation } from './local-images.js';
+import { localHTMLImplementation } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
 import { buildMessages, callCeilingMicro } from '@inspr/aithema-plugin-claude-html/index';
 import { previousDocument } from '@inspr/aithema-plugin-claude-html/html-artifact';
@@ -209,6 +209,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
       maxVisitorMicro: Math.ceil(reservedMs / 60_000 * binding.visitorMicroPerMinute) };
   };
+  // Resolve once, synchronously. Every exempt dispatch uses only this private,
+  // frozen implementation through health, consent awaits, admission and replay.
+  const localImplementation = (plugin, feature) => feature === 'voice' ? localVoiceImplementation(plugin)
+    : feature === 'images' ? localImagesImplementation(plugin) : feature === 'html' ? localHTMLImplementation(plugin) : undefined;
   const durationBinding = raw => createDurationBinding(
     registry.get(raw.plugin)?.ports?.serverAdapter?.normalizeBinding?.(raw) ?? raw);
   async function evaluate(session, preset, feature, options) {
@@ -228,11 +232,22 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { return { reason: 'binding invalid' }; }
     let plugin = registry.get(binding.plugin);
     if (!plugin) return { reason: 'plugin not registered' };
-    // Mock trust starts at the registered canonical entry and must survive binding.
-    const canonical = registry.isCanonicalMock(plugin);
-    if (plugin.bind) { try { plugin = plugin.bind(feature === 'images' ? imagePluginBinding(binding) : binding); } catch { return { reason: 'binding invalid' }; } }
-    const mock = canonical && isCanonicalMockReasoning(plugin) || feature === 'html' && isLocalHTML(plugin) && binding.maxMicro === 0 || feature === 'images' && isLocalImages(plugin) && binding.maxMicro === 0 &&
-      binding.imageCost.inputMicro === 0 && binding.imageCost.outputMicro === 0 || feature === 'voice' && isLocalVoice(plugin) &&
+    // Canonical reasoning can bind only to another private canonical instance.
+    // Local providers cannot bind: the host would retain a mutable dispatch target.
+    const canonical = registry.isCanonicalMock(plugin), local = localImplementation(plugin, feature);
+    if (plugin.bind) {
+      if (local) return { reason: 'binding invalid' };
+      try { plugin = plugin.bind(feature === 'images' ? imagePluginBinding(binding) : binding); } catch { return { reason: 'binding invalid' }; }
+      if (localImplementation(plugin, feature)) return { reason: 'binding invalid' };
+    }
+    // Discard the registry entry before any await or untrusted health callback.
+    // start/serverAdapter and generate/edit now come from the private pairing.
+    if (local) {
+      try { plugin = plugin.binding ? Object.freeze({ ...local, binding: createBinding(plugin.binding) }) : local; }
+      catch { return { reason: 'binding invalid' }; }
+    }
+    const mock = canonical && isCanonicalMockReasoning(plugin) || feature === 'html' && local && binding.maxMicro === 0 || feature === 'images' && local && binding.maxMicro === 0 &&
+      binding.imageCost.inputMicro === 0 && binding.imageCost.outputMicro === 0 || feature === 'voice' && local &&
       binding.maxMicro === 0 && binding.upstreamMicroPerMinute === 0 && binding.visitorMicroPerMinute === 0;
     if (!plugin.bind && !mock && (feature === 'voice' ? !durationPluginMatches(plugin, binding) : !plugin.binding || hash(plugin.binding) !== hash(feature === 'images' ? imagePluginBinding(binding) : binding))) return { reason: 'plugin binding mismatch' };
     if (!plugin.manifest.kinds.includes(kind)) return { reason: 'plugin kind unsupported' };
@@ -365,9 +380,18 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     }
     return { selection };
   }
+  let laneDiagnostic = () => {};
+  const emitOutcome = (lane, outcome, reason, providerErrorClass) => {
+    try { Promise.resolve(laneDiagnostic({ event: `${lane === 'reaction' ? 'reply' : lane}.${outcome}`, count: 1, lane,
+      ...(reason ? { reason } : {}), ...(['4xx', '5xx'].includes(providerErrorClass) ? { providerErrorClass } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
+  };
   const runtime = {
+    setLaneDiagnostic(callback) { laneDiagnostic = callback; },
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
-    voiceServerAdapters: () => registry.list().flatMap(plugin => plugin.ports?.serverAdapter ? [plugin.ports.serverAdapter] : []),
+    voiceServerAdapters: () => registry.list().flatMap(plugin => {
+      const adapter = (localVoiceImplementation(plugin) ?? plugin).ports?.serverAdapter;
+      return adapter ? [adapter] : [];
+    }),
     setOwnerWallet(provider) { ownerWallet = provider; },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
@@ -649,8 +673,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const model = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
         if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured ||
           feature === 'html' && !model.formats.includes('text/html')) continue;
-        const scope = registry.isCanonicalMock(plugin) || feature === 'voice' && isLocalVoice(plugin) || feature === 'images' && isLocalImages(plugin) ||
-          feature === 'html' && isLocalHTML(plugin) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
+        const scope = registry.isCanonicalMock(plugin) || !plugin.bind && localImplementation(plugin, feature) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
         if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
       }
       const voice = selectedBinding(session, preset, 'voice').raw;
@@ -887,7 +910,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef, model: binding.model, estimateMicro: plugin.estimateUncertainCost?.(request, operation) ?? plugin.uncertainEstimateMicro } } : {}),
         requestSha256: hash(html ? { ...request, previousArtifact: request.previousArtifact?.provenance.subject.contentDigest } : lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback, references: request.references?.map(r => ({
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
-      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false;
+      const diagnosticLane = options.voiceReply ? 'voice-facade' : lane;
+      try { if (budget.startOutcome(attemptId, diagnosticLane)) emitOutcome(diagnosticLane, 'started'); }
+      catch { /* Diagnostics cannot interrupt admission. */ }
+      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false;
       const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
         if (reported) {
@@ -897,6 +923,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           if (refused && isCancelledZeroReport(terminal, attemptId)) return;
           throw new PluginError('already-claimed');
         }
+        settlementAborted = Boolean(options.signal?.aborted);
+        settlementDispatched = budget.get(attemptId).state === 'dispatched';
         const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
         try { Promise.resolve(options.onTerminal?.({ outcome: settlement.outcome })).catch(() => {}); }
         catch { /* Diagnostics cannot interrupt settlement. */ }
@@ -936,7 +964,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const described = runtime.describe(session);
       return { plugin, consentScope: result.scope ? structuredClone(result.scope) : null,
         ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
-        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false } = {}) {
+        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false, error } = {}) {
         try {
           if (!reported) {
             report({ attemptId, outcome: 'uncertain' });
@@ -944,7 +972,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             throw new PluginError('invalid-output', 'Plugin omitted its terminal report');
           }
         } catch (error) { if (!failed) throw error; }
-        finally { if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId); }
+        finally {
+          if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId);
+          try {
+            const row = budget.get(attemptId), latest = storage.get(session.id);
+            const inputChanged = inputRevision(latest) !== inputRevision(session);
+            const superseded = selectionKey(latest, lane) !== selectionKey(session, lane) || inputChanged;
+            const outcome = row.outcome === 'uncertain' && settlementDispatched ? 'uncertain'
+              : row.outcome === 'completed' && !failed ? 'completed'
+              : latest.tombstone || latest.consentWithdrawn ? 'aborted'
+              : latest.paused && !(purposeAssessment && latest.pauseReason === 'purpose') && row.outcome !== 'completed' ? 'deferred'
+              : superseded ? 'superseded'
+              : settlementAborted ? 'aborted'
+              : failed || row.outcome !== 'completed' ? 'failed' : 'completed';
+            if (budget.finishOutcome(attemptId, outcome)) emitOutcome(diagnosticLane, outcome,
+              outcome === 'uncertain' ? 'provider-cost-unknown' : ['4xx', '5xx'].includes(error?.providerErrorClass) ? `provider-${error.providerErrorClass}` : undefined, error?.providerErrorClass);
+          } catch { /* Diagnostics cannot interrupt settlement. */ }
+        }
       } };
     },
   };

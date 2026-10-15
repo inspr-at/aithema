@@ -4,8 +4,15 @@ import { deepFreeze, beginInvocation, operationScope, validateUIReferences } fro
 import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images/index';
 import { imageArtifact } from '@inspr/aithema-plugin-openai-images/image-artifact';
 
-const localGenerates = new WeakSet();
-export const isLocalImages = plugin => localGenerates.has(plugin?.generate);
+// No public enrollment: a copied generate cannot authorize another edit.
+const implementations = new WeakMap();
+export function localImagesImplementation(plugin) {
+  if (!plugin || typeof plugin !== 'object') return;
+  const generate = Object.getOwnPropertyDescriptor(plugin, 'generate')?.value;
+  const implementation = typeof generate === 'function' ? implementations.get(generate) : undefined;
+  if (implementation && Object.getOwnPropertyDescriptor(plugin, 'edit')?.value === implementation.edit) return implementation;
+}
+export const isLocalImages = plugin => Boolean(localImagesImplementation(plugin));
 export const localImageBinding = Object.freeze({ plugin: 'fake-images', model: 'deterministic-ui', effort: 'none',
   endpoint: 'https://example.test', accountRef: 'local-demo', secretRef: 'local-only', maxMicro: 0, maxTokens: 1,
   rates: { inputMicro: 0, outputMicro: 0 }, imageCost: { inputMicro: 0, outputMicro: 0, maxInputTokens: 200_000, maxOutputTokens: 1 } });
@@ -51,9 +58,9 @@ export function createLocalImages({ delayMs = 250, now = Date.now } = {}) {
       invocation.usage({ inputTokens: 1, outputTokens: 1 }); completed = true; return artifact;
     } finally { try { await invocation?.finish(completed); } finally { scope.dispose(); } }
   }
-  localGenerates.add(generate);
-  return { manifest: deepFreeze({ ...imageManifest, id: 'fake-images', vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
+  const plugin = Object.freeze({ manifest: deepFreeze({ ...imageManifest, id: 'fake-images', vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
     models: [{ ...imageManifest.models[0], id: 'deterministic-ui' }] }), label: 'Fake images — local deterministic PNG, no provider network', generate,
     edit: (artifact, spec, feedback, options) => generate({ ...spec, references: [{ bytes: artifact.bytes, mediaType: artifact.mediaType, role: 'previous' }, ...(spec.references ?? [])] }, feedback, options),
-    async health(options) { options.signal?.throwIfAborted(); return { available: true }; } };
+    async health(options) { options.signal?.throwIfAborted(); return { available: true }; } });
+  implementations.set(generate, plugin); return plugin;
 }

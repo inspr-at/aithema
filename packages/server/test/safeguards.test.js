@@ -598,3 +598,23 @@ test('AIT-197 R5: recovered project assessment survives another off-topic turn e
   assert.equal(attempts.length, 1);
   assert.ok(attempts.every(attempt => attempt.state === 'settled'));
 });
+
+
+for (const project of [false, true]) test(`AIT-212 reconnect recovers ${project ? 'earlier in-scope input once' : 'zero all-off-topic work'}`, async t => {
+  const f = fixture(t), id = f.session.id;
+  const texts = [...(project ? ['We need a website.'] : []), ...Array(3).fill('Give me a soup recipe.')];
+  for (const [index, content] of texts.entries()) {
+    f.storage.postTurn(id, `reconnect-${index}`, Buffer.from(content), content);
+    const revision = inputRevision(f.storage.get(id));
+    f.storage.appendPurposeReply(id, { id: `reply-${index}`, role: 'assistant', content: 'What should improve?', inputRevision: revision }, revision, !project || index > 0, 3);
+  }
+  for (let i = 0; i < 3; i++) {
+    const stream = await f.handlers.handle(req(id, 'events')); await stream.body.cancel(); await f.handlers.idle();
+  }
+  assert.equal(f.assessments.length, Number(project));
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.storage.get(id).understanding.readinessAssessed, project);
+  const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
+  assert.equal(attempts.length, Number(project));
+  assert.ok(attempts.every(attempt => attempt.state === 'settled'));
+});

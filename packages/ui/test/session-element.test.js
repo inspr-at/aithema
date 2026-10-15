@@ -203,7 +203,9 @@ test('fresh configure restores operational failure and draft retry state', () =>
     inputRevision: inputRevision(session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true,
   } };
   c.configure({ copy: en, session });
-  assert.equal(c.shadowRoot.querySelector('.notice').textContent, en.reasoningFailed);
+  assert.equal(c.shadowRoot.querySelector('.notice').textContent, en.draft);
+  assert.equal(c.shadowRoot.querySelector('.reaction-failure').textContent, en.reasoningFailed);
+  assert.equal(c.shadowRoot.textContent.split(en.reasoningFailed).length - 1, 1);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
 });
 test('an SSE cursor rejected with 400 restores the snapshot and reconnects with its cursor', async () => {
@@ -1072,7 +1074,7 @@ test('AIT-197 R5 DE/EN copy has identical recursive key sets', () => {
     return entry && typeof entry === 'object' ? keys(entry, `${path}.`) : [path];
   });
   assert.deepEqual(keys(de).sort(), keys(en).sort());
-  for (const copy of [de, en]) for (const key of ['noProjectDetails', 'preparingOverview', 'understandingFailed', 'understandingRetry']) {
+  for (const copy of [de, en]) for (const key of ['noProjectDetails', 'overviewPendingReply', 'preparingOverview', 'understandingFailed', 'understandingRetry']) {
     assert.equal(typeof copy[key], 'string');
     assert.ok(copy[key].length > 0);
   }

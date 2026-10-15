@@ -37,6 +37,9 @@ export class SQLiteStorage {
       CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
         input_key TEXT NOT NULL, revision TEXT, off_topic INTEGER NOT NULL, analysis_off INTEGER NOT NULL, PRIMARY KEY(session_id,input_key));
       CREATE TABLE IF NOT EXISTS safeguard_direction (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS lane_failures (session_id TEXT NOT NULL REFERENCES sessions(id),
+        lane TEXT NOT NULL CHECK(lane IN ('reaction','understanding')), failure TEXT NOT NULL,
+        PRIMARY KEY(session_id,lane));
       CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -107,6 +110,28 @@ export class SQLiteStorage {
     session.concepts = (session.concepts ?? []).filter(c => this.db.prepare('SELECT 1 FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(id, c.id))
       .map(c => ({ ...c, feedback: c.feedback?.contentRef ? this.#hydrateData(id, c.feedback) : c.feedback }));
     return session;
+  }
+  // Private, value-free operation state survives handler/process restarts.
+  laneFailures(id) {
+    return this.db.prepare('SELECT failure FROM lane_failures WHERE session_id=? ORDER BY rowid')
+      .all(id).map(row => JSON.parse(row.failure));
+  }
+  setLaneFailure(id, failure) {
+    return this.transaction(() => {
+      const session = this.get(id);
+      if (session.tombstone || inputRevision(session) !== failure.inputRevision) return false;
+      // Do not persist provider diagnostics or request content.
+      const record = { inputRevision: failure.inputRevision, lane: failure.lane,
+        error: 'reasoning-unavailable', retryable: true,
+        ...(failure.reason === 'budget reconciling' ? { reason: failure.reason } : {}) };
+      this.db.prepare('INSERT INTO lane_failures VALUES (?,?,?) ON CONFLICT(session_id,lane) DO UPDATE SET failure=excluded.failure')
+        .run(id, record.lane, JSON.stringify(record));
+      return true;
+    });
+  }
+  clearLaneFailures(id, lane) {
+    if (lane) this.db.prepare('DELETE FROM lane_failures WHERE session_id=? AND lane=?').run(id, lane);
+    else this.db.prepare('DELETE FROM lane_failures WHERE session_id=?').run(id);
   }
   authorize(id, ownerToken) {
     const session = this.get(id);
@@ -667,6 +692,7 @@ export class SQLiteStorage {
   erase(id, guard = {}) {
     return this.#invalidationTransaction(() => {
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
+      this.clearLaneFailures(id);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_direction WHERE session_id=?').run(id);
