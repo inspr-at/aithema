@@ -6,6 +6,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
 // AIT-191: slowest successful per-file observation in seconds across CI runs
 // 38692613866, 38701239296 and 38704006618 (attempt noted on each entry).
+// AIT-190's expanded pause matrix is remeasured in CI 38718269610.
 // Sum top-level test durations only; nested subtests are already included.
 // These estimates exclude setup, file-process overhead and evidence upload.
 export const browserTestWeights = {
@@ -21,7 +22,7 @@ export const browserTestWeights = {
   'test/browser/html-preview.test.js': 35.666, // CI 38701239296-1
   'test/browser/operator-login.test.js': 40.451, // CI 38704006618-1
   'test/browser/orb-reveal.test.js': 87.600, // CI 38701239296-1
-  'test/browser/pause-phone.test.js': 69.436, // CI 38704006618-1
+  'test/browser/pause-phone.test.js': 148.431, // CI 38718269610-1, AIT-190 desktop matrix
   'test/browser/question-card.test.js': 18.767, // CI 38704006618-1
   'test/browser/safeguards.test.js': 8.407, // CI 38704006618-1
   'test/browser/start-journey.test.js': 17.298, // CI 38704006618-1
