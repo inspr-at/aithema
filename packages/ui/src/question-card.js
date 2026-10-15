@@ -30,17 +30,17 @@ export const questionCardStyles = `
 
 .workspace:not([data-stage="live"]) .composer-dock { display:none; }
 .qcard { position:absolute; inset:auto 0 100%; z-index:2; display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:8px;
-  padding:14px 16px 12px; border-radius:18px 18px 0 0; max-height:min(440px,30dvh,calc(100dvh - 280px));
+  padding:14px 16px 12px; border-radius:18px 18px 0 0; max-height:min(440px,var(--question-card-limit,440px),calc(100dvh - 280px));
   overflow:hidden;
   background:color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-surface));
   box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 28%,transparent); }
 .qcard:not([hidden]) + .composer, .qcard:not([hidden]) + .composer-shell, .qcard:not([hidden]) + .composer-shell :is(.composer,.composer-out) { border-radius:0 0 18px 18px; }
-/* Keep reading room in the narrower desktop column; long summaries stay available to AT. */
+/* Long summaries stay available to AT and in the assistant reply. */
 .qtext { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
 .qopts { display:grid; grid-auto-rows:max-content; align-content:start; min-height:0; gap:2px; margin-top:2px; overflow-y:auto; overscroll-behavior:contain;
   scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent; }
 @media(max-width:600px) {
-  .qcard { max-height:min(35dvh,calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
+  .qcard { max-height:min(35dvh,var(--question-card-limit,35dvh),calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
 }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
@@ -62,6 +62,9 @@ export const questionCardStyles = `
 /* Reserve outside the scrollport: even keyboard scrolling cannot put a bubble
    underneath the card. The grid gives up only transcript room, never the dock. */
 .transcript-shell { margin-bottom:var(--question-card-height,0px); }
+@media(min-width:601px) and (max-width:59.99rem) {
+  .transcript-shell { height:calc(clamp(20rem,60svh,36rem) - var(--question-card-height,0px)); }
+}
 `;
 
 export const questionCardMarkup = `<div class="question-card qcard" hidden role="group" aria-labelledby="qtitle" aria-describedby="qtext qhint">
@@ -81,9 +84,17 @@ export class QuestionCard {
   }
   connect() {
     const Resize = this.root.ownerDocument.defaultView?.ResizeObserver;
-    if (Resize) { this.observer ??= new Resize(() => this.reserve()); this.observer.observe(this.card); }
+    if (Resize) {
+      this.observer ??= new Resize(() => this.reserve());
+      this.observer.observe(this.card); this.observer.observe(this.root.querySelector('.transcript-shell'));
+    }
   }
   reserve() {
+    if (this.root.querySelector('.conversation').hidden) return;
+    // Add back the existing reservation to measure the unobstructed scrollport.
+    // Preserve 128px for the latest reply, its fade and the Latest control.
+    const available = this.root.querySelector('.transcript-shell').getBoundingClientRect().height + (this.height ?? 0);
+    if (available > 0) this.card.style.setProperty('--question-card-limit', `${Math.max(0, available - 128)}px`);
     // While reading, retain space through a shorter replacement or closure so
     // the scroll range cannot clamp the reading position. Release on following.
     const measured = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;

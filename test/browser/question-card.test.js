@@ -17,7 +17,7 @@ const nextFrame = page => page.evaluate(() => new Promise(resolve => requestAnim
 const shown = page => shadow(page, c => Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')));
 const still = (before, after, label) => assert.deepEqual(after, before, `${label}: composer controls shift exactly 0 px`);
 
-test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement',
+test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement',
   { timeout: 120_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-qcard-'));
     const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -60,11 +60,11 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
     await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
     await shadow(page, c => { globalThis.qcardSeed = c.session; });
 
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 393]) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 800, 390, 393]) {
       await t.test(`${locale}/${theme}/${width}`, async () => {
         const label = `${locale}-${theme}-${width}`;
         const shot = async state => { if (evidence) {
-          if (state !== 'bounded-options' || width === 1024 || width !== 390 && theme !== (locale === 'en' ? 'light' : 'dark')) return;
+          if (state !== 'bounded-options' || ![390, 393, 1440].includes(width) || width !== 390 && theme !== (locale === 'en' ? 'light' : 'dark')) return;
           await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
           await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
           await nextFrame(page);

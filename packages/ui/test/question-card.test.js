@@ -172,7 +172,7 @@ test('AIT-225: the options scroll region has a translated accessible name and re
 
 test('AIT-225: closing while reading retains the transcript reservation until following resumes', () => {
   const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
-  root.innerHTML = `<div class="conversation"></div>${questionCardMarkup}<textarea></textarea>`;
+  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}<textarea></textarea>`;
   let following = true, resizes = 0;
   const card = new QuestionCard({ root, send() {}, followsTranscript: () => following, onResize: () => resizes++ });
   card.card.getBoundingClientRect = () => ({ height: 290 });
