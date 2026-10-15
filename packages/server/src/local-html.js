@@ -1,8 +1,15 @@
 import { deepFreeze, beginInvocation, operationScope, verifyHTMLArtifact, PluginError } from '@inspr/aithema-core';
 import { manifest as htmlManifest, htmlArtifact, buildMessages, revisionOf } from '@inspr/aithema-plugin-claude-html/index';
 
-const localGenerates = new WeakSet();
-export const isLocalHTML = plugin => localGenerates.has(plugin?.generate);
+// No public enrollment: a copied generate cannot authorize another edit.
+const implementations = new WeakMap();
+export function localHTMLImplementation(plugin) {
+  if (!plugin || typeof plugin !== 'object') return;
+  const generate = Object.getOwnPropertyDescriptor(plugin, 'generate')?.value;
+  const implementation = typeof generate === 'function' ? implementations.get(generate) : undefined;
+  if (implementation && Object.getOwnPropertyDescriptor(plugin, 'edit')?.value === implementation.edit) return implementation;
+}
+export const isLocalHTML = plugin => Boolean(localHTMLImplementation(plugin));
 export const localHTMLBinding = Object.freeze({ plugin: 'fake-html', model: 'deterministic-html', effort: 'none',
   endpoint: 'https://example.test', accountRef: 'local-demo', secretRef: 'local-only', maxMicro: 0, maxTokens: 1,
   rates: { inputMicro: 0, outputMicro: 0 } });
@@ -34,9 +41,9 @@ export function createLocalHTML({ now = () => 0 } = {}) {
     } finally { try { await invocation?.finish(completed); } finally { scope.dispose(); } }
   }
   const generate = (spec, feedback, options) => run('generate', spec, feedback, options);
-  localGenerates.add(generate);
-  return { manifest: deepFreeze({ ...htmlManifest, id: 'fake-html', vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
+  const plugin = Object.freeze({ manifest: deepFreeze({ ...htmlManifest, id: 'fake-html', vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
     models: [{ ...htmlManifest.models[0], id: 'deterministic-html' }] }), label: 'Fake HTML — local deterministic click-dummy, no provider network',
     generate, edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),
-    async health(options) { options.signal?.throwIfAborted(); return { available: true }; } };
+    async health(options) { options.signal?.throwIfAborted(); return { available: true }; } });
+  implementations.set(generate, plugin); return plugin;
 }

@@ -126,7 +126,11 @@ for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'othe
     if (variant === 'genuine') {
       assert.equal(isLocalVoice(entry), true);
       assert.deepEqual(offered, [MOCK_PROCESSING_SCOPE]);
-      assert.equal((await runtime.checkVoice(session, { textReplay: true })).plugin, entry);
+      const admitted = (await runtime.checkVoice(session, { textReplay: true })).plugin;
+      assert.notEqual(admitted, entry, 'dispatch uses a private snapshot');
+      assert.ok(Object.isFrozen(admitted));
+      assert.equal(admitted.start, sim.start);
+      assert.equal(admitted.ports.serverAdapter, sim.ports.serverAdapter);
       assert.equal((await runtime.speakText({ session, turnId: 'reply' })).kind, 'audio');
     } else {
       // Check consent discovery first: the original attack offered mock consent.
