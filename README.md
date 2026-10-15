@@ -3214,7 +3214,7 @@ Fallback metadata stays private and never enters visitor snapshots or transcript
 AIT-201 extends those existing diagnostics to all admitted reasoning/render attempts:
 `reply`, `understanding`, `concept` and `voice-facade` emit `.started` and exactly
 one of `.completed`, `.superseded`, `.deferred`, `.aborted`, `.uncertain`, `.failed`.
-Events contain only lane, count and an optional closed reason class. They never
+Events contain only lane, count and optional closed reason/HTTP error classes. They never
 contain content or attempt/session/model/provider identities. Existing
 `reply.schema-retry`, `reply.fallback` and `reply.scope-missing` remain separate.
 

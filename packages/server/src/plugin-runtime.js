@@ -366,9 +366,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return { selection };
   }
   let laneDiagnostic = () => {};
-  const emitOutcome = (lane, outcome, reason) => {
+  const emitOutcome = (lane, outcome, reason, providerErrorClass) => {
     try { Promise.resolve(laneDiagnostic({ event: `${lane === 'reaction' ? 'reply' : lane}.${outcome}`, count: 1, lane,
-      ...(reason ? { reason } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
+      ...(reason ? { reason } : {}), ...(['4xx', '5xx'].includes(providerErrorClass) ? { providerErrorClass } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
   };
   const runtime = {
     setLaneDiagnostic(callback) { laneDiagnostic = callback; },
@@ -888,7 +888,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
       const diagnosticLane = options.voiceReply ? 'voice-facade' : lane;
       if (budget.startOutcome(attemptId, diagnosticLane)) emitOutcome(diagnosticLane, 'started');
-      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false;
+      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false;
       const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
         if (reported) {
@@ -899,6 +899,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           throw new PluginError('already-claimed');
         }
         settlementAborted = Boolean(options.signal?.aborted);
+        settlementDispatched = budget.get(attemptId).state === 'dispatched';
         const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
         try { Promise.resolve(options.onTerminal?.({ outcome: settlement.outcome })).catch(() => {}); }
         catch { /* Diagnostics cannot interrupt settlement. */ }
@@ -949,13 +950,16 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         finally {
           if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId);
           const row = budget.get(attemptId), latest = storage.get(session.id);
-          const outcome = row.outcome === 'uncertain' ? 'uncertain'
+          const inputChanged = inputRevision(latest) !== inputRevision(session);
+          const superseded = selectionKey(latest, lane) !== selectionKey(session, lane) ||
+            inputChanged && (options.isCurrent ? !options.isCurrent() : lane !== 'concept');
+          const outcome = row.outcome === 'uncertain' && settlementDispatched ? 'uncertain'
             : latest.paused && row.outcome !== 'completed' ? 'deferred'
-            : inputRevision(latest) !== inputRevision(session) || selectionKey(latest, lane) !== selectionKey(session, lane) ? 'superseded'
+            : superseded ? 'superseded'
             : settlementAborted || latest.tombstone || latest.consentWithdrawn ? 'aborted'
             : failed || row.outcome !== 'completed' ? 'failed' : 'completed';
           if (budget.finishOutcome(attemptId, outcome)) emitOutcome(diagnosticLane, outcome,
-            outcome === 'uncertain' ? 'provider-cost-unknown' : ['4xx', '5xx'].includes(error?.providerErrorClass) ? `provider-${error.providerErrorClass}` : undefined);
+            outcome === 'uncertain' ? 'provider-cost-unknown' : ['4xx', '5xx'].includes(error?.providerErrorClass) ? `provider-${error.providerErrorClass}` : undefined, error?.providerErrorClass);
         }
       } };
     },

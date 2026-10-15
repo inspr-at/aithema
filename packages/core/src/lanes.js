@@ -70,7 +70,7 @@ export class SessionLanes {
       try { Promise.resolve(this.onUnderstandingDiagnostic({ outcome, ...(reason ? { reason } : {}) })).catch(() => {}); }
       catch { /* Observability cannot interrupt paid work. */ }
     };
-    const options = { signal: scope.signal, deadlineAt,
+    const options = { signal: scope.signal, deadlineAt, isCurrent: current,
       ...(lane === 'understanding' ? { onTerminal: ({ outcome }) => {
         if (outcome === 'uncertain') diagnostic('uncertain', 'provider-cost-unknown');
       } } : {}) };

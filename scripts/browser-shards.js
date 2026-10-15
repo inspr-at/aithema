@@ -27,7 +27,7 @@ export const browserTestWeights = {
   'test/browser/footer-width-sweep.test.js': 30.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/host-surface.test.js': 20.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
-  'test/browser/lane-race-kit.test.js': 30.000, // AIT-201 provisional; remote measurement pending
+  'test/browser/lane-race-kit.test.js': 20.000, // CI 38784223838-1 (2.516s; rounded up + 10s margin)
   'test/browser/operator-login.test.js': 60.000, // CI 38717864470-1 (rounded up + 10s margin)
   'test/browser/orb-reveal.test.js': 100.000, // CI 38726471579-1 (84.326s; rounded up + 10s margin)
   'test/browser/pause-phone.test.js': 190.000, // CI 38726471579-1 (176.200s; rounded up + 10s margin)

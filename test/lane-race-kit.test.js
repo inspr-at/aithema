@@ -110,10 +110,18 @@ for (const lane of laneNames) for (const transition of ['superseded', 'deferred'
   const h = await createLaneRaceHarness(); t.after(() => h.close());
   const entered = Promise.withResolvers(), release = Promise.withResolvers(), admit = h.runtime.admit.bind(h.runtime);
   h.runtime.admit = async args => {
-    const result = await admit(args); entered.resolve(result); await release.promise; return result;
+    const result = await admit(args), attempt = result.options.attempt;
+    return { ...result, options: { ...result.options, attempt: { ...attempt, async consume() {
+      entered.resolve(); await release.promise; return attempt.consume();
+    } } } };
   };
   const pending = h.run(lane); await entered.promise;
-  if (transition === 'superseded') h.turn('New person input during admission.');
+  if (transition === 'superseded') {
+    h.turn('New person input during admission.');
+    // A facade owns callback input across append-only turns. A changed model
+    // choice is a strict supersession fence for that already admitted request.
+    if (lane === 'voice-facade') h.storage.append(h.id, 'settings.changed', { processingPreset: 'best', settings: { ...h.storage.get(h.id).settings, effort: 'medium' } });
+  }
   if (transition === 'deferred') h.storage.pause(h.id, true);
   if (transition === 'aborted') { h.controller.abort(); h.callController.abort(); }
   release.resolve(); await Promise.allSettled([pending]);
