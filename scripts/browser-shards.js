@@ -33,6 +33,7 @@ export const browserShards = [
     'test/browser/start2-display-geometry.test.js',
     'test/browser/start-look.test.js',
     'test/browser/safeguards.test.js',
+    'test/browser/tick-followups.test.js',
   ],
   // 389.59s measured file work; 170.41, 117.63, 93.09, 8.46
   [
