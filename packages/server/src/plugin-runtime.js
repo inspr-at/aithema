@@ -964,7 +964,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             const outcome = row.outcome === 'uncertain' && settlementDispatched ? 'uncertain'
               : row.outcome === 'completed' && !failed ? 'completed'
               : latest.tombstone || latest.consentWithdrawn ? 'aborted'
-              : latest.paused && row.outcome !== 'completed' ? 'deferred'
+              : latest.paused && !(purposeAssessment && latest.pauseReason === 'purpose') && row.outcome !== 'completed' ? 'deferred'
               : superseded ? 'superseded'
               : settlementAborted ? 'aborted'
               : failed || row.outcome !== 'completed' ? 'failed' : 'completed';

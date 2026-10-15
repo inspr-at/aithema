@@ -12,6 +12,7 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
   const browser = await browserForFile(), page = await browser.newPage(), errors = [];
   t.after(async () => { await browser.close(); await fixture.kill(); });
   page.on('pageerror', error => errors.push(error.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setViewport({ width: 390, height: 844 });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
@@ -61,7 +62,14 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
     assert.equal(retries, 1, `${lane} failure shows exactly one Retry`);
   }
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
-  if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'ait201-lane-races-390.png'), fullPage: false, captureBeyondViewport: false }); }
+  if (evidence) {
+    await shadow(page, async c => {
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+        .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'ait201-lane-races-390.png'), fullPage: false, captureBeyondViewport: false }); }
   assert.deepEqual(errors, []);
 });
 
