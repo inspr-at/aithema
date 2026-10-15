@@ -34,7 +34,7 @@ async function fixture(t) {
   return page;
 }
 async function scene(page, locale, theme, width) {
-  await page.setViewport({ width, height: width < 600 ? 844 : 900 }); await page.select('#theme', theme);
+  await page.setViewport({ width, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
   await page.evaluate(async locale => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
@@ -336,7 +336,7 @@ test('AIT-188 notice option a: last scroll item follows and preserves scrolled-u
     await voiceScene(page, locale, theme, width);
     await shadow(page, c => {
       const session = structuredClone(c.session), text = session.transcript[0].content;
-      session.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `long-call-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
+      session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `long-call-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
       c.configure({ copy: globalThis.pauseCopy, session });
     });
     await page.mouse.move(0, 0); await frame(page);
