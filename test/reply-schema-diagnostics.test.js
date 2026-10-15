@@ -77,7 +77,7 @@ test('AIT-181 round2 OPS diagnostics report each path and HTTP class within the 
   const requests = [], reports = [];
   await runReplySchemaDiagnostics({ write: report => reports.push(report), async *invoke(request) {
     requests.push(request);
-    if (requests.length === 1) throw Object.assign(new Error('Private unrecognized refusal'), { code: 'auth', responseFormatUnsupported: true, providerErrorClass: '4xx' });
+    if (requests.length === 1) throw Object.assign(new Error('Private schema rejection'), { code: 'provider', responseFormatUnsupported: true, providerErrorClass: '4xx' });
     if (requests.length === 3) throw Object.assign(new Error('Private 5xx details'), { code: 'provider', providerErrorClass: '5xx' });
     yield JSON.stringify(value);
   } });
@@ -90,7 +90,7 @@ test('AIT-181 round2 OPS diagnostics report each path and HTTP class within the 
   assert.doesNotMatch(JSON.stringify(reports), /Private|refusal|details/u);
 });
 
-test('AIT-181 round2 OPS command reports an unknown 4xx then prompt-only retry using stubbed fetch', async () => {
+test('AIT-181 round2 OPS command reports a schema-compatibility 400 then prompt-only retry using stubbed fetch', async () => {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const { fileURLToPath } = await import('node:url');
@@ -100,7 +100,7 @@ test('AIT-181 round2 OPS command reports an unknown 4xx then prompt-only retry u
       if (++calls > 3) throw new Error('Call cap');
       const request = JSON.parse(init.body);
       if (!request.stream || Boolean(request.response_format) !== (calls !== 2)) throw new Error('Wrong path');
-      if (calls === 1) return new Response('Private unknown refusal', { status: 400 });
+      if (calls === 1) return Response.json({ error: { message: 'Private response_format json_schema is unsupported' } }, { status: 400 });
       const content = JSON.stringify({ content: 'Private model output', question_short: null, options: [], scope: 'in' });
       return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }], usage: { cost: 0 } }) + '\\n\\ndata: [DONE]\\n\\n');
     };
@@ -115,5 +115,5 @@ test('AIT-181 round2 OPS command reports an unknown 4xx then prompt-only retry u
   const reports = stdout.trim().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(reports.map(report => report.path), ['constrained', 'prompt-only-retry', 'constrained']);
   assert.deepEqual(reports.map(report => report.provider_error_class), ['4xx', null, null]);
-  assert.doesNotMatch(stdout, /Private model output|Private unknown refusal|fixture-not-a-key|AITHEMA_CANARY_/u);
+  assert.doesNotMatch(stdout, /Private model output|Private response_format|fixture-not-a-key|AITHEMA_CANARY_/u);
 });

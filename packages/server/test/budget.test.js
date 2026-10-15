@@ -1,10 +1,50 @@
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
+import { SQLiteStorage, SQLiteBudgetLedger, createSpendCap } from '../src/index.js';
+import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { temporaryDb } from '../../../test/helpers.js';
 const admit = (ledger, sessionId, extra = {}) => ledger.admit({ sessionId, lane: 'reaction', maxMicro: 40,
   requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
+
+for (const stream of [false, true]) for (const [name, status, payload, expected] of [
+  ['JSON rejection', 400, { error: { type: 'invalid_request_error' } }, 0],
+  ['text rejection', 422, 'Unprocessable request', 0],
+  ['request timeout', 408, { error: { type: 'timeout' } }, 40],
+  ['client timeout', 499, 'Client closed request', 40],
+  ['server error', 503, { error: { type: 'overloaded_error' } }, 40],
+  ['unpriced usage on rejection', 400, { usage: { prompt_tokens: 1, completion_tokens: 1 } }, 40],
+  ['billed rejection', 400, { usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.000007 } }, 7],
+]) test(`AIT-198 ${stream ? 'stream' : 'structured'} ${name} settles provider ledger and account cap at ${expected}`, async t => {
+  const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const cap = createSpendCap({ storage, account: 'rejection-fixture', capMicro: 1_000_000 });
+  const attempt = admit(ledger, session.id), claim = ledger.claim(attempt.attemptId);
+  let terminal;
+  const plugin = createOpenRouterReasoning({ model: 'anthropic/fixture', prices: { 'anthropic/fixture': { prompt: 1e-6, completion: 2e-6 } },
+    spendCap: cap, resolveSecret: () => 'fake-only', fetchImpl: async () => typeof payload === 'string'
+      ? new Response(payload, { status }) : Response.json(payload, { status }) });
+  const request = { system: '', messages: [{ role: 'user', content: 'Analyze' }], schema: { type: 'object' } };
+  const options = { deadlineAt: Date.now() + 5000, attempt: claim,
+    report(value) { terminal = value; ledger.settle(claim.claimId, value); } };
+  await assert.rejects(async () => {
+    if (stream) for await (const _ of plugin.stream(request, options)) { /* consume */ }
+    else await plugin.structured(request, options);
+  });
+  const row = ledger.get(attempt.attemptId);
+  assert.equal(row.settled_micro, expected);
+  assert.equal(row.outcome, expected === 40 ? 'uncertain' : 'cancelled');
+  assert.equal(ledger.breakdown(session.id, { visitorCredits: true }).confirmedSpendMicro, expected === 40 ? 0 : expected);
+  const account = cap.snapshot();
+  assert.equal(account.reservedMicro, 0);
+  assert.equal(account.spentMicro, expected === 40 ? 0 : expected);
+  assert.equal(account.uncertainMicro > 0, expected === 40);
+  if (expected === 0) {
+    assert.deepEqual(terminal.usage, { inputTokens: 0, outputTokens: 0 });
+    assert.equal(terminal.chargedMicro, 0);
+    assert.equal(ledger.used(session.id), 0);
+  }
+});
 
 test('AIT-163 fix1: the pending receipt query uses its partial index and includes legacy rows', t => {
   const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
@@ -139,4 +179,29 @@ test('two SQLite connections share ceilings and claim uniqueness', async () => {
     const hold = admit(a, s.id); assert.throws(() => admit(b, s.id), /Budget denied/);
     a.claim(hold.attemptId); assert.throws(() => b.claim(hold.attemptId), { code: 'already-claimed' });
   } finally { first.close(); second.close(); }
+});
+
+for (const recovery of [false, true]) test(`AIT-198 visitor understanding refund survives restart and a late provider receipt (${recovery ? 'recovered dispatch' : 'terminal failure'})`, async t => {
+  const db = await temporaryDb();
+  let storage = new SQLiteStorage(db), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const session = storage.create();
+  const { attemptId } = admit(ledger, session.id, { lane: 'understanding', providerCost: { plugin: 'openrouter' } });
+  const claim = ledger.claim(attemptId); claim.consume(); ledger.markCostDispatch(attemptId);
+  if (!recovery) {
+    ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+    assert.equal(ledger.get(attemptId).visitor_credit_released, 0, 'unknown provider cost alone is not lane failure');
+    // The lane reports failure after host validation/publication; this refunds it.
+    ledger.releaseUnderstandingCredits(attemptId);
+  }
+  storage.close(); storage = new SQLiteStorage(db); ledger = new SQLiteBudgetLedger(storage);
+  if (recovery) assert.equal(ledger.recover(session.id), 1);
+  assert.equal(ledger.get(attemptId).settled_micro, 40, 'provider liability remains conservative');
+  assert.equal(ledger.get(attemptId).visitor_credit_released, 1);
+  assert.equal(ledger.breakdown(session.id, { visitorCredits: true }).uncertainSpendMicro, 0);
+  ledger.reconcileCost(attemptId, { chargedMicro: 7 });
+  assert.equal(ledger.get(attemptId).settled_micro, 7, 'real receipt repairs the provider ledger');
+  assert.equal(ledger.breakdown(session.id).confirmedSpendMicro, 7);
+  assert.equal(ledger.breakdown(session.id, { visitorCredits: true }).confirmedSpendMicro, 0, 'receipt cannot charge the refunded visitor again');
+  assert.deepEqual(ledger.displayBreakdown(session.id), { reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0, pendingHoldMicro: 0, reconciling: false });
 });

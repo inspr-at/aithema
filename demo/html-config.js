@@ -22,6 +22,7 @@ export function htmlConfig(values, { live = false } = {}) {
     if (value?.length >= 2 && ['"', "'"].includes(value[0]) && value.at(-1) === value[0]) value = value.slice(1, -1).trim();
     return (value || fallback || '').split(',').map(v => v.trim()).filter(Boolean);
   };
+  // Match understanding's default: Azure's START workspace rejects response_format.
   const only = csv('OPENROUTER_PROVIDER_ONLY'), ignore = csv('OPENROUTER_ANALYSIS_PROVIDER_IGNORE', 'Azure');
   const maxTokens = 8000, maxMicro = 1_000_000;
   const binding = createBinding(qualifyStartBinding({ plugin: 'claude-html', model, effort: 'none',

@@ -249,7 +249,7 @@ test('START HTML lane uses real consent and routing; paid publication, owner rea
   const fetchImpl = async (endpoint, init) => {
     const body = JSON.parse(init.body), isHTML = !body.response_format;
     assert.equal(endpoint, reasoningConfig.understanding.endpoint);
-    assert.deepEqual(body.provider, configured.binding.routing);
+    assert.deepEqual(body.provider, isHTML ? configured.binding.routing : reasoningConfig.understanding.routing);
     assert.deepEqual(body.provider.max_price, { prompt: 1.4, completion: 14 });
     assert.deepEqual(body.reasoning, { enabled: false });
     assert.equal(body.stream, false); assert.equal(init.redirect, 'error');

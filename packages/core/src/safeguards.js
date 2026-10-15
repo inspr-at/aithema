@@ -114,7 +114,7 @@ export async function collectPurposeReply(request, invoke, { onRejected = () => 
       }
     } catch (error) {
       offTopic ||= unsafeReplyOutput(raw, policy, request.hiddenGuidance);
-      // Any constrained HTTP 4xx (or explicit streamed capability refusal)
+      // A schema-compatibility HTTP rejection (or explicit streamed capability refusal)
       // consumes this attempt. Prompt-only still needs fresh admission/settlement.
       if (input.replySchemaConstrained !== false && error.responseFormatUnsupported === true) {
         lastReason = schemaRetryReason = error.providerErrorClass === '4xx' ? 'provider-4xx' : 'schema-unsupported';
