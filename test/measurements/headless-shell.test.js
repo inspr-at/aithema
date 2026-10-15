@@ -81,7 +81,7 @@ test('AIT-199: sequential full-Chrome/headless-shell screenshots, memory and Rep
   const reportLines = reportLog.split('\n').filter(line => /ReportCrash\[/u.test(line));
   const correlatedLines = reportLines.filter(line => /chrome-headless|headless_shell/iu.test(line));
   const comparisons = [];
-  for (const file of (await readdir(join(output, 'headless-shell'))).filter(name => name.endsWith('.png')).sort()) {
+  for (const file of (await readdir(join(output, 'headless-shell'), { recursive: true })).filter(name => name.endsWith('.png')).sort()) {
     let before;
     try { before = pixels(await readFile(join(output, 'old-full-chrome', file))); } catch { continue; }
     const after = pixels(await readFile(join(output, 'headless-shell', file)));
@@ -109,5 +109,7 @@ test('AIT-199: sequential full-Chrome/headless-shell screenshots, memory and Rep
     oldMinFree: old.minFreePct, newMinFree: current.minFreePct, screenshots: comparisons.length,
     ReportCrashLines: reportLines.length, correlatedLines: correlatedLines.length }));
   assert.equal(correlatedLines.length, 0, 'no ReportCrash activity for the headless shell');
-  assert.ok(comparisons.length >= 5);
+  for (const pattern of [/^ait155-/u, /^ait-169-/u, /^a2-/u, /^ait-129-consent-/u, /^L1\//u]) {
+    assert.ok(comparisons.some(row => pattern.test(row.file)), `comparison sample includes ${pattern}`);
+  }
 });

@@ -181,7 +181,7 @@ test('AIT-129: live host has no developer chrome; contract consent stays stable 
       assert.equal(await page.$$eval('[data-demo-only]', nodes => nodes.length), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
       assert.equal(await page.$eval('aithema-session', c => c.getBoundingClientRect().width), width);
-      if (evidence) await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: true });
+      if (evidence) await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: false });
       await visitConsent(page, demo.url);
       assert.equal(await page.$$eval('.consent-item', rows => rows.length), CONSENT_ITEMS.length);
       const before = await rect(page, '[data-grant]'), last = await rect(page, '.consent-actions--bottom');
