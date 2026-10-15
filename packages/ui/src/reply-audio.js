@@ -16,8 +16,8 @@ export async function playReplyAudio(audio, { signal, current, conversation, doc
     const source = existing.createBufferSource(), buffer = existing.createBuffer(1, pcm.length / 2, 16_000), samples = buffer.getChannelData(0);
     const view = new DataView(pcm.buffer); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
     source.buffer = buffer; source.connect(output.gain);
-    stop = () => { try { source.stop(); } catch {} source.disconnect(); cleanup(); };
-    source.onended = stop;
+    stop = () => { source.onended = null; try { source.stop(); } catch {} source.disconnect(); cleanup(false); };
+    source.onended = () => { cleanup(true); stop(); };
     if (existing.state === 'suspended') await existing.resume();
     signal?.throwIfAborted(); if (current && !current()) { stop(); throw new PluginError('cancelled'); }
     source.start();
@@ -34,13 +34,15 @@ export async function playReplyAudio(audio, { signal, current, conversation, doc
     const url = URL.createObjectURL(new Blob([wave], { type: 'audio/wav' }));
     let stopped = false;
     stop = () => {
-      if (stopped) return; stopped = true; element.pause(); element.removeEventListener('ended', stop); element.removeEventListener('error', stop);
+      if (stopped) return; stopped = true; element.pause(); element.removeEventListener('error', stop);
+      element.removeEventListener('ended', ended);
       element.removeAttribute('src'); element.srcObject = remote;
       if (priorSrc) element.setAttribute('src', priorSrc);
-      URL.revokeObjectURL(url); cleanup();
+      URL.revokeObjectURL(url); cleanup(false);
       if (rtcElement && current?.()) void element.play().catch(() => {});
     };
-    element.addEventListener('ended', stop, { once: true }); element.addEventListener('error', stop, { once: true });
+    const ended = () => { cleanup(true); stop(); };
+    element.addEventListener('ended', ended, { once: true }); element.addEventListener('error', stop, { once: true });
     element.srcObject = null; element.src = url;
     signal?.addEventListener('abort', stop, { once: true });
     try {

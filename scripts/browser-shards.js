@@ -10,6 +10,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Changed matrices use their slowest benchmark observation; unchanged files
 // retain a slower historical maximum. All weights round UP to 10-second planning
 // buckets; updated/slower observations reserve another 10s for run variance.
+// AIT-190 pause expansion retains its new main measurement (38718269610-1).
 // Sum top-level test durations only; nested subtests are already included.
 // Estimates exclude setup, file-process overhead and evidence upload. The final
 // layout is validated separately against the 450s whole-job wall budget.
@@ -26,7 +27,7 @@ export const browserTestWeights = {
   'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
   'test/browser/operator-login.test.js': 60.000, // CI 38717864470-1 (rounded up + 10s margin)
   'test/browser/orb-reveal.test.js': 90.000, // CI 38701239296-1 (rounded up)
-  'test/browser/pause-phone.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/pause-phone.test.js': 160.000, // CI 38718269610-1, AIT-190 (rounded up + 10s margin)
   'test/browser/question-card.test.js': 20.000, // CI 38704006618-1 (rounded up)
   'test/browser/safeguards.test.js': 20.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/start-journey.test.js': 20.000, // CI 38704006618-1 (rounded up)

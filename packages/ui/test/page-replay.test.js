@@ -18,3 +18,24 @@ test('AIT-154: a newer shown reply refuses page playback while synthesis is pend
   await Promise.resolve(); current = false; release({ kind: 'audio', audio: {} });
   await assert.rejects(pending, { code: 'unavailable' }); assert.equal(plays, 0);
 });
+
+for (const ending of ['complete', 'Stop', 'error']) test(`AIT-190: page replay reports ${ending} separately from played-through audio`, async () => {
+  const finished = Promise.withResolvers(), states = [];
+  const player = createPageReplay({ control: { speakText: async () => ({ kind: 'audio', audio: {} }) },
+    playAudio: async () => ({ stop() {}, finished: finished.promise }) });
+  await player.replay({ turnId: 'last', text: 'Last reply' }, { onState: (playing, detail) => states.push({ playing, completed: Boolean(detail?.completed) }) });
+  if (ending === 'Stop') player.stop();
+  else finished.resolve(ending === 'complete');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(states, [{ playing: true, completed: false }, { playing: false, completed: ending === 'complete' }]);
+});
+
+for (const ending of ['ended', 'error', 'Stop']) test(`AIT-190: the PCM element's ${ending} signal cannot confuse completion and interruption`, async () => {
+  const { playReplyAudio } = await import('../src/reply-audio.js');
+  const audio = new EventTarget(), attributes = new Map();
+  Object.assign(audio, { srcObject: null, getAttribute: name => attributes.get(name), setAttribute: (name, value) => attributes.set(name, value),
+    removeAttribute: name => attributes.delete(name), play: async () => {}, pause() {} });
+  const player = await playReplyAudio({ format: 'pcm_16000', data: btoa('\0\0') }, { document: { createElement: () => audio } });
+  if (ending === 'Stop') player.stop(); else audio.dispatchEvent(new Event(ending));
+  assert.equal(await player.finished, ending === 'ended');
+});

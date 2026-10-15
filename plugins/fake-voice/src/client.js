@@ -142,7 +142,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         reply.turnId === lastAssistant?.turnId && reply.text === lastAssistant?.text,
       synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId }, opts),
       playAudio: (audio, opts) => { interrupted = false; return playAudio(audio, { ...opts, document }); },
-      onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); } });
+      onState: (playing, detail) => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true, completed: detail?.completed === true }); } });
       const cancel = () => { void close(options.signal?.reason === 'ownership-lost' ? 'recovery-failed' : 'cancelled',
         { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
       const hold = () => {

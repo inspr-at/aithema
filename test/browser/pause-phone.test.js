@@ -515,9 +515,10 @@ test('AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390
       await until(page, () => globalThis.tickRail.session === null); await frame(page);
       const ended = await noticeMetrics(page);
       assert.equal(ended.lastItem, 'voice-notices');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-actions').parentElement.dataset.id), 'ordinary-47', 'ordinary controls belong to the last assistant bubble');
       assert.ok(ended.controls.every(b => b.height >= 44), 'ordinary row returns at call end with 44px targets');
       if (following) {
-        for (const b of [ended.notice, ...ended.controls]) assert.ok(b.top >= ended.viewport.top && b.bottom <= ended.viewport.bottom && b.bottom <= ended.dockTop - 12, `ordinary row fully visible after render: ${JSON.stringify(ended)}`);
+        for (const b of ended.controls) assert.ok(b.top >= ended.viewport.top && b.bottom <= ended.viewport.bottom && b.bottom <= ended.dockTop - 12, `ordinary row fully visible after render: ${JSON.stringify(ended)}`);
       } else {
         assert.deepEqual(ended.first, beforeEnd.first, 'call end shows row: first bubble shift 0px');
         assert.equal(ended.badge, beforeEnd.badge, 'ordinary row adds no badge');
@@ -592,7 +593,7 @@ test('AIT-188 r3 ordinary return: following after releasing removed-row space sh
     // Real withdrawal erases dependent assistant replies, hiding the ordinary
     // row while reading. Then the person deliberately returns to the bottom.
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'return-0' } })); await frame(page);
-    assert.equal((await noticeMetrics(page)).notice.height, 88, 'removed row keeps reading room');
+    assert.equal((await noticeMetrics(page)).notice.height, 44, 'removed reply action row keeps exactly its 44px reading room');
     await shadow(page, c => {
       const s = c.shadowRoot.querySelector('.transcript-shell');
       s.scrollTop = s.scrollHeight; s.dispatchEvent(new Event('scroll'));
@@ -601,8 +602,124 @@ test('AIT-188 r3 ordinary return: following after releasing removed-row space sh
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final',
       data: { id: 'return-reply', role: 'assistant', content: c.session.transcript.find(t => t.role === 'user' && !t.erased).content } })); await frame(page);
     const shown = await noticeMetrics(page);
-    for (const b of [shown.notice, ...shown.controls]) assert.ok(b.top >= shown.viewport.top && b.bottom <= shown.viewport.bottom && b.bottom <= shown.dockTop - 12, `next ordinary row follows after render: ${JSON.stringify(shown)}`);
+    for (const b of shown.controls) assert.ok(b.top >= shown.viewport.top && b.bottom <= shown.viewport.bottom && b.bottom <= shown.dockTop - 12, `next ordinary row follows after render: ${JSON.stringify(shown)}`);
     for (const b of shown.controls) assert.ok(b.height >= 44);
     await record(t, 'r3-return', page, `${locale}-${theme}-${width}-following-next-reply`, shown);
   }
+});
+
+// AIT-190: use the existing remote-only fixture. Phones have touch capabilities
+// from navigation onward; no mouse is introduced in this regression matrix.
+async function recoveryRowMetrics(page) {
+  return shadow(page, c => {
+    const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+    const rect = n => { const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, height: b.height }; };
+    const actions = r.querySelector('.voice-reply-actions'), row = rect(actions), parent = actions.parentElement;
+    const text = parent.querySelector('.turn-text'), first = [...r.querySelectorAll('ol .turn')].find(n => n.getBoundingClientRect().bottom > shell.getBoundingClientRect().top);
+    return { row, parent: parent.className, turnId: parent.dataset.id ?? null,
+      emptySpaceAbovePx: text ? row.top - text.getBoundingClientRect().bottom : null,
+      controls: [...actions.querySelectorAll('button')].map(n => ({ ...rect(n), hidden: n.hidden, border: getComputedStyle(n).borderWidth, background: getComputedStyle(n).backgroundColor })),
+      first: first ? { id: first.dataset.id, top: rect(first).top } : null,
+      shell: rect(shell), dock: rect(r.querySelector('.composer-dock')), scrollTop: shell.scrollTop, maxScroll: shell.scrollHeight - shell.clientHeight,
+      sentence: r.querySelector('.voice-notice--reply > span').textContent,
+      coarse: matchMedia('(pointer:coarse)').matches, fine: matchMedia('(pointer:fine)').matches, touchPoints: navigator.maxTouchPoints };
+  });
+}
+
+test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift', { timeout: 120_000 }, async t => {
+  for (const width of [390, 1024, 1440]) await t.test(`${width}px`, async t => {
+    const page = await fixture(t, width === 390);
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+    for (const position of width === 390 ? ['following', 'scrolled-up', 'near-bottom'] : ['following', 'scrolled-up', 'near-bottom-9', 'near-bottom-20', 'near-bottom-43']) await t.test(`${locale}-${theme}-${position}`, async t => {
+      await voiceScene(page, locale, theme, width);
+      await page.evaluate(async () => {
+        const { createPageReplay } = await import('/packages/ui/src/page-replay.js');
+        globalThis.rowPlayer = createPageReplay({ document, control: { speakText: async () => ({ kind: 'audio', audio: { format: 'pcm_16000', data: btoa('\0'.repeat(16000)) } }) } });
+        const c = document.querySelector('aithema-session'), session = structuredClone(c.session);
+        const user = session.transcript[0].content;
+        const reply = session.locale === 'de' ? 'Die Website soll Menschen schnell zur richtigen Leistung führen.' : 'The website should help people find the right service quickly.';
+        session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `row-${i}`, role: i % 2 ? 'assistant' : 'user', content: i % 2 ? reply : user }));
+        session.seq++;
+        c.configure({ copy: globalThis.pauseCopy, session, voiceClient: globalThis.tickVoiceClient });
+      }); await frame(page);
+      const following = position === 'following';
+      const setPosition = () => shadow(page, (c, position) => {
+        const s = c.shadowRoot.querySelector('.transcript-shell');
+        s.scrollTop = position === 'following' ? s.scrollHeight : position.startsWith('near-bottom') ? s.scrollHeight - s.clientHeight - Number(position.split('-')[2] ?? 20) : 400;
+        s.dispatchEvent(new Event('scroll'));
+      }, position);
+      await setPosition(); await frame(page);
+      const before = await recoveryRowMetrics(page);
+      if (width === 390) assert.equal(before.coarse && !before.fine && before.touchPoints > 0, true, 'phone has touch and no mouse pointer');
+      else assert.equal(before.fine && !before.coarse && before.touchPoints === 0, true, 'desktop has native fine pointer');
+      await page.evaluate(() => {
+        const reply = document.querySelector('aithema-session').session.transcript.at(-1);
+        globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.content, lastReplyTurnId: reply.id });
+      }); await frame(page);
+      const sentence = await recoveryRowMetrics(page), label = `${locale}-${theme}-${width}-${position}`;
+      if (!following) assert.deepEqual(sentence.first, before.first, 'notice add: first visible bubble shifts 0px');
+      if (following) for (const b of sentence.controls) {
+        assert.ok(b.top >= 0 && b.bottom <= 900, 'sentence controls fully visible in viewport');
+        if (width === 390) assert.ok(b.top >= sentence.shell.top && b.bottom <= sentence.shell.bottom, 'sentence controls fully visible in transcript');
+        if (width === 390) assert.ok(b.bottom <= sentence.dock.top - 12, 'sentence controls fully above dock');
+      }
+      await record(t, 'ait190', page, `${label}-clear`, { ...sentence, shiftPx: following ? sentence.dock.top - before.dock.top : sentence.first.top - before.first.top });
+      await setPosition(); await frame(page);
+      const beforeClear = await recoveryRowMetrics(page);
+      await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
+      const row = await recoveryRowMetrics(page);
+      assert.equal(row.sentence, '');
+      assert.equal(row.turnId, 'row-47', 'controls are the last assistant bubble action row');
+      assert.equal(row.emptySpaceAbovePx, 0, 'no empty line above the action row');
+      for (const b of row.controls) {
+        assert.equal(b.height, 44, '44px target'); assert.equal(b.border, '0px', 'no control box'); assert.equal(b.background, 'rgba(0, 0, 0, 0)', 'quiet transparent action');
+        if (following) {
+          assert.ok(b.top >= row.shell.top && b.bottom <= row.shell.bottom, 'action row fully visible');
+          if (width === 390) assert.ok(b.bottom <= row.dock.top - 12, 'action row fully above dock');
+        }
+      }
+      if (!following) assert.deepEqual(row.first, beforeClear.first, 'notice clear to row: first visible bubble shifts 0px');
+      await record(t, 'ait190', page, `${label}-action-row`, { ...row, shiftPx: following ? row.dock.top - beforeClear.dock.top : row.first.top - beforeClear.first.top });
+      // Read the full text through the same moved control, without synthesis.
+      if (following) {
+        const b = row.controls[1];
+        const target = await shadow(page, (c, point) => {
+          const r = c.shadowRoot, button = r.querySelector('.voice-read-text'), hit = r.elementFromPoint(point.x, point.y);
+          globalThis.rowTouchEvents = [];
+          for (const type of ['pointerdown', 'touchstart', 'click']) button.addEventListener(type, () => globalThis.rowTouchEvents.push(type));
+          return { hit: hit?.className, disabled: button.disabled, sameRail: globalThis.tickRail.root === r.querySelector('.audio-rail') };
+        }, { x: b.left + 12, y: b.top + 22 });
+        assert.deepEqual(target, { hit: 'voice-read-text', disabled: false, sameRail: true }, `text action hit target ${label}`);
+        if (width === 390) await page.touchscreen.tap(b.left + 12, b.top + 22);
+        else await page.mouse.click(b.left + 12, b.top + 22);
+        t.diagnostic(`action ${label}: ${JSON.stringify(await page.evaluate(() => globalThis.rowTouchEvents))}`);
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), true);
+        await shadow(page, c => { const dialog = c.shadowRoot.querySelector('dialog'); dialog.close(); }); await frame(page);
+      }
+      await page.evaluate(() => {
+        globalThis.tickVoiceClient.replayReply = (reply, options) => globalThis.rowPlayer.replay(reply, options);
+        globalThis.tickVoiceClient.stopReplay = () => globalThis.rowPlayer.stop();
+        globalThis.tickRail.render();
+      }); await frame(page);
+      await setPosition(); await frame(page);
+      const beforeGone = await recoveryRowMetrics(page);
+      // This plays real PCM through the production page audio sink. Completion
+      // is observed, never advanced by a timeout or a synthetic ended event.
+      await page.evaluate(() => globalThis.tickRail.notices.repeat());
+      await until(page, () => globalThis.tickRail.notices.button.hidden); await frame(page);
+      const gone = await recoveryRowMetrics(page);
+      assert.ok(gone.controls.every(b => b.hidden && b.height === 0), 'fully visible and played-through reply has no controls');
+      if (!following) assert.deepEqual(gone.first, beforeGone.first, 'row removal: first visible bubble shifts 0px');
+      if (following) assert.equal(gone.scrollTop, gone.maxScroll, 'following remains at bottom');
+      await record(t, 'ait190', page, `${label}-gone`, { ...gone, emptySpaceAbovePx: 0, shiftPx: following ? gone.dock.top - beforeGone.dock.top : gone.first.top - beforeGone.first.top });
+      await page.evaluate(() => { globalThis.tickRail.notices.completedReply = null; globalThis.tickRail.notices.render(); });
+      await frame(page);
+      const readded = await recoveryRowMetrics(page);
+      if (!following) assert.deepEqual(readded.first, gone.first, 'row add: first visible bubble shifts 0px');
+      if (following) for (const b of readded.controls) assert.ok(b.top >= readded.shell.top && b.bottom <= readded.shell.bottom, 'added action row fully visible');
+      await record(t, 'ait190', page, `${label}-readded`, { ...readded, shiftPx: following ? readded.dock.top - gone.dock.top : readded.first.top - gone.first.top });
+    });
+    }
+  });
 });

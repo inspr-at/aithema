@@ -189,3 +189,65 @@ test('AIT-154 round 2: a newly denied wallet falls back to full text with no err
   assert.equal(f.root.querySelector('.voice-repeat').textContent, en.voiceReadFullReply);
   assert.equal(f.rail.notices.dialog.open, true); assert.equal(f.root.querySelector('.voice-reply-text').textContent, 'Reply');
 });
+
+for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-190: ${locale} cleared recovery actions belong to the exact last reply and retire only after playback`, async t => {
+  const { RecoveryNotices } = await import('../src/recovery-notices.js');
+  const window = new Window(), host = window.document.createElement('div');
+  window.document.body.append(host);
+  host.innerHTML = '<div class="turn"><span class="turn-text"></span></div><div class="voice-notices"></div>';
+  t.after(() => window.happyDOM.close());
+  const bubble = host.querySelector('.turn'), root = host.querySelector('.voice-notices');
+  const reply = { turnId: 'last', text: 'Exact reply' };
+  bubble.querySelector('span').textContent = reply.text;
+  let visible = true;
+  const notices = new RecoveryNotices({ root, copy, available: () => true, replay: async () => ({ kind: 'audio' }),
+    replyVisible: () => visible, replyTarget: (text, id) => visible && text === reply.text && id === reply.turnId ? bubble : null });
+  notices.pageReply = reply;
+  notices.recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.text, lastReplyTurnId: reply.turnId });
+  const actions = host.querySelector('.voice-reply-actions'), button = notices.button;
+  assert.equal(actions.parentElement === root.querySelector('.voice-notice--reply'), true, 'sentence owns actions while present');
+  notices.clear();
+  assert.equal(actions.parentElement === bubble, true, 'cleared sentence attaches the same controls directly to its bubble');
+  assert.equal(bubble.lastElementChild === actions, true);
+  assert.equal(button.hidden, false);
+  notices.playing = true;
+  notices.playbackEnded(false);
+  assert.equal(button.hidden, false, 'Stop/hold does not count as played through');
+  visible = false;
+  notices.playbackEnded(true);
+  assert.equal(button.hidden, true, 'a missing exact bubble cannot keep actions');
+  visible = true; notices.render();
+  assert.equal(button.hidden, true, 'fully visible plus completed playback retires the row');
+  notices.clear(); notices.render();
+  assert.equal(button.hidden, true, 'ordinary repaint/clear cannot resurrect a completed reply');
+  notices.pageReply = { turnId: 'next', text: reply.text }; notices.render();
+  assert.equal(button.hidden, false, 'completion is scoped to turn identity, not identical text');
+});
+
+for (const completed of [false, true]) test(`AIT-190: in-call replay completion=${completed} preserves interruption controls and retires played-through replies`, async t => {
+  const f = await fixture(t, en);
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply', lastReplyTurnId: 'last' });
+  await f.push({ type: 'speaking', replay: true });
+  await f.push({ type: 'listening', replay: true, completed });
+  assert.equal(f.rail.notices.button.hidden, completed);
+  assert.equal(f.rail.notices.readText.hidden, completed);
+  f.rail.render();
+  assert.equal(f.rail.notices.button.hidden, completed, 'render preserves the completion verdict');
+});
+
+for (const completion of ['undefined', 'missing']) test(`AIT-190 r2: ${completion} playback completion keeps reply actions`, async t => {
+  const { RecoveryNotices } = await import('../src/recovery-notices.js');
+  const { createReplyReplay } = await import('../../core/src/reply-replay.js');
+  const window = new Window(), root = window.document.createElement('div');
+  window.document.body.append(root); t.after(() => window.happyDOM.close());
+  const reply = { turnId: 'reply', text: 'Exact reply' };
+  const replay = createReplyReplay({ current: () => true,
+    synthesize: async () => ({ kind: 'audio', audio: {} }),
+    playAudio: async () => ({ stop() {}, ...(completion === 'undefined' ? { finished: Promise.resolve(undefined) } : {}) }),
+    onState: (playing, detail) => { if (!playing) notices.playbackEnded(detail.completed); } });
+  const notices = new RecoveryNotices({ root, copy: en, available: () => true, replay: () => replay.replay(reply) });
+  notices.pageReply = reply; notices.render();
+  await notices.repeat(); await tick();
+  assert.equal(notices.button.hidden, false, 'unknown completion cannot retire the row');
+  assert.equal(notices.readText.hidden, false);
+});

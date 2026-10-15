@@ -10,8 +10,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, context, lastReply, replyVisible, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, lastReply, replyVisible, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -32,6 +32,7 @@ export class AudioRail {
     this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean((this.session || this.lastReply?.()) && !this.paused && !this.busy && this.output &&
       !['recovering', 'waiting', 'closing'].includes(this.state)),
       replyVisible: (text, turnId) => this.replyVisible?.(text, turnId) ?? Boolean(text && this.lastReply?.()?.text === text),
+      replyTarget,
       audioAvailable: () => !this.usedUp?.() && !this.allowanceDenied && this.feature()?.available !== false &&
         Boolean(this.session ? this.session.replayLastReply : this.client?.replayReply),
       stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async () => {
@@ -39,7 +40,10 @@ export class AudioRail {
           if (this.session) return await (this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText });
           const reply = this.lastReply?.();
           return await (this.client?.replayReply?.(reply, {
-            onState: playing => { this.notices.playing = playing; if (!playing) this.notices.interrupted = true; this.notices.render(); },
+            onState: (playing, detail) => {
+              if (playing) { this.notices.playing = true; this.notices.render(); }
+              else this.notices.playbackEnded(detail?.completed);
+            },
             current: candidate => !this.session && !this.paused && this.lastReply?.()?.turnId === candidate.turnId && this.lastReply?.()?.text === candidate.text,
           }) ?? { kind: 'text', text: reply?.text });
         }
@@ -433,7 +437,7 @@ export class AudioRail {
       for await (const event of session.events) {
         if (!this.current(session, generation) || event.callId !== session.callId) return;
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
-        if (event.replay && event.type === 'listening') { this.notices.playing = false; this.notices.interrupted = true; }
+        if (event.replay && event.type === 'listening') this.notices.playbackEnded(event.completed);
         if (event.type === 'partial') { this.root.querySelector('.voice-caption').textContent = event.text; this.onPartial?.(event); }
         if (event.type === 'final') this.root.querySelector('.voice-caption').textContent = '';
         if (['partial', 'final'].includes(event.type)) this.notices.clear();

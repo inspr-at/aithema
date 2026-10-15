@@ -4,11 +4,11 @@ import { voiceOperation } from './live-voice.js';
 /** Playback has its own lifetime; it never blocks pause, hangup or turn delivery. */
 export function createReplyReplay({ current, synthesize, playAudio, onState = () => {}, release = () => {} }) {
   let active, revision = 0;
-  const stop = () => {
+  const stop = (completed = false) => {
     revision++;
     const previous = active; active = null;
     if (!previous) return;
-    previous.controller.abort(); previous.player?.stop(); previous.cleanup?.(); onState(false);
+    previous.controller.abort(); previous.player?.stop(); previous.cleanup?.(); onState(false, { completed });
     return Promise.resolve().then(() => release(previous.replayId)).catch(() => {});
   };
   return { stop, get revision() { return revision; }, get active() { return Boolean(active); },
@@ -36,7 +36,9 @@ export function createReplyReplay({ current, synthesize, playAudio, onState = ()
           catch (error) { if (signal.aborted || !valid()) throw error; return { kind: 'text', text: reply.text }; }
           if (!valid()) { player?.stop(); throw new PluginError('cancelled'); }
           entry.player = player; onState(true);
-          Promise.resolve(player.finished).finally(() => { if (active === entry) stop(); }).catch(() => {});
+          Promise.resolve(player.finished).then(
+            completed => { if (active === entry) stop(completed === true); },
+            () => { if (active === entry) stop(); });
           return { kind: 'audio', text: reply.text };
         });
         if (['text', 'busy'].includes(result.kind) && active === entry) stop();
