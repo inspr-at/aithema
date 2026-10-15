@@ -375,7 +375,7 @@ The symbol audit of the original MISS rows is:
 | server/spend-cap | Existing public root: `usdMicro` is already re-exported. |
 | ui/i18n/admin | Internal: copy moved to `demo/admin-copy.js` with its page and HTTP owner; visitor bundles no longer carry it. |
 | ui/i18n/de | New public locale subpath: START is German-first; `de` was unreachable through exports. |
-| ui/icons | Internal: the demo owns three small Lucide utility glyphs. |
+| ui/icons | Internal: the demo owns six small Lucide utility glyphs. |
 | ui/post-json | Internal: a small host-side JSON POST helper suffices. |
 | ui/settings-dialog | Internal: the demo owns its small reason formatter, without exposing the dialog implementation. |
 | elevenlabs/config | Public through `./voice-host`: `normalizeElevenLabsDurationBinding` is needed at the host's adapter boundary. |
