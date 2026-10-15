@@ -239,7 +239,7 @@ export async function displayMatrix(t, section) {
         });
         assert.ok(menus.every(n => n.bounds.left >= 0 && n.bounds.right <= width + .5), `${width}/${theme}/${locale}: menus fit`);
         assert.ok(menus.every(n => n.chevron), 'language and appearance use the shared SVG chevron');
-        for (const menu of menus.slice(width < 400 ? 1 : 0)) {
+        for (const menu of menus.filter(menu => menu.label.width > 0)) {
           assert.equal(menu.chevron.width, 10); assert.equal(menu.chevron.height, 10);
           assert.ok(Math.abs(menu.chevron.cy - menu.label.cy) <= .5, 'chevron is centred on its label');
           assert.equal(menu.path, menus[1].path); assert.equal(menu.gap, menus[1].gap);
