@@ -92,8 +92,8 @@ async function metrics(page) {
     const pauses = [...r.querySelectorAll('*')].filter(n => !n.closest('style, [aria-hidden="true"], .sr-only, .visually-hidden, .features') && getComputedStyle(n).visibility === 'visible' && n.getClientRects().length)
       .filter(n => [...n.childNodes].some(t => t.nodeType === Node.TEXT_NODE && /pausiert|paused/iu.test(t.textContent)));
     return { composer: { x: b.x, y: b.y, width: b.width, height: b.height, bottom: b.bottom },
-      viewport: { top, bottom }, footerTop: f.top, footer: r.querySelector('.status__label').textContent, connected: r.querySelector('.status').hasAttribute('data-connected'), inViewport: b.top >= top && b.bottom <= bottom && b.bottom <= f.top,
-      newVisible: !action.hidden && a.top >= top && a.bottom <= bottom && a.bottom <= f.top,
+      viewport: { top, bottom }, footerTop: f.top, footer: r.querySelector('.status__label').textContent, connected: r.querySelector('.status').hasAttribute('data-connected'), inViewport: b.top >= top && b.bottom <= bottom && b.bottom <= (f.height ? f.top : bottom),
+      newVisible: !action.hidden && a.top >= top && a.bottom <= bottom && a.bottom <= (f.height ? f.top : bottom),
       pauseElements: pauses.length, pauseTextElements: pauses.map(n => ({ className: n.className, text: n.textContent })), pausesInComposer: pauses.every(n => n.closest('.composer-shell')),
       focused: r.activeElement?.id, transcriptHeight: r.querySelector('.transcript-shell').clientHeight };
   });
@@ -218,6 +218,143 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
       assert.deepEqual(view.composer, baseline, 'overview scrolling moves composer 0 px');
       await record(t, 'V1', page, `${locale}-${theme}-${width}-settled-overview`, { ...view, ...overview,
         assessments: scenario.assessments, offTopicTurns: scenario.offTopicTurns, shiftPx: 0 });
+    }
+  }
+});
+
+
+async function backdropMetrics(page) {
+  return shadow(page, c => {
+    const r = c.shadowRoot, dock = r.querySelector('.composer-dock').getBoundingClientRect();
+    const points = [[10, dock.bottom + 6], [dock.right + 8, dock.top + dock.height / 2]];
+    return { points, hits: points.map(([x, y]) => r.elementFromPoint(x, y)?.className),
+      dock: { top: dock.top, bottom: dock.bottom, right: dock.right },
+      paper: getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-paper').trim(),
+      background: r.querySelector('.phone-dock-backdrop') ? getComputedStyle(r.querySelector('.phone-dock-backdrop')).backgroundColor : null };
+  });
+}
+async function overlayKeyboard(page) {
+  await page.evaluate(() => {
+    globalThis.nativeViewport = visualViewport;
+    const viewport = new EventTarget(); Object.assign(viewport, { height: 440, offsetTop: 30, scale: 1 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+    const c = document.querySelector('aithema-session'); c.remove(); document.querySelector('main').append(c);
+    c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+    viewport.dispatchEvent(new Event('resize'));
+  }); await frame(page);
+}
+async function closeOverlay(page) {
+  await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.nativeViewport }); dispatchEvent(new Event('resize')); });
+  await frame(page);
+}
+test('AIT-188 L2a: opaque phone dock backdrop hits in gaps and gutters, all states L/D 390/393', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
+    await voiceScene(page, 'de', theme, width);
+    await page.setViewport({ width, height: width === 393 ? 852 : 844 });
+    for (const state of ['idle', 'purpose-pause', 'session-pause', 'resized-keyboard', 'overlay-keyboard']) {
+      if (state !== 'idle') { await voiceScene(page, 'de', theme, width); await page.setViewport({ width, height: width === 393 ? 852 : 844 }); }
+      if (state.endsWith('pause')) await shadow(page, (c, state) => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, ...(state === 'purpose-pause' ? { reason: 'purpose' } : {}) } }), state);
+      if (state === 'resized-keyboard') { await page.click('aithema-session >>> textarea'); await page.setViewport({ width, height: 480 }); }
+      if (state === 'overlay-keyboard') await overlayKeyboard(page);
+      await frame(page);
+      const values = await backdropMetrics(page), label = `de-${theme}-${width}-${state}`;
+      assert.deepEqual(values.hits, ['phone-dock-backdrop', 'phone-dock-backdrop'], `${label}: backdrop hit tests ${JSON.stringify(values)}`);
+      assert.match(values.background, /^rgb\(/u, 'backdrop is opaque');
+      await record(t, 'r2-backdrop', page, label, values);
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'r2-backdrop');
+        await page.screenshot({ path: join(dir, `${label}-gap.png`), clip: { x: 0, y: values.dock.bottom, width, height: 12 }, captureBeyondViewport: false });
+        await page.screenshot({ path: join(dir, `${label}-gutter.png`), clip: { x: 0, y: values.dock.top - 12, width: 20, height: values.dock.bottom - values.dock.top + 24 }, captureBeyondViewport: false });
+      }
+      if (state === 'overlay-keyboard') await closeOverlay(page);
+    }
+  }
+});
+test('AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcript in both modes', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const theme of ['light', 'dark']) for (const width of [390, 393]) for (const mode of ['resized', 'overlay']) {
+    await voiceScene(page, 'de', theme, width);
+    await page.setViewport({ width, height: width === 393 ? 852 : 844 });
+    await page.click('aithema-session >>> textarea');
+    if (mode === 'resized') await page.setViewport({ width, height: 480 }); else await overlayKeyboard(page);
+    // Dispatch in the current task and inspect before a frame or observer can run.
+    const synchronous = await shadow(page, c => {
+      (visualViewport ?? window).dispatchEvent(new Event('resize'));
+      return getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display;
+    });
+    assert.equal(synchronous, 'none', 'footer hides in the keyboard resize task');
+    await frame(page);
+    const view = await metrics(page);
+    assert.ok(view.transcriptHeight >= 100, `${mode}: transcript >=100px ${JSON.stringify(view)}`);
+    assert.equal(view.inViewport, true);
+    await record(t, 'r2-keyboard', page, `de-${theme}-${width}-${mode}`, view);
+    if (mode === 'overlay') await closeOverlay(page); else { await page.setViewport({ width, height: width === 393 ? 852 : 844 }); await frame(page); }
+    assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'footer returns when keyboard closes');
+  }
+});
+test('AIT-188 gate1 footer: phone bottom never moves footer above 600px', async t => {
+  const page = await fixture(t);
+  for (const width of [601, 768, 1440]) {
+    await voiceScene(page, 'de', 'light', width);
+    const bottom = await shadow(page, c => {
+      c.shadowRoot.querySelector('.workspace').style.setProperty('--phone-bottom', '217px');
+      return getComputedStyle(c.shadowRoot.querySelector('.display-foot')).bottom;
+    });
+    assert.equal(bottom, '0px', `desktop/tablet ${width}`);
+  }
+});
+test('AIT-188 gate1 focus: phone overview and transcript controls clear dock and footer', async t => {
+  const page = await fixture(t);
+  for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
+    await voiceScene(page, 'de', theme, width);
+    const margins = await shadow(page, c => {
+      const r = c.shadowRoot, dock = r.querySelector('.composer-dock').getBoundingClientRect(), foot = r.querySelector('.display-foot').getBoundingClientRect();
+      return [...r.querySelectorAll('.understanding :is(button,a,[tabindex]), .transcript-shell :is(button,a,[tabindex])')].map(n => ({ name: n.className, margin: parseFloat(getComputedStyle(n).scrollMarginBottom), required: dock.height + foot.height }));
+    });
+    assert.ok(margins.length > 3);
+    for (const m of margins) assert.ok(m.margin >= m.required, `${m.name}: ${JSON.stringify(m)}`);
+    await shadow(page, c => c.shadowRoot.querySelector('.export').focus()); await frame(page);
+    assert.equal(await shadow(page, c => { const b = c.shadowRoot.querySelector('.export').getBoundingClientRect(), d = c.shadowRoot.querySelector('.composer-dock').getBoundingClientRect(); return b.top >= 0 && b.bottom <= d.top - 12; }), true, 'focused export fully above backdrop');
+  }
+});
+async function noticeMetrics(page) {
+  return shadow(page, c => {
+    const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), v = shell.getBoundingClientRect(), d = r.querySelector('.composer-dock').getBoundingClientRect();
+    const rect = n => { const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height }; };
+    const visible = [...r.querySelectorAll('ol .turn')].find(n => n.getBoundingClientRect().bottom > v.top);
+    return { viewport: rect(shell), dockTop: d.top, notice: rect(r.querySelector('.voice-notices')),
+      controls: [...r.querySelectorAll('.voice-repeat,.voice-read-text')].map(rect),
+      first: visible ? { id: visible.dataset.id, top: visible.getBoundingClientRect().top } : null,
+      badge: getComputedStyle(r.querySelector('.transcript-latest')).visibility,
+      lastItem: shell.lastElementChild.className, scrollTop: shell.scrollTop, maxScroll: shell.scrollHeight - shell.clientHeight };
+  });
+}
+test('AIT-188 notice option a: last scroll item follows and preserves scrolled-up bubbles 0px, long call DE/EN L/D 390/393', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
+    await voiceScene(page, locale, theme, width);
+    await shadow(page, c => {
+      const session = structuredClone(c.session), text = session.transcript[0].content;
+      session.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `long-call-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
+      c.configure({ copy: globalThis.pauseCopy, session });
+    });
+    await page.mouse.move(0, 0); await frame(page);
+    for (const following of [true, false]) {
+      await shadow(page, (c, following) => { const s = c.shadowRoot.querySelector('.transcript-shell'); s.scrollTop = following ? s.scrollHeight : 400; s.dispatchEvent(new Event('scroll')); }, following);
+      await frame(page); const before = await noticeMetrics(page);
+      await page.evaluate(() => globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: document.querySelector('aithema-session').session.transcript.at(-1).content }));
+      await frame(page); const shown = await noticeMetrics(page);
+      assert.equal(shown.lastItem, 'voice-notices', 'notice is last item after transcript list');
+      if (following) {
+        for (const b of [shown.notice, ...shown.controls]) assert.ok(b.top >= shown.viewport.top && b.bottom <= shown.viewport.bottom && b.bottom <= shown.dockTop - 12, `fully visible notice/controls ${JSON.stringify(shown)}`);
+        for (const b of shown.controls) assert.ok(b.height >= 44);
+      } else { assert.deepEqual(shown.first, before.first, 'notice appears: first bubble shift 0px'); assert.equal(shown.badge, before.badge, 'notice adds no badge'); }
+      await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${following ? 'following' : 'scrolled-up'}`, { ...shown, firstBubbleShift: following ? null : shown.first.top - before.first.top });
+      await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page); const cleared = await noticeMetrics(page);
+      if (!following) assert.deepEqual(cleared.first, before.first, 'notice removed: first bubble shift 0px');
+      else assert.equal(cleared.scrollTop, cleared.maxScroll, 'removed last item settles at bottom');
+      await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${following ? 'following' : 'scrolled-up'}-removed`, { ...cleared, firstBubbleShift: following ? null : cleared.first.top - before.first.top });
     }
   }
 });
