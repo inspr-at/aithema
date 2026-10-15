@@ -17,3 +17,11 @@ document.addEventListener('change', event => {
   const label = document.querySelector('#theme-value');
   if (label) label.textContent = control.selectedOptions[0].textContent;
 });
+
+// If the module graph fails, expose the native fallback controls again. Until
+// definition, light-DOM utilities have no header slot and must not paint there.
+window.addEventListener('error', event => {
+  if (event.target?.matches?.('script[src="/demo/host.js"]')) {
+    document.documentElement.dataset.hostUnavailable = '';
+  }
+}, true);

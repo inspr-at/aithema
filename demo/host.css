@@ -396,3 +396,10 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 
 /* AIT-206: unknown until the conversation resolves; reserve both DE and EN. */
 .conversation-page #language-value { display:inline-block; inline-size:2ch; block-size:1lh; flex:none; }
+
+/* AIT-206: reserve the longest theme label (System/Dunkel) in either language,
+   including the phone layout. Blank until the screen language is known. */
+.conversation-page #theme-value { display:inline-block; inline-size:6ch; block-size:1lh; flex:none; }
+/* Before upgrade these children have no header slot. After upgrade the shadow
+   tree itself withholds them until configure creates the toolbar and its slot. */
+:root:not([data-host-unavailable]) .conversation-page aithema-session:not(:defined) .host-actions { visibility:hidden; }
