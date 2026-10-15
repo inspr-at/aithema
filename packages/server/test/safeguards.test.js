@@ -568,3 +568,33 @@ test('AIT-197 R4: an older assessment cannot block a later unassessed project tu
   const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
   assert.equal(attempts.length, 2); assert.ok(attempts.every(attempt => attempt.state === 'settled'));
 });
+
+test('AIT-197 R5: recovered project assessment survives another off-topic turn exactly once', { timeout: 5000 }, async t => {
+  const gate = Promise.withResolvers(); t.after(gate.resolve);
+  const f = fixture(t, { analysisGate: gate.promise, consent: { ...mockConsent, grant: () => true } });
+  const id = f.session.id;
+  for (const [index, content] of ['We need a website.', 'Give me a soup recipe.'].entries()) {
+    f.storage.postTurn(id, `r5-${index}`, Buffer.from(content), content);
+    const revision = inputRevision(f.storage.get(id));
+    f.storage.appendPurposeReply(id, { id: `r5-reply-${index}`, role: 'assistant', content: 'What should improve?', inputRevision: revision }, revision, index > 0, 3);
+  }
+  const initialScope = Promise.withResolvers(), nextScope = Promise.withResolvers();
+  const onScope = f.handlers.lanes.onScope; let scopes = 0;
+  f.handlers.lanes.onScope = (...args) => { onScope(...args); (++scopes === 1 ? initialScope : nextScope).resolve(); };
+  let signal;
+  const structured = f.plugin.structured;
+  f.plugin.structured = (...args) => { signal = args[1].signal; return structured(...args); };
+  assert.equal((await f.handlers.handle(req(id, 'consent', { granted: true }))).status, 200);
+  await Promise.all([initialScope.promise, f.assessmentStarted]);
+  assert.equal(f.assessments.length, 1);
+  assert.equal((await f.handlers.handle(req(id, 'turns', { content: 'Another soup recipe.', clientEventId: 'r5-next-off' }))).status, 200);
+  await nextScope.promise;
+  assert.equal(signal.aborted, false, 'the recovered paid project input keeps its provider receipt');
+  gate.resolve(); await f.handlers.idle();
+  assert.equal(f.assessments.length, 1, 'off-topic supersession starts no replacement assessment');
+  assert.equal(f.storage.get(id).understanding.readinessAssessed, true);
+  assert.doesNotMatch(JSON.stringify(f.assessments), /soup/);
+  const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
+  assert.equal(attempts.length, 1);
+  assert.ok(attempts.every(attempt => attempt.state === 'settled'));
+});
