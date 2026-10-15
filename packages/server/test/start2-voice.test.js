@@ -288,7 +288,7 @@ test('typed reaction and understanding bind different configured models with cur
   assert.ok(h.upstream.every(body => body.provider.require_parameters === true));
   assert.deepEqual(h.upstream.map(body => body.provider.only), [['Anthropic', 'OpenAI'], ['Anthropic', 'OpenAI']]);
   assert.equal(Object.hasOwn(h.upstream[0].provider, 'ignore'), false);
-  assert.deepEqual(h.upstream[1].provider.ignore, ['Azure']);
+  assert.equal(Object.hasOwn(h.upstream[1].provider, 'ignore'), false);
   assert.equal(h.storage.db.prepare('SELECT SUM(actual_micro) n FROM spend_reservations').get().n, 20);
 });
 test('foreign ownership, paused calls and stale recovery callbacks cannot admit reasoning', async t => {

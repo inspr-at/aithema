@@ -106,10 +106,12 @@ async function costFixture(t, { mode = 'known', path, state = { queries: 0, read
   const admit = (operation = 'structured', options = {}) => runtime.admit({ session: storage.get(session.id),
     lane: operation === 'stream' ? 'reaction' : 'understanding', operation, request, options });
   const invoke = async (admitted, operation = 'structured') => {
+    let failed = false;
     try {
       if (operation === 'stream') { for await (const chunk of admitted.plugin.stream(request, admitted.options)) assert.equal(chunk, output); }
       else await admitted.plugin.structured(request, admitted.options);
-    } finally { admitted.finish({ failed: true }); }
+    } catch (error) { failed = true; throw error; }
+    finally { admitted.finish({ failed }); }
   };
   return { storage, runtime, cap, host, session, state, balance, admit, invoke };
 }
@@ -122,7 +124,8 @@ for (const operation of ['stream', 'structured']) for (const mode of ['known', '
     if (['invalid', 'http-error'].includes(mode)) await assert.rejects(result);
     else await result;
     const actual = mode === 'zero' ? 0 : 37;
-    assert.equal(h.balance().owner.confirmedSpendMicro, actual);
+    const visitorCharge = operation === 'structured' && ['invalid', 'http-error'].includes(mode) ? 0 : actual;
+    assert.equal(h.balance().owner.confirmedSpendMicro, visitorCharge);
     assert.equal(h.balance().session.confirmedSpendMicro, actual);
     assert.equal(h.balance().owner.reservedMicro, 0);
     assert.equal(h.cap.snapshot().spentMicro, actual);
@@ -131,7 +134,7 @@ for (const operation of ['stream', 'structured']) for (const mode of ['known', '
     assert.equal(JSON.parse(row.provider_cost_json).generationId, 'gen-fixture');
     await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
     assert.equal(h.state.queries, 0, 'known receipts do not need a generation lookup');
-    assert.equal(h.balance().owner.committedMicro, actual);
+    assert.equal(h.balance().owner.committedMicro, visitorCharge);
   });
 }
 
@@ -148,24 +151,25 @@ for (const mode of ['unknown', 'partial', 'cancel-body', 'transport-failure']) t
     controller.abort(); await rejected;
   } else if (['partial', 'transport-failure'].includes(mode)) await assert.rejects(pending);
   else await pending;
-  const held = h.balance().owner.uncertainSpendMicro;
-  assert.ok(held > 0); assert.equal(h.balance().owner.reservedMicro, 0);
-  assert.equal(h.balance().owner.confirmedSpendMicro, 0);
+  const held = h.balance().session.uncertainSpendMicro;
+  assert.ok(held > 0); assert.equal(h.balance().session.reservedMicro, 0);
+  assert.equal(h.balance().session.confirmedSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, held);
-  await h.runtime.reconcileCosts(); assert.equal(h.balance().owner.uncertainSpendMicro, held);
+  await h.runtime.reconcileCosts(); assert.equal(h.balance().session.uncertainSpendMicro, held);
   h.storage.close(); state.ready = true;
   h = await costFixture(t, { mode, path, state });
   h.runtime.budget.recover(); h.runtime.recoverCosts(); await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
   if (mode === 'transport-failure') {
-    assert.equal(h.balance().owner.uncertainSpendMicro, held, 'without a returned generation ID no cost is invented');
+    assert.equal(h.balance().session.uncertainSpendMicro, held, 'without a returned generation ID no cost is invented');
     assert.equal(state.queries, 0);
   } else {
-    assert.equal(h.balance().owner.confirmedSpendMicro, 53);
-    assert.equal(h.balance().owner.uncertainSpendMicro, 0);
+    assert.equal(h.balance().session.confirmedSpendMicro, 53);
+    assert.equal(h.balance().session.uncertainSpendMicro, 0);
     assert.equal(h.cap.snapshot().spentMicro, 53);
     assert.equal(h.cap.snapshot().uncertainMicro, 0);
     assert.equal(state.queries, 2, 'one failed lookup and one retry after restart; settled results are not fetched twice');
   }
+  assert.equal(h.balance().owner.committedMicro, operation === 'structured' ? 0 : 53, 'uncertain understanding remains free after a receipt');
 });
 
 for (const crash of ['admitted', 'reserved', 'consumed', 'dispatched', 'id-receipt', 'cost-receipt', 'budget-receipt', 'settled']) {
@@ -189,16 +193,17 @@ for (const crash of ['admitted', 'reserved', 'consumed', 'dispatched', 'id-recei
     h.storage.close(); h = await costFixture(t, { path, state });
     h.runtime.budget.recover(); h.host.recoverWallets(); h.runtime.recoverCosts();
     await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
-    assert.equal(h.balance().owner.reservedMicro, 0); assert.equal(h.cap.snapshot().reservedMicro, 0);
+    assert.equal(h.balance().session.reservedMicro, 0); assert.equal(h.cap.snapshot().reservedMicro, 0);
     if (crash === 'dispatched') {
-      assert.equal(h.balance().owner.uncertainSpendMicro, estimate);
+      assert.equal(h.balance().session.uncertainSpendMicro, estimate);
       assert.equal(h.cap.snapshot().uncertainMicro, estimate);
     } else {
       const actual = ['cost-receipt', 'budget-receipt', 'settled'].includes(crash) ? 37 : crash === 'id-receipt' ? 53 : 0;
-      assert.equal(h.balance().owner.committedMicro, actual);
+      assert.equal(h.balance().session.committedMicro, actual);
       assert.equal(h.cap.snapshot().spentMicro, actual);
       assert.equal(h.cap.snapshot().uncertainMicro, 0);
     }
+    assert.equal(h.balance().owner.committedMicro, crash === 'settled' ? 37 : 0, 'recovered unpublished understanding is free to the visitor');
   });
 }
 
@@ -222,7 +227,7 @@ for (const stalled of [false, true]) test(`a transport ignoring cancellation ret
   admitted.options.report = terminal => { reports++; return report(terminal); };
   const pending = h.invoke(admitted), rejected = assert.rejects(pending, { code: 'cancelled' });
   await state.sent.promise; controller.abort(); await rejected;
-  assert.ok(h.balance().owner.uncertainSpendMicro > 0);
+  assert.ok(h.balance().session.uncertainSpendMicro > 0);
   if (stalled) {
     const cancelled = Promise.withResolvers();
     state.lateResponse.resolve(new Response(new ReadableStream({
@@ -230,14 +235,15 @@ for (const stalled of [false, true]) test(`a transport ignoring cancellation ret
       cancel() { cancelled.resolve(); },
     })));
     await cancelled.promise;
-    await h.runtime.reconcileCosts(); assert.equal(h.balance().owner.confirmedSpendMicro, 53);
+    await h.runtime.reconcileCosts(); assert.equal(h.balance().session.confirmedSpendMicro, 53);
   } else {
     state.lateResponse.resolve(Response.json({ id: 'gen-fixture', usage: { cost: 0.000037 } }));
-    for (let i = 0; i < 100 && h.balance().owner.confirmedSpendMicro !== 37; i++) await new Promise(resolve => setImmediate(resolve));
-    assert.equal(h.balance().owner.confirmedSpendMicro, 37);
+    for (let i = 0; i < 100 && h.balance().session.confirmedSpendMicro !== 37; i++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.balance().session.confirmedSpendMicro, 37);
   }
-  assert.equal(reports, 1); assert.equal(h.balance().owner.uncertainSpendMicro, 0);
+  assert.equal(reports, 1); assert.equal(h.balance().session.uncertainSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, 0);
+  assert.equal(h.balance().owner.committedMicro, 0, 'late billing does not recharge an aborted visitor analysis');
 });
 
 for (const operation of ['stream', 'structured']) for (const promptPrice of [0, 1e-7]) {
@@ -282,15 +288,15 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   // Reproduce the older live rows: a USD 1 reservation and no acknowledged cost.
   h.storage.db.prepare('UPDATE budget_attempts SET max_micro=1000000,settled_micro=1000000 WHERE attempt_id=?').run(id);
   h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000, estimateMicro: 600, observedCostMicro: 750 });
-  assert.equal(h.balance().owner.uncertainSpendMicro, 1_000_000);
+  assert.equal(h.balance().session.uncertainSpendMicro, 1_000_000);
   const preview = await h.runtime.reconcileCosts({ dryRun: true });
   assert.equal(h.runtime.budget.get(id).settled_micro, 1_000_000);
   const first = await h.runtime.reconcileCosts(), replay = await h.runtime.reconcileCosts();
   assert.equal(h.runtime.budget.get(id).settled_micro, 750, 'estimate never falls below observed usage');
   assert.equal(preview.afterMicro, 750); assert.equal(first.corrected, 1); assert.equal(replay.corrected, 0);
   assert.equal(h.runtime.budget.get(id).terminal_json, before.terminal_json, 'original terminal history is retained');
-  assert.equal(h.balance().owner.confirmedSpendMicro, 0, 'an estimate remains explicitly uncertain');
-  assert.equal(h.balance().owner.uncertainSpendMicro, 750, 'the owner projection releases the old ceiling');
+  assert.equal(h.balance().session.confirmedSpendMicro, 0, 'an estimate remains explicitly uncertain');
+  assert.equal(h.balance().session.uncertainSpendMicro, 750, 'the provider projection releases the old ceiling');
   assert.equal(h.runtime.budget.pendingCosts().length, 0, 'estimated rows leave the immediate pending set');
   assert.ok(h.cap.snapshot().uncertainMicro > 0, 'provider cap does not release an unresolved liability');
   const audit = () => h.storage.db.prepare('SELECT * FROM budget_corrections WHERE attempt_id=? ORDER BY id').all(id);
@@ -303,6 +309,7 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   assert.equal(audit().length, 2);
   assert.equal(h.cap.snapshot().spentMicro, 1_000_037);
   assert.throws(() => h.storage.db.prepare('UPDATE budget_corrections SET new_micro=0 WHERE attempt_id=?').run(id), /append only/u);
+  assert.equal(h.balance().owner.committedMicro, operation === 'structured' ? 0 : 1_000_037);
 });
 
 test('AIT-163 fix1: a completed lost analysis without identity uses its complete lane estimate', async t => {
@@ -312,8 +319,9 @@ test('AIT-163 fix1: a completed lost analysis without identity uses its complete
   h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000 });
   await h.runtime.reconcileCosts();
   assert.equal(h.runtime.budget.get(id).settled_micro, bound);
-  assert.equal(h.balance().owner.uncertainSpendMicro, bound);
+  assert.equal(h.balance().session.uncertainSpendMicro, bound);
   assert.equal(h.cap.snapshot().uncertainMicro, bound);
+  assert.equal(h.balance().owner.committedMicro, 0);
 });
 
 test('AIT-163 fix1: an invalid historical binding cannot abort repairs for other rows', async t => {
@@ -365,9 +373,10 @@ test('AIT-163 fix1: estimated identity receipts retry after the slower window an
   assert.equal(h.runtime.budget.get(id).settled_micro, 900);
   h.state.ready = true; t.mock.timers.tick(300_000);
   await h.runtime.reconcileCosts();
-  assert.equal(h.balance().owner.confirmedSpendMicro, 53);
-  assert.equal(h.balance().owner.uncertainSpendMicro, 0);
+  assert.equal(h.balance().session.confirmedSpendMicro, 53);
+  assert.equal(h.balance().session.uncertainSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, 0);
+  assert.equal(h.balance().owner.committedMicro, 0);
 });
 
 for (const operation of ['stream', 'structured']) for (const [language, output] of [
@@ -381,8 +390,9 @@ for (const operation of ['stream', 'structured']) for (const [language, output] 
   const row = h.runtime.budget.get(id);
   assert.equal(row.settled_micro, before.max_micro, 'bytes are a capped estimate, not evidence of extra tokens');
   assert.equal(row.overrun, 0); assert.equal(row.terminal_json, before.terminal_json);
-  assert.equal(h.balance().owner.uncertainSpendMicro, before.max_micro);
+  assert.equal(h.balance().session.uncertainSpendMicro, before.max_micro);
   assert.equal(h.cap.snapshot().uncertainMicro, before.max_micro, 'an estimate does not release the provider liability');
+  assert.equal(h.balance().owner.committedMicro, operation === 'structured' ? 0 : before.max_micro);
 });
 
 for (const operation of ['stream', 'structured']) test(`AIT-163 fix2: ${operation} provider usage above the reservation remains uncapped`, async t => {
@@ -425,7 +435,8 @@ for (const failLookup of [false, true]) test(`AIT-163 fix2: unresolved generatio
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(id).n, 1);
   h.runtime.budget.observeCost(id, { chargedMicro: 53 });
   await h.runtime.reconcileCosts();
-  assert.equal(h.balance().owner.confirmedSpendMicro, 53); assert.equal(h.cap.snapshot().uncertainMicro, 0);
+  assert.equal(h.balance().session.confirmedSpendMicro, 53); assert.equal(h.cap.snapshot().uncertainMicro, 0);
   assert.equal(h.runtime.budget.get(id).terminal_json, original);
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(id).n, 2);
+  assert.equal(h.balance().owner.committedMicro, 0);
 });
