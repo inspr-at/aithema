@@ -17,9 +17,13 @@ after(async () => {
 export async function browserForFile() {
   launch ??= (async () => {
     directory = await mkdtemp(join(tmpdir(), 'aithema-shared-chrome-'));
-    return puppeteer.launch({ executablePath: await browserPath(), headless: true,
+    const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
       userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
       args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+    // Keep a default-context target alive while disposable contexts are closed.
+    // The process belongs to the file, including gaps between locale/test cases.
+    await browser.newPage();
+    return browser;
   })();
   return (await launch).createBrowserContext();
 }

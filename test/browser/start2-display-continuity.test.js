@@ -40,7 +40,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             errors: document.querySelector('#error')?.textContent }; }).catch(() => null);
           st.diagnostic(JSON.stringify({ original: await inspect(page), newcomer: await inspect(other), errors }));
         }
-        await runBrowser.close();
+        try { await runBrowser.close(); } finally { if (browser === runBrowser) browser = null; }
       });
       page.on('pageerror', error => errors.push(error.stack ?? error.message));
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });

@@ -13,6 +13,19 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
 import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
 
+test('AIT-192: closing a fixture context preserves Chrome and isolates the next fixture', async t => {
+  const first = await browserForFile();
+  const chrome = first.browser(), pid = chrome.process().pid;
+  await first.setCookie({ name: 'fixture-only', value: 'first', domain: 'example.test', path: '/' });
+  await first.newPage();
+  await first.close();
+  const second = await browserForFile(); t.after(() => second.close());
+  assert.equal(second.browser().process().pid, pid, 'reuse the same Chrome process');
+  assert.deepEqual(await second.cookies(), [], 'the next fixture has independent storage');
+  const page = await second.newPage();
+  assert.equal(await page.evaluate(() => 1 + 1), 2, 'the reused process still renders pages');
+});
+
 test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout shift, DE/EN light/dark 390/1024/1440', { timeout: 180_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-opaque-band-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
