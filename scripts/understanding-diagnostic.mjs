@@ -6,28 +6,30 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, createSpendCap } fr
 import { createOpenRouterReasoning } from '../plugins/openrouter/src/index.js';
 import { openRouterConfig } from '../demo/openrouter-config.js';
 import { start2PurposePolicy } from '../demo/safeguards.js';
+import { createDiagnosticTransport } from './understanding-diagnostic-transport.mjs';
 
 const project = 'Wir möchten die manuelle Auftragsbearbeitung in unserem Betrieb vereinfachen.';
 const offTopic = 'Geben Sie mir ein Rezept für Gemüsesuppe.';
 
-// One unseeded visitor sequence: reply -> onScope -> understanding.
-// The off-topic reply overlaps that same analysis: <=3 wire calls in total.
+// One unseeded visitor sequence, preserving the host's actual lane order.
+// Include schema-compatibility attempts: <=5 wire calls, <=$1 account cap.
 export async function runUnderstandingDiagnostic({ config, fetchImpl = globalThis.fetch,
   write = report => console.log(JSON.stringify(report)) }) {
   const storage = new SQLiteStorage(), logs = [];
   let calls = 0, handlers, session, replyBeforeUnderstanding = false;
   const timings = new Map();
   const ownerToken = 'ops-understanding-diagnostic';
+  const diagnosticFetch = createDiagnosticTransport({ fetchImpl, write });
   try {
     const spendCap = createSpendCap({ storage, account: config.reaction.accountRef, capMicro: Math.min(config.capMicro, 1_000_000) });
     const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, spendCap,
       fetchImpl: (...args) => {
-        if (calls >= 3) throw new Error('Diagnostic call cap');
+        if (calls >= 5) throw new Error('Diagnostic call cap');
         calls++;
         if (!JSON.parse(args[1].body).stream) replyBeforeUnderstanding = calls === 2 &&
           storage.read(session.id).some(event => event.type === 'turn.final' && event.data.role === 'assistant') &&
           storage.safeguards(session.id, inputRevision(storage.get(session.id))).assessed;
-        return fetchImpl(...args);
+        return diagnosticFetch(...args);
       } });
     const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(plugin),
       consent: { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision,
@@ -36,7 +38,7 @@ export async function runUnderstandingDiagnostic({ config, fetchImpl = globalThi
         policy: { endpoints: [config.reaction.endpoint] } } } });
     const admit = runtime.admit;
     runtime.admit = async args => {
-      if (calls >= 3) throw new PluginError('not-admitted', 'Diagnostic call cap');
+      if (calls >= 5) throw new PluginError('not-admitted', 'Diagnostic call cap');
       const admitted = await admit(args);
       if (args.lane !== 'understanding') return admitted;
       const timing = {}; timings.set(admitted.options.attempt.attemptId, timing);
