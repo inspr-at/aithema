@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
+import { moduleFiles } from '../release/lib/modules.mjs';
 import { execFileSync } from 'node:child_process';
 import { reserveVersion } from '../release/lib/version.mjs';
 import { packRelease, verifyRelease, rollbackArtifact, releasePaths } from '../release/pack.mjs';
@@ -28,6 +29,25 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-plugin-elevenlabs'));
   verifyRelease(a.directory);
   assert.equal(a.manifest.artifacts.filter(artifact => artifact.kind === 'module').length, 15);
+  // Inspect actual packed bytes, including unexported files, for dangling imports.
+  for (const artifact of a.manifest.artifacts.filter(artifact => artifact.kind === 'module')) {
+    const archive = join(a.directory, artifact.path);
+    const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split('\n');
+    const members = new Set(entries);
+    if (artifact.name === '@inspr/aithema-plugin-elevenlabs') assert.ok(!members.has('package/src/components.js'));
+    const unpacked = join(fixture, artifact.name.replaceAll('/', '-'));
+    mkdirSync(unpacked);
+    execFileSync('tar', ['-xzf', archive, '-C', unpacked]);
+    for (const path of entries.filter(path => /\.(?:js|ts)$/u.test(path))) {
+      const source = readFileSync(join(unpacked, path), 'utf8');
+      for (const [, , specifier] of source.matchAll(/\b(?:from\s*|import\s*(?:\(\s*)?)(['"`])(\.{1,2}\/[^'"`\n]+)\1/gu)) {
+        const target = posix.normalize(posix.join(posix.dirname(path), specifier));
+        assert.ok(members.has(target), `${artifact.name}: ${path} imports absent ${target}`);
+      }
+      assert.doesNotMatch(source, /@inspr\/aithema-plugin-elevenlabs\/(?:src\/)?components(?:\.js)?/u);
+    }
+  }
+
   writeFileSync(join(a.directory, 'release-set.json'), JSON.stringify({ ...a.manifest, artifacts: a.manifest.artifacts.slice(0, -1) }));
   assert.throws(() => verifyRelease(a.directory), /Incomplete artifact set/);
   writeFileSync(join(a.directory, 'release-set.json'), JSON.stringify(a.manifest));
@@ -97,4 +117,38 @@ test('server release metadata imports with only its own package present', () => 
   const output = execFileSync(process.execPath, ['--input-type=module', '-e',
     "import { releaseInfo } from './src/release-info.js'; console.log(JSON.stringify(releaseInfo));"], { cwd: fixture, encoding: 'utf8', stdio: 'pipe' });
   assert.equal(JSON.parse(output).version, JSON.parse(readFileSync(join(fixture, 'package.json'))).version);
+});
+
+
+test('module packer refuses same-package imports of every excluded source file', () => {
+  for (const [folder, excluded] of [
+    ['plugins/elevenlabs', 'components.js'],
+    ['packages/server', 'local-voice.js'],
+    ['packages/server', 'composed-voice.js'],
+  ]) {
+    const pkg = { path: `${folder}/package.json` };
+    const files = new Map([
+      [pkg.path, Buffer.from(JSON.stringify({ name: '@fixture/module' }))],
+      [`${folder}/src/${excluded}`, Buffer.from('export const hidden = true;')],
+      ['LICENSE', Buffer.from('AGPL-3.0-only')],
+      ['README.md', Buffer.from('Fixture')],
+      ['docs/embedding.md', Buffer.from('Fixture')],
+      ['release/runtime.json', Buffer.from('{}')],
+    ]);
+    for (const source of [
+      `import { hidden } from './${excluded}';`,
+      `export { hidden } from "./${excluded}";`,
+      `import './${excluded}';`,
+      `import('./${excluded}');`,
+      'import(`./' + excluded + '`);',
+    ]) {
+      files.set(`${folder}/src/index.js`, Buffer.from(source));
+      assert.throws(() => moduleFiles(files, pkg), /Unpackaged dependency/u, `${folder}: ${source}`);
+    }
+    files.set(`${folder}/src/index.js`, Buffer.from("export { ok } from './included.js';"));
+    files.set(`${folder}/src/included.js`, Buffer.from('export const ok = true;'));
+    const members = moduleFiles(files, pkg);
+    assert.ok(!members.has(`src/${excluded}`));
+    assert.match(members.get('src/index.js').toString(), /included\.js/u);
+  }
 });
