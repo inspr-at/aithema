@@ -10,6 +10,8 @@ const admit = (ledger, sessionId, extra = {}) => ledger.admit({ sessionId, lane:
 for (const stream of [false, true]) for (const [name, status, payload, expected] of [
   ['JSON rejection', 400, { error: { type: 'invalid_request_error' } }, 0],
   ['text rejection', 422, 'Unprocessable request', 0],
+  ['request timeout', 408, { error: { type: 'timeout' } }, 40],
+  ['client timeout', 499, 'Client closed request', 40],
   ['server error', 503, { error: { type: 'overloaded_error' } }, 40],
   ['unpriced usage on rejection', 400, { usage: { prompt_tokens: 1, completion_tokens: 1 } }, 40],
   ['billed rejection', 400, { usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.000007 } }, 7],

@@ -959,3 +959,63 @@ for (const copy of [de, en]) test(`AIT-198 ${copy === de ? 'DE' : 'EN'} missing 
   assert.equal(root.querySelector('.overview-retry').disabled, false);
   assert.equal(root.querySelector('.retry').hidden, true, 'never a bare footer retry next to the placeholder');
 });
+
+
+function assertNoFailedOverview(c, message) {
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.overview-retry').hidden, true, message);
+  assert.doesNotMatch(root.querySelector('.notice').textContent, /couldn't be built|konnte gerade nicht erstellt/iu, message);
+  assert.equal(root.querySelector('.retry').hidden, true, message);
+}
+
+test('AIT-198 typed turn waits for current lane.status without flashing a stuck overview', () => {
+  const c = setup();
+  turn(c, 'typed-person', 'First detail');
+  const revision = inputRevision(c.session);
+  assertNoFailedOverview(c, 'turn.final precedes lane.status');
+  c.receive({ type: 'lane.status', data: { inputRevision: 'obsolete', running: [], lastFailure: null } });
+  assertNoFailedOverview(c, 'obsolete status cannot settle this revision');
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: ['reaction'], lastFailure: null } });
+  assertNoFailedOverview(c, 'reaction now owns the reply');
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  assertInlineRetry(c, 'confirmed idle still exposes a genuinely stuck reply');
+});
+
+for (const source of ['live call', 'facade pending']) test(`AIT-198 ${source}: no failed overview from person final through assistant final`, () => {
+  const c = setup(), session = c.session;
+  if (source === 'live call') session.voiceLifecycle = { callId: 'voice-call', providerSessionId: 'voice-provider', epoch: 1, state: 'active' };
+  c.configure({ copy: en, session });
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Voice detail',
+    ...(source === 'facade pending' ? { voiceCallId: 'voice-call', voiceProviderId: 'voice-provider' } : {}) } });
+  const revision = inputRevision(c.session);
+  assertNoFailedOverview(c, 'person final');
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  assertNoFailedOverview(c, 'the facade needs no reaction lane');
+  c.receive({ type: 'turn.partial', data: { id: 'voice-reply', inputRevision: revision, delta: 'Reply' } });
+  assertNoFailedOverview(c, 'assistant partial');
+  reply(c, 'voice-reply');
+  assertNoFailedOverview(c, 'assistant final');
+});
+
+for (const recovering of [false, true]) test(`AIT-198 ${recovering ? 'recovering' : 'deferred'} analysis never shows a stuck overview`, async t => {
+  const c = setup(), retryStarted = Promise.withResolvers(), retryDone = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    if (url.endsWith('/retry')) { retryStarted.resolve(); await retryDone.promise; return Response.json({ accepted: true }); }
+    return Response.json(c.session);
+  });
+  document.body.append(c); t.after(() => { retryDone.resolve(); c.remove(); });
+  turn(c, 'deferred-person', 'First detail');
+  const revision = inputRevision(c.session);
+  c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', reason: 'budget reconciling' } });
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  if (recovering) {
+    c.receive({ seq: c.session.seq + 1, type: 'identity.unlocked', data: {} });
+    await retryStarted.promise;
+    c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  }
+  assertNoFailedOverview(c, recovering ? 'retry request is in flight' : 'analysis is deferred');
+  retryDone.resolve();
+});

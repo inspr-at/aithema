@@ -39,11 +39,18 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     const targets = ['.understanding', '.composer-shell', '.display-foot', '.host-credits', '.audio-rail'];
     const before = await boxes(page, targets);
     const held = await shadow(page, c => c.shadowRoot.querySelector('.host-credits__amount').textContent);
+    await shadow(page, c => {
+      const input = c.shadowRoot.querySelector('textarea'); input.focus(); input.value = 'I am still typing';
+      window.retryFocusPulls = [];
+      c.shadowRoot.addEventListener('focusin', event => { if (event.target.matches('.overview-retry, .retry')) window.retryFocusPulls.push(event.target.className); });
+    });
     await page.evaluate((verdict, held) => { window.heldCredits = held; return fetch('/settle?verdict=' + verdict); }, verdict, held);
     const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden · Erneut versuchen' : "The overview couldn't be built just now · Try again";
     await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === expected, { timeout: 10_000 }, expected);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent !== window.heldCredits, undefined);
     await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'failure never pulls focus from the composer');
+    assert.deepEqual(await page.evaluate(() => window.retryFocusPulls), [], 'no intermediate Retry focus');
     const failed = await shadow(page, c => {
       const r = c.shadowRoot, n = r.querySelector('.notice'), s = getComputedStyle(n);
       const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;color:var(--aithema-muted)'; r.querySelector('.understanding').append(probe);
@@ -109,7 +116,14 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
     if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
     const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
     const before = await boxes(page, targets);
-    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision, running: [], lastFailure: null } }));
+    await shadow(page, c => {
+      const input = c.shadowRoot.querySelector('textarea'); input.focus(); input.value = 'Ich schreibe weiter';
+      window.retryFocusPulls = [];
+      c.shadowRoot.addEventListener('focusin', event => { if (event.target.matches('.overview-retry, .retry')) window.retryFocusPulls.push(event.target.className); });
+      c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision, running: [], lastFailure: null } });
+    });
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'stuck state never pulls focus from the composer');
+    assert.deepEqual(await page.evaluate(() => window.retryFocusPulls), [], 'no intermediate Retry focus');
     await settle(page);
     const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden · Erneut versuchen' : "The overview couldn't be built just now · Try again";
     const state = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
