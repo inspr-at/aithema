@@ -57,7 +57,7 @@ function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) 
 export { createFacadeSecrets } from '../elevenlabs-compat.js';
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
-  publish, onTurn, onClose, onActivity, onAssessment, purposePolicy, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
+  publish, onTurn, onClose, onActivity, onAssessment, onScopeRecorded, purposePolicy, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
@@ -384,6 +384,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           person.userTurnOrdinal === userTurnOrdinal && Number.isSafeInteger(userTurnOrdinal) ? inputRevision(session) : safeguardRevision;
         storage.recordSafeguard(entry.sessionId, `voice:${callId}:${providerSessionId}:${userTurnOrdinal ?? replyId}`,
           revision, scope === 'off', purposePolicy.offTopicLimit, { pause: false });
+        onScopeRecorded?.(entry.sessionId);
         if (scope !== 'off' && revision) onAssessment?.(entry.sessionId);
       }
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();

@@ -69,3 +69,8 @@ test('round-2 band, strip and footer text tokens retain 4.5:1 contrast in both t
     assert.ok(contrast(tokens.paper, tokens.ink) >= 4.5, `${theme}: popup text`);
   }
 });
+
+
+test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/EN', () => {
+  for (const copy of [de, en]) assert.match(copy.placeholder, /\u00a0…$/u);
+});

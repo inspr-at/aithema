@@ -176,6 +176,9 @@ export const bandStyles = `
   .host-credits__unit, .engine-info .engine__value { display:none; }
   .host-credits__track { width:48px; }
 }
+@media(max-width:600px) {
+  .display-foot { bottom:var(--phone-bottom,0px); }
+}
 @media(max-width:599px) {
   .band { gap:6px 8px; padding-right:8px; }
   .header-actions { gap:0; width:100%; } .conversations-toggle { gap:3px; font-size:12px; padding:0 3px; min-width:44px; max-width:100%; }

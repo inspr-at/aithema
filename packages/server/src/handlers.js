@@ -101,7 +101,38 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
+  // Retain only an assessment already admitted for project input. Every later
+  // input must be a classified off-topic user turn; all consent, locale,
+  // correction, upload and identity revision guards remain strict.
+  const retainUnderstanding = (source, current, pending = false) => {
+    if (!purposePolicy || current.consentWithdrawn || current.tombstone) return false;
+    const suffix = inputRevision(source).split(':').slice(1).join(':');
+    if (inputRevision(current).split(':').slice(1).join(':') !== suffix) return false;
+    const before = source.transcript.filter(turn => turn.role === 'user').length;
+    const added = current.transcript.filter(turn => turn.role === 'user').slice(before);
+    if (current.inputRevision - source.inputRevision !== added.length || !added.length) return false;
+    const original = storage.safeguards(source.id, inputRevision(source));
+    if (!original.assessed || original.offTopic) return false;
+    return added.every((_, index) => {
+      const state = storage.safeguards(source.id, `${source.inputRevision + index + 1}:${suffix}`);
+      return state.assessed ? state.offTopic : pending;
+    });
+  };
+  const settleUnderstanding = (source, { signal }) => {
+    const ready = () => {
+      const current = storage.get(source.id);
+      return inputRevision(current) === inputRevision(source) ||
+        !retainUnderstanding(source, current, true) || retainUnderstanding(source, current);
+    };
+    if (ready() || signal.aborted) return Promise.resolve();
+    return new Promise(resolve => {
+      const set = listeners.get(source.id) ?? new Set(); listeners.set(source.id, set);
+      const done = () => { set.delete(check); if (!set.size) listeners.delete(source.id); signal.removeEventListener('abort', done); resolve(); };
+      const check = () => { if (ready()) done(); };
+      set.add(check); signal.addEventListener('abort', done, { once: true }); check();
+    });
+  };
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, settleUnderstanding,
     offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
@@ -109,6 +140,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     replyVisible: session => !voiceHandlers?.active(session.id),
     onScope(id, scope, revision, { reply = true } = {}) {
       if (!reply) for (const event of storage.appendPurposeReply(id, null, revision, false, purposePolicy.offTopicLimit)) broadcast(id, event);
+      lanes.supersede(id);
       if (scope !== 'off') scheduleLane(id, 'understanding');
     },
     admit: args => pluginRuntime.admit(args),
@@ -122,20 +154,23 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       try { Promise.resolve(log({ event, count: 1, lane, reason, attemptCount })).catch(() => {}); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
     },
-    publish(id, type, data, revision, scope) {
+    publish(id, type, data, revision, scope, source) {
       if (stop.signal.aborted) return false;
       if (purposePolicy && type === 'turn.final' && ['in', 'unclear', 'off'].includes(scope)) {
         const events = storage.appendPurposeReply(id, data, revision, scope === 'off', purposePolicy.offTopicLimit);
         for (const event of events) broadcast(id, event);
         return events.length > 0;
       }
-      const event = storage.append(id, type, data, revision);
+      const current = storage.get(id);
+      const acceptedRevision = type === 'understanding.updated' && source && retainUnderstanding(source, current)
+        ? inputRevision(current) : revision;
+      const event = storage.append(id, type, data, acceptedRevision);
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
         conceptHandlers.onUnderstanding(id);
         const session = storage.get(id), question = session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
-          const focused = storage.append(id, 'question.focused', { question }, revision);
+          const focused = storage.append(id, 'question.focused', { question }, acceptedRevision);
           if (focused) broadcast(id, focused);
         }
       }
@@ -146,7 +181,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
+    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         host?.touchVisitor?.(storage.get(id));

@@ -17,17 +17,17 @@ const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessio
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {} } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate, voiceCallbacks } = {}) {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
     calls.push(request);
     // Exercise canonical admission/reporting; replace only the deterministic wire text.
     for await (const _ of mock.stream(request, options)) { /* fully settle */ }
-    const text = outputs ? outputs(request, calls.length) : envelope(request.locale === 'de'
+    const text = outputs ? await outputs(request, calls.length) : envelope(request.locale === 'de'
       ? 'Dabei kann ich Ihnen hier nicht helfen. Welches Vorhaben möchten Sie mit Augmentoring klären?'
       : 'I cannot help with that here. What would you like to clarify with Augmentoring?');
     for (let i = 0; i < text.length; i += 7) yield text.slice(i, i + 7);
-  }, async structured(...args) { assessments.push(args[0]); return mock.structured(...args); } };
+  }, async structured(...args) { assessments.push(args[0]); const result = await mock.structured(...args); if (analysisGate) await analysisGate; return result; } };
   let runtime = instrumentedMockRuntime(storage, plugin);
   if (uploads || voice) {
     const registry = new PluginRegistry().register(mock), presets = mockPresets(); registerDemoExtractors(registry, presets);
@@ -35,7 +35,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
     const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets(), ...(voiceCallbacks ? { callbackAdapter: { bindCallbacks(operations) { voiceCallbacks(operations); return { callbackRoutes: [] }; } } } : {}) } } : {}), log });
   const session = storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
@@ -395,4 +395,101 @@ test('AIT-183 superseded retry never increments the OPS fallback counter', async
   assert.equal(snapshot.transcript.filter(turn => turn.role === 'assistant').length, 0);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
   assert.doesNotMatch(JSON.stringify(logs), /Private project|invalid-private-output/u);
+});
+
+// The live sequence can outrun the first analysis. Keep its project-only result
+// even when the three redirects finish and lock the purpose pause first.
+test('AIT-188 V1: delayed in-scope analysis settles after three off-topic turns and purpose pause', async t => {
+  const { promise: gate, resolve: release } = Promise.withResolvers();
+  t.after(release);
+  const f = fixture(t, { analysisGate: gate, policy: start2PurposePolicy,
+    outputs: (request, n) => envelope(n === 1 ? 'What should this project improve?' : 'A redirect', n === 1 ? 'in' : 'off') });
+  const decisions = [], retain = f.handlers.lanes.retainUnderstanding;
+  f.handlers.lanes.retainUnderstanding = (...args) => { const result = retain(...args); decisions.push({ from: args[0].inputRevision, to: args[1].inputRevision, pending: args[2], result }); return result; };
+  const first = await f.handlers.handle(req(f.session.id, 'turns', { content: 'We need a website for our company.', clientEventId: 'project' }));
+  assert.equal(first.status, 200);
+  const wait = async predicate => {
+    for (let i = 0; i < 1000; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 2)); }
+    assert.fail('sequence did not settle');
+  };
+  await wait(() => f.assessments.length === 1);
+  for (let i = 0; i < 3; i++) {
+    assert.equal((await f.handlers.handle(req(f.session.id, 'turns', { content: 'Give me a soup recipe.', clientEventId: `late-off-${i}` }))).status, 200);
+    await wait(() => f.storage.safeguards(f.session.id).offTopicTurns === i + 1);
+  }
+  assert.equal(f.storage.get(f.session.id).pauseReason, 'purpose');
+  release(); await f.handlers.idle();
+  const settled = f.storage.get(f.session.id);
+  assert.equal(settled.understanding.readinessAssessed, true, `the admitted in-scope analysis survives the pause: ${JSON.stringify(decisions)}`);
+  assert.match(settled.understanding.summary, /website/u);
+  assert.doesNotMatch(settled.understanding.summary, /soup/u, 'off-topic turns never enter the admitted analysis');
+  assert.equal(f.assessments.length, 1, 'pause starts no replacement analysis');
+});
+
+async function waitForPurpose(predicate) {
+  for (let i = 0; i < 1000; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 2)); }
+  assert.fail('purpose lane did not reach expected state');
+}
+test('AIT-188 V1: completed project analysis waits for pending scope before publishing', async t => {
+  const analysis = Promise.withResolvers(), scope = Promise.withResolvers(), settling = Promise.withResolvers();
+  t.after(() => { analysis.resolve(); scope.resolve(); });
+  const f = fixture(t, { analysisGate: analysis.promise, outputs: async (request, n) => {
+    if (n > 1) await scope.promise;
+    return envelope('What should the project improve?', n === 1 ? 'in' : 'off');
+  } });
+  await f.handlers.handle(req(f.session.id, 'turns', { content: 'Our company needs a website.', clientEventId: 'project' }));
+  await waitForPurpose(() => f.assessments.length === 1);
+  await f.handlers.handle(req(f.session.id, 'turns', { content: 'A soup recipe.', clientEventId: 'off' }));
+  await waitForPurpose(() => f.calls.length === 2);
+  const settle = f.handlers.lanes.settleUnderstanding;
+  f.handlers.lanes.settleUnderstanding = (...args) => {
+    const pending = settle(...args); settling.resolve(); return pending;
+  };
+  analysis.resolve(); await settling.promise;
+  assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false, 'unknown scope cannot authorize a retained result');
+  scope.resolve(); await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, true);
+  assert.doesNotMatch(f.storage.get(f.session.id).understanding.summary, /soup/iu);
+});
+for (const next of ['project', 'withdrawal']) test(`AIT-188 V1: ${next} still invalidates a retained project assessment`, async t => {
+  const gate = Promise.withResolvers(); t.after(gate.resolve);
+  const f = fixture(t, { analysisGate: gate.promise, outputs: () => envelope('What should the project improve?', 'in') });
+  await f.handlers.handle(req(f.session.id, 'turns', { content: 'A website.', clientEventId: 'project' }));
+  await waitForPurpose(() => f.assessments.length === 1);
+  if (next === 'project') {
+    await f.handlers.handle(req(f.session.id, 'turns', { content: 'New project: order processing.', clientEventId: 'next' }));
+    await waitForPurpose(() => f.assessments.length === 2);
+  } else assert.equal((await f.handlers.handle(req(f.session.id, 'withdraw', { turnId: f.storage.get(f.session.id).transcript[0].id }))).status, 200);
+  gate.resolve(); await f.handlers.idle();
+  const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
+  if (next === 'project') { assert.equal(updates.length, 1); assert.match(updates[0].data.summary, /order processing/u); }
+  else { assert.equal(updates.length, 0); assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false); }
+});
+
+
+test('AIT-188 gate1 voice: off-topic completion wakes retained overview without another event', { timeout: 3000 }, async t => {
+  const analysis = Promise.withResolvers(), scope = Promise.withResolvers(), entered = Promise.withResolvers(), published = Promise.withResolvers();
+  let callbacks;
+  const f = fixture(t, { voice: true, voiceCallbacks: value => { callbacks = value; }, analysisGate: analysis.promise,
+    outputs: async (_, n) => { if (n > 1) await scope.promise; return envelope('What should the project improve?', n === 1 ? 'in' : 'off'); } });
+  t.after(() => { analysis.resolve(); scope.resolve(); });
+  await f.handlers.handle(req(f.session.id, 'turns', { content: 'Our company needs a website.', clientEventId: 'voice-project' }));
+  await waitForPurpose(() => f.assessments.length === 1);
+  const call = await f.handlers.handle(req(f.session.id, 'voice', { callId: 'settle-voice' })).then(r => r.json());
+  const settle = f.handlers.lanes.settleUnderstanding;
+  f.handlers.lanes.settleUnderstanding = (...args) => { const result = settle(...args); entered.resolve(); return result; };
+  const publish = f.handlers.lanes.publish;
+  f.handlers.lanes.publish = (...args) => { const result = publish(...args); if (args[1] === 'understanding.updated' && result) published.resolve(); return result; };
+  assert.equal((await f.handlers.handle(req(f.session.id, `voice/${call.callId}/events`, { providerSessionId: call.providerSessionId,
+    event: { type: 'final', callId: call.callId, turnId: `${call.providerSessionId}:voice-off`, role: 'user', text: 'Give me a soup recipe.', userTurnOrdinal: 1 } }))).status, 200);
+  await waitForPurpose(() => f.calls.length === 2);
+  analysis.resolve(); await entered.promise;
+  assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false);
+  callbacks.onCompletion({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: 'off-reply',
+    content: 'What should the project improve?', userTurnOrdinal: 1, scope: 'off' });
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
+  await published.promise;
+  assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, true);
+  assert.equal(f.assessments.length, 1, 'scope wake starts no replacement assessment');
+  assert.doesNotMatch(f.storage.get(f.session.id).understanding.summary, /soup/iu);
 });

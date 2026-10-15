@@ -348,6 +348,12 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
 
         // At 400 px the dialog fits the viewport, scrolls inside, and hover moves nothing.
         await page.setViewport({ width: 400, height: 800 });
+        // setViewport resolves before resize/ResizeObserver paints the phone dock.
+        // Measure the settled viewport, then keep the exact no-shift assertion.
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
         const workspace = await shadowRect(page, '.workspace', { document: true });
         await page.click('aithema-session >>> .settings-open');
         await waitForShadow(page, 'dialog.settings[open] [data-select="model"] [role=option]');

@@ -16,17 +16,17 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, retainUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, retainUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
   supersede(id) {
     const session = this.getSession(id), revision = inputRevision(session);
     for (const flight of this.#flights.values()) if (flight.id === id &&
-      (flight.revision !== revision || flight.selection !== this.selection(session, flight.lane))) {
+      (flight.revision !== revision && !(flight.lane === 'understanding' && this.retainUnderstanding(flight.session, session, true)) || flight.selection !== this.selection(session, flight.lane))) {
       flight.controller.abort(new DOMException('Input superseded', 'AbortError'));
     }
   }
@@ -57,7 +57,7 @@ export class SessionLanes {
     const scope = operationScope({ signal: controller.signal, deadlineAt });
     const current = () => {
       const latest = this.getSession(id);
-      return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && inputRevision(latest) === revision &&
+      return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
         this.selection(latest, lane) === selection;
     };
     const options = { signal: scope.signal, deadlineAt };
@@ -85,13 +85,16 @@ export class SessionLanes {
           try { raw = await untilCancelled((admitted?.plugin ?? binding).structured(request, admitted?.options ?? options), scope.signal); }
           catch (error) { failed = true; throw error; }
           finally { admitted?.finish({ failed }); }
+          // An already admitted project assessment may outlive off-topic redirects.
+          // Wait for their classification before accepting its original input.
+          if (this.settleUnderstanding) await untilCancelled(this.settleUnderstanding(session, options), scope.signal);
           if (!current()) return 'stale';
           if (!matchesSchema(raw, understandingSchema(session.preset))) throw new TypeError('Invalid understanding output');
           const data = { ...reduceUnderstanding(this.getSession(id).understanding, raw, {
-            transcript: activeTurns(this.getSession(id)), inputRevision: revision, locale: session.locale,
+            transcript: activeTurns(session), inputRevision: revision, locale: session.locale,
             draft, actor: this.getSession(id).actor, preset: session.preset,
           }), ...producer(admitted, admitted?.plugin ?? binding) };
-          if (!this.publish(id, 'understanding.updated', data, revision)) return 'stale';
+          if (!this.publish(id, 'understanding.updated', data, revision, undefined, session)) return 'stale';
           // Verify persisted state before a final result is reported.
           if (!current() || this.getSession(id).understanding.inputRevision !== revision) return 'stale';
         }
@@ -182,7 +185,7 @@ export class SessionLanes {
       }
       return 'completed';
     };
-    const flight = { id, lane, revision, selection, controller, revoked: false, promise: null };
+    const flight = { id, lane, session, revision, selection, controller, revoked: false, promise: null };
     const promise = Promise.resolve().then(work).finally(() => {
       scope.dispose(); signal?.removeEventListener('abort', abort);
       if (this.#flights.get(key) === flight) this.#flights.delete(key);

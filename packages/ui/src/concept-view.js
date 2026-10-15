@@ -36,7 +36,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
-  #canvasEpoch = 0; #canvasCopy;
+  #canvasEpoch = 0; #canvasCopy; #stageFeature;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
   setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); }
   #paintCopy() {
@@ -135,6 +135,7 @@ export class ConceptView {
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
   update(session) {
     const changedOwner = this.#session && this.#session.id !== session.id;
+    if (changedOwner) this.#stageFeature = undefined;
     this.#session = session;
     const valid = new Set((session.concepts ?? []).filter(c => !c.erased).map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
@@ -180,8 +181,13 @@ export class ConceptView {
     if (!this.#session) return;
     const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
+    if (!this.#session.paused) this.#stageFeature = this.feature();
     const words = conceptStateText({ copy: this.copy, status, feature: this.feature(), items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
-    if (text.textContent !== words) text.textContent = words;
+    // Tick L1: pausing gates actions, but keeps the stage's pre-pause words.
+    // Consent withdrawal and erasure still clear dependent presentation normally.
+    if (!this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) {
+      if (text.textContent !== words) text.textContent = words;
+    }
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;
       countdown.textContent = estimate.overdue ? this.copy.conceptOverdue : this.copy.conceptCountdown.replace('{seconds}', estimate.seconds);
@@ -292,13 +298,14 @@ export class ConceptView {
     const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
-    const line = draftsLine({ copy: this.copy, cost: this.#session?.conceptCost, feature });
+    const line = draftsLine({ copy: this.copy, cost: this.#session?.conceptCost,
+      feature: this.#session?.paused && !this.#session.consentWithdrawn && !this.#session.tombstone ? this.#stageFeature ?? feature : feature });
     const costCopy = line.action ? this.copy.display.draftsCost.replace('{credits}', new Intl.NumberFormat(this.#session.locale).format(Math.ceil(this.#session.conceptCost.maxMicro / 10_000))) : '';
     const request = this.root.querySelector('.concept-request');
     this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(this.#session?.conceptStatus?.phase);
     request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? `${this.copy.conceptRetry} · ${costCopy}` : line.text;
     request.hidden = !line.action;
-    request.disabled = this.#busy || pending || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
+    request.disabled = this.#busy || pending || !feature.available || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = `${this.copy.conceptRegenerate} · ${costCopy}`;
     regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {

@@ -27,7 +27,7 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, settingsFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
-import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
@@ -81,7 +81,7 @@ export class AithemaSession extends HTMLElement {
   #deferredAnalysis = null; #analysisRecovery = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
-  #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
+  #introOrb = null; #reveal = null; #fold; #phoneViewport; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
@@ -113,7 +113,7 @@ export class AithemaSession extends HTMLElement {
     this.#postCallMatrix = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
-    this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
+    this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#phoneViewport?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -150,7 +150,7 @@ export class AithemaSession extends HTMLElement {
     this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), { product: 'Aithema 2026.10', ...this.#options.host?.version }, { locale: this.#session.locale });
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
-    this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
+    this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
     this.#observePanes(); this.#syncReconciling();
@@ -160,7 +160,7 @@ export class AithemaSession extends HTMLElement {
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#questionCard?.destroy();
-    this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
+    this.#phoneViewport?.destroy(); this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     clearTimeout(this.#creditEndTimer); this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     this.#pings?.close(); this.#pings = null;
@@ -206,7 +206,7 @@ export class AithemaSession extends HTMLElement {
       setText(root.querySelector('.send .visually-hidden'), copy.send);
       setText(root.querySelector('.settings-open span'), copy.settings.open); root.querySelector('.settings-open').title = copy.settings.open;
       root.querySelector('.scale').setAttribute('aria-label', `${copy.talk} — ${copy.build}`);
-      this.#rail.copy = copy; this.#rail.render();
+      this.#rail.copy = copy; this.#renderVoice();
       this.#dialog.setCopy(copy); this.#connector?.setCopy(copy); this.#concept.setCopy(copy); this.#host?.setCopy(copy);
       this.#mountReveal();
       this.#paint('features'); this.#paint('transcript'); this.#paint('aside'); this.#paint('composer');
@@ -245,7 +245,7 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div><div class="voice-notices"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
-        <div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="purpose-pause-copy" role="status" hidden></div>
+        <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
@@ -436,13 +436,17 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
+    this.#phoneViewport = new PhoneComposerViewport(root, { followsTranscript: () => this.#follow, onNoticesChange: () => {
+      // A last-item notice follows like a message; reading older turns never moves.
+      if (this.#follow && !this.#fold.folded) this.#scrollToLatest();
+    } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
     this.#observePanes();
     this.#rail.motion = this.#motion;
     this.#mountReveal(version);
     // Recompute with the assigned rail, visible command and host credit surface.
-    this.#rail.render();
+    this.#renderVoice();
   }
   #mountReveal(version = { product: 'Aithema 2026.10', ...this.#options.host?.version }) {
     const root = this.shadowRoot;
@@ -569,12 +573,15 @@ export class AithemaSession extends HTMLElement {
     // Bottom slack first fills any spare space, then adds scroll room; measure until it holds.
     for (let round = 0; round < 4; round++) {
       const delta = node.getBoundingClientRect().top - top;
-      if (Math.abs(delta) < .5) return;
+      if (Math.abs(delta) < .5) break;
       const target = pane.scrollTop + delta, max = pane.scrollHeight - pane.clientHeight;
       if (target < 0) slack.top += -target;
       else if (target > max) slack.bottom += target - max + (max < 1 ? spareSpace(pane) : 0);
       apply(); pane.scrollTop = Math.max(0, target);
     }
+    // The phone notice observer runs after this render. Its reading position
+    // must include the pointer anchor's compensation for changed transcript rows.
+    if (pane.matches('.transcript-shell')) this.#phoneViewport?.recordTranscriptAnchor();
   }
   #headers(headers = {}) {
     return { ...headers, ...(this.#sessionToken ? { 'x-aithema-session-token': this.#sessionToken } : {}) };
@@ -645,7 +652,7 @@ export class AithemaSession extends HTMLElement {
     const exported = this.shadowRoot.querySelector('.export'), device = this.#session.processingPreset === 'device';
     if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
     else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
-    if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#rail.render(); } }
+    if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {
     const sessionId = this.#session.id;
@@ -673,7 +680,7 @@ export class AithemaSession extends HTMLElement {
       this.#session.featureMatrix = ack.featureMatrix; this.#session.engine = ack.engine;
     }
     this.#renderMode();
-    this.#render('features'); this.#render('composer'); this.#render('aside'); this.#render('transcript'); this.#rail.render();
+    this.#render('features'); this.#render('composer'); this.#render('aside'); this.#render('transcript'); this.#renderVoice();
   }
   #modeChanged(before) {
     if (this.#session.processingPreset === 'device') { this.#abort?.abort(); this.#abort = null; }
@@ -760,6 +767,7 @@ export class AithemaSession extends HTMLElement {
       if (sessionId === this.#session.id) { this.#render('aside'); this.#render('composer'); }
     }
   }
+  #renderVoice() { this.#anchored(() => this.#rail.render()); }
   #render(part) {
     if (['features', 'transcript', 'aside'].includes(part)) { this.#anchored(() => this.#paint(part)); return; }
     this.#paint(part);
@@ -779,6 +787,9 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     start.removeAttribute('aria-description');
+    // The session pause speaks once in the composer, including an idle rail.
+    const railState = root.querySelector('.voice-state');
+    if (this.#session.paused && [this.#copy.paused, this.#copy.voiceStates.paused].includes(railState.textContent)) railState.textContent = '';
     if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
       const command = rail.button('pause'); pause.dataset.voiceCommand = '';
       // Waiting can stay Waiting while a takeover receipt changes its command.
@@ -942,8 +953,8 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
-      : stale ? copy.stale : u.draft ? copy.draft : copy.final;
+    if (!this.#host?.usedUp && (this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) root.querySelector('.notice').textContent = !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
@@ -1392,7 +1403,7 @@ export class AithemaSession extends HTMLElement {
     if (gone && button) {
       // Focus stays where it was: on the row, never dropped to the page.
       const focused = this.shadowRoot.activeElement === button;
-      button.remove(); if (focused) row.focus();
+      button.remove(); if (focused) row.focus({ preventScroll: true });
     }
   }
   #uploadWithdrawButton(row, uploadId) {
@@ -1599,7 +1610,8 @@ export class AithemaSession extends HTMLElement {
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
-  receive(event) {
+  receive(event) { this.#anchored(() => this.#receive(event)); }
+  #receive(event) {
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.seq) {
       if (event.seq <= this.#cursor) return;
@@ -1714,7 +1726,7 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
     }
-    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#rail.render();
+    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
   async #refreshFeatures() {
     if (this.#session.processingPreset === 'device') return;
@@ -1735,7 +1747,7 @@ export class AithemaSession extends HTMLElement {
       if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
       void this.#resumeDeferredAnalysis();
       this.#rail.reconcileAdmission();
-      this.#renderMode(); this.#rail.render(); this.#concept.update(this.#session); this.#dialog?.sync();
+      this.#renderMode(); this.#renderVoice(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }

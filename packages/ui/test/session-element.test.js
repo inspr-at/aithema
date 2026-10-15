@@ -894,7 +894,7 @@ test('screen readers get the AI notice once, as the last description of every co
   }
   assert.equal(root.querySelectorAll('#ai-notice').length, 1);
   const css = root.querySelector('style').textContent;
-  const foot = css.slice(css.lastIndexOf('.display-foot {'), css.indexOf('}', css.lastIndexOf('.display-foot {')));
+  const foot = css.match(/\.display-foot\s*\{[^}]*position:fixed;[^}]*\}/u)?.[0] ?? '';
   assert.match(foot, /position:fixed;/u); assert.match(foot, /bottom:0;/u);
   const rule = [...css.matchAll(/\.ai-notice \{([^}]+)\}/gu)].map(match => match[1]).find(rule => rule.includes('min-height:44px;'));
   assert.ok(rule, 'the standing notice keeps its full-size target; responsive font rules do not replace it');

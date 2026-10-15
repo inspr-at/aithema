@@ -50,6 +50,7 @@ export const browserShards = [
     'test/browser/admin-pages.test.js',
     'test/browser/footer-width-sweep.test.js',
     'test/browser/host-surface.test.js',
+    'test/browser/pause-phone.test.js',
   ],
 ];
 

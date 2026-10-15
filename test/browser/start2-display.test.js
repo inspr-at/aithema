@@ -672,10 +672,24 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
       await page.evaluate(async () => { await document.fonts.ready; }); await settle();
       const before = await layoutBoxes(page, selectors);
+      const sameNoticeBoxes = (after, context) => {
+        if (width !== 390) { sameBoxes(before, after, context); return; }
+        // AIT-188: the last phone item sizes to its current contents. The band,
+        // stage, transcript viewport, dock and notice origin still move 0px.
+        assert.deepEqual(after.filter((_, i) => i !== 2), before.filter((_, i) => i !== 2), context);
+        assert.deepEqual(after[2].slice(0, 3), before[2].slice(0, 3), `${context}: notice origin moves 0px`);
+      };
       const noticeLayout = async state => {
         const after = await layoutBoxes(page, selectors);
-        assert.deepEqual(after[2], before[2], `${label}: ${state} preserves the notice reservation`);
-        assert.equal(after[2][3], width === 390 ? 156 : 108, `${label}: original reserved height`);
+        if (width === 390) {
+          const heights = { 'lone-restored':24, unconfirmed:68, 'known-position':24, 'incomplete-button':112,
+            'lone-incomplete':88, 'unacknowledged-reply':112, 'all-notices':156, cleared:0 };
+          assert.equal(after[2][3], heights[state], `${label}: ${state} occupies exactly its visible rows`);
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').lastElementChild.className), 'voice-notices');
+        } else {
+          assert.deepEqual(after[2], before[2], `${label}: ${state} preserves the notice reservation`);
+          assert.equal(after[2][3], 108, `${label}: original reserved height`);
+        }
         const belowShifts = after.slice(3).flatMap((box, i) => box.map((value, n) => value - before[i + 3][n]));
         assert.ok(belowShifts.every(shift => shift === 0), `${label}: ${state} shifts the content below by 0px`);
         const layout = await shadow(page, c => {
@@ -705,13 +719,13 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       };
       await recovered({});
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--recovered').textContent), copy.voiceRecovered);
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: restored notice reserves its space`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: restored notice reserves its space`);
       const loneRestored = await noticeLayout('lone-restored');
       assert.equal(loneRestored.rows.length, 1, 'only the visible notice occupies a row');
       await shot('restored', label);
       await recovered({ userUnconfirmed: true });
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--user').textContent), copy.voiceUserUnconfirmed);
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unconfirmed notice reserves its space`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: unconfirmed notice reserves its space`);
       await noticeLayout('unconfirmed');
       await shot('unconfirmed', label);
       const lastReplyText = await page.evaluate(() => globalThis.noticeReply);
@@ -719,7 +733,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply > span').textContent), '');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), copy.voiceRecovered);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: known position hides incomplete notice without layout shift`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: known position hides incomplete notice without layout shift`);
       await noticeLayout('known-position');
       await shot('known-position', label);
       await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
@@ -727,7 +741,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), wording.button);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').getAttribute('aria-haspopup')), 'dialog');
       assert.equal(await page.evaluate(() => globalThis.noticeReplays), 0, 'no automatic replay');
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: reply notice and button reserve their space`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: reply notice and button reserve their space`);
       assertButtonPosition(await noticeLayout('incomplete-button'));
       await shot('incomplete-button', label);
       // Isolate the reply row to check CSS packing independently of recovery's restored announcement.
@@ -741,7 +755,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').title), copy.voiceReplyUnavailable);
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unacknowledged reply reserves its space`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: unacknowledged reply reserves its space`);
       assertButtonPosition(await noticeLayout('unacknowledged-reply'));
       await shot('unacknowledged-reply', label);
       await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
@@ -756,7 +770,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       });
       for (const item of geometry) { assert.ok(item.inside && item.visible && item.textFits, `${label}: ${JSON.stringify(item)}`); }
       assert.ok(geometry.at(-1).width >= 44 && geometry.at(-1).height >= 44, '44px keyboard target');
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: all notices fit without layout shift`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: all notices fit without layout shift`);
       assertButtonPosition(await noticeLayout('all-notices'));
       await shot('all-notices', label);
       await shadow(page, c => {
@@ -799,7 +813,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       await push({ type: 'partial', role: 'user', turnId: 'next', text: 'Next utterance' }); await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), '');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
-      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: clearing does not shift layout`);
+      sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: clearing does not shift layout`);
       const cleared = await noticeLayout('cleared');
       assert.equal(cleared.rows.length, 0, 'cleared notices leave all reserved room below');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -808,7 +822,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       checks.push({ viewport: { width, height: width === 390 ? 844 : 900 }, locale, theme, geometry, layoutChecks, capture: 'viewport',
         restored: copy.voiceRecovered, unconfirmed: copy.voiceUserUnconfirmed, incomplete: wording.notice, repeat: wording.button,
         dialogTitle: wording.title, dialogExplanation: wording.note, dialogClose: wording.close, buttonHasPopup: 'dialog',
-        reservedHeight: width === 390 ? 156 : 108, belowShiftPx: 0, desktopButtonGapPx: width === 390 ? null : 12,
+        reservedHeight: width === 390 ? null : 108, phoneLastItem: width === 390, belowShiftPx: 0, desktopButtonGapPx: width === 390 ? null : 12,
         mobileButtonUnderText: width === 390, waitingTooltips: wording.tooltip, noAutoReplay: true, exactLastReply: true, modelCalls: 0, replayAdmissions: 0,
         incrementalReplayMicro: 0, noLayoutShift: true, announcedOnce: true, clearsNextTurn: true, keyboardAndAria: true, pass: true });
     });

@@ -130,3 +130,123 @@ export class FooterPopups {
     this.view?.removeEventListener('scroll', this.resize);
   }
 }
+
+/** Keep the phone dock in the visual viewport, including keyboards that resize
+ * only that viewport. Geometry comes from the existing band, footer and dock. */
+export class PhoneComposerViewport {
+  constructor(root, { onNoticesChange = () => {}, followsTranscript = () => true } = {}) {
+    this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
+    this.root = root; this.view = root.ownerDocument.defaultView;
+    this.paint = () => {
+      const view = this.view, viewport = view?.visualViewport;
+      const height = viewport?.height ?? view?.innerHeight ?? 0;
+      // Pinch zoom is a reading gesture; do not move controls while zooming.
+      if (viewport && viewport.scale !== 1) return;
+      const workspace = root.querySelector('.workspace');
+      // On phones the reserved voice notices belong to the scrolling content,
+      // leaving a usable transcript viewport above the fixed composer.
+      const phone = view?.matchMedia('(max-width:600px)').matches;
+      const notices = root.querySelector('.voice-notices');
+      const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
+      if (notices.parentNode !== parent) parent.append(notices);
+      if (!phone) notices.style.minHeight = '';
+      // Track the unobstructed phone viewport across resize-only keyboards too.
+      // Set the attribute before measuring: footer and transcript change together.
+      const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
+      const active = root.ownerDocument.activeElement === root.host ? root.activeElement : null;
+      const editing = active?.matches('textarea,input,[contenteditable="true"]') || active?.closest('.composer');
+      const width = view?.innerWidth, orientation = view?.screen.orientation?.angle;
+      if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing) {
+        this.fullHeight = Math.max(view?.innerHeight ?? height, height);
+        this.viewportWidth = width; this.viewportOrientation = orientation;
+      } else this.fullHeight = Math.max(this.fullHeight ?? 0, view?.innerHeight ?? height, height);
+      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && touch && editing && this.fullHeight - height >= 150));
+      const values = {
+        '--phone-height': height + (viewport?.offsetTop ?? 0),
+        '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
+        '--phone-band': root.querySelector('.band').getBoundingClientRect().height,
+        '--phone-footer': root.querySelector('.display-foot').getBoundingClientRect().height,
+        '--phone-dock': root.querySelector('.composer-dock').getBoundingClientRect().height,
+      };
+      for (const [key, value] of Object.entries(values)) {
+        // Folding hides the dock; keep its reservation so unfolding cannot
+        // briefly enlarge the transcript and clamp its saved scroll position.
+        if (key === '--phone-dock' && value === 0) continue;
+        workspace.style.setProperty(key, `${value}px`);
+      }
+    };
+    // focusout fires before activeElement changes; settle it in this frame.
+    this.focusOut = () => queueMicrotask(() => { if (this.connected) this.paint(); });
+    this.connect();
+  }
+  connect() {
+    this.connected = true;
+    this.root.addEventListener('focusin', this.paint);
+    this.root.addEventListener('focusout', this.focusOut);
+    this.view?.addEventListener('resize', this.paint);
+    this.view?.visualViewport?.addEventListener('resize', this.paint);
+    this.view?.visualViewport?.addEventListener('scroll', this.paint);
+    const Observer = this.view?.ResizeObserver;
+    this.observer?.disconnect();
+    if (Observer) {
+      this.observer = new Observer(this.paint);
+      for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
+    }
+    this.noticesObserver?.disconnect();
+    const Mutation = this.view?.MutationObserver;
+    if (Mutation) {
+      const notices = this.root.querySelector('.voice-notices'), shell = this.root.querySelector('.transcript-shell');
+      this.noticeHeight = notices.getBoundingClientRect().height;
+      this.noticeScrollTop = shell.scrollTop;
+      this.noticeScroll ??= () => {
+        this.noticeScrollTop = shell.scrollTop;
+        if (this.followsTranscript() && notices.style.minHeight) {
+          notices.style.minHeight = '';
+          // The next row must compare against the released height, not the
+          // reading reservation that just went away.
+          this.noticeHeight = notices.getBoundingClientRect().height;
+          this.onNoticesChange();
+        }
+      };
+      shell.addEventListener('scroll', this.noticeScroll, { passive:true });
+      this.noticesObserver = new Mutation(records => {
+        // Reflected hidden assignments also report idempotent renders. They
+        // are not new notices and must not move a row under the pointer.
+        const changed = records.some(record => record.type !== 'attributes' ||
+          record.oldValue !== record.target.getAttribute(record.attributeName));
+        // Both recovery notices and ordinary last-reply controls are last
+        // items on phones. Run after their render, without needing a pointer.
+        // Same-size label/text renders must not undo a transcript pointer anchor.
+        const height = notices.getBoundingClientRect().height;
+        if (changed && height !== this.noticeHeight && this.view.matchMedia('(max-width:600px)').matches) {
+          if (this.followsTranscript()) notices.style.minHeight = '';
+          else {
+            // Retain only the room a removed last item would clamp away while
+            // reading. Release it when the person next follows the bottom.
+            notices.style.minHeight = `${this.noticeHeight}px`;
+            shell.scrollTop = this.noticeScrollTop;
+          }
+          this.onNoticesChange();
+        }
+        this.noticeHeight = notices.getBoundingClientRect().height;
+        this.noticeScrollTop = shell.scrollTop;
+      });
+      this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] });
+    }
+    this.paint();
+  }
+  recordTranscriptAnchor() {
+    this.noticeScrollTop = this.root.querySelector('.transcript-shell').scrollTop;
+  }
+  destroy() {
+    this.connected = false;
+    this.root.removeEventListener('focusin', this.paint);
+    this.root.removeEventListener('focusout', this.focusOut);
+    this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
+    this.noticesObserver?.disconnect();
+    this.observer?.disconnect();
+    this.view?.removeEventListener('resize', this.paint);
+    this.view?.visualViewport?.removeEventListener('resize', this.paint);
+    this.view?.visualViewport?.removeEventListener('scroll', this.paint);
+  }
+}
