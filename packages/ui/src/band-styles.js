@@ -83,7 +83,7 @@ export const bandStyles = `
 .canvas-status { align-self:end; color:var(--aithema-muted); font-size:12.5px; margin:0; }
 .workspace[data-folded] { grid-template-columns:minmax(0,1fr); column-gap:0; }
 .workspace[data-stage="live"] .conversation { grid-template-rows:auto minmax(0,1fr) auto; }
-.display-foot { position:fixed; z-index:12; bottom:0; bottom:var(--phone-bottom,0px); left:0; right:0; padding:6px clamp(12px,2vw,28px);
+.display-foot { position:fixed; z-index:12; bottom:0; left:0; right:0; padding:6px clamp(12px,2vw,28px);
   background:var(--aithema-paper); border-top:1px solid var(--aithema-line);
   color:var(--aithema-muted); font-size:12.5px; }
 .display-foot__row { display:grid; grid-template-columns:minmax(max-content,1fr) auto minmax(max-content,1fr); gap:24px; align-items:center; white-space:nowrap; min-height:44px; }
@@ -175,6 +175,9 @@ export const bandStyles = `
 @media(width < ${FOOTER_WIDTHS.number}px) {
   .host-credits__unit, .engine-info .engine__value { display:none; }
   .host-credits__track { width:48px; }
+}
+@media(max-width:600px) {
+  .display-foot { bottom:var(--phone-bottom,0px); }
 }
 @media(max-width:599px) {
   .band { gap:6px 8px; padding-right:8px; }
