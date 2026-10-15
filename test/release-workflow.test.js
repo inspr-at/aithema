@@ -108,7 +108,7 @@ for (const mutation of ['archive', 'extra archive', 'manifest binding', 'consume
   });
 }
 
-test('release command attaches the tested assets with GITHUB_TOKEN and rejects a mutable result', t => {
+test('release command stages assets in a draft and removes releases whose immutability cannot be verified', t => {
   const cwd = mkdtempSync(join(tmpdir(), 'aithema-workflow-publish-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   mkdirSync(join(cwd, 'bin')); mkdirSync(join(cwd, 'dist/release'), { recursive: true });
@@ -116,21 +116,43 @@ test('release command attaches the tested assets with GITHUB_TOKEN and rejects a
   writeFileSync(join(cwd, 'bin/gh'), `#!${process.execPath}
 import('node:fs').then(fs => {
   fs.appendFileSync('calls.jsonl', JSON.stringify(process.argv.slice(2)) + '\\n');
-  if (process.argv[3] === 'view') console.log(process.env.TEST_IMMUTABLE);
+  if (process.argv[3] === 'view') {
+    if (process.env.TEST_IMMUTABLE === 'unsupported') {
+      console.error('Unknown JSON field: isImmutable');
+      process.exitCode = 1;
+    } else if (process.env.TEST_IMMUTABLE === 'failed') {
+      console.log('true');
+      process.exitCode = 1;
+    } else console.log(process.env.TEST_IMMUTABLE);
+  }
 });\n`, { mode: 0o755 });
   const step = releaseWorkflow().jobs.pack.steps.find(s => s.run?.includes('gh release create'));
   const env = { ...process.env, PATH: join(cwd, 'bin') + ':' + process.env.PATH,
     GH_TOKEN: 'test-placeholder', GITHUB_REF_NAME: 'v261015164601.0.0', GITHUB_REPOSITORY: 'inspr-at/aithema' };
   const run = immutable => execFileSync('bash', ['-e', '-o', 'pipefail', '-c', step.run],
     { cwd, env: { ...env, TEST_IMMUTABLE: immutable }, stdio: 'pipe' });
+  const calls = () => readFileSync(join(cwd, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   run('true');
-  const [create, view] = readFileSync(join(cwd, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(create, ['release', 'create', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY, '--verify-tag',
+  const [create, edit, view] = calls();
+  assert.deepEqual(create, ['release', 'create', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY, '--verify-tag', '--draft',
     '--title', env.GITHUB_REF_NAME, '--notes-file', 'release/notes.md', 'dist/release/a.tgz', 'dist/release/b.tgz',
     'dist/release/SHA256SUMS', 'dist/release/release-set.json', 'dist/release/consumer-evidence.json',
     'dist/release/consumer-package-lock.json', 'dist/release/deployment-pin.json']);
-  assert.deepEqual(view.slice(0, 3), ['release', 'view', env.GITHUB_REF_NAME]);
-  assert.throws(() => run('false'));
+  assert.deepEqual(edit, ['release', 'edit', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY, '--draft=false']);
+  assert.deepEqual(view, ['release', 'view', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY,
+    '--json', 'isImmutable', '--jq', '.isImmutable']);
+  assert.equal(calls().length, 3, 'an immutable release must not be deleted');
+  for (const immutable of ['false', 'null', '', 'unsupported', 'failed']) {
+    writeFileSync(join(cwd, 'calls.jsonl'), '');
+    assert.throws(() => run(immutable), error => {
+      assert.equal(error.status, 1);
+      assert.match(error.stderr.toString(), /release immutability not enabled — release removed, enable it and re-run/u);
+      return true;
+    });
+    assert.deepEqual(calls(), [create, edit, view,
+      ['release', 'delete', env.GITHUB_REF_NAME, '--repo', env.GITHUB_REPOSITORY, '--yes']],
+    `${immutable || 'empty'} status must remove the release after publishing and checking it`);
+  }
 });
 
 test('release refuses a tag whose commit is outside main before packing', () => {

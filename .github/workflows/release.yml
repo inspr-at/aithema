@@ -90,12 +90,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
             --title "$GITHUB_REF_NAME" --notes-file release/notes.md \
             dist/release/*.tgz dist/release/SHA256SUMS dist/release/release-set.json \
             dist/release/consumer-evidence.json dist/release/consumer-package-lock.json \
             dist/release/deployment-pin.json
-          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable')" = true
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          if ! immutable=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable') || [ "$immutable" != true ]; then
+            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+            echo "release immutability not enabled — release removed, enable it and re-run" >&2
+            exit 1
+          fi
       - name: Retain the tested set and portable consumer deployment
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
