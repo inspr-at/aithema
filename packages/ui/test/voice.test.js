@@ -1125,6 +1125,8 @@ test('AIT-186 F2: ledger and voice settlement paint exactly once, stale ledger i
   rail.settleLedger(ended);
   rail.settlement({ ...ended, terminal: { closureConfirmed: true, usage: { costEstimated: false } } });
   assert.equal(render.mock.callCount(), 1, 'one settlement repaint across ledger/voice duplicates');
+  rail.client.start = async () => ({ callId: 'next-ledger-call', providerSessionId: 'next-ledger-provider', events: voiceEvents(),
+    async setInput() {}, async setOutput() {}, async close() { this.events.end(); return { closureConfirmed: true }; } });
   await rail.start(); const paints = render.mock.callCount();
   rail.settleLedger(ended);
   assert.equal(render.mock.callCount(), paints, 'old ledger result cannot resurrect an ended rail');
