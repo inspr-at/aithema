@@ -118,6 +118,10 @@ for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'othe
     const runtime = createPluginRuntime({ storage, registry, consent,
       presets: { best: { plugins: [sim.manifest.id], bindings: { voice: binding },
         policy: { endpoints: [binding.endpoint] } } } });
+    if (variant === 'copied-start') {
+      await runtime.speakText({ session, turnId: 'reply' }).catch(() => {});
+      assert.equal(dispatched, 0, 'mock consent must never dispatch the real adapter');
+    }
     const offered = runtime.scopes(session, { feature: 'voice' });
     if (variant === 'genuine') {
       assert.equal(isLocalVoice(entry), true);
