@@ -7,7 +7,7 @@ export function createMockConsent(storage, now = Date.now) {
   return { ...ledger, describe(sessionId) {
     if (!sessionId) return { selected: [] };
     const session = storage.get(sessionId), grant = ledger.coverage({ sessionId });
-    return { selected: grant.covered && !session.consentWithdrawn && !session.tombstone &&
+    return { mock: true, selected: grant.covered && !session.consentWithdrawn && !session.tombstone &&
       grant.consentRevision === session.consentRevision && grant.expiresAt > now() ? ['mock-processing'] : [] };
   } };
 }

@@ -150,9 +150,25 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .done { justify-self:end; display:inline-flex; align-items:center; justify-content:center; gap:.6rem; min-width:7rem; padding:.6rem 1.1rem;
   border:1px solid color-mix(in srgb,var(--aithema-ink) 70%,transparent); border-radius:.9rem; color:var(--aithema-on-ink); font-weight:600;
   background:linear-gradient(145deg,color-mix(in srgb,var(--aithema-ink) 85%,var(--aithema-accent)),var(--aithema-ink)); }
+.consent-save-sizer { display:none; }
+.done.consent-save { display:grid; }
+.done.consent-save svg { grid-area:1/1; justify-self:start; }
+.done.consent-save[data-withdraw=true] svg { display:none; }
+.done.consent-save[data-withdraw=false] .done-label { padding-inline:1.6rem; }
+.consent-save .done-label, .consent-save .consent-save-sizer { grid-area:1/1; }
+.consent-save .consent-save-sizer { display:block; visibility:hidden; pointer-events:none; user-select:none; }
 .done:hover { background:var(--aithema-ink); }
 .general { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem; align-items:start; }
 .general section { display:grid; gap:.6rem; align-content:start; }
+.general .consent-editor { grid-column:1/-1; }
+.consent-items { border:0; padding:0; margin:0; display:grid; gap:1.2rem; }
+.consent-item { position:relative; isolation:isolate; display:grid; gap:.35rem; }
+.consent-item--target::before { content:''; position:absolute; inset:-.5rem; z-index:-1; border-radius:.6rem;
+  background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); pointer-events:none; }
+.consent-item label { display:flex; align-items:center; gap:.6rem; }
+.consent-item input { flex:none; width:20px; height:20px; accent-color:var(--aithema-accent); }
+.consent-item p, .consent-intro, .consent-withdrawal, .consent-status { margin:0; font-size:.8125rem; line-height:1.5; color:var(--aithema-muted); }
+.consent-status { min-height:1.5em; }
 .general h3 { font:400 1.25rem/1.2 var(--aithema-display); }
 .general button { justify-self:start; margin-left:-.85rem; }
 .status-line { font-size:.85rem; }

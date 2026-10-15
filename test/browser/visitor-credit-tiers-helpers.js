@@ -373,6 +373,10 @@ export async function visitorCreditMatrix(t, locales) {
           placeholder: r.querySelector('textarea').placeholder };
       });
       const afterCall = locale === 'de' ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call';
+      assert.equal(await shadow(page, c => c.session.understanding.readinessAssessed), false, 'the held-call fixture has no assessment');
+      assert.equal(await shadow(page, c => c.session.featureMatrix.best.analysis.reason), 'budget denied');
+      // AIT-197 R4: this unavailable analysis has a budget reason. Its visitor
+      // wording wins over the no-details fallback, even before an assessment.
       assert.deepEqual(heldCopy, { composerHint: afterCall, panelStatus: afterCall, placeholder: locale === 'de' ? 'Sprechen Sie einfach weiter.' : 'Just keep talking.' }, `${label}/full-hold-call: visitor copy`);
       passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held, ...heldCopy });
       await shot('full-hold-call');

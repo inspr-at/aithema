@@ -164,6 +164,11 @@ test('start2 drafts run at milestones in the background; conversation and select
   await turn('ordinary', 'We need repair requests for our housing cooperative.'); await handlers.idle();
   assert.equal(calls.length, 0); assert.equal((await runtime.matrix(storage.get(session.id))).best.text.available, true);
   assert.equal((await runtime.matrix(storage.get(session.id))).best.html.available, false);
+  assert.equal((await runtime.matrix(storage.get(session.id))).best.analysis.available, true, 'V1: models-international authorizes analysis without drafts consent');
+  assert.equal(storage.get(session.id).understanding.readinessAssessed, true, 'V1: an in-scope turn produces an overview with only models consent');
+  const document = await (await call('consent')).json();
+  assert.deepEqual(document.features.analysis, ['models-international']);
+  assert.deepEqual(document.features.html, ['drafts-anthropic']);
   const settings = await (await call('settings', { processingPreset: 'best', baseRevision: storage.get(session.id).settings.revision })).json();
   assert.equal(settings.consent.required, false, 'optional drafts never redirect conversation setup to consent');
   assert.deepEqual(settings.consent.features, ['html']);

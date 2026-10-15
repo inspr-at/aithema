@@ -125,3 +125,13 @@ function reviewed(cost) {
   return Boolean(cost) && Number.isFinite(cost.inputMicro) && Number.isFinite(cost.outputMicro) &&
     typeof cost.reviewedAt === 'string' && Number.isFinite(Date.parse(cost.reviewedAt));
 }
+
+/** The same prospective withdrawal decision in the editor and the server.
+ * Voice and visuals have separate grants; removing conversation processing ends it.
+ */
+export function consentSaveEndsConversation(document, items) {
+  const previous = document.selected ?? [];
+  if (!previous.length) return false;
+  const conversation = [...(document.features?.text ?? []), ...(document.features?.analysis ?? [])];
+  return !items.length || conversation.some(id => previous.includes(id) && !items.includes(id));
+}

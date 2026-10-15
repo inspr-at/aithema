@@ -695,6 +695,7 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
 
 test('a reconnect re-reads feature verdicts, so a host restart that dropped consent shows it (D6)', async () => {
   const c = setup(), originalFetch = globalThis.fetch; let streams = 0, refreshed = 0;
+  turn(c, 'reconnect-project', 'We need a website.');
   const session = c.session;
   globalThis.fetch = async (url, options = {}) => {
     if (url.endsWith('/events')) {
@@ -717,7 +718,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
-    assert.equal(root.querySelector('.notice').textContent, en.reasons['current processing consent required']);
+    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent · Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });
@@ -937,6 +938,35 @@ for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpos
   assert.equal(root.querySelector('.summary-text').textContent, summary);
 });
 
+for (const copy of [de, en]) for (const draft of [false, true]) test(`AIT-197 R4 ${copy.display.locale}: running analysis preserves ${draft ? 'draft' : 'stale'} assessment`, () => {
+  const c = setup(); turn(c, 'first', 'We need a website.');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  turn(c, 'second', 'For our customers.');
+  if (draft) c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c, true) });
+  const session = c.session;
+  session.operations = { inputRevision: inputRevision(session), running: ['understanding'], lastFailure: null };
+  c.configure({ session, copy });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.notice').textContent, draft ? copy.draft : copy.stale);
+  assert.notEqual(root.querySelector('.notice').textContent, copy.preparingOverview);
+  assert.equal(root.querySelector('.summary-text').textContent, '<script>untrusted</script>');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => !n.hidden));
+});
+for (const copy of [de, en]) for (const reason of ['not configured', 'budget denied', 'verification required', 'current processing consent required']) test(`AIT-197 R4 ${copy.display.locale}: no assessment preserves reason ${reason}`, () => {
+  const c = setup(); turn(c, 'first', 'We need a website.');
+  const session = c.session;
+  session.featureMatrix.best.analysis = { available: false, reason };
+  c.configure({ session, copy });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.notice').textContent, reason === 'current processing consent required'
+    ? `${copy.featureConsent.analysis} · ${copy.featureConsent.action}` : copy.reasons[reason]);
+  assert.equal(root.querySelector('.notice button') !== null, reason === 'current processing consent required');
+  assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), reason !== 'current processing consent required', 'the consent action stays interactive');
+  assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
+  assert.equal(root.querySelector('.retry').hidden, true);
+});
+
 test('AIT-198 inline overview Retry keeps its node and keyboard focus across live renders', async t => {
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => new Response(new ReadableStream({ start(controller) {
     options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } })));
@@ -1033,4 +1063,17 @@ test('AIT-198 an ended facade call can expose a genuinely stuck missing reply', 
   assertNoFailedOverview(c, 'accepted facade input is still pending');
   c.receive({ type: 'voice.state', data: { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'ended' } });
   assertInlineRetry(c, 'authoritative call end releases the pending facade reply');
+});
+
+// The merged consent and failure vocabulary must stay available in both locales.
+test('AIT-197 R5 DE/EN copy has identical recursive key sets', () => {
+  const keys = (value, prefix = '') => Object.entries(value).flatMap(([key, entry]) => {
+    const path = `${prefix}${key}`;
+    return entry && typeof entry === 'object' ? keys(entry, `${path}.`) : [path];
+  });
+  assert.deepEqual(keys(de).sort(), keys(en).sort());
+  for (const copy of [de, en]) for (const key of ['noProjectDetails', 'preparingOverview', 'understandingFailed', 'understandingRetry']) {
+    assert.equal(typeof copy[key], 'string');
+    assert.ok(copy[key].length > 0);
+  }
 });

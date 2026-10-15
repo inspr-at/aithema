@@ -143,7 +143,8 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             panelStatus: c.shadowRoot.querySelector('.notice').textContent,
             mic: c.shadowRoot.querySelector('.voice-input').title, speaker: c.shadowRoot.querySelector('.voice-output').title,
           }));
-          assert.deepEqual(oldTab, { composerHint: copy.voiceInAnotherTab, panelStatus: copy.voiceInAnotherTab,
+          assert.equal(await shadow(target, c => c.session.transcript.filter(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn).length), 0, 'this takeover has no person input yet');
+          assert.deepEqual(oldTab, { composerHint: copy.voiceInAnotherTab, panelStatus: copy.empty,
             mic: copy.voiceResumeHereFirst, speaker: copy.voiceResumeHereFirst });
         }
         const file = `ait-138-d-${name}-${label}.png`; files.push(file);

@@ -100,3 +100,51 @@ test('processing consent describe omits expired, withdrawn and mismatched revisi
     at = 1; storage.reviseConsent(session.id, false); assert.deepEqual(consent.describe(session.id).selected, []);
   } finally { storage.close(); }
 });
+
+test('AIT-197: real ElevenLabs plus model scopes map voice, and partial removal preserves the conversation', async t => {
+  const { createVoiceHost } = await import('../start2-voice-host.js');
+  const { stubAgentApi } = await import('../../test/fixtures/voice-self-heal-host.js');
+  const { createVoiceProvider } = await import('../../packages/server/src/voice-provider.js');
+  const { createPluginRuntime, createHandlers } = await import('../../packages/server/src/index.js');
+  const { createOpenRouterReasoning } = await import('../../plugins/openrouter/src/index.js');
+  const { PluginRegistry } = await import('../../packages/core/src/index.js');
+  const { ownedRequest, testToken } = await import('../../test/helpers.js');
+  const { demoPresets } = await import('../choices.js');
+  const storage = new SQLiteStorage(), api = stubAgentApi();
+  const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://fixture.test',
+    apiBaseUrl: api.endpoint, fetchImpl: api.fetchImpl, resolveSecret: () => 'fixture-secret', values: {}, log() {} });
+  t.after(async () => { await host.close(); storage.close(); });
+  const { normalizeElevenLabsDurationBinding } = await import('../../plugins/elevenlabs/src/config.js');
+  const { createDurationBinding } = await import('../../packages/server/src/voice-binding.js');
+  const binding = createDurationBinding(normalizeElevenLabsDurationBinding(host.binding));
+  const voice = createVoiceProvider({ storage, staticFacade: true, resolveSecret: () => 'fixture-secret', fetchImpl: api.fetchImpl,
+    binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef, apiBaseUrl: binding.endpoint,
+      upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+      reservationSeconds: binding.reservationSeconds } });
+  const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/gpt-4.1-mini',
+    AITHEMA_OPENROUTER_PRICES: '{"openai/gpt-4.1-mini":{"prompt":0.000001,"completion":0.000002}}' });
+  const reasoning = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices,
+    resolveSecret: () => 'fixture-secret', fetchImpl: async () => assert.fail('mapping must not dispatch reasoning') });
+  const consent = createProcessingConsent({ storage, bindings: [configured.reaction, configured.understanding, binding], voiceConfigured: true });
+  const presets = demoPresets({ provider: 'openrouter', reaction: configured.reaction, understanding: configured.understanding,
+    voicePlugin: voice, voiceBinding: binding, policy: { endpoints: [configured.reaction.endpoint, binding.endpoint] } });
+  const runtime = createPluginRuntime({ storage, reasoning, consent, presets, registry: new PluginRegistry().register(reasoning).register(voice) });
+  const handlers = createHandlers({ storage, reasoning, consent, pluginRuntime: runtime }); t.after(() => handlers.close());
+  const session = storage.create({ ownerToken: testToken, settings: { voice: 'elevenlabs', model: presets.best.choices.defaults.model } });
+  const read = () => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`));
+  const doc = await (await read()).json();
+  assert.deepEqual(doc.features.voice, ['voice-elevenlabs', 'models-international']);
+  const grant = items => { consent.grant({ sessionId: session.id, consentRevision: storage.get(session.id).consentRevision + 1, decision: { contract: doc.contract, items } }); storage.reviseConsent(session.id, true); };
+  grant(['models-international', 'voice-elevenlabs']);
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, { method: 'POST',
+    body: JSON.stringify({ granted: true, processing: { contract: doc.contract, items: ['models-international'] } }) }));
+  assert.equal(response.status, 200); assert.equal(storage.get(session.id).consentWithdrawn, false);
+  assert.deepEqual((await (await read()).json()).selected, ['models-international']);
+  const matrix = await runtime.matrix(storage.get(session.id));
+  assert.equal(matrix.best.voice.available, false); assert.equal(matrix.best.text.available, true);
+  grant(['models-international', 'voice-elevenlabs']);
+  const hiddenWithdrawal = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, { method: 'POST',
+    body: JSON.stringify({ granted: true, intent: 'settings-save', processing: { contract: doc.contract, items: ['voice-elevenlabs'] } }) }));
+  assert.equal(hiddenWithdrawal.status, 409, 'the same server predicate requires explicit withdrawal when model consent is removed');
+  assert.equal(storage.get(session.id).consentWithdrawn, false, 'the refused save has no side effects');
+});
