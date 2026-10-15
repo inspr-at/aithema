@@ -46,7 +46,11 @@ export const en = {
   conceptFree: 'No cost (local fake)', conceptCost: 'Up to {micro} micro-units',
   conceptGuidance: ['Simpler layout', 'More contrast', 'More whitespace', 'Warmer colours', 'Clearer hierarchy', 'Keep this direction'],
   // Host catalog names (models, voices, visuals, vendors) in this language; a name without an entry shows as the host wrote it.
-  catalogLabels: {},
+  catalogLabels: { 'Mock reasoning': 'Mock reasoning', 'Swift (mock)': 'Swift (mock)', 'Deep (mock)': 'Deep (mock)',
+    'GPT-4.1 mini via OpenRouter': 'GPT-4.1 mini via OpenRouter', 'Fake voice (local agent)': 'Fake voice (local agent)',
+    'Fake HTML (local click-dummy)': 'Fake HTML (local click-dummy)', 'Claude HTML click-dummy': 'Claude HTML click-dummy',
+    'Fake images (local PNG)': 'Fake images (local PNG)', 'Demo only: fake HTML click-dummy (no provider)': 'Demo only: fake HTML click-dummy (no provider)',
+    'Anthropic via OpenRouter': 'Anthropic via OpenRouter', 'This host’s model': 'This host’s model' },
   // Clickable HTML drafts (AIT-113): the same rail and viewer, revised as the conversation goes on.
   conceptDraftView: 'Open clickable draft', conceptDraftTitle: 'Draft revision {number}', conceptDraftDownload: 'Download draft',
   conceptDraftRendering: 'Creating your clickable draft…', conceptDraftUpdating: 'Updating your draft with your latest answers…',
@@ -276,7 +280,7 @@ export const en = {
   export: 'Export conversation', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',
   reconnecting: 'Reconnecting…', sending: 'Saving…', saved: 'Saved', failed: 'Could not save. Retry your message.',
   understandingFailed: "The overview couldn't be built just now", understandingRetry: 'Try again',
-  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Start a conversation to see understanding here.',
+  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Your overview appears here after the first sentence.', noProjectDetails: 'No details about your project yet.', preparingOverview: 'Preparing your overview …',
   draft: 'Draft — a thorough assessment is being prepared.', stale: 'Updating — showing the last assessment.',
   final: 'Current assessment', notAssessed: 'Not yet assessed', talk: 'Ready to talk', build: 'Ready to build',
   talkProgress: '{percent}% conversation readiness', buildProgress: '{percent}% implementation readiness',
@@ -512,6 +516,8 @@ export const en = {
   },
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
   // Kept identical to the server's English legal fallback.
+  featureConsent: { images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
+    action: 'Give consent…', save: 'Save consent', withdraw: 'Withdraw and end conversation' },
   processingConsent: {
     intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',
@@ -561,7 +567,8 @@ export const en = {
     outbox: { open: 'Fake mail (demo only)', title: 'Demo only: fake mail outbox', note: 'Confirmation mail stays on this computer. Opening a link here confirms the address, as a real inbox would.',
       to: 'To {address}', confirm: 'Open confirmation link', used: 'Link already used', empty: 'No fake mail yet. Send a confirmation link first.',
       confirmed: 'Link opened. The email address is confirmed.', failed: 'The fake mail could not be loaded.', close: 'Close' },
-    labels: { 'Fake HTML — local deterministic click-dummy, no provider network': 'Test drafts (local click-dummy)',
+    labels: { 'Mock reasoning — deterministic demo': 'Mock reasoning — deterministic demo',
+      'Fake HTML — local deterministic click-dummy, no provider network': 'Test drafts (local click-dummy)',
       'Fake images — local deterministic PNG, no provider network': 'Test images (local PNG)' },
     theme: 'Appearance', themes: { light: 'Light', dark: 'Dark', system: 'System' },
     conversationFailed: 'Could not open the conversation. Reload to retry.',

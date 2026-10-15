@@ -16,10 +16,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {}, onUnderstandingDiagnostic = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {}, onUnderstandingDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic, onUnderstandingDiagnostic });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic, onUnderstandingDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -81,7 +81,8 @@ export class SessionLanes {
       if (lane === 'understanding') {
         if (this.purposePolicy && !this.canUnderstand(id, revision)) return 'deferred';
         if (session.identity?.verificationRequired === true && !session.identity.assessmentUnlocked) return 'verification-required';
-        if (understandingDeferred(session)) return 'deferred';
+        const assessmentInput = this.understandingInput(session);
+        if (!assessmentInput || understandingDeferred(assessmentInput)) return 'deferred';
         if (session.understanding.inputRevision === revision && !session.understanding.draft) return 'cached';
         // A distinct draft binding can retain the incremental path without paying
         // twice for the same model in the slice-1 host.
@@ -90,10 +91,10 @@ export class SessionLanes {
           const latest = this.getSession(id);
           if (draft && latest.understanding.inputRevision === revision && latest.understanding.draft) continue;
           const binding = draft ? this.draftReasoning : this.reasoning;
-          if (this.getSession(id).paused) return 'paused';
+          if (this.getSession(id).paused && !(this.purposePolicy && session.pauseReason === 'purpose')) return 'paused';
           if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, binding, revision, options), scope.signal)) return 'blocked';
           if (!current()) return 'stale';
-          const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt, { purposePolicy: this.purposePolicy }), schema: understandingSchema(session.preset) };
+          const request = { ...reasoningRequest({ ...latest, transcript: assessmentInput.transcript }, lane, draft, this.hostPrompt, { purposePolicy: this.purposePolicy }), schema: understandingSchema(session.preset) };
           diagnostic('started');
           let raw, admitted;
           for (let attempt = 0; attempt < 2; attempt++) {
@@ -101,7 +102,7 @@ export class SessionLanes {
               system: `${request.system}\nReturn only JSON matching this schema: ${JSON.stringify(request.schema)}` } : request;
             // Compatibility consumes one attempt and needs fresh admission,
             // current consent, price checks and its own terminal settlement.
-            admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request: input, options });
+            admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request: input, options: { ...options, purposeAssessment: Boolean(this.purposePolicy) } });
             flight.admitted = Boolean(admitted);
             let failed = false, retry = false;
             try {
@@ -122,7 +123,7 @@ export class SessionLanes {
           if (!current()) return 'stale';
           if (!matchesSchema(raw, understandingSchema(session.preset))) throw new TypeError('Invalid understanding output');
           const data = { ...reduceUnderstanding(this.getSession(id).understanding, raw, {
-            transcript: activeTurns(session), inputRevision: revision, locale: session.locale,
+            transcript: activeTurns(assessmentInput), inputRevision: revision, locale: session.locale,
             draft, actor: this.getSession(id).actor, preset: session.preset,
           }), ...producer(admitted, admitted?.plugin ?? binding) };
           if (!this.publish(id, 'understanding.updated', data, revision, undefined, session)) return 'stale';

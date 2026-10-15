@@ -189,7 +189,8 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 Tick UI: ${
     assert.equal(root.querySelector(selector).title, copy.voiceResumeHereFirst);
     assert.equal(root.querySelector(`${selector} .voice-label`).textContent, copy.voiceResumeHereFirst);
   }
-  for (const selector of ['.composer-reason', '.notice', '.status__label']) assert.equal(root.querySelector(selector).textContent, copy.voiceInAnotherTab);
+  for (const selector of ['.composer-reason', '.status__label']) assert.equal(root.querySelector(selector).textContent, copy.voiceInAnotherTab);
+  assert.equal(root.querySelector('.notice').textContent, copy.empty, 'no person turn keeps the overview placeholder, including a retired tab');
   assert.equal(root.querySelector('.status').hasAttribute('data-message'), false);
   assert.ok([...root.querySelectorAll('.status__sizer > span')].some(span => span.textContent === copy.voiceInAnotherTab));
   root.querySelector('.pause').click(); await tick(); await tick();
@@ -508,14 +509,15 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   const { rail, root } = fixture(t), label = root.querySelector('.voice-state'), wave = root.querySelector('.voice-wave'), caption = root.querySelector('.voice-caption');
   const observer = observers.find(o => o.targets.has(label));
   assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));
-  let lineWidths = [280], waveWidth = 500;
+  let lineWidths = [280], waveWidth = 500, inline = false;
   t.mock.method(label, 'getBoundingClientRect', () => ({ width: 440 }));
   t.mock.method(wave, 'getBoundingClientRect', () => ({ width: waveWidth }));
   t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 96 }));
   t.mock.method(document, 'createRange', () => {
     let selected;
     return { selectNodeContents(node) { selected = node; },
-      getClientRects: () => (selected === caption ? [80] : lineWidths).map(width => ({ width })) };
+      getClientRects: () => selected !== caption && inline ? [{ left: 80, right: 240, width: 160 }, { left: 240, right: 320, width: 80 }]
+        : (selected === caption ? [80] : lineWidths).map(width => ({ width, left: 220 - width / 2, right: 220 + width / 2 })) };
   });
   const buttons = [...root.querySelectorAll('button')];
   observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
@@ -523,6 +525,7 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   lineWidths = [440, 180]; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), true);
   waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
   lineWidths = [140, 200]; rail.render(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '100px', 'a text repaint also updates the hole when the capped box stays the same size');
+  inline = true; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '120px', 'the adjacent consent sentence and action share one clear mask');
   caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
   assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
   rail.disconnect(); assert.equal(observer.targets.size, 0);

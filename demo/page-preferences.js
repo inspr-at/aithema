@@ -39,6 +39,9 @@ export function paintUtilities(copy, document = globalThis.document) {
   }
   document.querySelector('#language-label').textContent = copy.host.language;
   const language = document.querySelector('#locale');
+  // The control names the visible screen, even when the next conversation
+  // preference differs from a running conversation's immutable language.
+  language.value = document.documentElement.lang;
   const languageValue = document.querySelector('#language-value'); if (languageValue) languageValue.textContent = language.value.toUpperCase();
   language.title = copy.host.language; language.closest('label').title = copy.host.language;
   const globe = document.querySelector('#language-icon'); if (globe) globe.innerHTML = icon('globe');

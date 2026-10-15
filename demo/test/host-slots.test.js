@@ -42,6 +42,26 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
     }
     for (const locale of ['en', 'de']) {
       const copy = locale === 'de' ? de : en;
+      await t.test(`AIT-197 R4: paused ${locale} reload and rejected language choice keep the header in the screen language`, async () => {
+        const configured = prepare(false, locale, { voiceMode: 'off' }, { paused: true, pauseReason: 'purpose' });
+        const next = locale === 'de' ? 'en' : 'de';
+        localStorage.setItem('aithema-demo-locale', next);
+        const component = document.querySelector('aithema-session');
+        component.changeLocale = async () => false;
+        await import(`../host.js?paused-language-${locale}`);
+        const check = () => {
+          assert.equal(document.documentElement.lang, locale);
+          assert.equal(document.querySelector('#language-value').textContent, locale.toUpperCase());
+          assert.equal(document.querySelector('#locale').value, locale);
+          assert.equal(document.querySelector('#language-note').textContent, copy.host.languageNext.replace('{language}', copy.host.languages[next]));
+          assert.equal(configured.at(-1).host.library, true);
+        };
+        check();
+        document.querySelector('#locale').value = next;
+        document.querySelector('#locale').dispatchEvent(new window.Event('change'));
+        await new Promise(resolve => setImmediate(resolve));
+        check();
+      });
       await t.test(`live provider host (demoHost:false, ${locale}): none of the demo copy is present`, async () => {
         const configured = prepare(false, locale);
         await import(`../host.js?slots-live-${locale}`);
