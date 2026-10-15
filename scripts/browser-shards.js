@@ -4,38 +4,44 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// AIT-191: slowest successful per-file observation in seconds across CI runs
-// 38692613866, 38701239296 and 38704006618 (attempt noted on each entry).
-// AIT-190's expanded pause matrix is remeasured in CI 38718269610.
+// AIT-191 baseline: slowest successful per-file observations across CI runs
+// 38692613866, 38701239296 and 38704006618. AIT-192 benchmark browser jobs:
+// 38714762515, 38715731356, 38716800511, 38717864470 and 38720349940 (attempt 1).
+// Round 2: all 24 files remeasured in 38726471579-1 after merging AIT-190.
+// New observations raise weights; slower historical observations remain.
+// Changed matrices use their slowest benchmark observation; unchanged files
+// retain a slower historical maximum. All weights round UP to 10-second planning
+// buckets; updated/slower observations reserve another 10s for run variance.
+// AIT-190 pause expansion retains its new main measurement (38718269610-1).
 // Sum top-level test durations only; nested subtests are already included.
-// These estimates exclude setup, file-process overhead and evidence upload.
+// Estimates exclude setup, file-process overhead and evidence upload. The final
+// layout is validated separately against the 450s whole-job wall budget.
 export const browserTestWeights = {
-  'test/browser/admin-pages.test.js': 46.687, // CI 38692613866-1
-  'test/browser/audio-replay.test.js': 30.572, // CI 38692613866-1
-  'test/browser/confirmation-design.test.js': 97.374, // CI 38692613866-1
-  'test/browser/consent-lines.test.js': 180, // AIT-197 initial conservative matrix weight; remeasure in CI
-  'test/browser/credit-hold.test.js': 48.490, // CI 38704006618-1
-  'test/browser/demo.test.js': 84.780, // CI 38704006618-1
-  'test/browser/email-ask.test.js': 224.498, // CI 38704006618-1
-  'test/browser/email-mail-space.test.js': 112.919, // CI 38704006618-1
-  'test/browser/footer-width-sweep.test.js': 12.829, // CI 38704006618-1
-  'test/browser/host-surface.test.js': 8.220, // CI 38704006618-1
-  'test/browser/html-preview.test.js': 35.666, // CI 38701239296-1
-  'test/browser/operator-login.test.js': 40.451, // CI 38704006618-1
-  'test/browser/orb-reveal.test.js': 87.600, // CI 38701239296-1
-  'test/browser/pause-phone.test.js': 148.431, // CI 38718269610-1, AIT-190 desktop matrix
-  'test/browser/question-card.test.js': 18.767, // CI 38704006618-1
-  'test/browser/safeguards.test.js': 8.407, // CI 38704006618-1
-  'test/browser/start-journey.test.js': 17.298, // CI 38704006618-1
-  'test/browser/start-look.test.js': 28.083, // CI 38704006618-1
-  'test/browser/start2-display-continuity.test.js': 122.791, // CI 38704006618-1
-  'test/browser/start2-display-geometry.test.js': 43.284, // CI 38704006618-2
-  'test/browser/start2-display-matrix.test.js': 176.803, // CI 38701239296-1
-  'test/browser/start2-display.test.js': 195.234, // CI 38704006618-2
-  'test/browser/tick-followups.test.js': 78.181, // CI 38704006618-1
-  'test/browser/visitor-credit-tiers-en.test.js': 144.541, // CI 38704006618-1
-  'test/browser/visitor-credit-tiers.test.js': 142.004, // CI 38704006618-1
-  'test/browser/voice-presentation.test.js': 70.395, // CI 38704006618-1
+  'test/browser/admin-pages.test.js': 80.000, // CI 38720349940-1 (rounded up + 10s margin)
+  'test/browser/audio-replay.test.js': 50.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/confirmation-design.test.js': 90.000, // CI 38726471579-1 (74.518s; rounded up + 10s margin)
+  'test/browser/consent-lines.test.js': 30.000, // mbp2606 d6c6a6c (16.756s; rounded up + 10s margin)
+  'test/browser/credit-hold.test.js': 70.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/demo.test.js': 90.000, // CI 38704006618-1 (rounded up)
+  'test/browser/email-ask.test.js': 130.000, // CI 38726471579-1 (115.313s; rounded up + 10s margin)
+  'test/browser/email-mail-space.test.js': 80.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/footer-width-sweep.test.js': 30.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/host-surface.test.js': 20.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
+  'test/browser/operator-login.test.js': 60.000, // CI 38717864470-1 (rounded up + 10s margin)
+  'test/browser/orb-reveal.test.js': 100.000, // CI 38726471579-1 (84.326s; rounded up + 10s margin)
+  'test/browser/pause-phone.test.js': 190.000, // CI 38726471579-1 (176.200s; rounded up + 10s margin)
+  'test/browser/question-card.test.js': 30.000, // CI 38726471579-1 (14.920s; rounded up + 10s margin)
+  'test/browser/safeguards.test.js': 20.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/start-journey.test.js': 30.000, // CI 38726471579-1 (13.488s; rounded up + 10s margin)
+  'test/browser/start-look.test.js': 40.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/start2-display-continuity.test.js': 60.000, // CI 38714762515-1 (rounded up + 10s margin)
+  'test/browser/start2-display-geometry.test.js': 50.000, // CI 38704006618-2 (rounded up)
+  'test/browser/start2-display-matrix.test.js': 70.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/start2-display.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/tick-followups.test.js': 90.000, // CI 38726471579-1 (73.781s; rounded up + 10s margin)
+  'test/browser/visitor-credit-tiers.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/voice-presentation.test.js': 90.000, // CI 38716800511-1 (rounded up + 10s margin)
 };
 
 export const browserShardCount = 4;
