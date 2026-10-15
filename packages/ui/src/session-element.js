@@ -1016,11 +1016,20 @@ export class AithemaSession extends HTMLElement {
     // invalidates old replies; that idle state has no missing work to retry.
     const stuck = missingReply && this.#session.pauseReason !== 'purpose' &&
       !running && !waiting && !this.#failure && (analysis.available || this.#session.paused);
+    const failures = operations?.inputRevision === revision ? operations.failures ?? [operations.lastFailure].filter(Boolean) : [];
+    const replyFailed = failures.some(f => f.lane === 'reaction');
+    const overviewFailed = failures.some(f => f.lane === 'understanding');
+    let replyNotice = root.querySelector('.reaction-failure');
+    if (!replyNotice) {
+      replyNotice = node('p', 'notice reaction-failure'); replyNotice.setAttribute('role', 'status');
+      root.querySelector('.transcript-shell ol').after(replyNotice);
+    }
+    replyNotice.hidden = !replyFailed; setText(replyNotice, replyFailed ? copy.reasoningFailed : '');
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
-      (this.#failure && this.#failureLane === 'understanding' || stuck) &&
+      (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
     const overviewText = !hasPersonTurn ? copy.empty : preparing ? copy.preparingOverview
-      : failedOverview ? `${copy.understandingFailed} · `
+      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ' · '}`
       : this.#failure && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed ? copy.noProjectDetails
@@ -1030,12 +1039,12 @@ export class AithemaSession extends HTMLElement {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
-    overviewRetry.hidden = !failedOverview;
+    overviewRetry.hidden = !failedOverview || replyFailed;
     overviewRetry.disabled = !analysis.available || Boolean(running);
-    setText(overviewRetry, failedOverview ? copy.understandingRetry : '');
+    setText(overviewRetry, failedOverview && !replyFailed ? copy.understandingRetry : '');
     // Keep the same Retry node across live renders, and leave the consent
     // slot with exactly its own action when no inline retry is shown.
-    if (failedOverview) {
+    if (failedOverview && !replyFailed) {
       if (overviewRetry.parentNode !== notice) notice.append(overviewRetry);
       root.querySelector('.retry').hidden = true;
     } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);

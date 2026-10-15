@@ -266,7 +266,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     const failedAttempt = before.attempts.at(-1);
     assert.equal(failedAttempt.state, 'settled');
     if (kind === '400') assert.equal(failedAttempt.settled_micro, 0, 'fully received 4xx without usage settles at zero');
-    else assert.ok(failedAttempt.settled_micro > 0, 'usage or conservative provider settlement recorded');
+    else assert.equal(failedAttempt.settled_micro, kind === 'failed' ? 100_000 : 802_567, 'exact usage or conservative provider settlement');
     // Restart real handlers and reopen SQLite before the client reconnects.
     await page.evaluate(() => fetch('/restart'));
     // A healthy fake on reconnect makes a silent rerun finish deterministically.
@@ -275,10 +275,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     await shadow(page, c => { c.remove(); document.body.append(c); });
     await connected;
     const after = await page.evaluate(async () => (await fetch('/stats')).json());
-    // Boot recovery may annotate existing receipt reconciliation metadata.
-    // Compare every admission/settlement field and call count independently of it.
-    const billing = stats => ({ providerCalls: stats.providerCalls,
-      attempts: stats.attempts.map(({ provider_cost_json, cost_reconciliation_json, ...attempt }) => attempt) });
+    const billing = stats => ({ providerCalls: stats.providerCalls, attempts: stats.attempts });
     assert.deepEqual(billing(after), billing(before), 'restart/reconnect makes zero provider calls, admissions or settlements');
     const creditsAfterReconnect = await credits();
     assert.deepEqual(creditsAfterReconnect, creditsAfterFailure, 'restart/reconnect never charges credits');
@@ -302,4 +299,63 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     console.log(`AIT-212 PASS ${locale} ${width} ${theme} ${kind}: credits ${creditsAfterFailure.availableMicro} = ${creditsAfterReconnect.availableMicro}; provider settlement ${failedAttempt.settled_micro} (${passes.at(-1).settlement}); restart/reconnect 0 calls/settlements; one Retry; explicit Retry 1 settled attempt`);
   }
   if (evidence) await writeFile(join(evidence, 'ait212-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+});
+
+test('AIT-212 two failures: one visible Retry recovers reply then overview once, in place at 0 px', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-two-failures-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), passes = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  for (const [locale, width] of [['de', 390], ['de', 1440], ['en', 1440]]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    await shadow(page, async (c, locale) => {
+      const session = await (await fetch('/two-failures?locale=' + locale)).json();
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      // Pin the production Chrome baseline stack for both evidence states.
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ session, copy }); window.twoFailureCopy = copy.reasoningFailed;
+    }, locale);
+    await settle(page);
+    const state = await shadow(page, c => ({
+      retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
+      reply: c.shadowRoot.querySelector('.transcript-shell .reaction-failure').textContent,
+      overview: c.shadowRoot.querySelector('.notice-text').textContent,
+      inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden,
+      expectedReply: window.twoFailureCopy,
+    }));
+    assert.equal(state.retries, 1); assert.equal(state.reply, state.expectedReply);
+    assert.equal(state.overview, locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden.' : "The overview couldn't be built just now.");
+    assert.equal(state.inlineHidden, true);
+    const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const before = await boxes(page, targets);
+    const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
+    if (evidence) await page.screenshot({ path: join(evidence, `ait212-two-failures-${locale}-${width}-light-before.png`), fullPage: false, captureBeyondViewport: false });
+    const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')),
+      shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
+    assert.equal(response.status(), 202);
+    await until(page, () => {
+      const c = document.querySelector('aithema-session');
+      return c.shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.' &&
+        !c.session.operations.running.length && !c.session.operations.failures.length;
+    });
+    await settle(page);
+    const statsAfter = await page.evaluate(async () => (await fetch('/stats')).json());
+    assert.deepEqual(statsAfter.lanes.slice(statsBefore.providerCalls), ['reaction', 'understanding'], 'one click attempts both lanes once, reply first');
+    assert.equal(statsAfter.attempts.length, statsBefore.attempts.length + 2);
+    assert.ok(statsAfter.attempts.slice(-2).every(attempt => attempt.state === 'settled'));
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), true);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
+    assert.deepEqual(await boxes(page, targets), before, 'both successful lanes settle in place at exactly 0 px');
+    if (evidence) await page.screenshot({ path: join(evidence, `ait212-two-failures-${locale}-${width}-light-after.png`), fullPage: false, captureBeyondViewport: false });
+    passes.push({ head: evidenceCommit, locale, width, theme: 'light', retries: 1, lanes: ['reaction', 'understanding'], attemptsPerLane: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true });
+    console.log(`AIT-212 TWO-FAILURES PASS ${locale} ${width} light: one Retry; reply then overview exactly once; both settled; 0 px`);
+  }
+  if (evidence) await writeFile(join(evidence, 'ait212-two-failures-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });

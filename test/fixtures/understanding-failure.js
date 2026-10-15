@@ -1,7 +1,7 @@
 // Real handlers, visitor wallet and ledger; the only provider is a controlled fake.
 import { readFile } from 'node:fs/promises';
 import { SQLiteStorage, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
-import { PluginRegistry } from '../../packages/core/src/index.js';
+import { PluginRegistry, inputRevision } from '../../packages/core/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
 import { createOpenRouterReasoning } from '../../plugins/openrouter/src/index.js';
 import { createDemoHost } from '../../demo/host-ports.js';
@@ -41,6 +41,13 @@ const call = (action, data) => handlers.handle(new Request(`http://fixture/api/s
 const root = new URL('../../', import.meta.url);
 const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
+  if (path === '/two-failures') {
+    success = true;
+    current = storage.create({ demo: true, ownerToken: owner, locale: u.searchParams.get('locale') ?? 'de' });
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
+    for (const lane of ['reaction', 'understanding']) storage.setLaneFailure(current.id, { inputRevision: inputRevision(storage.get(current.id)), lane });
+    return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
+  }
   if (path === '/fixture') {
     success = false; release = undefined;
     analysisEntered = new Promise(resolve => { enterAnalysis = resolve; });
@@ -59,7 +66,7 @@ const { server, url } = await listen(async request => {
   }
   if (path === '/stats') {
     await handlers.idle();
-    return Response.json({ providerCalls: kit.calls.length, attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });
+    return Response.json({ providerCalls: kit.calls.length, lanes: kit.calls.map(call => call.body.stream ? 'reaction' : 'understanding'), attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });
   }
   if (path === '/success') { success = true; return Response.json({ ok: true }); }
   if (path.startsWith('/api/')) return handlers.handle(new Request(request, { headers: { ...Object.fromEntries(request.headers), 'x-aithema-session-token': owner } }));

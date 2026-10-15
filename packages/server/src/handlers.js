@@ -93,7 +93,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   });
   const operations = session => ({ inputRevision: inputRevision(session),
     running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
-    // One visible Retry; recovering one lane reveals any other failed lane.
+    // Expose every current failure so each lane can explain its own failure.
+    failures: currentFailures(session),
     lastFailure: currentFailures(session).at(-1) ?? null });
   const snapshot = async id => {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -255,23 +256,26 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
     // An explicit Retry can recover a recorded lane even when ordinary
     // scheduling currently requests only understanding (for example active voice).
-    if (retry) requested = [...new Set([...requested, ...currentFailures(storage.get(id)).map(failure => failure.lane)])];
+    if (retry) requested = ['reaction', 'understanding'].filter(lane =>
+      requested.includes(lane) || currentFailures(storage.get(id)).some(failure => failure.lane === lane));
+    let previous;
     for (const lane of requested) {
       // Opening a stream is not consent to another paid attempt. Keep each
       // recorded current-revision lane failure until the existing Retry path.
       if (reconnect && currentFailures(storage.get(id)).some(failure => failure.lane === lane)) continue;
-      scheduleLane(id, lane, { wake });
+      scheduleLane(id, lane, { wake, after: retry ? previous : undefined });
+      if (retry) previous = jobs.get(`${id}:${lane}`)?.promise;
     }
     status(id);
   }
-  function scheduleLane(id, lane, { wake = false } = {}) {
+  function scheduleLane(id, lane, { wake = false, after } = {}) {
     const key = `${id}:${lane}`;
     if (stop.signal.aborted) return;
     const running = jobs.get(key);
     if (running) { if (wake) running.reschedule = true; return; }
     const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
-    job.promise = Promise.resolve().then(async () => {
+    job.promise = Promise.resolve(after).then(async () => {
       try {
         while (!stop.signal.aborted) {
           job.reschedule = false;
