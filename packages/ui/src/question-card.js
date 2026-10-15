@@ -12,6 +12,7 @@ export const questionCardStyles = `
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 36px);
     min-height:0; grid-template-rows:auto minmax(0,1fr); }
   .workspace[data-stage="live"] .transcript-shell { height:auto; min-height:0; }
+  .transcript-shell > .voice-notices { margin-top:8px; }
   .workspace[data-stage="live"] .composer-dock { position:fixed; z-index:9;
     left:var(--aithema-gutter); right:var(--aithema-gutter);
     bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }

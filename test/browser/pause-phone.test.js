@@ -112,6 +112,7 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
     await voiceScene(page, locale, theme, width);
     await page.setViewport({ width, height: width === 393 ? 852 : 844 }); await frame(page);
+    assert.ok((await metrics(page)).transcriptHeight >= 320, 'phone keeps a usable transcript viewport above the dock');
     const baseline = (await metrics(page)).composer;
     for (const state of ['idle', 'in-call', 'purpose-pause', 'session-pause']) {
       if (state === 'session-pause') { await voiceScene(page, locale, theme, width); await page.setViewport({ width, height: width === 393 ? 852 : 844 }); }

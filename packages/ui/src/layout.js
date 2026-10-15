@@ -142,6 +142,14 @@ export class PhoneComposerViewport {
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
+      // On phones the reserved voice notices belong to the scrolling content,
+      // leaving a usable transcript viewport above the fixed composer.
+      const phone = view?.matchMedia('(max-width:600px)').matches;
+      const notices = root.querySelector('.voice-notices');
+      const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
+      if (notices.parentNode !== parent) {
+        if (phone) parent.prepend(notices); else parent.append(notices);
+      }
       const values = {
         '--phone-height': height,
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
