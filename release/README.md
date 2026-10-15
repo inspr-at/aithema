@@ -27,7 +27,10 @@ when the cache is unavailable. The legacy monolith cannot be upgraded in place;
 see the notes for the API/storage migration limit.
 
 Retain `first/`, `candidate-evidence.json`, `deployment-pin.json`,
-`consumer-package-lock.json`, and their manifest digest in durable owner storage.
+`consumer-package-lock.json`, `first/consumer-deployment/`, and their manifest digest in durable owner storage.
+The consumer deployment contains relative `file:artifacts/` pins, tarballs,
+package/lock and the executable smoke script: run `npm ci` then `node smoke.mjs`
+in that directory on the build runner. It contains no workspace links.
 The remote evidence copy is placed under ignored `dist/ait105/`; the committed
 `release/evidence.json` records the source commit and digest table. Reproduce
 the recorded source commit, not a subsequent evidence-only commit. BSD and GNU

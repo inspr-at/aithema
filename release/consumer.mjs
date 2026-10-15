@@ -23,7 +23,9 @@ export function testConsumer(directory, { offline = true } = {}) {
     cpSync(new URL('./consumer-smoke.mjs', import.meta.url), join(scratch, 'smoke.mjs'));
     cpSync(new URL('../docs/embedding.md', import.meta.url), join(scratch, 'embedding.md'));
     writeFileSync(join(scratch, 'deployment-pin.json'), JSON.stringify(pin, null, 2) + '\n');
-    const install = () => npm(['install', '--save-exact', ...modules.map(artifact => join(directory, artifact.path)), 'happy-dom@20.11.2']);
+    mkdirSync(join(scratch, 'artifacts'));
+    for (const artifact of modules) cpSync(join(directory, artifact.path), join(scratch, 'artifacts', artifact.path));
+    const install = () => npm(['install', '--save-exact', ...modules.map(artifact => './artifacts/' + artifact.path), 'happy-dom@20.11.2']);
     const smoke = () => JSON.parse(execFileSync(process.execPath, ['smoke.mjs'], { cwd: scratch, encoding: 'utf8', timeout: 60_000 }).trim());
     install(); const installed = smoke();
     const locked = readFileSync(join(scratch, 'package-lock.json'));
@@ -43,8 +45,13 @@ export function testConsumer(directory, { offline = true } = {}) {
     install(); const updated = smoke();
     // Roll back a damaged deployment to the separately retained manifest and bytes.
     rmSync(join(scratch, 'node_modules'), { recursive: true });
-    for (const artifact of modules) rollbackArtifact(retained, manifest, artifact.coordinate);
-    npm(['install', '--save-exact', ...modules.map(artifact => join(retained, artifact.path)), 'happy-dom@20.11.2']);
+    rmSync(join(scratch, 'artifacts'), { recursive: true });
+    mkdirSync(join(scratch, 'artifacts'));
+    for (const artifact of modules) {
+      rollbackArtifact(retained, manifest, artifact.coordinate);
+      cpSync(join(retained, artifact.path), join(scratch, 'artifacts', artifact.path));
+    }
+    npm(['ci']);
     const rolledBack = smoke(); assert.equal(rolledBack.version, manifest.version);
     const evidence = { schema: 'aithema-consumer-evidence/1', ...pin, installed, locked_reinstall: reinstalled,
       update: { from: legacy.version, to: updated.version, scope: 'dependency pin replacement and anchored ordering; no legacy API/database migration',
@@ -53,6 +60,10 @@ export function testConsumer(directory, { offline = true } = {}) {
     writeFileSync(join(directory, 'consumer-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
     writeFileSync(join(directory, 'deployment-pin.json'), JSON.stringify(pin, null, 2) + '\n');
     cpSync(join(scratch, 'package-lock.json'), join(directory, 'consumer-package-lock.json'));
+    const deployment = join(directory, 'consumer-deployment'); mkdirSync(deployment);
+    for (const name of ['package.json', 'package-lock.json', 'smoke.mjs', 'embedding.md', 'deployment-pin.json', 'artifacts']) {
+      cpSync(join(scratch, name), join(deployment, name), { recursive: true });
+    }
     return evidence;
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
