@@ -431,7 +431,7 @@ async function waitForPurpose(predicate) {
   assert.fail('purpose lane did not reach expected state');
 }
 test('AIT-188 V1: completed project analysis waits for pending scope before publishing', async t => {
-  const analysis = Promise.withResolvers(), scope = Promise.withResolvers();
+  const analysis = Promise.withResolvers(), scope = Promise.withResolvers(), settling = Promise.withResolvers();
   t.after(() => { analysis.resolve(); scope.resolve(); });
   const f = fixture(t, { analysisGate: analysis.promise, outputs: async (request, n) => {
     if (n > 1) await scope.promise;
@@ -441,7 +441,11 @@ test('AIT-188 V1: completed project analysis waits for pending scope before publ
   await waitForPurpose(() => f.assessments.length === 1);
   await f.handlers.handle(req(f.session.id, 'turns', { content: 'A soup recipe.', clientEventId: 'off' }));
   await waitForPurpose(() => f.calls.length === 2);
-  analysis.resolve(); await new Promise(resolve => setTimeout(resolve, 10));
+  const settle = f.handlers.lanes.settleUnderstanding;
+  f.handlers.lanes.settleUnderstanding = (...args) => {
+    const pending = settle(...args); settling.resolve(); return pending;
+  };
+  analysis.resolve(); await settling.promise;
   assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false, 'unknown scope cannot authorize a retained result');
   scope.resolve(); await f.handlers.idle();
   assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, true);
