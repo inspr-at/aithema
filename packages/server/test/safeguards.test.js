@@ -541,8 +541,8 @@ test('AIT-197 R4: an older assessment cannot block a later unassessed project tu
   const old = f.storage.get(f.session.id).understanding;
   assert.equal(old.readinessAssessed, true);
   const gate = Promise.withResolvers(); t.after(gate.resolve);
-  const structured = f.plugin.structured;
-  f.plugin.structured = async (...args) => { const result = await structured(...args); await gate.promise; return result; };
+  const structured = f.plugin.structured, started = Promise.withResolvers();
+  f.plugin.structured = async (...args) => { const result = await structured(...args); started.resolve(); await gate.promise; return result; };
   const id = f.session.id;
   for (const [index, content] of ['Customers must book appointments.', ...Array(3).fill('Give me a soup recipe.')].entries()) {
     f.storage.postTurn(id, `r4-${index}`, Buffer.from(content), content);
@@ -552,7 +552,7 @@ test('AIT-197 R4: an older assessment cannot block a later unassessed project tu
   assert.equal(f.storage.get(id).understanding.inputRevision, old.inputRevision);
   assert.ok(f.storage.purposeAssessmentInput(f.storage.get(id)), 'later in-scope input still needs an assessment');
   assert.equal((await f.handlers.handle(req(id, 'consent', { granted: true }))).status, 200);
-  await waitForPurpose(() => f.assessments.length === 2);
+  await started.promise;
   assert.deepEqual((await f.handlers.handle(req(id)).then(r => r.json())).operations.running, ['understanding']);
   assert.match(JSON.stringify(f.assessments[1]), /book appointments/);
   assert.doesNotMatch(JSON.stringify(f.assessments[1]), /soup/);

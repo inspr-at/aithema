@@ -374,8 +374,8 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
     await shadow(page, async (c, { locale, project }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = await fetch('/fixture/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.session.id, locale, project }) }).then(r => r.json());
-      c.configure({ session, copy }); document.documentElement.lang = locale;
-      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy); document.querySelector('#locale').value = locale;
+      c.configure({ session, copy, host: { library: true } }); document.documentElement.lang = locale;
+      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
       for (const [selector, text] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) {
         const node = document.querySelector(selector); if (node) node.textContent = text;
       }

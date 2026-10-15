@@ -205,9 +205,12 @@ export class SQLiteStorage {
     const latest = rows.find(row => row.revision === revision);
     if (!latest) return null;
     if (!latest.analysis_off) return session;
-    if (session.understanding.readinessAssessed) return null;
     const source = rows.filter(row => !row.analysis_off).sort((a, b) => Number(b.revision.split(':')[0]) - Number(a.revision.split(':')[0]))[0];
     if (!source) return null;
+    // A retained assessment only covers project input at or before its own
+    // revision. Later classified project input still needs normal admission.
+    if (session.understanding.readinessAssessed &&
+      Number(session.understanding.inputRevision?.split(':')[0]) >= Number(source.revision.split(':')[0])) return null;
     const first = Number(source.revision.split(':')[0]), count = session.inputRevision - first;
     const persons = session.transcript.filter(turn => turn.role === 'user');
     if (count <= 0 || count >= persons.length) return null;

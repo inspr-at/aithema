@@ -263,6 +263,9 @@ test('German defaults independently of browser language, explicit choice wins an
   const p = await page(t, { session: { id: 's', locale: 'en', engine: {} } });
   p.window.localStorage.setItem(localeKey, 'de'); p.document.querySelector('#locale').value = 'de';
   p.document.querySelector('#locale').dispatchEvent(new p.window.Event('change'));
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(p.document.documentElement.lang, 'en', 'running conversation language does not change');
+  assert.equal(p.document.querySelector('#language-value').textContent, 'EN');
+  assert.equal(p.document.querySelector('#locale').value, 'en');
   assert.equal(p.document.querySelector('#language-note').textContent, en.host.languageNext.replace('{language}', en.host.languages.de));
 });

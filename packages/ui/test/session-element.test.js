@@ -385,7 +385,7 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
   const session = c.session;
-  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'not configured' } };
+  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
   c.configure({ copy: en, session });
   c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu',
     settings: { ...session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
@@ -395,7 +395,7 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(root.querySelector('.send').disabled, true);
   assert.match(root.querySelector('.composer').textContent, /Not configured/);
   assert.equal(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
-  assert.equal(root.querySelector('.notice').textContent, en.reasons['not configured']);
+  assert.equal(root.querySelector('.notice').textContent, 'consent required');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
   assert.equal(root.querySelector('.retry').hidden, true);

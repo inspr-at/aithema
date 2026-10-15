@@ -993,10 +993,10 @@ export class AithemaSession extends HTMLElement {
     // Tick's slot order: empty, consent, real work, failure, no project details,
     // then the assessment. A purpose pause belongs to the composer alone.
     const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
-    const overviewText = !hasPersonTurn ? copy.empty : analysisRunning ? copy.preparingOverview
+    const overviewText = !hasPersonTurn ? copy.empty : !u.readinessAssessed && analysisRunning ? copy.preparingOverview
       : this.#failure && !reconciling ? copy.reasoningFailed
-      : !u.readinessAssessed ? copy.noProjectDetails
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
+      : !u.readinessAssessed ? copy.noProjectDetails
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     if (!this.#host?.usedUp) paintConsentLine(root.querySelector('.notice'), {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
