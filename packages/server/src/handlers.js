@@ -1,3 +1,4 @@
+import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
@@ -79,6 +80,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
     if (event.type === 'session.paused' && event.data.reason === 'purpose') voiceHandlers?.stopSession(id, 'purpose');
+    // Voice Resume publishes the same durable pause event as text Resume.
+    // Work that deferred while paused needs a wake-up even without a new turn.
+    if (event.type === 'session.paused' && event.data.paused === false) schedule(id, { wake: true });
   };
   const operations = session => {
     const revision = inputRevision(session), failure = failures.get(session.id);
@@ -101,10 +105,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
-  // Retain only an assessment already admitted for project input. Every later
-  // input must be a classified off-topic user turn; all consent, locale,
-  // correction, upload and identity revision guards remain strict.
-  const retainUnderstanding = (source, current, pending = false) => {
+  // New turns may obsolete a paid assessment but must let it collect its receipt.
+  // Consent, locale, correction, upload and identity revisions remain strict.
+  const keepUnderstanding = (source, current) => {
     if (!purposePolicy || current.consentWithdrawn || current.tombstone) return false;
     const suffix = inputRevision(source).split(':').slice(1).join(':');
     if (inputRevision(current).split(':').slice(1).join(':') !== suffix) return false;
@@ -112,7 +115,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const added = current.transcript.filter(turn => turn.role === 'user').slice(before);
     if (current.inputRevision - source.inputRevision !== added.length || !added.length) return false;
     const original = storage.safeguards(source.id, inputRevision(source));
-    if (!original.assessed || original.offTopic) return false;
+    // AIT-197 may recover older project input from an off-topic snapshot.
+    // That admitted project work owns the same receipt protection as direct input.
+    if (!original.assessed || original.offTopic && !storage.purposeAssessmentInput(source)) return false;
+    return true;
+  };
+  // Publishing an older result additionally requires every new turn to be off-topic.
+  const retainUnderstanding = (source, current, pending = false) => {
+    if (!keepUnderstanding(source, current)) return false;
+    const suffix = inputRevision(source).split(':').slice(1).join(':');
+    const before = source.transcript.filter(turn => turn.role === 'user').length;
+    const added = current.transcript.filter(turn => turn.role === 'user').slice(before);
     return added.every((_, index) => {
       const state = storage.safeguards(source.id, `${source.inputRevision + index + 1}:${suffix}`);
       return state.assessed ? state.offTopic : pending;
@@ -132,10 +145,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       set.add(check); signal.addEventListener('abort', done, { once: true }); check();
     });
   };
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, settleUnderstanding,
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, keepUnderstanding, settleUnderstanding,
     offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
-    canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
+    canUnderstand: id => Boolean(storage.purposeAssessmentInput(storage.get(id))),
+    understandingInput: session => purposePolicy ? storage.purposeAssessmentInput(session) : session,
     scopeKnown: (id, revision) => storage.safeguards(id, revision).assessed,
     replyVisible: session => !voiceHandlers?.active(session.id),
     onScope(id, scope, revision, { reply = true } = {}) {
@@ -147,6 +161,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     onOpenerStripped() {
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
+    },
+    onUnderstandingDiagnostic({ outcome, reason }) {
+      try { Promise.resolve(log({ event: `understanding.${outcome}`, count: 1, lane: 'understanding',
+        ...(reason ? { reason } : {}) })).catch(() => {}); }
+      catch { /* Diagnostics cannot interrupt an assessment. */ }
     },
     onReplyDiagnostic({ lane, kind, reason, attemptCount }) {
       const event = { fallback: 'reply.fallback', 'schema-retry': 'reply.schema-retry', 'missing-scope': 'reply.scope-missing' }[kind];
@@ -213,6 +232,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
+  async function consentDocument(session) {
+    const document = await consent.describe(session.id);
+    const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
+      pluginRuntime.scopes(session, { feature }).map(scope => document.mock && scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
+        .filter(purpose => document.mock ? purpose === 'mock-processing' : document.items?.some(item => item.id === purpose)))]]));
+    return { ...document, features };
+  }
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
       ...(['consent-withdrawn', 'consent-revised', 'session-erased'].includes(reason) ? [uploadHandlers.cancelSession(id)] : [])]);
@@ -220,24 +246,27 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     voiceHandlers?.stopSession(id, reason);
     await cancelled;
   }
-  function schedule(id) {
+  function schedule(id, { wake = false } = {}) {
     let requested;
     if (purposePolicy) {
       const session = storage.get(id), scoped = storage.safeguards(id, inputRevision(session));
-      requested = scoped.assessed ? scoped.offTopic ? [] : ['understanding']
-        : voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id) ? [] : ['reaction'];
+      requested = storage.purposeAssessmentInput(session) ? ['understanding'] : [];
+      if (!scoped.assessed && session.pauseReason !== 'purpose' && !(voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id))) requested.unshift('reaction');
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
-    for (const lane of requested) scheduleLane(id, lane);
+    for (const lane of requested) scheduleLane(id, lane, { wake });
     status(id);
   }
-  function scheduleLane(id, lane) {
+  function scheduleLane(id, lane, { wake = false } = {}) {
     const key = `${id}:${lane}`;
-    if (jobs.has(key) || stop.signal.aborted) return;
-    const job = { id, lane, promise: null };
+    if (stop.signal.aborted) return;
+    const running = jobs.get(key);
+    if (running) { if (wake) running.reschedule = true; return; }
+    const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
     job.promise = Promise.resolve().then(async () => {
       try {
         while (!stop.signal.aborted) {
+          job.reschedule = false;
           const started = storage.get(id), revision = inputRevision(started), work = laneKey(started, lane);
           try {
             await lanes.run(id, lane, { signal: stop.signal });
@@ -254,7 +283,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }
           }
-          if (stop.signal.aborted || laneKey(storage.get(id), lane) === work) {
+          if (stop.signal.aborted || laneKey(storage.get(id), lane) === work && !job.reschedule) {
             // Remove synchronously with the last revision check: a subsequent
             // schedule can start work even before this promise settles.
             jobs.delete(key); status(id); return;
@@ -488,6 +517,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
+        // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
+        if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
+          const document = await consentDocument(authorized);
+          if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
+            consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);
+        }
         const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
         if (body.granted) {
           if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
@@ -504,7 +539,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
-      if (action === 'consent' && request.method === 'GET' && consent.describe) return json(consent.describe(id));
+      if (action === 'consent' && request.method === 'GET' && consent.describe) {
+        return json(await consentDocument(authorized));
+      }
       if (action === 'erase' && request.method === 'POST') {
         const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
         await host?.erased?.({ sessionId: id, ownerToken });

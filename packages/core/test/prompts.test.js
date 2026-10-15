@@ -4,6 +4,21 @@ import * as core from '../src/index.js';
 
 const GERMAN_ADDRESS_RULE = 'When the conversation language is German, address the person with the polite Sie form consistently (never du or ihr); use idiomatic German.';
 
+for (const draft of [false, true]) for (const assistantFinal of [false, true]) {
+  test(`AIT-198 ${draft ? 'draft' : 'final'} analysis ends in user role with ${assistantFinal ? 'assistant' : 'user'}-final transcript`, () => {
+    let session = core.applyEvent(core.createSession(), { seq: 1, type: 'turn.final',
+      data: { id: 'person', role: 'user', content: 'We need a booking system.' } });
+    if (assistantFinal) session = core.applyEvent(session, { seq: 2, type: 'turn.final',
+      data: { id: 'reply', role: 'assistant', content: 'Who needs access?' } });
+    const request = core.reasoningRequest(session, 'understanding', draft);
+    assert.equal(request.messages.at(-1).role, 'user');
+    assert.match(request.messages.at(-1).content, /structured read-back/u);
+    assert.ok(request.messages.some(message => message.role === 'user' && message.content === 'We need a booking system.'));
+    if (assistantFinal) assert.ok(request.messages.some(message => message.role === 'assistant' && message.content === 'Who needs access?'));
+    assert.equal(core.activeTurns(session).at(-1).role, assistantFinal ? 'assistant' : 'user', 'prompt construction does not mutate the session');
+  });
+}
+
 for (const [locale, language, answer] of [
   ['de', 'German', 'Ein bis zwei Polster insgesamt.'],
   ['en', 'English', 'One or two cushions total.'],

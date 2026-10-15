@@ -99,17 +99,29 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
         void receipts.catch(() => {});
       }
     };
+    const observeResponse = async (response, signal) => {
+      const text = response.body ? await readText(response, signal, id => observe({ id })) : '';
+      let payload;
+      try { payload = JSON.parse(text); } catch { /* Plain-text/empty rejections have no usage. */ }
+      observe(payload);
+      // Match reasoning settlement: received 4xx without usage is unbilled;
+      // 5xx, usage without cost and incomplete responses keep the ceiling.
+      if (response.status >= 400 && response.status < 500 && payload?.usage == null) {
+        invocation.usage({ inputTokens: 0, outputTokens: 0 });
+        observe({ usage: { cost: 0 } });
+      }
+    };
     const checkedResponse = response => {
       try { checkLifetime(); return response; }
       catch (error) {
         // A late paid response cannot publish a draft, but its receipt still repairs costs.
-        if (!response.headers.get('content-type')?.includes('application/json')) {
+        if (!(response.status >= 400 && response.status < 500) && !response.headers.get('content-type')?.includes('application/json')) {
           void response.body?.cancel().catch(() => {}); throw error;
         }
         const late = operationScope({ deadlineAt: Date.now() + 1000 });
         void (async () => {
           try {
-            observe(JSON.parse(await readText(response, late.signal, id => observe({ id }))));
+            await observeResponse(response, late.signal);
             await receipts;
             if (cost !== null) await ledger.reconcileAttempt(options.attempt.attemptId, cost);
           } catch { /* Durable unknown costs remain retryable. */ }
@@ -148,12 +160,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       const response = checkedResponse(await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
         redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })).then(checkedResponse), scope.signal));
       if (!response.ok) {
-        // An HTTP refusal can still report a charge, including an explicit zero.
-        // Without that evidence a dispatched request keeps its computed ceiling.
-        try {
-          const payload = JSON.parse(await readText(response, scope.signal, id => observe({ id })));
-          observe(payload);
-        } catch { /* unavailable usage remains uncertain */ }
+        try { await observeResponse(response, scope.signal); }
+        catch { /* An incomplete response retains the dispatched ceiling. */ }
         throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 402 ? 'limit' :
           response.status === 429 ? 'rate-limit' : 'provider');
       }
@@ -175,8 +183,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     } catch (error) { throw normalizedError(error, scope.signal); }
     finally {
       try {
-        // Unknown cost after dispatch keeps the full ceiling, including HTTP refusals.
-        // Only the path before dispatch is provably unsent and may settle at zero.
+        // Unknown cost after dispatch keeps the full ceiling. Unbilled 4xx and
+        // undispatched requests release at zero; observed charges stay billable.
         let settlementError;
         if (reservation !== null) try {
           await receipts;

@@ -37,11 +37,7 @@ function paintPage() {
     if (!privacyLink) document.querySelector('#demo-legal').setAttribute('aria-label', h.slots.legal);
   }
   paintVisuals();
-  const choice = document.querySelector('#locale');
-  // DE/EN stay compact; the language label follows the running conversation.
-  choice.value = localeChoice;
-  document.querySelector('#language-value').textContent = localeChoice.toUpperCase();
-  text('#language-note', choice.value === component.session?.locale ? '' : h.languageNext.replace('{language}', h.languages[choice.value]));
+  text('#language-note', localeChoice === component.session?.locale ? '' : h.languageNext.replace('{language}', h.languages[localeChoice]));
 }
 // The header and the mock consent name the visual kind this conversation uses (AIT-118): the
 // server's selected visuals and kind pick the HTML or image binding; visuals off name none.

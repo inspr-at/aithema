@@ -20,6 +20,7 @@ export const browserTestWeights = {
   'test/browser/admin-pages.test.js': 80.000, // CI 38720349940-1 (rounded up + 10s margin)
   'test/browser/audio-replay.test.js': 50.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/confirmation-design.test.js': 90.000, // CI 38726471579-1 (74.518s; rounded up + 10s margin)
+  'test/browser/consent-lines.test.js': 60.000, // AIT-197 round 2: reserve for real-server saves, withdrawals and target checks
   'test/browser/credit-hold.test.js': 70.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/demo.test.js': 90.000, // CI 38704006618-1 (rounded up)
   'test/browser/email-ask.test.js': 130.000, // CI 38726471579-1 (115.313s; rounded up + 10s margin)
@@ -40,6 +41,7 @@ export const browserTestWeights = {
   'test/browser/start2-display.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/tick-followups.test.js': 90.000, // CI 38726471579-1 (73.781s; rounded up + 10s margin)
   'test/browser/visitor-credit-tiers.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/understanding-failure.test.js': 30.000, // AIT-198 controlled provider / 8 visitor settlement cases
   'test/browser/voice-presentation.test.js': 90.000, // CI 38716800511-1 (rounded up + 10s margin)
 };
 

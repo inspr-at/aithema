@@ -16,10 +16,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, retainUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {}, onUnderstandingDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, retainUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic, onUnderstandingDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -27,6 +27,11 @@ export class SessionLanes {
     const session = this.getSession(id), revision = inputRevision(session);
     for (const flight of this.#flights.values()) if (flight.id === id &&
       (flight.revision !== revision && !(flight.lane === 'understanding' && this.retainUnderstanding(flight.session, session, true)) || flight.selection !== this.selection(session, flight.lane))) {
+      // A paid project analysis owns its original input. New turns can make its
+      // result stale, but must not discard the provider receipt by aborting it.
+      // Consent, withdrawal, locale and processing-choice fences still cancel.
+      if (flight.lane === 'understanding' && flight.admitted &&
+        flight.selection === this.selection(session, flight.lane) && this.keepUnderstanding(flight.session, session)) continue;
       flight.controller.abort(new DOMException('Input superseded', 'AbortError'));
     }
   }
@@ -60,14 +65,24 @@ export class SessionLanes {
       return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
         this.selection(latest, lane) === selection;
     };
-    const options = { signal: scope.signal, deadlineAt };
+    const diagnostic = (outcome, reason) => {
+      if (lane !== 'understanding') return;
+      try { Promise.resolve(this.onUnderstandingDiagnostic({ outcome, ...(reason ? { reason } : {}) })).catch(() => {}); }
+      catch { /* Observability cannot interrupt paid work. */ }
+    };
+    const options = { signal: scope.signal, deadlineAt,
+      ...(lane === 'understanding' ? { onTerminal: ({ outcome }) => {
+        if (outcome === 'uncertain') diagnostic('uncertain', 'provider-cost-unknown');
+      } } : {}) };
+
     const work = async () => {
       scope.signal.throwIfAborted();
       if (session.tombstone || session.consentWithdrawn) return 'blocked';
       if (lane === 'understanding') {
         if (this.purposePolicy && !this.canUnderstand(id, revision)) return 'deferred';
         if (session.identity?.verificationRequired === true && !session.identity.assessmentUnlocked) return 'verification-required';
-        if (understandingDeferred(session)) return 'deferred';
+        const assessmentInput = this.understandingInput(session);
+        if (!assessmentInput || understandingDeferred(assessmentInput)) return 'deferred';
         if (session.understanding.inputRevision === revision && !session.understanding.draft) return 'cached';
         // A distinct draft binding can retain the incremental path without paying
         // twice for the same model in the slice-1 host.
@@ -76,22 +91,39 @@ export class SessionLanes {
           const latest = this.getSession(id);
           if (draft && latest.understanding.inputRevision === revision && latest.understanding.draft) continue;
           const binding = draft ? this.draftReasoning : this.reasoning;
-          if (this.getSession(id).paused) return 'paused';
+          if (this.getSession(id).paused && !(this.purposePolicy && session.pauseReason === 'purpose')) return 'paused';
           if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, binding, revision, options), scope.signal)) return 'blocked';
           if (!current()) return 'stale';
-          const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt, { purposePolicy: this.purposePolicy }), schema: understandingSchema(session.preset) };
-          const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request, options });
-          let raw, failed = false;
-          try { raw = await untilCancelled((admitted?.plugin ?? binding).structured(request, admitted?.options ?? options), scope.signal); }
-          catch (error) { failed = true; throw error; }
-          finally { admitted?.finish({ failed }); }
+          const request = { ...reasoningRequest({ ...latest, transcript: assessmentInput.transcript }, lane, draft, this.hostPrompt, { purposePolicy: this.purposePolicy }), schema: understandingSchema(session.preset) };
+          diagnostic('started');
+          let raw, admitted;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const input = attempt ? { ...request, understandingSchemaConstrained: false,
+              system: `${request.system}\nReturn only JSON matching this schema: ${JSON.stringify(request.schema)}` } : request;
+            // Compatibility consumes one attempt and needs fresh admission,
+            // current consent, price checks and its own terminal settlement.
+            admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request: input, options: { ...options, purposeAssessment: Boolean(this.purposePolicy) } });
+            flight.admitted = Boolean(admitted);
+            let failed = false, retry = false;
+            try {
+              raw = await untilCancelled((admitted?.plugin ?? binding).structured(input, admitted?.options ?? options), scope.signal);
+              if (!matchesSchema(raw, request.schema)) throw new TypeError('Invalid understanding output');
+            } catch (error) {
+              failed = true;
+              if (attempt === 0 && error.responseFormatUnsupported === true && !scope.signal.aborted && current()) retry = true;
+              else throw error;
+            } finally { await admitted?.finish({ failed }); }
+            if (!retry) break;
+            scope.signal.throwIfAborted();
+            if (!current()) return 'stale';
+          }
           // An already admitted project assessment may outlive off-topic redirects.
           // Wait for their classification before accepting its original input.
           if (this.settleUnderstanding) await untilCancelled(this.settleUnderstanding(session, options), scope.signal);
           if (!current()) return 'stale';
           if (!matchesSchema(raw, understandingSchema(session.preset))) throw new TypeError('Invalid understanding output');
           const data = { ...reduceUnderstanding(this.getSession(id).understanding, raw, {
-            transcript: activeTurns(session), inputRevision: revision, locale: session.locale,
+            transcript: activeTurns(assessmentInput), inputRevision: revision, locale: session.locale,
             draft, actor: this.getSession(id).actor, preset: session.preset,
           }), ...producer(admitted, admitted?.plugin ?? binding) };
           if (!this.publish(id, 'understanding.updated', data, revision, undefined, session)) return 'stale';
@@ -185,8 +217,18 @@ export class SessionLanes {
       }
       return 'completed';
     };
-    const flight = { id, lane, session, revision, selection, controller, revoked: false, promise: null };
-    const promise = Promise.resolve().then(work).finally(() => {
+    const flight = { id, lane, session, revision, selection, controller, revoked: false, admitted: false, promise: null };
+    const promise = Promise.resolve().then(work).then(outcome => {
+      if (outcome !== 'cached') diagnostic(outcome === 'stale' ? 'superseded'
+        : ['blocked', 'paused', 'verification-required'].includes(outcome) ? 'deferred' : outcome);
+      return outcome;
+    }, error => {
+      diagnostic(scope.signal.aborted ? 'aborted' : 'failed', scope.signal.aborted
+        ? flight.revoked ? 'revoked' : scope.signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'
+        : ['4xx', '5xx'].includes(error?.providerErrorClass) ? `provider-${error.providerErrorClass}`
+        : ['auth', 'rate-limit', 'provider', 'invalid-output', 'not-admitted'].includes(error?.code) ? error.code : 'unavailable');
+      throw error;
+    }).finally(() => {
       scope.dispose(); signal?.removeEventListener('abort', abort);
       if (this.#flights.get(key) === flight) this.#flights.delete(key);
     });
