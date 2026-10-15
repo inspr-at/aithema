@@ -284,6 +284,7 @@ export class AithemaSession extends HTMLElement {
           <span class="status" role="status"><span class="status__sizer" aria-hidden="true"></span><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
+      followsTranscript: () => this.#follow && !this.#onTranscript,
       onResize: () => { if (this.#follow && !this.#onTranscript) this.#scrollToLatest(); } });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
@@ -429,11 +430,15 @@ export class AithemaSession extends HTMLElement {
     const shell = root.querySelector('.transcript-shell');
     shell.addEventListener('scroll', () => {
       this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
-      if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
+      if (this.#follow) {
+        this.#questionCard.reserve();
+        root.querySelector('.transcript-latest').style.visibility = 'hidden';
+      }
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => {
       this.#onTranscript = false;
+      this.#questionCard.reserve();
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
@@ -557,7 +562,9 @@ export class AithemaSession extends HTMLElement {
   #scrollToLatest() {
     if (this.#fold?.folded) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
-    shell.scrollTop = shell.scrollHeight; this.#follow = true;
+    // Release any card reservation retained while reading before finding the end.
+    this.#follow = true; this.#questionCard?.reserve();
+    shell.scrollTop = shell.scrollHeight;
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';
   }
   #hovered() {

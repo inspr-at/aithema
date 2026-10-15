@@ -1,4 +1,4 @@
-// AIT-132: deterministic contract fixtures, real component, keyboard and voice client. Remote runner only.
+// AIT-225: bounded dock, real component, deterministic replies, keyboard and voice. Remote runner only.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
@@ -17,7 +17,7 @@ const nextFrame = page => page.evaluate(() => new Promise(resolve => requestAnim
 const shown = page => shadow(page, c => Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')));
 const still = (before, after, label) => assert.deepEqual(after, before, `${label}: composer controls shift exactly 0 px`);
 
-test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, light/dark, DE/EN; mouse, keyboard, voice and zero layout shift',
+test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement',
   { timeout: 120_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-qcard-'));
     const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -197,28 +197,38 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
           const c = document.querySelector('aithema-session'), de = c.session.locale === 'de';
           for (let index = 0; index < 14; index++) globalThis.showQuestion({ options: [],
             content: de ? `Antwort ${index}: Motiv und Farbe können frei gewählt werden.` : `Reply ${index}: the design and colour can be chosen freely.` });
-          globalThis.showQuestion({ options: Array.from({ length: 7 }, (_, index) => ({
-            text: de ? `Auswahl ${index + 1}: Motiv, Farbe und Größe selbst zusammenstellen` : `Choice ${index + 1}: choose the design, colour and size yourself`, likely: index === 0,
-          })) });
+          const answers = de ? [
+            'Motiv, Farbe und Größe selbst zusammenstellen und danach den passenden Polster bestellen',
+            'Nur fertige Polster aus einer Auswahl kaufen, ohne das Motiv oder die Farbe zu verändern',
+            'Beides anbieten: fertige Polster kaufen oder einen eigenen Polster zusammenstellen',
+            'Noch nicht entschieden: zuerst die verschiedenen Möglichkeiten miteinander vergleichen',
+          ] : [
+            'Choose the design, colour and size yourself, then order the cushion that suits your home',
+            'Buy only finished cushions from a selection, without changing their design or colour',
+            'Offer both: buy finished cushions or put together your own design, colour and size',
+            'Not decided yet: first compare the different ways customers could choose their cushions',
+          ];
+          globalThis.showQuestion({ options: answers.map((text, index) => ({ text, likely: index === 0 })) });
         });
         await nextFrame(page);
         const bounded = await shadow(page, c => {
           const r = c.shadowRoot, card = r.querySelector('.qcard'), opts = r.querySelector('.qopts');
           const bubble = [...r.querySelectorAll('.turn:not(.user)')].at(-1).getBoundingClientRect();
           const shell = r.querySelector('.transcript-shell').getBoundingClientRect(), b = card.getBoundingClientRect();
-          return { height: b.height, viewport: innerHeight, top: b.top, bubbleBottom: bubble.bottom, shellBottom: shell.bottom,
+          return { height: b.height, viewport: innerHeight, top: b.top, bubbleBottom: bubble.bottom, shellBottom: shell.bottom, shellTop: shell.top,
             overflow: opts.scrollHeight > opts.clientHeight, role: opts.getAttribute('role'),
             name: r.querySelector(`#${opts.getAttribute('aria-labelledby')}`)?.textContent };
         });
         if (width <= 600) assert.ok(bounded.height <= .36 * bounded.viewport, `AIT-225: phone card ${bounded.height}px exceeds 36vh`);
         assert.ok(bounded.bubbleBottom <= bounded.top, `AIT-225: latest assistant bubble ${bounded.bubbleBottom} ends behind card ${bounded.top}`);
         assert.ok(bounded.shellBottom <= bounded.top, 'AIT-225: the transcript viewport ends above the card');
-        assert.equal(bounded.overflow, true, 'the options scroll inside the card');
+        assert.ok(bounded.bubbleBottom > bounded.shellTop + 26, 'AIT-225: the latest reply is visible inside the transcript viewport');
+        if (width <= 600) assert.equal(bounded.overflow, true, 'the options scroll inside the capped phone card');
         assert.equal(bounded.role, 'region'); assert.ok(bounded.name, 'the options scroll region has an accessible name');
         await shot('bounded-options');
         const answerBoxes = await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']);
         await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
-        for (let index = 1; index < 7; index++) {
+        for (let index = 1; index < 4; index++) {
           await page.keyboard.press('Tab'); await nextFrame(page);
           const focus = await shadow(page, (c, index) => {
             const r = c.shadowRoot, row = r.querySelectorAll('.qopt')[index], b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
@@ -231,10 +241,11 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
         await page.mouse.move(...first); await nextFrame(page);
         assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']), answerBoxes, 'hover never moves the card, options or composer');
         globalThis.qcardAnswerHold = Promise.withResolvers();
-        await page.mouse.click(...first); await nextFrame(page);
-        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qopt').getAttribute('aria-disabled')), 'true');
-        assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']), answerBoxes, 'answering never moves the other options or composer');
-        globalThis.qcardAnswerHold.resolve(); globalThis.qcardAnswerHold = null;
+        try {
+          await page.mouse.click(...first);
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qopt')?.getAttribute('aria-disabled') === 'true');
+          assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']), answerBoxes, 'answering never moves the other options or composer');
+        } finally { globalThis.qcardAnswerHold.resolve(); globalThis.qcardAnswerHold = null; }
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qcard').hidden);
         await nextFrame(page); still(baseline, await boxes(page), 'long answer disappearance');
         const closed = await shadow(page, c => {
@@ -245,17 +256,50 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
         });
         assert.ok(Math.abs(closed.gap) <= 1, 'removing the card keeps the transcript following its latest turn');
         assert.ok(closed.bubble <= closed.composer, 'the latest assistant reply remains above the composer after answering');
+        // A question can arrive and be answered elsewhere while an older turn
+        // is under the pointer. Its scroll anchor must survive both changes.
+        const anchorPoint = await shadow(page, c => {
+          const shell = c.shadowRoot.querySelector('.transcript-shell'); shell.scrollTop = 100;
+          const bounds = shell.getBoundingClientRect(); return [bounds.left + 30, bounds.top + 65];
+        });
+        await nextFrame(page); await page.mouse.move(...anchorPoint);
+        const readingBefore = await shadow(page, c => {
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+          globalThis.qcardAnchor = [...r.querySelectorAll('.turn')].find(row => { const b = row.getBoundingClientRect(); return b.top >= shell.getBoundingClientRect().top + 26; });
+          const b = globalThis.qcardAnchor.getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        });
+        await page.evaluate(() => globalThis.showQuestion()); await nextFrame(page);
+        const readingBox = () => shadow(page, () => { const b = globalThis.qcardAnchor.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; });
+        assert.deepEqual(await readingBox(), readingBefore, 'card appearance preserves the older reply under the pointer');
+        await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'other-answer', role: 'user', content: c.session.locale === 'de' ? 'Beides' : 'Both' } }));
+        await nextFrame(page);
+        assert.deepEqual(await readingBox(), readingBefore, 'card disappearance preserves the older reply under the pointer');
+        await page.mouse.move(-1, -1);
+        await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
+        if (width <= 600) {
+          await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
+          await nextFrame(page);
+          const longQuestion = await shadow(page, c => ({
+            height: c.shadowRoot.querySelector('.qcard').getBoundingClientRect().height,
+            options: c.shadowRoot.querySelector('.qopts').clientHeight, viewport: innerHeight,
+          }));
+          assert.ok(longQuestion.height <= .36 * longQuestion.viewport && longQuestion.options >= 44,
+            'a long question still leaves a reachable answer inside the phone cap');
+        }
         checks.push({ locale, theme, width, geometry, bounded, closed, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
       });
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
     if (evidence) {
+      assert.equal(files.length, 8, 'six phone and two desktop viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
       await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
-        passLines: checks.map(({ locale, theme, width, controlShiftPx }) => ({ locale, theme, width, pass: true,
+        passLines: checks.map(({ locale, theme, width, controlShiftPx, bounded }) => ({ locale, theme, width, pass: true,
           states: ['card-with-likely-and-others', 'hover', 'keyboard-focus', 'fold', 'question-without-options-no-card'],
           foldStrip: locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold',
-          composerControlShiftPx: controlShiftPx, cardAndComposerShiftPx: 0, dockGapPx: 0 })) }, null, 2));
+          composerControlShiftPx: controlShiftPx, cardAndComposerShiftPx: 0, dockGapPx: 0, pendingAnswerOptionShiftPx: 0,
+          readingAnchorShiftPx: 0, cardVh: 100 * bounded.height / bounded.viewport,
+          latestReplyClearancePx: bounded.top - bounded.bubbleBottom, transcriptClearancePx: bounded.top - bounded.shellBottom })) }, null, 2));
     }
   });

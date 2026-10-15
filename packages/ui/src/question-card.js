@@ -1,7 +1,7 @@
 import { node, reconcile, setText } from './dom.js';
 import { icon } from './icons.js';
 
-// AIT-132, approved card: it grows above the dock without moving the composer below it.
+// The card and composer share a dock; the transcript reserves the card above it.
 export const questionCardStyles = `
 .composer-dock { position:relative; min-width:0; }
 .phone-dock-backdrop { display:none; }
@@ -29,18 +29,24 @@ export const questionCardStyles = `
 }
 
 .workspace:not([data-stage="live"]) .composer-dock { display:none; }
-.qcard { position:absolute; inset:auto 0 100%; z-index:2; display:grid; gap:8px;
+.qcard { position:absolute; inset:auto 0 100%; z-index:2; display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:8px;
   padding:14px 16px 12px; border-radius:18px 18px 0 0; max-height:min(440px,calc(100dvh - 280px));
-  overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent;
+  overflow:hidden;
   background:color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-surface));
   box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 28%,transparent); }
 .qcard:not([hidden]) + .composer, .qcard:not([hidden]) + .composer-shell, .qcard:not([hidden]) + .composer-shell :is(.composer,.composer-out) { border-radius:0 0 18px 18px; }
-.qhead { display:flex; align-items:center; gap:7px; color:var(--aithema-accent); font:600 13px var(--aithema-font); }
 .qtext { margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
-.qopts { display:grid; gap:2px; margin-top:2px; }
+.qopts { display:grid; align-content:start; min-height:0; gap:2px; margin-top:2px; overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent; }
+@media(max-width:600px) {
+  .qcard { max-height:min(35dvh,calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
+  .qtext { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
+}
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
   font:14.5px var(--aithema-font); text-align:left; }
+/* The dock's generic page scroll margins must not push rows out of this nested scrollport. */
+.qcard .qopts .qopt { scroll-margin:2px; }
 .qopt .t { overflow-wrap:anywhere; }
 .qopt:hover:not(:disabled):not([aria-disabled="true"]) { background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); }
 .qopt .go { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--aithema-accent);
@@ -53,18 +59,20 @@ export const questionCardStyles = `
 .qopt[aria-disabled="true"] { opacity:.5; cursor:wait; }
 .qopt .tag { font:500 11.5px var(--aithema-font); color:var(--aithema-accent); }
 .qhint { margin:0; padding-left:10px; font-size:12.5px; color:var(--aithema-muted); }
-.transcript-shell { padding-bottom:calc(1.5rem + var(--aithema-slack-bottom,0px) + var(--question-card-height,0px)); }
+/* Reserve outside the scrollport: even keyboard scrolling cannot put a bubble
+   underneath the card. The grid gives up only transcript room, never the dock. */
+.transcript-shell { margin-bottom:var(--question-card-height,0px); }
 `;
 
 export const questionCardMarkup = `<div class="question-card qcard" hidden role="group" aria-labelledby="qtitle" aria-describedby="qtext qhint">
-  <div class="qhead"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.5-5.2A8.5 8.5 0 1 1 21 12z"/><path d="M9.7 9.3a2.4 2.4 0 1 1 3.4 2.2c-.7.3-1.1.9-1.1 1.6v.4M12 16.3v.1"/></svg><span id="qtitle"></span></div>
-  <p class="qtext" id="qtext"></p><div class="qopts"></div><p class="qhint" id="qhint"></p>
+  <span class="qhead visually-hidden" id="qtitle"></span>
+  <p class="qtext" id="qtext"></p><div class="qopts" role="region" aria-labelledby="qtitle"></div><p class="qhint" id="qhint"></p>
 </div>`;
 
 /** Reconcile by reply and option identity; incoming assessments never replace a focused row. */
 export class QuestionCard {
-  constructor({ root, send, onResize }) {
-    this.root = root; this.card = root.querySelector('.qcard'); this.answers = new WeakMap(); this.onResize = onResize;
+  constructor({ root, send, onResize, followsTranscript = () => true }) {
+    this.root = root; this.card = root.querySelector('.qcard'); this.answers = new WeakMap(); this.onResize = onResize; this.followsTranscript = followsTranscript;
     this.card.addEventListener('click', event => {
       const button = event.target.closest('.qopt');
       if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true' && this.answers.has(button)) send(this.answers.get(button));
@@ -76,8 +84,10 @@ export class QuestionCard {
     if (Resize) { this.observer ??= new Resize(() => this.reserve()); this.observer.observe(this.card); }
   }
   reserve() {
-    // Only the transcript's scroll room changes. The dock and every composer control stay fixed.
-    const height = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
+    // While reading, retain space through a shorter replacement or closure so
+    // the scroll range cannot clamp the reading position. Release on following.
+    const measured = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
+    const height = this.followsTranscript() ? measured : Math.max(this.height ?? 0, measured);
     if (this.height === height) return;
     this.height = height;
     this.root.querySelector('.conversation').style.setProperty('--question-card-height', `${height}px`);

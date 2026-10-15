@@ -6,6 +6,7 @@ import { voiceEvents } from '../../core/src/live-voice.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { QuestionCard, questionCardMarkup } from '../src/question-card.js';
 
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
@@ -157,8 +158,7 @@ test('AIT-132: card answers use active voice forwarding once, and speaking close
   assert.equal(shown(c), false); assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.call, 'active');
 });
 
-
-test('AIT-225: the options scroll region has a translated accessible name and remains keyboard ordered while sending', () => {
+test('AIT-225: the options scroll region has a translated accessible name and remains keyboard ordered across unrelated updates', () => {
   for (const copy of [en, de]) {
     const c = setup(copy); question(c);
     const root = c.shadowRoot, region = root.querySelector('.qopts'), buttons = [...region.children];
@@ -168,4 +168,23 @@ test('AIT-225: the options scroll region has a translated accessible name and re
     assert.deepEqual([...region.children], buttons);
     assert.ok(buttons.every(button => button.tabIndex === 0));
   }
+});
+
+test('AIT-225: closing while reading retains the transcript reservation until following resumes', () => {
+  const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="conversation"></div>${questionCardMarkup}<textarea></textarea>`;
+  let following = true, resizes = 0;
+  const card = new QuestionCard({ root, send() {}, followsTranscript: () => following, onResize: () => resizes++ });
+  card.card.getBoundingClientRect = () => ({ height: 290 });
+  card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
+  const reserved = () => root.querySelector('.conversation').style.getPropertyValue('--question-card-height');
+  assert.equal(reserved(), '290px');
+  following = false; card.card.getBoundingClientRect = () => ({ height: 150 });
+  card.reserve(); assert.equal(reserved(), '290px', 'a shorter card must not clamp a reading scroll position');
+  card.update(null, en, false);
+  assert.equal(reserved(), '290px', 'closing a question must not clamp a reading scroll position');
+  following = true; card.reserve();
+  assert.equal(reserved(), '0px');
+  card.reserve(); assert.equal(resizes, 2, 'idempotent reservation must not cause another scroll');
+  card.destroy();
 });
