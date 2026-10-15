@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/aithema-core';
-import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
+import { SQLiteBudgetLedger } from '@inspr/aithema-server';
 import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js';
 import { createConfirmationStore } from './confirmation-store.js';
-import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
+import { privacyDocumentConfigured as hasPrivacyDocument } from '@inspr/aithema-server';
 import { canonicalEmail } from './email-address.js';
 import { createClientIpResolver } from './client-ip.js';
 

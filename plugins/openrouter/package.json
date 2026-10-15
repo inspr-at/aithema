@@ -1,6 +1,6 @@
 {
   "name": "@inspr/aithema-plugin-openrouter",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.js",
@@ -8,11 +8,19 @@
     "./reconcile": "./src/reconcile.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "*"
+    "@inspr/aithema-core": "261015164601.0.0"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/openrouter"
+  }
 }

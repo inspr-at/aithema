@@ -1,21 +1,22 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listTreeEntries, readBlob, resolveCommit, commitEpochSeconds, validateArchivePath } from './lib/git.mjs';
 import { sha256, gitBlobSha1 } from './lib/digest.mjs';
 import { stagePackageTree, createDeterministicTarball, assertCanonicalReleaseToolchain } from './lib/tarball.mjs';
 import { assertRuntimeProvenanceBinding, buildSourceProvenanceText } from './lib/provenance.mjs';
 import { parseVersion, assertReleaseTag } from './lib/version.mjs';
+import { moduleFiles } from './lib/modules.mjs';
 import { verifyPresentation } from './presentation-pin.mjs';
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const digest = bytes => `sha256:${sha256(bytes)}`;
 const forbidden = path => path.split('/').some(part => /^(?:\.env|env\.)/u.test(part) || /(?:\.example|\.age)$/u.test(part));
 export function admittedPath(path) {
   return !forbidden(path) && (['package.json', 'package-lock.json', 'LICENSE', 'README.md', 'docs/embedding.md', 'packages/server/elevenlabs-compat.js'].includes(path) ||
-    /^(?:packages|plugins)\/[^/]+\/(?:package\.json|src\/.+|bin\/.+|dev\/.+)$/u.test(path) ||
-    /^demo\/(?!test\/)[^/]+\.(?:js|css|html)$/u.test(path) || /^release\/(?:[^/]+\.(?:json|mjs)|lib\/[^/]+\.mjs)$/u.test(path));
+    /^(?:packages|plugins)\/[^/]+\/(?:package\.json|src\/.+|bin\/.+)$/u.test(path) ||
+    /^demo\/(?!test\/)[^/]+\.(?:js|css|html)$/u.test(path) || /^release\/(?:[^/]+\.(?:json|mjs|md)|lib\/[^/]+\.mjs)$/u.test(path));
 }
 // Tree listing does not read disallowed file contents. Release builds read admitted Git blobs only.
 export function releasePaths(root) {
@@ -24,7 +25,7 @@ export function releasePaths(root) {
   function walk(dir, prefix = '') {
     for (const name of readdirSync(dir).sort()) {
       const path = prefix + name;
-      if (forbidden(path) || ['.git', 'node_modules', 'dist'].includes(name)) continue;
+      if (forbidden(path) || ['.git', '.data', 'node_modules', 'dist'].includes(name)) continue;
       const stat = lstatSync(join(dir, name));
       if (stat.isSymbolicLink()) { if (admittedPath(path)) throw new Error('Release rejects symlink'); continue; }
       if (stat.isDirectory()) walk(join(dir, name), path + '/');
@@ -48,7 +49,7 @@ function packageVersions(files, source) {
   };
   const inventory = packages.map(path => {
     const pkg = setVersion(JSON.parse(files.get(path))); files.set(path, Buffer.from(json(pkg)));
-    return { name: pkg.name, version: pkg.version, path, exports: pkg.exports ?? {}, license: pkg.license };
+    return { name: pkg.name, version: pkg.version, path, exports: pkg.exports ?? {}, license: pkg.license, publish: pkg.private !== true };
   });
   files.set('package.json', Buffer.from(json(setVersion(JSON.parse(files.get('package.json'))))));
   const lock = JSON.parse(files.get('package-lock.json')); lock.version = source.version;
@@ -56,18 +57,34 @@ function packageVersions(files, source) {
   files.set('package-lock.json', Buffer.from(json(lock)));
   return inventory;
 }
-export function packRelease({ root = fileURLToPath(new URL('../', import.meta.url)), output, dryRun = false, ref } = {}) {
+export function packRelease({ root = fileURLToPath(new URL('../', import.meta.url)), output, dryRun = false, ref, sourceRef = 'HEAD' } = {}) {
   root = resolve(root); if (!output) throw new Error('New output directory required');
-  const commit = resolveCommit(root);
-  const entries = listTreeEntries(root, commit).filter(entry => admittedPath(entry.path));
-  if (entries.some(entry => entry.type !== 'blob' || !['100644', '100755'].includes(entry.mode))) throw new Error('Release requires regular Git blobs');
-  const files = new Map(entries.map(entry => [entry.path, readBlob(root, commit, entry.path)]));
+  const archived = !existsSync(join(root, '.git'));
+  let commit, epoch, files;
+  if (archived) {
+    // git archive expands this tracked export-subst marker. Only admitted regular
+    // files are read, so env contents remain outside the release closure.
+    const marker = readFileSync(join(root, 'release/archive-source.txt'), 'utf8').trim().split('\n');
+    [commit] = marker; epoch = Number(marker[1]);
+    if (marker.length !== 2 || !/^[a-f0-9]{40}$/u.test(commit) || !Number.isSafeInteger(epoch) || epoch <= 0 ||
+      !['HEAD', commit].includes(sourceRef)) throw new Error('Archive requires expanded source commit/epoch metadata');
+    files = new Map(releasePaths(root).map(path => [path, readFileSync(join(root, path))]));
+  } else {
+    commit = resolveCommit(root, sourceRef); epoch = commitEpochSeconds(root, commit);
+    const entries = listTreeEntries(root, commit).filter(entry => admittedPath(entry.path));
+    if (entries.some(entry => entry.type !== 'blob' || !['100644', '100755'].includes(entry.mode))) throw new Error('Release requires regular Git blobs');
+    files = new Map(entries.map(entry => [entry.path, readBlob(root, commit, entry.path)]));
+  }
   const declared = JSON.parse(files.get('release/version.json'));
   parseVersion(declared);
-  if (!dryRun) assertReleaseTag(ref, declared);
+  if (!dryRun) {
+    if (declared.status !== 'reserved' || declared.version_scheme !== 'inspr-calver-3') throw new Error('Candidate requires a reserved CalVer3 source');
+    if (ref) assertReleaseTag(ref, declared);
+  }
+  const mode = dryRun ? 'dry-run' : ref ? 'release' : 'candidate';
   const source = dryRun ? { ...declared, version_scheme: 'inspr-calver-3', version: declared.status === 'reserved' ? declared.version : declared.dry_run_version,
     release_sequence: declared.release_sequence ?? declared.migration.first_calendar_sequence } : declared;
-  parseVersion(source); verifyPresentation(root);
+  parseVersion(source); verifyPresentation(root, { requireTracked: !archived });
   assertCanonicalReleaseToolchain();
   const sourceTree = treeDigest(files), lockDigest = digest(files.get('package-lock.json'));
   const packages = packageVersions(files, source);
@@ -77,8 +94,7 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
       files.set(path, Buffer.from(bytes.toString().replace(/\bversion:\s*(['"])0\.0\.0\1/gu, `version: '${source.version}'`)));
     }
   }
-  const epoch = commitEpochSeconds(root, commit);
-  const runtime = Buffer.from(json({ ...source, mode: dryRun ? 'dry-run' : 'release', source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, date: new Date(epoch * 1000).toISOString() }));
+  const runtime = Buffer.from(json({ ...source, mode, source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, date: new Date(epoch * 1000).toISOString() }));
   files.set('release/runtime.json', runtime);
   files.set('packages/server/src/release-runtime.json', runtime);
   const lock = JSON.parse(files.get('package-lock.json'));
@@ -96,36 +112,54 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   assertRuntimeProvenanceBinding(JSON.parse(provenance), { treeDigest: treeDigest(files), lockDigest: digest(files.get('package-lock.json')) });
   files.set('release/source-provenance.json', Buffer.from(provenance));
   const stage = mkdtempSync(join(tmpdir(), 'aithema-release-'));
-  const packageRoot = stagePackageTree(stage, files), directory = resolve(output); mkdirSync(directory, { recursive: false });
+  try {
+  const packageRoot = stagePackageTree(stage, files), directory = resolve(output); mkdirSync(dirname(directory), { recursive: true }); mkdirSync(directory, { recursive: false });
   const filename = `aithema-reset-${source.version}.tgz`, artifactPath = join(directory, filename);
   createDeterministicTarball(packageRoot, artifactPath, epoch);
-  const manifest = { schema: 'aithema-release-set/1', mode: dryRun ? 'dry-run' : 'release', version_scheme: source.version_scheme, version: source.version,
+  const artifacts = [{ coordinate: `workspace/npm-tgz/any/any/default/${filename}`, path: filename, sha256: digest(readFileSync(artifactPath)), kind: 'workspace' }];
+  for (const pkg of packages.filter(pkg => pkg.publish)) {
+    const members = moduleFiles(files, pkg);
+    const packageStage = mkdtempSync(join(stage, 'module-'));
+    const name = `${pkg.name.replace('@', '').replace('/', '-')}-${source.version}.tgz`;
+    createDeterministicTarball(stagePackageTree(packageStage, members), join(directory, name), epoch);
+    artifacts.push({ kind: 'module', name: pkg.name, coordinate: `npm-tgz/${pkg.name}/${source.version}`, path: name,
+      sha256: digest(readFileSync(join(directory, name))), files: [...members].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => ({ path, size: bytes.length, sha256: digest(bytes) })) });
+  }
+  const manifest = { schema: 'aithema-release-set/1', mode, version_scheme: source.version_scheme, version: source.version,
     release_channel: source.release_channel, release_sequence: source.release_sequence, migration: { ...source.migration, first_calendar_version: source.migration.first_calendar_version ?? source.version },
-    source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, toolchain: { node: '24', tar: 'canonical GNU in CI; BSD local verification' },
+    source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, toolchain: { node: '24', tar: 'canonical GNU in CI; BSD local verification', archive_format: 'deterministic tar + gzip' },
     packing: { run: process.env.GITHUB_RUN_ID ?? 'offline-test' },
     validation: { policy: 'CI/merge-queue checks plus separate release qualification', reference: `https://github.com/inspr-at/aithema/commit/${commit}/checks` },
     packages, files: [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => ({ path, size: bytes.length, sha256: digest(bytes) })),
-    artifacts: [{ coordinate: `workspace/npm-tgz/any/any/default/${filename}`, path: filename, sha256: digest(readFileSync(artifactPath)) }] };
+    artifacts };
   writeFileSync(join(directory, 'release-set.json'), json(manifest), { flag: 'wx' }); verifyRelease(directory);
   return { directory, artifactPath, manifest };
+  } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 export function verifyRelease(directory) {
   const manifest = JSON.parse(readFileSync(join(directory, 'release-set.json'))); parseVersion(manifest);
-  if (manifest.schema !== 'aithema-release-set/1' || !['dry-run', 'release'].includes(manifest.mode) || !/^[a-f0-9]{40}$/u.test(manifest.source.commit) ||
-    !Number.isSafeInteger(manifest.release_sequence) || manifest.release_sequence < 1 || !manifest.release_channel || manifest.artifacts.length !== 1) throw new Error('Invalid release-set manifest');
+  if (manifest.schema !== 'aithema-release-set/1' || !['dry-run', 'candidate', 'release'].includes(manifest.mode) || !/^[a-f0-9]{40}$/u.test(manifest.source.commit) ||
+    !Number.isSafeInteger(manifest.release_sequence) || manifest.release_sequence < 1 || !manifest.release_channel || manifest.artifacts.length < 1) throw new Error('Invalid release-set manifest');
+  const artifactNames = new Set(manifest.artifacts.map(artifact => artifact.path));
+  if (artifactNames.size !== manifest.artifacts.length || manifest.artifacts.filter(artifact => artifact.kind === 'workspace').length !== 1 ||
+    manifest.packages.filter(pkg => pkg.publish).some(pkg => manifest.artifacts.filter(artifact => artifact.kind === 'module' && artifact.name === pkg.name).length !== 1)) throw new Error('Incomplete artifact set');
+  let workspaceMembers;
   for (const artifact of manifest.artifacts) {
+    if (!['workspace', 'module'].includes(artifact.kind)) throw new Error('Unknown artifact kind');
+    const inventory = artifact.kind === 'workspace' ? manifest.files : artifact.files;
+    const coordinate = artifact.kind === 'workspace' ? `workspace/npm-tgz/any/any/default/${artifact.path}` : `npm-tgz/${artifact.name}/${manifest.version}`;
     validateArchivePath(artifact.path);
-    if (artifact.path.includes('/') || !/^sha256:[a-f0-9]{64}$/u.test(artifact.sha256) || artifact.coordinate !== `workspace/npm-tgz/any/any/default/${artifact.path}`) throw new Error('Invalid artifact coordinate');
+    if (artifact.path.includes('/') || !/^sha256:[a-f0-9]{64}$/u.test(artifact.sha256) || artifact.coordinate !== coordinate) throw new Error('Invalid artifact coordinate');
     const path = join(directory, artifact.path); if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) throw new Error('Artifact must be regular file');
     if (digest(readFileSync(path)) !== artifact.sha256) throw new Error('Artifact digest mismatch');
     const paths = execFileSync('tar', ['-tzf', path], { encoding: 'utf8' }).trim().split('\n');
-    const expected = manifest.files.map(file => `package/${file.path}`).sort();
+    const expected = inventory.map(file => `package/${file.path}`).sort();
     if (JSON.stringify([...paths].sort()) !== JSON.stringify(expected)) throw new Error('Artifact file inventory mismatch');
     const listing = execFileSync('tar', ['-tvzf', path], { encoding: 'utf8' }).trim().split('\n');
     if (listing.length !== paths.length || listing.some(line => !line.startsWith('-'))) throw new Error('Artifact requires regular members');
-    const byPath = new Map(manifest.files.map(file => [file.path, file]));
-    if (byPath.size !== manifest.files.length) throw new Error('Duplicate artifact member');
-    const total = manifest.files.reduce((sum, file) => {
+    const byPath = new Map(inventory.map(file => [file.path, file]));
+    if (byPath.size !== inventory.length) throw new Error('Duplicate artifact member');
+    const total = inventory.reduce((sum, file) => {
       validateArchivePath(file.path);
       if (forbidden(file.path) || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > 16 * 1024 * 1024) throw new Error('Invalid artifact member');
       return sum + file.size;
@@ -141,11 +175,23 @@ export function verifyRelease(directory) {
       if (digest(bytes) !== file.sha256) throw new Error('Artifact member digest mismatch');
       members.set(file.path, bytes);
     }
+    if (artifact.kind === 'module') {
+      const declaredPackage = manifest.packages.find(pkg => pkg.name === artifact.name && pkg.publish);
+      if (!workspaceMembers || !declaredPackage) throw new Error('Module lacks workspace binding');
+      const expected = moduleFiles(workspaceMembers, declaredPackage);
+      if (expected.size !== members.size || [...expected].some(([path, bytes]) => !members.get(path)?.equals(bytes))) throw new Error('Module source binding mismatch');
+      const pkg = JSON.parse(members.get('package.json'));
+      if (pkg.name !== artifact.name || pkg.version !== manifest.version || pkg.private === true || pkg.license !== 'AGPL-3.0-only') throw new Error('Invalid publishable module');
+      const runtime = JSON.parse(members.get('release-runtime.json'));
+      if (runtime.source.commit !== manifest.source.commit || runtime.version !== manifest.version) throw new Error('Module provenance mismatch');
+      continue;
+    }
     if (!members.get('packages/server/src/release-runtime.json')?.equals(members.get('release/runtime.json'))) throw new Error('Package runtime metadata binding mismatch');
     const runtime = JSON.parse(members.get('release/runtime.json')), provenance = JSON.parse(members.get('release/source-provenance.json'));
     if (['version', 'version_scheme', 'release_channel', 'release_sequence', 'mode'].some(key => runtime[key] !== manifest[key]) ||
       runtime.source.commit !== manifest.source.commit || provenance.current_source_commit !== manifest.source.commit ||
       runtime.source.tree_digest !== manifest.source.tree_digest || runtime.source.lock_digest !== manifest.source.lock_digest) throw new Error('Artifact source commit/metadata binding mismatch');
+    workspaceMembers = members;
     const bound = new Map(members); bound.delete('release/source-provenance.json');
     assertRuntimeProvenanceBinding(provenance, { treeDigest: treeDigest(bound), lockDigest: digest(members.get('package-lock.json')) });
     for (const pkg of manifest.packages) {
@@ -155,9 +201,9 @@ export function verifyRelease(directory) {
   return manifest;
 }
 export function rollbackArtifact(directory, trustedManifest, coordinate) {
-  if (trustedManifest.mode !== 'release') throw new Error('A dry-run cannot be rollback evidence');
+  if (!['candidate', 'release'].includes(trustedManifest.mode)) throw new Error('A dry-run cannot be rollback evidence');
   const actual = verifyRelease(directory);
-  if (actual.mode !== 'release') throw new Error('A dry-run cannot be rollback evidence');
+  if (!['candidate', 'release'].includes(actual.mode)) throw new Error('A dry-run cannot be rollback evidence');
   // Caller supplies the retained immutable manifest, not a mutable latest alias.
   if (['version_scheme', 'version', 'release_channel', 'release_sequence'].some(key => actual[key] !== trustedManifest[key]) ||
     JSON.stringify(actual.source) !== JSON.stringify(trustedManifest.source) || JSON.stringify(actual.artifacts) !== JSON.stringify(trustedManifest.artifacts)) throw new Error('Rollback manifest mismatch');
@@ -165,8 +211,8 @@ export function rollbackArtifact(directory, trustedManifest, coordinate) {
   return { ...artifact, deploymentEvent: { action: 'rollback', version_scheme: actual.version_scheme, version: actual.version, release_sequence: actual.release_sequence, coordinate, sha256: artifact.sha256 } };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [command, output, ref] = process.argv.slice(2);
+  const [command, output = 'dist/release', ref, sourceRef] = process.argv.slice(2);
   if (command === 'verify') console.log(JSON.stringify(verifyRelease(output)));
-  else if (command === 'pack') console.log(JSON.stringify(packRelease({ output, ref }).manifest));
-  else throw new Error('Usage: node release/pack.mjs pack <new-output-directory> <refs/tags/vVERSION> | verify <directory>');
+  else if (command === 'pack') console.log(JSON.stringify(packRelease({ output, ref: ref === '--candidate' ? undefined : ref, sourceRef }).manifest));
+  else throw new Error('Usage: node release/pack.mjs pack [new-output-directory] [--candidate | refs/tags/vVERSION] [source-commit] | verify <directory>');
 }

@@ -1,17 +1,32 @@
 {
   "name": "@inspr/aithema-plugin-elevenlabs",
-  "private": true,
+  "private": false,
   "type": "module",
-  "version": "0.0.0",
+  "version": "261015164601.0.0",
   "license": "AGPL-3.0-only",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./src/server.js",
     "./server": "./src/server.js",
     "./client": "./src/client.js",
     "./manifest": "./src/manifest.js",
+    "./provider": "./src/provider.js",
     "./callbacks": "./src/callbacks.js",
-    "./provider": "./src/provider.js"
+    "./voice-host": "./src/voice-host.js"
   },
-  "dependencies": { "@inspr/aithema-core": "*", "@elevenlabs/client": "1.17.0" }
+  "dependencies": {
+    "@inspr/aithema-core": "261015164601.0.0",
+    "@elevenlabs/client": "1.17.0",
+    "@inspr/aithema-ui": "261015164601.0.0"
+  },
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/elevenlabs"
+  }
 }

@@ -1,6 +1,6 @@
-import { PluginError } from '../../../packages/core/src/invocation.js';
-import { voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { usdCostMicro } from '../../../packages/core/src/cost.js';
+import { PluginError } from '@inspr/aithema-core/invocation';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
+import { usdCostMicro } from '@inspr/aithema-core/cost';
 
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 const finite = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;

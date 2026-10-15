@@ -4,7 +4,7 @@ import { after } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { browserPath } from './start2-display-helpers.js';
 
 let launch, directory, resetPage, crashed = false;

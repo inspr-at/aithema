@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { hostname, homedir, tmpdir } from 'node:os';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from '../browser/launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath } from '../browser/start2-display-helpers.js';
 import { offlineAudio } from './offline-audio.js';

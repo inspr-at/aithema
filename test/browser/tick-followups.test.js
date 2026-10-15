@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, settle, boxes, evidenceCommit } from './start2-display-helpers.js';
 

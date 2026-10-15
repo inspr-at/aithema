@@ -1,10 +1,27 @@
 {
   "name": "@inspr/aithema-plugin-codex-imagegen",
-  "private": true,
+  "private": false,
   "type": "module",
-  "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } },
-  "dependencies": { "@inspr/aithema-core": "*" },
-  "engines": { "node": ">=24" },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "dependencies": {
+    "@inspr/aithema-core": "261015164601.0.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/codex-imagegen"
+  }
 }

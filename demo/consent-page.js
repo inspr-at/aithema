@@ -1,6 +1,6 @@
 import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
-import { postJson } from '../packages/ui/src/post-json.js';
+import { postJson } from './post-json.js';
 import { localeKey, sessionKey, preferredLocale, remember, mountTheme, paintUtilities } from './page-preferences.js';
 
 // START consentReturnPath: normalize first, then check again. Backslashes and

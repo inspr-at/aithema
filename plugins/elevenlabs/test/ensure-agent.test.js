@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
-import { ensureAgent, AGENT_NAME } from '../src/ensure-agent.js';
+import { ensureAgent } from '../src/ensure-agent.js';
 import { createVoiceHost, START2_VOICE_OPENERS } from '../../../demo/start2-voice-host.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { temporaryDb } from '../../../test/helpers.js';
 import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 
-const options = (storage, fake, logs = []) => ({ storage, apiBaseUrl: fake.endpoint, templateAgentId: 'template-agent',
+const AGENT_NAME = 'aithema-start2';
+const options = (storage, fake, logs = []) => ({ storage, agentName: AGENT_NAME, facadeSecretName: 'aithema-start2-facade', apiBaseUrl: fake.endpoint, templateAgentId: 'template-agent',
   publicOrigin: 'https://start2.example.test', resolveSecret: ref => ref === 'ELEVENLABS_API_KEY' ? 'local-key-fixture' : 'local-bearer-fixture',
   log: value => logs.push(value) });
 const writes = fake => fake.requests.filter(request => request.method !== 'GET');

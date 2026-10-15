@@ -1,13 +1,26 @@
 {
   "name": "@inspr/aithema-plugin-openai-images",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.js",
+    "./index": "./src/index.js",
     "./image-artifact": "./src/image-artifact.js"
   },
-  "dependencies": { "@inspr/aithema-core": "*" },
-  "engines": { "node": ">=24" },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "dependencies": {
+    "@inspr/aithema-core": "261015164601.0.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "plugins/openai-images"
+  }
 }

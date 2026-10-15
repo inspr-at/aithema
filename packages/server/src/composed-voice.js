@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { PluginError } from '../../core/src/invocation.js';
-import { deepFreeze } from '../../core/src/plugins.js';
-import { createVoiceLifecycle, reduceVoiceLifecycle } from '../../core/src/voice-lifecycle.js';
-import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
-import { voiceOperation, voiceLifetime } from '../../core/src/live-voice.js';
-import { audioQueue, boundedEvents } from '../../core/src/voice-components.js';
+import { PluginError } from '@inspr/aithema-core/invocation';
+import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { createVoiceLifecycle, reduceVoiceLifecycle } from '@inspr/aithema-core/voice-lifecycle';
+import { recoverableVoiceEnd } from '@inspr/aithema-core/voice-lifecycle';
+import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
+import { audioQueue, boundedEvents } from '@inspr/aithema-core/voice-components';
 
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');

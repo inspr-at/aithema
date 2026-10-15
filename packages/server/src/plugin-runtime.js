@@ -5,13 +5,13 @@ import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCanc
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
-import { isLocalVoice } from './dev-voice-identity.js';
+import { isLocalVoice } from './local-voice-identity.js';
 import { createImageBinding, imagePluginBinding } from './image-binding.js';
 import { isLocalImages } from './local-images.js';
 import { isLocalHTML } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
-import { buildMessages, callCeilingMicro } from '../../../plugins/claude-html/src/index.js';
-import { previousDocument } from '../../../plugins/claude-html/src/html-artifact.js';
+import { buildMessages, callCeilingMicro } from '@inspr/aithema-plugin-claude-html/index';
+import { previousDocument } from '@inspr/aithema-plugin-claude-html/html-artifact';
 import { SQLiteBudgetLedger } from './budget.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],

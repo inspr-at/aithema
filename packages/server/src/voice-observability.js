@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PLUGIN_ERROR_CODES } from '../../core/src/invocation.js';
+import { PLUGIN_ERROR_CODES } from '@inspr/aithema-core/invocation';
 
 // The schema is closed: callers cannot add free-form diagnostic fields or values.
 const stages = Object.freeze({

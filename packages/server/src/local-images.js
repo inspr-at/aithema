@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { deepFreeze, beginInvocation, operationScope, validateUIReferences } from '@inspr/aithema-core';
-import { manifest as imageManifest } from '../../../plugins/openai-images/src/index.js';
-import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
+import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images/index';
+import { imageArtifact } from '@inspr/aithema-plugin-openai-images/image-artifact';
 
 const localGenerates = new WeakSet();
 export const isLocalImages = plugin => localGenerates.has(plugin?.generate);

@@ -1,6 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { releaseInfo } from '../packages/server/src/release-info.js';
+import { readFileSync } from 'node:fs';
+let releaseInfo;
+try { releaseInfo = JSON.parse(readFileSync(new URL('../release/runtime.json', import.meta.url))); }
+catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+  releaseInfo = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
+}
 
 /** Existing placeholder version, source SHA and source date. Archives can supply the two source facts. */
 export function buildInfo(values = process.env) {
