@@ -18,7 +18,9 @@ for (const [name, path, before, after] of mutations) test(`red-before: ${name}`,
   assert.ok(original.includes(before));
   try {
     writeFileSync(path, original.replace(before, after));
-    const result = spawnSync(process.execPath, ['--test', `--test-name-pattern=${name}`, 'test/plugin-contract-behaviour.test.js'], { encoding: 'utf8' });
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, ['--test', `--test-name-pattern=${name}`, 'test/plugin-contract-behaviour.test.js'], { encoding: 'utf8', env: childEnv });
     console.log(result.stdout, result.stderr);
     assert.equal(result.status, 1, 'the behaviour test must fail under the mutation');
     assert.match(result.stdout, /AssertionError|ERR_ASSERTION/);
