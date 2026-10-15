@@ -66,7 +66,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
     throw new TypeError('Admission and revocation require the same consent port');
   }
-  const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
+  const listeners = new Map(), jobs = new Map(), stop = new AbortController();
   if (host?.walletForSession) pluginRuntime.setOwnerWallet?.(session => host.walletForSession(session));
   let recovery = null, costTimer, costRecovery;
   const reconcileCostsLater = () => {
@@ -85,12 +85,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     // Work that deferred while paused needs a wake-up even without a new turn.
     if (event.type === 'session.paused' && event.data.paused === false) schedule(id, { wake: true });
   };
-  const operations = session => {
-    const revision = inputRevision(session), failure = failures.get(session.id);
-    if (failure && failure.inputRevision !== revision) failures.delete(session.id);
-    return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
-      lastFailure: failure?.inputRevision === revision ? failure : null };
-  };
+  const clearFailures = id => storage.clearLaneFailures(id);
+  const currentFailures = session => storage.laneFailures(session.id).filter(failure => {
+    if (failure.inputRevision === inputRevision(session)) return true;
+    storage.clearLaneFailures(session.id, failure.lane);
+    return false;
+  });
+  const operations = session => ({ inputRevision: inputRevision(session),
+    running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
+    // Expose every current failure so each lane can explain its own failure.
+    failures: currentFailures(session),
+    lastFailure: currentFailures(session).at(-1) ?? null });
   const snapshot = async id => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
@@ -238,44 +243,52 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
       ...(['consent-withdrawn', 'consent-revised', 'session-erased'].includes(reason) ? [uploadHandlers.cancelSession(id)] : [])]);
-    failures.delete(id); broadcast(id, event);
+    clearFailures(id); broadcast(id, event);
     voiceHandlers?.stopSession(id, reason);
     await cancelled;
   }
-  function schedule(id, { wake = false } = {}) {
+  function schedule(id, { wake = false, reconnect = false, retry = false } = {}) {
     let requested;
     if (purposePolicy) {
       const session = storage.get(id), scoped = storage.safeguards(id, inputRevision(session));
       requested = storage.purposeAssessmentInput(session) ? ['understanding'] : [];
       if (!scoped.assessed && session.pauseReason !== 'purpose' && !(voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id))) requested.unshift('reaction');
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
-    for (const lane of requested) scheduleLane(id, lane, { wake });
+    // An explicit Retry can recover a recorded lane even when ordinary
+    // scheduling currently requests only understanding (for example active voice).
+    if (retry) requested = ['reaction', 'understanding'].filter(lane =>
+      requested.includes(lane) || currentFailures(storage.get(id)).some(failure => failure.lane === lane));
+    let previous;
+    for (const lane of requested) {
+      // Opening a stream is not consent to another paid attempt. Keep each
+      // recorded current-revision lane failure until the existing Retry path.
+      if (reconnect && currentFailures(storage.get(id)).some(failure => failure.lane === lane)) continue;
+      scheduleLane(id, lane, { wake, after: retry ? previous : undefined });
+      if (retry) previous = jobs.get(`${id}:${lane}`)?.promise;
+    }
     status(id);
   }
-  function scheduleLane(id, lane, { wake = false } = {}) {
+  function scheduleLane(id, lane, { wake = false, after } = {}) {
     const key = `${id}:${lane}`;
     if (stop.signal.aborted) return;
     const running = jobs.get(key);
     if (running) { if (wake) running.reschedule = true; return; }
     const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
-    job.promise = Promise.resolve().then(async () => {
+    job.promise = Promise.resolve(after).catch(() => {}).then(async () => {
       try {
         while (!stop.signal.aborted) {
           job.reschedule = false;
           const started = storage.get(id), revision = inputRevision(started), work = laneKey(started, lane);
           try {
             await lanes.run(id, lane, { signal: stop.signal });
-            const failure = failures.get(id);
-            if (inputRevision(storage.get(id)) === revision && failure?.inputRevision === revision && failure.lane === lane) {
-              failures.delete(id);
-            }
+            storage.clearLaneFailures(id, lane);
           } catch (error) {
             // Work superseded by new input or a changed processing choice reruns instead of failing.
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
               const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true,
                 ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
-              failures.set(id, failure);
+              storage.setLaneFailure(id, failure);
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }
           }
@@ -324,7 +337,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const scoped = purposePolicy ? storage.safeguards(session.id, revision) : null;
     const replyMissing = scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     return !session.tombstone && hasConversationInput(session) &&
-      (replyMissing || !scoped?.offTopic && !understandingDeferred(session) &&
+      (replyMissing || purposePolicy && storage.purposeAssessmentInput(session) || !scoped?.offTopic && !understandingDeferred(session) &&
         (session.understanding.inputRevision !== revision || session.understanding.draft));
   }
   function events(request, id) {
@@ -357,7 +370,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!closed) set.add(send);
         if (request.signal.aborted || stop.signal.aborted) abort();
         else if (!closed) {
-          if (unfinished(session)) schedule(id);
+          if (unfinished(session)) schedule(id, { reconnect: true });
           status(id);
         }
       },
@@ -449,7 +462,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         return json(event, 200);
       }
       if (action === 'retry' && request.method === 'POST') {
-        schedule(id); return json({ accepted: true }, 202);
+        schedule(id, { retry: true }); return json({ accepted: true }, 202);
       }
       if (action === 'pause' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
@@ -500,7 +513,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           broadcast(id, change.event);
           // Like new input: in-flight work on the previous choice is superseded and
           // unanswered input reruns with the new bindings; completed work stays cached.
-          lanes.supersede(id); failures.delete(id);
+          lanes.supersede(id); clearFailures(id);
           await uploadHandlers.cancelSession(id);
           if (selection(before, 'concept') !== selection(storage.get(id), 'concept')) void conceptHandlers.lane.supersede(id);
           if (unfinished(storage.get(id))) schedule(id); else status(id);
@@ -626,7 +639,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           for (const id of storage.list()) {
             if (stop.signal.aborted) break;
             if (!unfinished(storage.get(id))) continue;
-            schedule(id);
+            schedule(id, { reconnect: true });
             await Promise.allSettled([...jobs.values()].filter(job => job.id === id).map(job => job.promise));
           }
         })().finally(() => { recovery = null; });

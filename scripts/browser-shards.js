@@ -49,7 +49,7 @@ export const browserTestWeights = {
   'test/browser/start2-display-matrix.test.js': 70.000, // AIT-199 latest max 52.528s, CI 38773142800-1; historical floor 70s
   'test/browser/start2-display.test.js': 110.000, // AIT-199 latest max 97.777s, CI 38765085264-1; historical floor 110s
   'test/browser/tick-followups.test.js': 90.000, // AIT-199 latest max 76.289s, CI 38732580354-1; historical floor 90s
-  'test/browser/understanding-failure.test.js': 50.000, // Incoming AIT-198: CI 38770896962-1, 32.829s rounded up + 10s
+  'test/browser/understanding-failure.test.js': 60.000, // AIT-212/213 expanded matrix: mbp2606 7ca3832ca3-18003, 44.890s rounded up + 10s
   'test/browser/visitor-credit-tiers.test.js': 110.000, // AIT-199 latest max 96.541s, CI 38770896962-1; historical floor 110s
   'test/browser/voice-presentation.test.js': 90.000, // AIT-199 latest max 68.021s, CI 38770896962-1; historical floor 90s
 };

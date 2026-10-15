@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 import { createMockReasoning, inputRevision, PluginError } from '@inspr/aithema-core';
@@ -57,14 +60,22 @@ for (const check of ['abort', 'reply']) test(`superseding a held understanding c
   } finally { held.resolve(); await handlers.close(); storage.close(); }
 });
 
-test('GET retains a sanitized current-revision lane failure and SSE reschedules unfinished work', async () => {
-  const storage = new SQLiteStorage(), mock = createMockReasoning(); let calls = 0;
+for (const action of ['reconnect', 'retry', 'restart']) test(`AIT-212 failed paid understanding: ${action}`, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ait213-'));
+  const path = join(dir, 'sessions.sqlite');
+  let storage = new SQLiteStorage(path);
+  const mock = createMockReasoning(); let calls = 0;
   const reasoning = { ...mock, async structured(...args) {
     if (++calls === 1) throw new Error('private provider diagnostic');
     return mock.structured(...args);
   } };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
-  let subscription;
+  const admissions = [], settlements = [];
+  const makeHandlers = () => { const runtime = instrumentedMockRuntime(storage, reasoning);
+    return createHandlers({ storage, reasoning, pluginRuntime: { ...runtime, async admit(args) {
+    const admitted = await runtime.admit(args); admissions.push(args.lane);
+    return { ...admitted, async finish(result) { settlements.push({ lane: args.lane, ...result }); return admitted.finish(result); } };
+  } } }); };
+  let handlers = makeHandlers(), subscription;
   try {
     const s = storage.create({ demo: true, ownerToken: testToken });
     await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
@@ -75,13 +86,42 @@ test('GET retains a sanitized current-revision lane failure and SSE reschedules 
     assert.equal(JSON.stringify(snapshot).includes('private provider diagnostic'), false);
     const other = storage.create({ demo: true, ownerToken: testToken });
     assert.equal((await handlers.handle(request(other.id)).then(r => r.json())).operations.lastFailure, null);
-    subscription = await handlers.handle(request(`${s.id}/events?after=${snapshot.seq}`));
+    const before = { admissions: admissions.length, settlements: settlements.length };
+    if (action === 'restart') {
+      await handlers.close(); storage.close();
+      storage = new SQLiteStorage(path); handlers = makeHandlers();
+      await handlers.resume(); await handlers.idle();
+    }
+    if (action !== 'retry') {
+      for (let i = 0; i < 3; i++) {
+        subscription = await handlers.handle(request(`${s.id}/events?after=${snapshot.seq}`));
+        await subscription.body.cancel(); subscription = null; await handlers.idle();
+      }
+      assert.equal(calls, 1, 'reconnect makes zero new provider calls');
+      assert.equal(admissions.length, before.admissions, 'reconnect admits zero attempts');
+      assert.equal(settlements.length, before.settlements, 'reconnect makes zero new settlements');
+      assert.deepEqual((await handlers.handle(request(s.id)).then(r => r.json())).operations.lastFailure, snapshot.operations.lastFailure);
+    }
+    const held = deferred(), entered = deferred(), structured = reasoning.structured;
+    reasoning.structured = async (...args) => { entered.resolve(); await held.promise; return structured(...args); };
+    try {
+      assert.equal((await handlers.handle(request(`${s.id}/retry`, {}))).status, 202);
+      await entered.promise;
+      assert.equal((await handlers.handle(request(`${s.id}/retry`, {}))).status, 202);
+    } finally { held.resolve(); }
     await handlers.idle();
+    assert.equal(admissions.length, before.admissions + 1, 'explicit Retry admits exactly one new attempt');
+    assert.equal(settlements.length, before.settlements + 1, 'explicit Retry settles exactly once');
+    assert.deepEqual(settlements.at(-1), { lane: 'understanding', failed: false, error: undefined });
     assert.equal(calls, 2);
     assert.equal(storage.get(s.id).understanding.inputRevision, inputRevision(snapshot));
     assert.equal(storage.get(s.id).understanding.draft, false);
     assert.equal((await handlers.handle(request(s.id)).then(r => r.json())).operations.lastFailure, null);
-  } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); }
+    if (action === 'restart') {
+      await turn(handlers, s.id, 'newer', 'A newer turn'); await handlers.idle();
+      assert.equal(calls, 3, 'a newer revision still runs after recovery');
+    }
+  } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a turn queued at scheduler completion is never lost', async () => {
@@ -214,23 +254,17 @@ test('AIT-109 N2: deferred understanding does not reschedule completed work on S
   } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); }
 });
 
-test('AIT-109 N4: obsolete failure entries are removed when the input revision moves on', async t => {
+test('AIT-109 N4: obsolete failure entries are removed when the input revision moves on', async () => {
   const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
   const s = storage.create({ demo: true, ownerToken: testToken });
-  let failures;
-  const set = Map.prototype.set;
-  t.mock.method(Map.prototype, 'set', function (key, value) {
-    if (key === s.id && value?.error === 'reasoning-unavailable') failures = this;
-    return set.call(this, key, value);
-  });
   handlers.lanes.run = async (id, lane) => { if (lane === 'understanding') throw new Error('mock failure'); return 'completed'; };
   try {
     await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
-    assert.ok(failures.has(s.id));
+    assert.equal(storage.laneFailures(s.id).length, 1);
     storage.postTurn(s.id, 'second', Buffer.from('Second'), 'Second');
     const snapshot = await handlers.handle(request(s.id)).then(r => r.json());
     assert.equal(snapshot.operations.lastFailure, null);
-    assert.equal(failures.has(s.id), false, 'masking a stale failure must also release its map entry');
+    assert.deepEqual(storage.laneFailures(s.id), [], 'masking a stale failure also removes its durable record');
   } finally { await handlers.close(); storage.close(); }
 });
 
@@ -304,4 +338,93 @@ test('AIT-183 revoke during reply settle broadcasts no lane.failed or fallback',
     assert.equal(diagnostics.some(event => event.event === 'reply.fallback'), false);
     assert.equal(storage.get(s.id).transcript.filter(t => t.role === 'assistant').length, 0);
   } finally { release.resolve(); await reader?.cancel(); await drained; await handlers.close(); storage.close(); }
+});
+
+
+test('AIT-212 reconnect runs genuinely unfinished input exactly once', async () => {
+  const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [];
+  const reasoning = { ...mock, async *stream(...args) { calls.push('reaction'); yield* mock.stream(...args); },
+    async structured(...args) { calls.push('understanding'); return mock.structured(...args); } };
+  const handlers = createHandlers({ storage, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    storage.postTurn(session.id, 'unscheduled', Buffer.from('A website'), 'A website');
+    for (let i = 0; i < 3; i++) {
+      const stream = await handlers.handle(request(`${session.id}/events`));
+      await stream.body.cancel(); await handlers.idle();
+    }
+    assert.deepEqual(calls.sort(), ['reaction', 'understanding']);
+  } finally { await handlers.close(); storage.close(); }
+});
+
+
+for (const failed of [['reaction'], ['reaction', 'understanding']]) test(`AIT-212 reconnect retains failures in ${failed.join(' and ')}`, async () => {
+  const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = { reaction: 0, understanding: 0 };
+  const reasoning = { ...mock,
+    async *stream(...args) { if (++calls.reaction === 1 && failed.includes('reaction')) throw new Error('reply failed'); yield* mock.stream(...args); },
+    async structured(...args) { if (++calls.understanding === 1 && failed.includes('understanding')) throw new Error('analysis failed'); return mock.structured(...args); } };
+  const handlers = createHandlers({ storage, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    await turn(handlers, session.id, 'failed-input', 'A website'); await handlers.idle();
+    assert.deepEqual(calls, { reaction: 1, understanding: 1 });
+    for (let i = 0; i < 3; i++) {
+      const stream = await handlers.handle(request(`${session.id}/events`)); await stream.body.cancel(); await handlers.idle();
+    }
+    assert.deepEqual(calls, { reaction: 1, understanding: 1 }, 'every failed lane stays failed, including when both failed');
+    await handlers.handle(request(`${session.id}/retry`, {})); await handlers.idle();
+    assert.deepEqual(calls, { reaction: 2, understanding: failed.includes('understanding') ? 2 : 1 });
+    assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
+  } finally { await handlers.close(); storage.close(); }
+});
+
+
+test('AIT-213 recovering understanding reveals the remaining reaction failure', async () => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
+  const calls = { reaction: 0, understanding: 0 };
+  let failing = true;
+  handlers.lanes.run = async (id, lane) => { calls[lane]++; if (failing) throw new Error('failure'); };
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    await turn(handlers, session.id, 'first', 'A website'); await handlers.idle();
+    assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure.lane, 'understanding');
+    failing = false;
+    // Exercise the understanding-only scheduler path, also used during active voice.
+    handlers.lanes.onScope(session.id, 'in', inputRevision(storage.get(session.id)));
+    await handlers.idle();
+    const snapshot = await handlers.handle(request(session.id)).then(r => r.json());
+    assert.equal(snapshot.operations.lastFailure?.lane, 'reaction');
+    assert.equal(snapshot.operations.lastFailure.retryable, true);
+    const stream = await handlers.handle(request(`${session.id}/events`));
+    await stream.body.cancel(); await handlers.idle();
+    assert.equal(calls.reaction, 1, 'reconnect still skips the remaining failed lane');
+    await handlers.handle(request(`${session.id}/retry`, {})); await handlers.idle();
+    assert.equal(calls.reaction, 2, 'visible Retry recovers the remaining lane once');
+    assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
+  } finally { await handlers.close(); storage.close(); }
+});
+
+
+test('AIT-212 rejected reply job still runs the queued overview once and clears both jobs', async () => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent }), runs = [];
+  const setLaneFailure = storage.setLaneFailure.bind(storage);
+  storage.setLaneFailure = (id, failure) => {
+    if (failure.lane === 'reaction') throw new Error('fixture failure while recording reply failure');
+    return setLaneFailure(id, failure);
+  };
+  handlers.lanes.run = async (_id, lane) => {
+    runs.push(lane);
+    if (lane === 'reaction') throw new Error('fixture reply failure');
+    return 'completed';
+  };
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    storage.postTurn(session.id, 'queued-input', Buffer.from('A website'), 'A website');
+    assert.equal((await handlers.handle(request(`${session.id}/retry`, {}))).status, 202);
+    await waitFor(() => runs.includes('understanding'));
+    await handlers.idle();
+    assert.deepEqual(runs, ['reaction', 'understanding']);
+    const snapshot = await (await handlers.handle(request(session.id))).json();
+    assert.deepEqual(snapshot.operations.running, [], 'neither scheduler job is stranded');
+  } finally { await handlers.close(); storage.close(); }
 });
