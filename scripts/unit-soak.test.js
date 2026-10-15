@@ -11,7 +11,9 @@ for (const [label, count, args] of [
   for (let i = 1; i <= count; i++) {
     const start = performance.now();
     let output = '';
-    const child = spawn(label === 'host surface' ? process.execPath : 'npm', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // A nested node --test must not inherit the outer runner's worker IPC mode.
+    const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
+    const child = spawn(label === 'host surface' ? process.execPath : 'npm', args, { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', chunk => { output += chunk; });
     child.stderr.on('data', chunk => { output += chunk; });
     const status = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => resolve({ code, signal })); });
@@ -19,5 +21,6 @@ for (const [label, count, args] of [
     console.log(output.split('\n').filter(line => /AIT-193|unit-handles|at .*\/src\/|at .*host-surface.test|Timeout|MESSAGEPORT|TCPWRAP/.test(line)).join('\n'));
     if (status.code !== 0) console.log(output.slice(-30000));
     assert.equal(status.code, 0);
+    assert.match(output, /(?:tests [1-9]|# tests [1-9])/u, 'the child must actually execute tests');
   }
 });
