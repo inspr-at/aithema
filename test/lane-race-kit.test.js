@@ -79,7 +79,8 @@ for (const lane of laneNames) for (const failure of ['400', '401', '422', '408',
     const c = balanced(h)[lane]; assert.equal(c.started, 1);
     const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
     if (['400', '401', '422'].includes(failure)) { assert.equal(row.settled_micro, 0); assert.equal(c.failed, 1); }
-    else if (lane !== 'concept' || !['408', '499'].includes(failure)) { assert.equal(row.outcome, 'uncertain'); assert.equal(c.uncertain, 1); }
+    else if (lane === 'concept' && ['408', '499'].includes(failure)) { assert.equal(row.settled_micro, 0); assert.equal(c.failed, 1); }
+    else { assert.equal(row.outcome, 'uncertain'); assert.equal(c.uncertain, 1); }
     const before = h.runtime.budget.outcomeCounters();
     assert.equal(h.runtime.budget.finishOutcome(row.attempt_id, 'failed'), false, 'late finish cannot add another outcome');
     assert.deepEqual(h.runtime.budget.outcomeCounters(), before);
@@ -98,4 +99,30 @@ test('AIT-201 provider rules accept coalesced roles and reject only documented t
   }
   assert.equal(providerRuleViolation({ messages: [{ role: 'system', content: 'Wrong place' }] }, 'anthropic'), 'Messages use user/assistant; system belongs outside messages');
   assert.equal(providerRuleViolation({ model: 'openai/race', messages: [{ role: 'system', content: '' }, { role: 'user', content: '' }] }), null);
+});
+
+for (const lane of laneNames) for (const transition of ['superseded', 'deferred', 'aborted']) test(`AIT-201 ${lane}: ${transition} before dispatch releases zero`, { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness(); t.after(() => h.close());
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), admit = h.runtime.admit.bind(h.runtime);
+  h.runtime.admit = async args => {
+    const result = await admit(args); entered.resolve(result); await release.promise; return result;
+  };
+  const pending = h.run(lane); await entered.promise;
+  if (transition === 'superseded') h.turn('New person input during admission.');
+  if (transition === 'deferred') h.storage.pause(h.id, true);
+  if (transition === 'aborted') { h.controller.abort(); h.callController.abort(); }
+  release.resolve(); await Promise.allSettled([pending]);
+  assert.equal(h.kit.calls.length, 0, 'no provider call before valid dispatch');
+  const counts = balanced(h)[lane]; assert.equal(counts[transition], 1);
+  assert.equal(h.storage.db.prepare('SELECT settled_micro n FROM budget_attempts').get().n, 0);
+});
+
+test('AIT-201 schema compatibility retry owns two distinct balanced attempts', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness(); t.after(() => h.close());
+  const pending = h.run('understanding'), first = await h.next('understanding');
+  first.httpError(400, { message: 'response_format json_schema is not supported' });
+  const second = await h.next('understanding'); assert.equal(second.body.response_format, undefined); h.resolve(second);
+  assert.equal(await pending, 'completed');
+  const c = balanced(h).understanding; assert.equal(c.started, 2); assert.equal(c.completed, 1); assert.equal(c.failed, 1);
+  assert.deepEqual(h.storage.db.prepare('SELECT settled_micro n FROM budget_attempts ORDER BY rowid').all().map(r => r.n), [0, 110]);
 });

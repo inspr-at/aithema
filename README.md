@@ -3211,6 +3211,38 @@ A high fallback rate is visible through value-free `reply.schema-retry` and
 replies missing scope emit `reply.scope-missing` without counting as off-topic.
 Fallback metadata stays private and never enters visitor snapshots or transcripts.
 
+AIT-201 extends those existing diagnostics to all admitted reasoning/render attempts:
+`reply`, `understanding`, `concept` and `voice-facade` emit `.started` and exactly
+one of `.completed`, `.superseded`, `.deferred`, `.aborted`, `.uncertain`, `.failed`.
+Events contain only lane, count and an optional closed reason class. They never
+contain content or attempt/session/model/provider identities. Existing
+`reply.schema-retry`, `reply.fallback` and `reply.scope-missing` remain separate.
+
+`SQLiteBudgetLedger.outcomeCounters()` exposes the same counts, derived from
+`budget_attempts.diagnostic_lane` and its write-once `diagnostic_outcome`; no
+parallel ledger or per-content metric is created. `reaction` is the stored reply
+lane name. Delegated voice reasoning has its own `voice-facade` bucket rather
+than counting twice as a typed reply. Starts mean **admitted attempts**, so cache
+hits, joined flights and scheduling skips create no count. Each compatibility
+retry and each draft/refinement admission owns another start and terminal.
+`started = completed + superseded + deferred + aborted + uncertain + failed + inFlight`.
+Unknown dispatched billing takes precedence over cancellation/supersession;
+confirmed receipts allow the precise lifecycle outcome. Pre-dispatch pause,
+supersession and cancellation release zero. A received provider refusal remains
+failed even if facade cleanup subsequently aborts its iterator. Recovery closes
+orphaned counters as uncertain (unknown dispatch) or aborted (no publication).
+Existing deployments' older uninstrumented attempts are excluded.
+
+The shared test wire kit is `test/fixtures/fake-provider-kit.js`; its header is
+the single provider-rule/source table. `test/lane-race-kit.test.js` drives real
+handlers' lanes, real admission/adapters and the real durable facade for all six
+pairs, each release order, new-turn supersession and pause/resume. Browser
+`test/browser/lane-race-kit.test.js` renders every pair/order with success and
+unbilled refusal. No test sleeps or live provider calls are needed. Run
+`test/fixtures/lane-race-proof.js` separately in an isolated disposable checkout
+for the AIT-198 role-order red/restored-green proof; it restores `prompts.js`
+byte-for-byte in `finally` and must not run beside the normal suite.
+
 Every start2 post-deploy smoke must include **in-scope DE + EN turns and an off-topic
 turn**. Both in-scope turns must show a specific model reply to the project, beyond
 the neutral fallback; off-topic must show the full fixed localized redirect and

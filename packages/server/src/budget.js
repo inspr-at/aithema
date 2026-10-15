@@ -67,11 +67,10 @@ export class SQLiteBudgetLedger {
   outcomeCounters() {
     const counters = Object.fromEntries(['reaction', 'understanding', 'concept', 'voice-facade'].map(lane => [lane,
       { started: 0, completed: 0, superseded: 0, deferred: 0, aborted: 0, uncertain: 0, failed: 0, inFlight: 0 }]));
-    for (const row of this.db.prepare(`SELECT diagnostic_lane AS lane, diagnostic_outcome AS outcome, state, outcome AS settlement, COUNT(*) AS n
-      FROM budget_attempts WHERE diagnostic_lane IS NOT NULL GROUP BY diagnostic_lane, diagnostic_outcome, state, outcome`).all()) {
+    for (const row of this.db.prepare(`SELECT diagnostic_lane AS lane, diagnostic_outcome AS outcome, COUNT(*) AS n
+      FROM budget_attempts WHERE diagnostic_lane IS NOT NULL GROUP BY diagnostic_lane, diagnostic_outcome`).all()) {
       const counts = counters[row.lane];
       counts.started += row.n;
-      // Recovery can settle an interrupted worker before its finish callback.
       const outcome = row.outcome ?? 'inFlight';
       counts[outcome] += row.n;
     }

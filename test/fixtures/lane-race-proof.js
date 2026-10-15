@@ -7,7 +7,6 @@ const prompt = new URL('../../packages/core/src/prompts.js', import.meta.url);
 test('AIT-198 role-order mutation red → restored green', { timeout: 30_000 }, async () => {
   const original = await readFile(prompt, 'utf8');
   const before = original.indexOf("      ...(lane === 'understanding' ? [{ role: 'user', content: JSON.stringify({ kind: 'analysis-instruction',");
-  const after = original.indexOf(' } : {}) }', before);
   assert.ok(before > 0);
   // Remove only AIT-198's appended user-final instruction, retaining the rest of
   // the real prompt and exercising the real provider adapter and lane code.
