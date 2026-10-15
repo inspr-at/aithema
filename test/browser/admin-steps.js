@@ -1,6 +1,9 @@
 // Bound protocol calls too: Puppeteer's page timeout does not cover evaluate,
 // screenshots, launch or close. Keep failures attributable to one matrix cell.
 export const ADMIN_STEP_TIMEOUT = 15_000;
+// Cold CI Chrome can exceed 15 s (AIT-187). Match Puppeteer's launch default;
+// page protocol calls, screenshots, POSTs and cleanup keep the step deadline.
+export const ADMIN_LAUNCH_TIMEOUT = 30_000;
 
 export function adminSteps(signal) {
   let context = { state: 'setup', locale: 'de', theme: 'light', width: 390 };
