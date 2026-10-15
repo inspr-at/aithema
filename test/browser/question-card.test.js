@@ -235,7 +235,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         if (width <= 600) assert.ok(bounded.height <= .36 * bounded.viewport, `AIT-225: phone card ${bounded.height}px exceeds 36vh`);
         assert.ok(bounded.bubbleBottom <= bounded.top, `AIT-225: latest reply/card geometry ${JSON.stringify(bounded)}`);
         assert.ok(bounded.shellBottom <= bounded.top, 'AIT-225: the transcript viewport ends above the card');
-        assert.ok(bounded.bubbleBottom > bounded.shellTop + 26, 'AIT-225: the latest reply is visible inside the transcript viewport');
+        assert.ok(bounded.bubbleBottom > bounded.shellTop + 26, `AIT-225: the latest reply is visible inside the transcript viewport: ${JSON.stringify(bounded)}`);
         if (width <= 600) assert.equal(bounded.overflow, true, `the options scroll inside the capped phone card: ${JSON.stringify(bounded)}`);
         assert.equal(bounded.textContained, true, 'long answer text stays inside its own 44px-or-taller row');
         assert.equal(bounded.role, 'region'); assert.ok(bounded.name, 'the options scroll region has an accessible name');

@@ -30,17 +30,17 @@ export const questionCardStyles = `
 
 .workspace:not([data-stage="live"]) .composer-dock { display:none; }
 .qcard { position:absolute; inset:auto 0 100%; z-index:2; display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:8px;
-  padding:14px 16px 12px; border-radius:18px 18px 0 0; max-height:min(440px,calc(100dvh - 280px));
+  padding:14px 16px 12px; border-radius:18px 18px 0 0; max-height:min(440px,30dvh,calc(100dvh - 280px));
   overflow:hidden;
   background:color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-surface));
   box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 28%,transparent); }
 .qcard:not([hidden]) + .composer, .qcard:not([hidden]) + .composer-shell, .qcard:not([hidden]) + .composer-shell :is(.composer,.composer-out) { border-radius:0 0 18px 18px; }
-.qtext { margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
+/* Keep reading room in the narrower desktop column; long summaries stay available to AT. */
+.qtext { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
 .qopts { display:grid; grid-auto-rows:max-content; align-content:start; min-height:0; gap:2px; margin-top:2px; overflow-y:auto; overscroll-behavior:contain;
   scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent; }
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
-  .qtext { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; }
 }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
