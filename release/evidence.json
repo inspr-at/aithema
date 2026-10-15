@@ -552,7 +552,7 @@
     "review_gate_run": false
   },
   "delivery": {
-    "draft_pr": null,
+    "draft_pr": 186,
     "tag_created": false,
     "github_release_created": false,
     "registry_published": false,
