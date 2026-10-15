@@ -201,7 +201,11 @@ export class PhoneComposerViewport {
       this.noticeScroll ??= () => {
         this.noticeScrollTop = shell.scrollTop;
         if (this.followsTranscript() && notices.style.minHeight) {
-          notices.style.minHeight = ''; this.onNoticesChange();
+          notices.style.minHeight = '';
+          // The next row must compare against the released height, not the
+          // reading reservation that just went away.
+          this.noticeHeight = notices.getBoundingClientRect().height;
+          this.onNoticesChange();
         }
       };
       shell.addEventListener('scroll', this.noticeScroll, { passive:true });
