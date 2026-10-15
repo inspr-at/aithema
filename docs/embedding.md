@@ -360,3 +360,24 @@ The packed consumer imports every runtime subpath and also attempts each
 types-only subpath, asserting Node's expected rejection and its installed type
 file. It checks recursive German/English key parity on every install/reinstall
 and rollback, outside the workspace.
+
+The symbol audit of the original MISS rows is:
+
+| Module | Decision and symbol-level reason |
+| --- | --- |
+| server/budget | Existing public root: `SQLiteBudgetLedger` is already re-exported. |
+| server/host-handlers | Existing public root: `privacyDocumentConfigured` is already re-exported. |
+| server/image-binding | Existing public root: `imagePluginBinding` is already re-exported. |
+| server/local-voice | New public dev/test subpath: START needs a credential-free funnel; never production. |
+| server/memory-consent | Existing public root: `createMemoryConsentLedger` is already re-exported. |
+| server/operator-session | Existing public root: `createOperatorSessions` and `createSQLiteOperatorStore` are already re-exported; the demo operator page stays internal. |
+| server/release-info | Internal: the demo reads its own reservation/runtime build metadata. |
+| server/spend-cap | Existing public root: `usdMicro` is already re-exported. |
+| ui/i18n/admin | Internal: copy moved to `demo/admin-copy.js` with its page and HTTP owner; visitor bundles no longer carry it. |
+| ui/i18n/de | New public locale subpath: START is German-first; `de` was unreachable through exports. |
+| ui/icons | Internal: the demo owns three small Lucide utility glyphs. |
+| ui/post-json | Internal: a small host-side JSON POST helper suffices. |
+| ui/settings-dialog | Internal: the demo owns its small reason formatter, without exposing the dialog implementation. |
+| elevenlabs/config | Public through `./voice-host`: `normalizeElevenLabsDurationBinding` is needed at the host's adapter boundary. |
+| elevenlabs/ensure-agent | Internal implementation behind public `createElevenLabsVoiceHost`; ownership/read-back and retries stay in one implementation. |
+| plugins/fake-voice/client | Internal test-only fixture: retained browser simulator path, no public plugin package. |

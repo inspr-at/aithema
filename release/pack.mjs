@@ -25,7 +25,7 @@ export function releasePaths(root) {
   function walk(dir, prefix = '') {
     for (const name of readdirSync(dir).sort()) {
       const path = prefix + name;
-      if (forbidden(path) || ['.git', 'node_modules', 'dist'].includes(name)) continue;
+      if (forbidden(path) || ['.git', '.data', 'node_modules', 'dist'].includes(name)) continue;
       const stat = lstatSync(join(dir, name));
       if (stat.isSymbolicLink()) { if (admittedPath(path)) throw new Error('Release rejects symlink'); continue; }
       if (stat.isDirectory()) walk(join(dir, name), path + '/');
