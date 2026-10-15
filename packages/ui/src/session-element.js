@@ -978,7 +978,7 @@ export class AithemaSession extends HTMLElement {
     const waiting = liveVoice || facadePending || this.#laneStatusPending === revision ||
       this.#deferredAnalysis === revision || this.#analysisRecovery === revision;
     root.querySelector('.retry').disabled = !analysis.available;
-    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || waiting || Boolean(running) || !(this.#failure || hasPersonTurn &&
+    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || (waiting && !this.#failure) || Boolean(running) || !(this.#failure || hasPersonTurn &&
       (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
     // Missing reply with no active work or recorded failure is also a stuck attempt.
     // Pausing preserves the overview; its existing inline retry becomes disabled.
