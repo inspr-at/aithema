@@ -13,7 +13,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   let browser;
   t.after(async () => { await browser?.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--use-fake-device-for-media-stream',
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
       '--autoplay-policy=no-user-gesture-required', ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])] });
   const context = browser.defaultBrowserContext(); await context.overridePermissions(fixture.url, ['microphone']);
   const page = await browser.newPage(), problems = [], external = [];
@@ -87,7 +87,9 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
     try { await pending; return false; } catch (error) { return error.name === 'AbortError' && stream.getTracks().every(track => track.readyState === 'ended'); }
   });
   assert.equal(latePermission, true);
-  await context.overridePermissions(fixture.url, []);
+  // Headless-shell needs the fake permission UI for capture. An enforced
+  // Permissions-Policy denial exercises the browser's real NotAllowedError path.
+  await page.goto(fixture.url + '/denied');
   const permission = await page.evaluate(async () => {
     const { createPCMCapture } = await import('/plugins/composed-voice/src/browser-audio.js');
     try { const unexpected = await createPCMCapture()({ onAudio() {} }); unexpected.stop(); return 'unexpected-grant'; } catch (error) { return error.name; }
