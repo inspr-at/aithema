@@ -198,8 +198,8 @@ export const bandStyles = `
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }
 }
-/* Both language labels fit from 440px; below that keep the 44px icon control. */
-@media(width < 440px) {
+/* Both platform font metrics fit from 448px; below that keep the 44px icon control. */
+@media(width < 448px) {
   .conversations-toggle { min-width:44px; width:44px; padding:0; justify-content:center; }
   .conversations-toggle > svg:first-child { display:block; }
   .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
