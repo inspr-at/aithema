@@ -1,4 +1,4 @@
-import { icon } from '../packages/ui/src/icons.js';
+import { icon } from './utility-icons.js';
 
 export const sessionKey = 'aithema-reset-slice-1-session', localeKey = 'aithema-demo-locale', themeKey = 'aithema-theme';
 export function readPreference(key, storage) {

@@ -314,3 +314,49 @@ licence to Augmentoring to be formalised once real customers exist. DCO alone
 is not a relicensing agreement. The superseded slice-10 legal check is dropped;
 this preparation creates no licence grant. See README “Ported from START” and
 its rights notes for source provenance.
+
+## Consumer export surface (AIT-205)
+
+German-first hosts import `de` from `@inspr/aithema-ui/i18n/de`; English hosts
+import `en` from `@inspr/aithema-ui/i18n/en`. Both bundles have identical keys,
+recursively. Operator copy belongs to `demo/admin-copy.js`, alongside the
+internal operator page and HTTP handler; it is absent from these visitor bundles.
+
+Live voice hosts import `createElevenLabsVoiceHost` and
+`normalizeElevenLabsDurationBinding` from
+`@inspr/aithema-plugin-elevenlabs/voice-host`. The factory retains startup
+read-back, receipt-based ownership, retry/backoff, atomic availability and orphan
+reconciliation. Supply `storage`, `resolveSecret`, `publicOrigin`,
+`templateAgentId`, `agentName`, `facadeSecretName`, `spokenOpeners` (`de`/`en`,
+including the mandatory AI notice), `costConfig` (an object or a function of
+`values`), and `qualifyBinding` (the host's legal qualification function).
+`accountRef` defaults to `agentName`; optional `apiBaseUrl`, `fetchImpl`, `log`,
+`random` and `values` support host configuration and deterministic tests.
+The costs contain `maxDurationSeconds`, `reservationSeconds`,
+`minRunwaySeconds`, `upstreamMicroPerMinute` and optional `usdPerCredit`.
+The returned host exposes `binding`, `runtime`, `disabledReason`, `transient`,
+`presentation`, `onAvailable`, `closeOrphan`, and `close`. Qualify the legacy
+binding in the callback, then normalize it before creating a duration binding.
+The demo's thin wrapper supplies its own START qualification, costs and openers.
+
+`@inspr/aithema-server/dev/local-voice` exports `createLocalVoiceProvider`,
+`localVoiceBinding` and `isLocalVoice` for **development and tests only; never
+use this simulator in production**. It needs durable storage but no credentials
+or external provider. Its implementation and manifest ship inside the server
+package; the existing fake-voice fixtures forward to that single implementation.
+
+Budget, host handlers, image binding, memory consent, operator sessions and spend
+cap helpers already come from `@inspr/aithema-server`'s root export. No separate
+subpaths are needed. Icons, JSON requests, reason formatting and release metadata
+remain internal: hosts can supply their own small UI/transport helpers and build
+metadata. The demo's operator page is internal for this release.
+
+The demo browser currently resolves source URLs without an import map. Its
+`host.js`, `consent-page.js`, shared `admin-view.js` and test-only `fake-voice.js`
+retain those browser paths; every other non-test demo module uses package
+specifiers. `test/demo-package-imports.test.js` enforces that explicit exception
+list. Existing static routes continue to serve package component dependencies.
+The packed consumer imports every runtime subpath and also attempts each
+types-only subpath, asserting Node's expected rejection and its installed type
+file. It checks recursive German/English key parity on every install/reinstall
+and rollback, outside the workspace.

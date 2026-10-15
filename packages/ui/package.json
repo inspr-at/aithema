@@ -9,7 +9,8 @@
     "./html-preview": "./src/html-preview.js",
     "./reply-audio": "./src/reply-audio.js",
     "./page-replay": "./src/page-replay.js",
-    "./display": "./src/display.js"
+    "./display": "./src/display.js",
+    "./i18n/de": "./src/i18n/de.js"
   },
   "engines": {
     "node": ">=24"

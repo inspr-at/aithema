@@ -1,8 +1,6 @@
-import { adminCopy } from './admin.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
-  admin: adminCopy.en,
   questionCard: {
     heading: 'Open question', suggestion: 'Suggestion', likely: 'Most likely, based on the conversation so far',
     hint: 'One click sends the answer. Or just speak or type.',

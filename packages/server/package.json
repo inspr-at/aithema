@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.js",
     "./http": "./src/http.js",
-    "./local-voice-identity": "./src/local-voice-identity.js"
+    "./local-voice-identity": "./src/local-voice-identity.js",
+    "./dev/local-voice": "./src/dev/local-voice.js"
   },
   "bin": {
     "aithema-server": "./bin/server.js"

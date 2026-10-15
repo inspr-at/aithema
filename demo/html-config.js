@@ -1,6 +1,6 @@
 import { createBinding } from '@inspr/aithema-core';
-import { modelPrice, providerMaxPrice } from '../plugins/openrouter/src/pricing.js';
-import { usdMicro } from '../packages/server/src/spend-cap.js';
+import { modelPrice, providerMaxPrice } from '@inspr/aithema-plugin-openrouter/pricing';
+import { usdMicro } from '@inspr/aithema-server';
 import { qualifyStartBinding } from './processing-consent.js';
 const claudeModel = model => /^(?:anthropic\/claude-[a-z0-9.:-]+|~anthropic\/claude-[a-z0-9.:-]+-latest)$/u.test(model);
 /** A live host (`live`) defaults to no HTML; fake HTML there is an explicit, labelled demo. */

@@ -13,7 +13,8 @@
     "./client": "./src/client.js",
     "./manifest": "./src/manifest.js",
     "./provider": "./src/provider.js",
-    "./callbacks": "./src/callbacks.js"
+    "./callbacks": "./src/callbacks.js",
+    "./voice-host": "./src/voice-host.js"
   },
   "dependencies": {
     "@inspr/aithema-core": "261015164601.0.0",

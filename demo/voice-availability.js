@@ -1,6 +1,6 @@
 import { PluginRegistry } from '@inspr/aithema-core';
 import { createDurationBinding } from '@inspr/aithema-server';
-import { normalizeElevenLabsDurationBinding } from '../plugins/elevenlabs/src/config.js';
+import { normalizeElevenLabsDurationBinding } from '@inspr/aithema-plugin-elevenlabs/voice-host';
 
 /** Prepare an isolated runtime. The host publishes it with the binding in one assignment. */
 export function prepareVoiceRuntime({ current, binding: raw, createPlugin, createPresets, extendPolicy }) {
