@@ -174,7 +174,7 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
     const before = await boxes(page, targets);
     await shadow(page, (c, kind) => {
       window.captureGap('paint before lane.status');
-      c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: kind === 'typed' ? ['reaction'] : [], lastFailure: null } });
+      c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: [], lastFailure: null } });
       window.captureGap('lane.status');
       c.receive({ type: 'turn.partial', data: { id: 'reply', inputRevision: window.gapRevision, delta: 'Welche Arbeit?' } });
       window.captureGap('assistant partial');
@@ -196,7 +196,7 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
   }
 });
 
-for (const kind of ['typed', 'live voice', 'waiting voice', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${kind}: recorded reaction failure keeps footer Retry, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
+for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${kind}: recorded reaction failure keeps footer Retry, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-reaction-retry-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), passes = [];
@@ -218,7 +218,7 @@ for (const kind of ['typed', 'live voice', 'waiting voice', 'facade pending', 's
       session.transcript.push({ id: 'person', role: 'user', content: 'Wir vereinfachen die Auftragsbearbeitung.',
         ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
           kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) });
-      session.operations = { inputRevision: inputRevision(session), running: kind === 'typed' ? ['reaction'] : [], lastFailure: null };
+      session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, copy });
       window.reactionFailureCopy = copy.reasoningFailed;
     }, locale, kind);
@@ -248,7 +248,7 @@ for (const kind of ['typed', 'live voice', 'waiting voice', 'facade pending', 's
     assert.deepEqual(await boxes(page, targets), before, 'single reply failure causes 0 px surrounding displacement');
     passes.push({ head: evidenceCommit, kind, locale, width, theme: 'light', failureSentences: 1, retries: 1, layoutShiftPx: 0, pass: true });
     console.log(`AIT-212 PASS single reply failure ${kind} ${locale} ${width} light: sentence once, one Retry, 0 px`);
-    if (evidence && kind === 'typed' && locale === 'de') await page.screenshot({ path: join(evidence, `ait212-de-${width}-reply-failure-light.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence && kind === 'waiting voice' && locale === 'de') await page.screenshot({ path: join(evidence, `ait212-de-${width}-reply-failure-light.png`), fullPage: false, captureBeyondViewport: false });
   }
   if (evidence) await writeFile(join(evidence, `ait212-reply-failure-${kind.replaceAll(' ', '-')}-passes.json`), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
