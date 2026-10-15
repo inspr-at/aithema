@@ -63,10 +63,12 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
     console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: refund and geometry checked`);
     await page.evaluate(() => fetch('/success'));
+    console.log('AIT-198 fixture: success enabled');
     const retry = await shadow(page, c => ({ inlineDisabled: c.shadowRoot.querySelector('.overview-retry').disabled, footerDisabled: c.shadowRoot.querySelector('.retry').disabled, operations: c.session.operations, features: c.session.featureMatrix }));
     assert.equal(retry.inlineDisabled, false, JSON.stringify(retry)); assert.equal(retry.footerDisabled, false, JSON.stringify(retry));
+    console.log('AIT-198 fixture: retry enabled');
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry'), { timeout: 5000 }), shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click())]);
-    assert.equal(response.status(), 202, await response.text());
+    assert.equal(response.status(), 202);
     console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: retry admitted`);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);

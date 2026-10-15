@@ -384,6 +384,8 @@ export class SQLiteBudgetLedger {
         this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,settled_micro=?,usage=?,terminal_json=?,settled_visitor_micro=? WHERE attempt_id=?")
           .run(terminal.outcome, dispatched ? actual ?? exposure : 0, terminal.usage ? JSON.stringify(terminal.usage) : null,
             JSON.stringify(terminal), dispatched ? visitorExposure : 0, row.attempt_id);
+        // Recovery has no published assessment, even when a receipt survived.
+        if (row.lane === 'understanding') this.releaseUnderstandingCredits(row.attempt_id);
       }
       return rows.length;
     });
