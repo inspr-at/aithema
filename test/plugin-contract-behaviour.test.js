@@ -220,7 +220,7 @@ rule('contract-cost-reconciliation', async t => {
   const host = await admittedHost(t, { uncertainEstimateMicro: 50,
     estimateUncertainCost: () => 60, costEvidence(id) { saved.push(id); }, usageCost: () => 80,
     reconcileSpend(...args) { repaired.push(args); },
-    reconcileCost(record, options) { lookups.push({ record, options }); return { chargedMicro: 90 }; } });
+    reconcileCost(record, options) { lookups.push({ record, options }); return { chargedMicro: 90, generationId: record.generationId }; } });
   const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
   const attempt = admitted.options.attempt;
   assert.equal(typeof attempt.observeCost, 'function'); assert.equal(typeof attempt.dispatchCost, 'function');

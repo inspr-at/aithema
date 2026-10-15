@@ -221,6 +221,8 @@ dispatch, observeCost as generation identity, observed floor or actual receipt
 arrives. They persist evidence and dispatch state in the budget ledger, separate
 from the required terminal report. The runtime calls reconcileCost for uncertain
 attempts without an actual receipt, with a deadline capped at five seconds.
+Return receipt evidence with safe-integer `chargedMicro` and the matching
+`generationId` when one is recorded; mismatched identity cannot release a hold.
 Without this hook, these attempt extensions are absent and uncertain terminals
 retain their reservation.
 
