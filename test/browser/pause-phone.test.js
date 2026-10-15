@@ -488,3 +488,36 @@ test('AIT-188 r3 fade: overlay keyboard backdrop has a transparent-to-paper top 
     await closeOverlay(page);
   }
 });
+
+
+test('AIT-188 r3 ordinary return: following after releasing removed-row space shows the next reply controls, touch DE/EN L/D 390/393', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
+    await voiceScene(page, locale, theme, width);
+    await shadow(page, c => {
+      const session = structuredClone(c.session), text = session.transcript[0].content;
+      session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `return-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
+      session.seq++;
+      c.configure({ copy: globalThis.pauseCopy, session });
+    }); await frame(page);
+    await shadow(page, c => {
+      const s = c.shadowRoot.querySelector('.transcript-shell');
+      s.scrollTop = 400; s.dispatchEvent(new Event('scroll'));
+    }); await frame(page);
+    // Real withdrawal erases dependent assistant replies, hiding the ordinary
+    // row while reading. Then the person deliberately returns to the bottom.
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'return-0' } })); await frame(page);
+    assert.equal((await noticeMetrics(page)).notice.height, 88, 'removed row keeps reading room');
+    await shadow(page, c => {
+      const s = c.shadowRoot.querySelector('.transcript-shell');
+      s.scrollTop = s.scrollHeight; s.dispatchEvent(new Event('scroll'));
+    }); await frame(page);
+    assert.equal((await noticeMetrics(page)).notice.height, 0, 'following releases removed last-item room');
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final',
+      data: { id: 'return-reply', role: 'assistant', content: c.session.transcript.find(t => t.role === 'user' && !t.erased).content } })); await frame(page);
+    const shown = await noticeMetrics(page);
+    for (const b of [shown.notice, ...shown.controls]) assert.ok(b.top >= shown.viewport.top && b.bottom <= shown.viewport.bottom && b.bottom <= shown.dockTop - 12, `next ordinary row follows after render: ${JSON.stringify(shown)}`);
+    for (const b of shown.controls) assert.ok(b.height >= 44);
+    await record(t, 'r3-return', page, `${locale}-${theme}-${width}-following-next-reply`, shown);
+  }
+});
