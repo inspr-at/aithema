@@ -186,7 +186,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
-  assert.notEqual(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Nach dem ersten Satz entsteht hier Ihr Überblick.', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
@@ -231,11 +231,14 @@ test('AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Sett
 
 test('AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence', async t => {
   const page = await fixture(t); await scene(page, 'de', 'light', 390, ['html', 'voice', 'analysis']);
+  const before = await boxes(page, Object.values(places));
   const targets = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.consent-action')].map(button => {
     const style = getComputedStyle(button, '::after');
     return { height: parseFloat(style.height), width: parseFloat(style.width), text: button.getBoundingClientRect().width,
       description: c.shadowRoot.getElementById(button.getAttribute('aria-describedby'))?.textContent };
   }));
+  await shadow(page, c => { const style = document.createElement('style'); style.textContent = '.consent-action::after { display:none !important; }'; c.shadowRoot.append(style); });
+  assert.deepEqual(await boxes(page, Object.values(places)), before, 'hit areas shift 0 px');
   assert.equal(targets.length, 3);
   for (const target of targets) { assert.ok(target.height >= 24); assert.ok(target.width >= target.text + 8); assert.match(target.description, /braucht|brauchen/); }
 });
