@@ -945,6 +945,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
     assert.equal(c.session.paused, true, `${name}: still paused`);
     const root = c.shadowRoot, resume = root.querySelector('.pause');
     assert.equal(root.querySelector('.status__label').textContent, en.connected, `${name}: footer keeps the connection status`);
+    assert.equal(root.querySelector('.composer-reason').textContent, en.paused, `${name}: pause appears in the composer`);
     assert.equal(resume.textContent, en.resume); assert.equal(root.activeElement, resume, `${name}: Resume has focus`);
     c.remove();
   }
