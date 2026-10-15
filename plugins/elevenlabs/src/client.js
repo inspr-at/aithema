@@ -126,7 +126,7 @@ export function createElevenLabsClient(ports = {}) {
           playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
           return (ports.playAudio ?? playReplyAudio)(audio, { ...opts, conversation, document, AudioContext });
         },
-        onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); },
+        onState: (playing, detail) => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true, completed: Boolean(detail?.completed) }); },
       });
       const stopReplayForInput = () => { if (replay.active) { silenceReply(); replay.stop(); } };
       const stopPersistence = () => persistenceCancellation.abort();

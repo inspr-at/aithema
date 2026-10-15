@@ -358,6 +358,11 @@ export class AithemaSession extends HTMLElement {
       waitingCall: this.#session.voiceLifecycle,
       replyVisible: (text, turnId) => Boolean(text && this.#session.transcript.some(t => (!turnId || t.id === turnId) && t.role === 'assistant' && !t.erased && !t.withdrawn && t.content === text &&
         [...root.querySelectorAll('.turn:not(.user):not(.partial)')].some(row => row.dataset.id === t.id && row.querySelector('.turn-text')?.textContent === text))),
+      replyTarget: (text, turnId) => {
+        const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
+        if (!turn || turn.id !== turnId || turn.content !== text) return null;
+        return [...root.querySelectorAll('.turn:not(.user):not(.partial)')].find(row => row.dataset.id === turn.id && row.querySelector('.turn-text')?.textContent === text);
+      },
       lastReply: () => {
         if (this.#session.paused || this.#session.tombstone || this.#session.consentWithdrawn) return null;
         const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
@@ -919,6 +924,7 @@ export class AithemaSession extends HTMLElement {
         if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
       }
       for (const row of rows.values()) row.remove();
+      this.#rail?.notices.render();
       const grew = list.children.length > count;
       if (this.#follow && !hovered && !this.#fold.folded) this.#scrollToLatest();
       else if (this.#follow && grew && shell.scrollHeight > shell.clientHeight) root.querySelector('.transcript-latest').style.visibility = '';

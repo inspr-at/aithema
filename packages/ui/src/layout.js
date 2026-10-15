@@ -196,7 +196,12 @@ export class PhoneComposerViewport {
     const Mutation = this.view?.MutationObserver;
     if (Mutation) {
       const notices = this.root.querySelector('.voice-notices'), shell = this.root.querySelector('.transcript-shell');
-      this.noticeHeight = notices.getBoundingClientRect().height;
+      const inlineHeight = () => {
+        const actions = this.root.querySelector('.turn > .voice-reply-actions');
+        return actions?.getBoundingClientRect().height ?? 0;
+      };
+      const endHeight = () => notices.getBoundingClientRect().height + inlineHeight();
+      this.noticeHeight = endHeight();
       this.noticeScrollTop = shell.scrollTop;
       this.noticeScroll ??= () => {
         this.noticeScrollTop = shell.scrollTop;
@@ -204,7 +209,7 @@ export class PhoneComposerViewport {
           notices.style.minHeight = '';
           // The next row must compare against the released height, not the
           // reading reservation that just went away.
-          this.noticeHeight = notices.getBoundingClientRect().height;
+          this.noticeHeight = endHeight();
           this.onNoticesChange();
         }
       };
@@ -217,21 +222,23 @@ export class PhoneComposerViewport {
         // Both recovery notices and ordinary last-reply controls are last
         // items on phones. Run after their render, without needing a pointer.
         // Same-size label/text renders must not undo a transcript pointer anchor.
-        const height = notices.getBoundingClientRect().height;
+        const height = endHeight();
         if (changed && height !== this.noticeHeight && this.view.matchMedia('(max-width:600px)').matches) {
           if (this.followsTranscript()) notices.style.minHeight = '';
           else {
             // Retain only the room a removed last item would clamp away while
             // reading. Release it when the person next follows the bottom.
-            notices.style.minHeight = `${this.noticeHeight}px`;
+            notices.style.minHeight = `${Math.max(0, this.noticeHeight - inlineHeight())}px`;
             shell.scrollTop = this.noticeScrollTop;
           }
           this.onNoticesChange();
         }
-        this.noticeHeight = notices.getBoundingClientRect().height;
+        this.noticeHeight = endHeight();
         this.noticeScrollTop = shell.scrollTop;
       });
-      this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] });
+      const options = { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] };
+      this.noticesObserver.observe(notices, options);
+      this.noticesObserver.observe(shell.querySelector('ol'), options);
     }
     this.paint();
   }
