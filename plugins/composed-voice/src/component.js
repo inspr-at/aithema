@@ -42,8 +42,9 @@ export async function componentInvocation(options, { role, unit, model }) {
       if (usage.upstreamMicro > options.attempt.maxMicro) throw new PluginError('limit', 'Component exceeded its admitted ceiling');
     },
     // Only a transport-observed 4xx rejection without usage may release dispatch.
+    // Timeouts (408/499) leave provider state unknown and retain the reservation.
     rejectWithoutUsage(status) {
-      if (!terminal && dispatched && !usage && Number.isInteger(status) && status >= 400 && status < 500) rejected = true;
+      if (!terminal && dispatched && !usage && Number.isInteger(status) && status >= 400 && status < 500 && ![408, 499].includes(status)) rejected = true;
     },
     finish,
   };

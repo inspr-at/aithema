@@ -121,8 +121,9 @@ Usage reports audio seconds or wire-text characters (including initialization) a
 estimated. These are not authoritative billable units or receipts. Reserve each
 maximum before dispatch, then report once to the shared qualification budget.
 Estimated success and uncertainty retain that maximum. A transport-observed 4xx
-connection rejection with no usage settles at zero (AIT-198); protocol errors
-without transport rejection evidence remain uncertain. `reconcileCost` returns
+connection rejection with no usage settles at zero, except 408 and 499 (AIT-198).
+Those timeouts leave provider state unknown and retain the reservation as uncertain;
+protocol errors without transport rejection evidence also remain uncertain. `reconcileCost` returns
 null unless an injected `reconcileReceipt` supplies matching `attemptId`, integer
 `chargedMicro` and `estimated: false`. OPS must authenticate and persist that
 receipt and apply it via the existing reconciliation ledger, without reporting
