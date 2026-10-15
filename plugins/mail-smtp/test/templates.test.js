@@ -102,7 +102,7 @@ test('AIT-220 both mail parts use host copy and a locale privacy URL, with and w
       assert.doesNotMatch(part, /Aithema|90 (?:days|Tagen)|Credits|\{brand\}/u);
     }
   }
-  assert.deepEqual(locales, ['de', 'en'], 'delivery uses the validated URL snapshot');
+  assert.deepEqual(locales, ['de', 'en', 'en', 'en', 'de', 'de'], 'resolve the locale URL again for each message');
 });
 
 test('AIT-220 partial copy falls back per field and locale and is snapshotted for both templates', async t => {
@@ -141,7 +141,8 @@ test('AIT-220 host fields, brand/signature and URLs retain HTML escaping', async
   assert.ok(sent[0].text.includes('-- \n' + input + ' host.example.test'));
   assert.doesNotMatch(sent[0].html, /<script>|\{brand\}|\{host\}|\{tier\}/u);
   assert.ok(sent[0].html.includes('&lt;script&gt;&amp;&quot;&#39;$&amp;'));
-  assert.ok(sent[0].html.includes('privacy?x=&quot;&#39;&amp;lang=en'));
+  assert.ok(sent[0].text.includes('privacy?x=%22%27&lang=en'));
+  assert.ok(sent[0].html.includes('privacy?x=%22%27&amp;lang=en'));
 });
 
 test('AIT-220 malformed copy and unknown locales/fields fail at construction before transport creation', () => {
@@ -159,5 +160,83 @@ test('AIT-220 invalid privacy URLs and invalid function results fail at construc
     locale => locale === 'en' ? 'javascript:alert(1)' : 'https://start.example.test/privacy',
     locale => locale === 'de' ? '/privacy' : 'https://start.example.test/privacy']) {
     assert.throws(() => capturedMail({ privacyUrl, createTransport() { assert.fail('transport must not be created'); } }), /Invalid SMTP privacyUrl.*http\(s\)/u);
+  }
+});
+
+const unsafePrivacyUrls = [
+  ['CR', 'https://start.example.test/privacy\rBcc:x'],
+  ['LF', 'https://start.example.test/privacy\nBcc:x'],
+  ['CRLF', 'https://start.example.test/privacy\r\nBcc:x'],
+  ['tab', 'https://start.example.test/pri\tvacy'],
+  ['NUL', 'https://start.example.test/privacy\0'],
+  ['unit separator', 'https://start.example.test/privacy\u001f'],
+  ['DEL', 'https://start.example.test/privacy\u007f'],
+  ['leading space', ' https://start.example.test/privacy'],
+  ['trailing space', 'https://start.example.test/privacy '],
+  ['embedded space', 'https://start.example.test/pri vacy'],
+  ['Unicode whitespace', 'https://start.example.test/privacy\u00a0'],
+];
+const privacyUrlError = locale => error => {
+  assert.equal(error.name, 'TypeError');
+  assert.equal(error.message, 'Invalid SMTP privacyUrl for ' + locale + ': expected an absolute http(s) URL string without control characters or whitespace');
+  assert.equal(error.cause, undefined);
+  return true;
+};
+
+for (const [name, value] of unsafePrivacyUrls) {
+  test(`AIT-220 privacy URL ${name} is refused in string and function forms at construction`, () => {
+    const createTransport = () => assert.fail('transport must not be created');
+    assert.throws(() => capturedMail({ privacyUrl: value, createTransport }), privacyUrlError('de'));
+    for (const locale of ['de', 'en']) {
+      assert.throws(() => capturedMail({ privacyUrl: lang => lang === locale ? value : 'https://start.example.test/privacy',
+        createTransport }), privacyUrlError(locale));
+    }
+  });
+}
+
+test('AIT-220 privacy URL functions fail closed on unsafe results when each message is built without logging host values', async t => {
+  const logs = [];
+  for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
+  for (const locale of ['de', 'en']) {
+    let value = 'https://start.example.test/privacy';
+    const { plugin, sent } = capturedMail({ privacyUrl: () => value,
+      createTransport: () => assert.fail('transport must not be created') });
+    t.after(() => plugin.close());
+    for (const [, unsafe] of unsafePrivacyUrls) {
+      value = unsafe;
+      await assert.rejects(() => plugin.requestVerification({ ...verification, locale }), privacyUrlError(locale));
+    }
+    for (const invalid of [undefined, null, 42, '/privacy', 'javascript:alert(1)', Promise.resolve('https://start.example.test/privacy')]) {
+      value = invalid;
+      await assert.rejects(() => plugin.requestVerification({ ...verification, locale }), privacyUrlError(locale));
+    }
+    assert.deepEqual(sent, []);
+  }
+  assert.deepEqual(logs, []);
+});
+
+test('AIT-220 valid string and function privacy URLs use normalized href in both parts', async t => {
+  const value = 'HTTPS://START.EXAMPLE.TEST:443/a/../privacy?x="\'&lang=en';
+  const normalized = 'https://start.example.test/privacy?x=%22%27&lang=en';
+  for (const privacyUrl of [value, () => value]) {
+    const { plugin, sent } = capturedMail({ privacyUrl });
+    t.after(() => plugin.close());
+    for (const locale of ['de', 'en']) {
+      await plugin.requestVerification({ ...verification, locale });
+      assert.ok(sent.at(-1).text.includes(normalized));
+      assert.ok(sent.at(-1).html.includes('href="' + normalized.replace('&', '&amp;') + '"'));
+      assert.doesNotMatch(sent.at(-1).text + sent.at(-1).html, /START\.EXAMPLE|:443|\/a\/\.\./u);
+    }
+  }
+});
+
+test('AIT-220 subject control characters fail at construction before transport creation', () => {
+  for (const locale of ['de', 'en']) for (const control of ['\r', '\n', '\r\n', '\t', '\0', '\u001f', '\u007f']) {
+    assert.throws(() => capturedMail({ copy: { [locale]: { subject: 'Host subject' + control + 'Bcc:x' } },
+      createTransport: () => assert.fail('transport must not be created') }), error => {
+      assert.equal(error.name, 'TypeError');
+      assert.equal(error.message, 'Invalid SMTP copy.' + locale + '.subject: control characters are not allowed');
+      return true;
+    });
   }
 });

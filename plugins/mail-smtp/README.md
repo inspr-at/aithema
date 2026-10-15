@@ -8,7 +8,8 @@ Pass `copy: { en: { ... }, de: { ... } }` to override individual `mailCopy`
 fields. Missing fields and locales keep the demo defaults. One merged,
 immutable copy supplies the subject, text and HTML (including a custom
 `htmlTemplate`). Invalid copy objects, unknown locales/fields and non-string
-field values throw a `TypeError` at construction.
+field values throw a `TypeError` at construction. Subjects also reject control
+characters.
 
 Supported fields are `brand` (default `Aithema`), `subject`, `lead`, `action`,
 `explanation`, `explanationFallback`, `linkLabel`, `host`, `privacyLabel`,
@@ -19,8 +20,10 @@ and `{host}`. HTML escapes all copy and interpolated values. Text stays plain.
 
 `privacyUrl` accepts an absolute HTTP(S) URL string or a synchronous
 `(locale) => string`. The factory calls the function once for each supported
-locale (`de`, `en`), validates both results and retains them for delivery.
-Invalid URLs, non-string results and thrown errors fail at construction.
+locale (`de`, `en`) and validates both results. It calls and validates the
+function again when building each message; invalid results prevent delivery.
+URLs reject control characters and whitespace and use their normalized `href`.
+Invalid URLs, non-string results and thrown errors fail at construction too.
 An explicit URL appears in both parts. Without this option, the link remains
 `<publicOrigin>/privacy?locale=<locale>` and appears only when the delivery
 effect has `privacyDocumentConfigured: true`, preserving demo behavior.

@@ -48,18 +48,19 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
   if (origin.origin !== publicOrigin || origin.username || origin.password || origin.protocol !== 'https:' &&
     !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new TypeError('Invalid mail public origin');
   const copies = mergeMailCopy(copy);
-  const privacyUrls = Object.fromEntries(Object.keys(copies).map(locale => {
-    if (privacyUrl === undefined) return [locale, new URL('/privacy?locale=' + locale, origin).href];
-    let value, url;
+  const resolvePrivacyUrl = locale => {
+    if (privacyUrl === undefined) return new URL('/privacy?locale=' + locale, origin).href;
+    let url;
     try {
-      value = typeof privacyUrl === 'function' ? privacyUrl(locale) : privacyUrl;
-      if (typeof value === 'string') url = new URL(value);
+      const value = typeof privacyUrl === 'function' ? privacyUrl(locale) : privacyUrl;
+      if (typeof value === 'string' && !/[\u0000-\u001f\u007f\s]/u.test(value)) url = new URL(value);
     } catch { /* Report the option and locale without retaining host values. */ }
     if (!url || !['http:', 'https:'].includes(url.protocol)) {
-      throw new TypeError('Invalid SMTP privacyUrl for ' + locale + ': expected an absolute http(s) URL string');
+      throw new TypeError('Invalid SMTP privacyUrl for ' + locale + ': expected an absolute http(s) URL string without control characters or whitespace');
     }
-    return [locale, value];
-  }));
+    return url.href;
+  };
+  const privacyUrls = Object.fromEntries(Object.keys(copies).map(locale => [locale, resolvePrivacyUrl(locale)]));
   let transport, connecting;
   async function connection() {
     if (connecting) return connecting;
@@ -94,7 +95,8 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
       const tierAfter = Number.isSafeInteger(confirmedAllowanceMicro) && confirmedAllowanceMicro >= 0
         ? formatCredits(confirmedAllowanceMicro, locale) : undefined;
       const message = confirmationMessage({ locale, link: link.href, expiresAt, host: origin.host,
-        privacyUrl: privacyUrl !== undefined || privacyDocumentConfigured ? privacyUrls[locale] : undefined,
+        privacyUrl: privacyUrl !== undefined || privacyDocumentConfigured
+          ? (typeof privacyUrl === 'function' ? resolvePrivacyUrl(locale) : privacyUrls[locale]) : undefined,
         tierAfter, copy: copies[locale], htmlTemplate });
       try {
         await (await connection()).sendMail({ from: config.fromName ? { name: config.fromName, address: config.from } : config.from,

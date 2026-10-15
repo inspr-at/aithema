@@ -33,6 +33,9 @@ export function mergeMailCopy(overrides = {}) {
     for (const key of Reflect.ownKeys(overrides[locale])) {
       if (!Object.hasOwn(mailCopy[locale], key)) throw new TypeError('Invalid SMTP copy.' + locale + ': unknown field ' + String(key));
       if (typeof overrides[locale][key] !== 'string') throw new TypeError('Invalid SMTP copy.' + locale + '.' + key + ': expected a string');
+      if (key === 'subject' && /[\u0000-\u001f\u007f]/u.test(overrides[locale][key])) {
+        throw new TypeError('Invalid SMTP copy.' + locale + '.subject: control characters are not allowed');
+      }
     }
   }
   return Object.freeze(Object.fromEntries(Object.entries(mailCopy).map(([locale, defaults]) =>
