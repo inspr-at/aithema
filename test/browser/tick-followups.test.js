@@ -203,3 +203,98 @@ test('AIT-186 F8: purpose pause keeps Connected with the real open event stream'
     await evidence('F8', page, label, values); t.diagnostic(`PASS F8 ${label}: ${JSON.stringify(values)}`);
   }
 });
+
+// Round 2 exercises the real HostSurface ledger path. Drive its 15 s cadence
+// explicitly; application event debouncing still runs normally, with no sleeps.
+test('AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  const frame = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.evaluate(() => {
+    const interval = window.setInterval.bind(window), clear = window.clearInterval.bind(window), fetch = window.fetch.bind(window);
+    globalThis.r2Polls = new Map();
+    window.setInterval = (fn, ms, ...args) => {
+      const id = interval(fn, ms, ...args); if (ms === 15_000) globalThis.r2Polls.set(id, fn); return id;
+    };
+    window.clearInterval = id => { globalThis.r2Polls.delete(id); clear(id); };
+    window.fetch = (url, options = {}) => {
+      const c = document.querySelector('aithema-session'), path = new URL(url, location.href).pathname;
+      if ((options.method ?? 'GET') === 'GET' && path === `/api/sessions/${c.session.id}/credits`) {
+        globalThis.r2CreditReads++;
+        return Promise.resolve(Response.json({ exhausted: false, reconciling: false,
+          balance: { owner: { limitMicro: 5_000_000, availableMicro: 4_250_000, committedMicro: 750_000 } } }));
+      }
+      if ((options.method ?? 'GET') === 'GET' && path === `/api/sessions/${c.session.id}`) return Promise.resolve(Response.json(c.session));
+      return fetch(url, options);
+    };
+  });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+      const { voiceEvents } = await import('/packages/core/src/live-voice.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
+      const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
+      session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
+      session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true }]));
+      session.transcript = [{ id: 'r2-user', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
+      globalThis.r2CreditReads = 0;
+      c.configure({ copy, session, host: { library: true, credits: true }, voicePresentation: manifest.presentation,
+        voiceClient: { manifest, async start({ callId }) {
+          const events = voiceEvents(); globalThis.r2Identity = { callId, providerSessionId: 'r2-provider' };
+          return { ...globalThis.r2Identity, events, async setInput() {}, async setOutput() {}, async updateContext() {},
+            async close() { events.end(); throw new Error('terminal lost'); } };
+        } } });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
+      c.shadowRoot.querySelector('.voice-start').click();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await frame();
+    const before = await boxes(page, [...railBoxes, '.display-foot', '.status']);
+    await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click()); await frame();
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-call-reconciling')), true);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), locale === 'de'
+      ? 'Anruf beendet. Kosten werden noch abgeglichen.' : 'Call ended. Costs are still being reconciled.');
+    assert.deepEqual(await boxes(page, [...railBoxes, '.display-foot', '.status']), before, `${label}: F2 hangup 0 px`);
+    await evidence('F2', page, `${label}-reconciling`, { shiftPx: 0, ledgerAlwaysFalse: true, lostTerminal: true });
+    await page.evaluate(() => {
+      const c = document.querySelector('aithema-session'), label = c.shadowRoot.querySelector('.voice-state');
+      globalThis.r2EndedWrites = 0;
+      globalThis.r2Observer?.disconnect();
+      globalThis.r2Observer = new MutationObserver(() => {
+        if (label.textContent === (c.session.locale === 'de' ? 'Anruf beendet.' : 'Call ended.')) globalThis.r2EndedWrites++;
+      });
+      globalThis.r2Observer.observe(label, { childList: true, characterData: true, subtree: true });
+      c.receive({ type: 'voice.state', data: { ...globalThis.r2Identity, state: 'closing' } });
+      for (const poll of globalThis.r2Polls.values()) poll();
+    });
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').hasAttribute('data-call-reconciling'));
+    await frame();
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), locale === 'de' ? 'Anruf beendet.' : 'Call ended.');
+    await page.evaluate(() => document.querySelector('aithema-session').receive({ type: 'voice.state', data: { ...globalThis.r2Identity, state: 'ended' } }));
+    await frame();
+    assert.equal(await page.evaluate(() => globalThis.r2EndedWrites), 1, `${label}: F2 exactly one ended announcement`);
+    assert.deepEqual(await boxes(page, [...railBoxes, '.display-foot', '.status']), before, `${label}: F2 settlement 0 px`);
+    await evidence('F2', page, `${label}-settled`, { shiftPx: 0, endedAnnouncements: 1, ledgerAlwaysFalse: true, lostTerminal: true });
+    const overview = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } })); await frame();
+    const paused = await shadow(page, c => ({ readiness: c.shadowRoot.querySelector('.readiness').style.visibility,
+      composer: c.shadowRoot.querySelector('.composer-reason').textContent, footer: c.shadowRoot.querySelector('.status__label').textContent,
+      overview: c.shadowRoot.querySelector('.notice').textContent }));
+    assert.equal(paused.readiness, ''); assert.equal(paused.composer, locale === 'de' ? 'Gespräch pausiert' : 'Session paused');
+    assert.equal(paused.footer, locale === 'de' ? 'Verbunden' : 'Connected'); assert.equal(paused.overview, overview);
+    assert.deepEqual(await boxes(page, [...railBoxes, '.display-foot', '.status']), before, `${label}: F6 pause 0 px`);
+    await evidence('F6', page, `${label}-session-pause`, { ...paused, shiftPx: 0 });
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } })); await frame();
+    const purpose = await shadow(page, c => ({ readiness: getComputedStyle(c.shadowRoot.querySelector('.readiness')).visibility,
+      assessment: c.session.understanding.inputRevision, copyVisible: !c.shadowRoot.querySelector('.purpose-pause-copy').hidden,
+      footer: c.shadowRoot.querySelector('.status__label').textContent }));
+    assert.equal(purpose.readiness, 'hidden'); assert.equal(purpose.assessment, null); assert.equal(purpose.copyVisible, true);
+    assert.equal(purpose.footer, locale === 'de' ? 'Verbunden' : 'Connected');
+    assert.deepEqual(await boxes(page, [...railBoxes, '.display-foot', '.status']), before, `${label}: AIT-174 purpose pause 0 px`);
+    await evidence('AIT-174', page, `${label}-purpose-pause`, { ...purpose, shiftPx: 0, reference: '93ac509' });
+    t.diagnostic(`PASS r2 ${evidenceCommit} ${label}: F2 false-first/lost-terminal settled exactly once; F6 session pause retained; AIT-174 purpose readiness hidden; 0 px`);
+  }
+});
