@@ -9,7 +9,6 @@ export const bandStyles = `
   text-underline-offset:3px; cursor:pointer; transform:none; }
 .consent-action[hidden] { display:none; }
 .voice-state:has(.consent-action:not([hidden])) { max-width:100%; text-wrap:initial; }
-.concept-activity-text { min-height:36.4px; display:block; }
 .workspace { position:relative; max-width:none; padding-bottom:68px; }
 .band { grid-area:top; position:sticky; top:0; z-index:10; display:grid; grid-template-columns:44px minmax(0,1fr) auto;
   align-items:center; gap:12px 24px; margin-inline:calc(-1 * var(--aithema-gutter));
