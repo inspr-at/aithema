@@ -141,3 +141,20 @@ for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'othe
     assert.equal(dispatched, 0);
   });
 }
+
+test('AIT-218: the public identity entrypoint cannot enroll an arbitrary provider', async () => {
+  const { markLocalVoice, isLocalVoice: recognizes } = await import('@inspr/aithema-server/local-voice-identity');
+  const start = async () => {}, serverAdapter = Object.freeze({});
+  assert.throws(() => markLocalVoice(start, serverAdapter), /Simulator identity is private/u);
+  assert.equal(recognizes({ start, ports: Object.freeze({ serverAdapter }) }), false);
+});
+
+test('AIT-218: identity does not trust accessor or mutable ports', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const sim = createLocalVoiceProvider({ storage });
+  assert.ok(Object.isFrozen(sim.ports.serverAdapter));
+  assert.equal(isLocalVoice({ ...sim, ports: { serverAdapter: sim.ports.serverAdapter } }), false);
+  assert.equal(isLocalVoice({ ...sim, ports: Object.freeze({ get serverAdapter() { return sim.ports.serverAdapter; } }) }), false);
+  assert.equal(isLocalVoice({ ...sim, get ports() { return sim.ports; } }), false);
+  assert.equal(isLocalVoice({ ...sim, get start() { return sim.start; } }), false);
+});

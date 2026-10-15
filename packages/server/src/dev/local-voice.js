@@ -8,8 +8,16 @@ export const localVoiceBinding = Object.freeze({ plugin: 'fake-voice', model: 'l
   effort: 'none', endpoint: 'https://example.test', accountRef: 'local-demo', secretRef: 'local-only',
   maxMicro: 0, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 3600,
   upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
-import { markLocalVoice, isLocalVoice } from '../local-voice-identity.js';
-export { isLocalVoice };
+// Only this module can enroll a simulator. Registry copies retain these exact
+// references; sharing a start or cloning an adapter cannot enroll a provider.
+const adapters = new WeakMap();
+export function isLocalVoice(plugin) {
+  if (!plugin || typeof plugin !== 'object') return false;
+  const start = Object.getOwnPropertyDescriptor(plugin, 'start')?.value;
+  const ports = Object.getOwnPropertyDescriptor(plugin, 'ports')?.value;
+  return typeof start === 'function' && adapters.has(start) && Object.isFrozen(ports) &&
+    Object.getOwnPropertyDescriptor(ports ?? {}, 'serverAdapter')?.value === adapters.get(start);
+}
 
 function terminal(call, at, outcome = 'completed') {
   const end = call.endedAt ?? at, providerSeconds = Math.max(0, end - call.startedAt) / 1000;
@@ -115,5 +123,5 @@ export function createLocalVoiceProvider({ storage, now = Date.now, allowProduct
   });
   const plugin = { manifest, health: options => voiceOperation(options, async () => ({ available: true })),
     start, ports: Object.freeze({ serverAdapter }) };
-  markLocalVoice(start); return plugin;
+  adapters.set(start, serverAdapter); return plugin;
 }
