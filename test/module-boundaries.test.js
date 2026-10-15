@@ -129,3 +129,61 @@ test('dev exemptions and AIT-211 cycles are pinned to exact paths', () => {
   put('plugins/claude-html/src/new.js', "import '@inspr/aithema-server/dev/local-voice';");
   assert.ok(checkBoundaries(dir).some(error => error.includes('dev/test')));
 });
+
+
+test('inline createRequire and assignment aliases cannot bypass private imports', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-require-'));
+  const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };
+  put('packages/core/package.json', JSON.stringify({ name: '@inspr/aithema-core', exports: { '.': './src/index.js' } }));
+  put('packages/core/src/index.js', ''); put('packages/core/src/private.js', '');
+  const prefix = "import { createRequire as factory } from 'node:module'; import * as mod from 'module';";
+  for (const expression of [
+    "factory(import.meta.url)('@inspr/aithema-core/src/private.js');",
+    "mod.createRequire(import.meta.url)('@inspr/aithema-core/src/private.js');",
+    "let load; load = factory(import.meta.url); load('@inspr/aithema-core/src/private.js');",
+    "let load; load = require; load('@inspr/aithema-core/src/private.js');",
+    "let a, b, c; a = b; b = c; c = factory(import.meta.url); a('@inspr/aithema-core/src/private.js');",
+    "const load = factory(import.meta.url); let alias; alias = load; alias('@inspr/aithema-core/src/private.js');",
+  ]) {
+    put('plugins/adapter/src/index.js', prefix + expression);
+    assert.equal(checkBoundaries(dir).filter(error => error.includes('Unexported')).length, 1, expression);
+  }
+  for (const expression of ["factory(import.meta.url)(name);", "let load; load = require; load(name);"]) {
+    put('plugins/adapter/src/index.js', prefix + expression);
+    assert.ok(checkBoundaries(dir).some(error => error.includes('Non-literal')), expression);
+  }
+});
+
+test('parameter defaults and assignments pin every destructured environment key', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-env-patterns-'));
+  mkdirSync(resolve(dir, 'test'));
+  const file = resolve(dir, 'test/fixture.js');
+  const declared = { 'test/fixture.js': { reads: ['destructure { CI }'], reason: 'Pinned binding keys' } };
+  for (const source of [binding => `function fixture(${binding} = process.env) {}`,
+    binding => `let CI, GITHUB_ACTIONS, RUNNER_OS, renamed, rest, key, value; (${binding} = process.env);`,
+    binding => `function fixture(${binding} = (process.env)) {}`]) {
+    writeFileSync(file, source('{ CI }'));
+    assert.deepEqual(checkCiEnv(dir, declared), []);
+    for (const binding of ['{ GITHUB_ACTIONS }', '{ CI, RUNNER_OS }', '{ CI: renamed }', '{ ...rest }', '{ [key]: value }']) {
+      writeFileSync(file, source(binding));
+      assert.equal(checkCiEnv(dir, declared).length, 1, source(binding));
+    }
+  }
+});
+
+test('source-only composition exports stay closed and proof edges stay exact', async () => {
+  for (const specifier of ['@inspr/aithema-core/voice-components', '@inspr/aithema-server/composed-voice']) {
+    await assert.rejects(import(specifier), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+  }
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-proof-edges-'));
+  const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };
+  put('packages/server/package.json', JSON.stringify({ name: '@inspr/aithema-server', exports: { '.': './src/index.js' } }));
+  put('packages/server/src/index.js', ''); put('packages/server/src/composed-voice.js', ''); put('packages/server/src/new.js', '');
+  put('plugins/composed-voice/src/server.js', "import '../../../packages/server/src/composed-voice.js';");
+  assert.deepEqual(checkBoundaries(dir), []);
+  put('plugins/composed-voice/src/new.js', "import '../../../packages/server/src/composed-voice.js';");
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Unexported')));
+  put('plugins/composed-voice/src/new.js', '');
+  put('plugins/composed-voice/src/server.js', "import '../../../packages/server/src/new.js';");
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Unexported')));
+});

@@ -6,8 +6,7 @@
     ".": "./src/index.js",
     "./http": "./src/http.js",
     "./local-voice-identity": "./src/local-voice-identity.js",
-    "./dev/local-voice": "./src/dev/local-voice.js",
-    "./composed-voice": "./src/composed-voice.js"
+    "./dev/local-voice": "./src/dev/local-voice.js"
   },
   "bin": {
     "aithema-server": "./bin/server.js"
@@ -27,7 +26,8 @@
     "src/",
     "bin/",
     "elevenlabs-compat.js",
-    "!src/local-voice.js"
+    "!src/local-voice.js",
+    "!src/composed-voice.js"
   ],
   "repository": {
     "type": "git",

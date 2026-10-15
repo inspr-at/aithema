@@ -42,13 +42,19 @@ export function ciEnvReads(ast) {
     if ((access(node) || ts.isIdentifier(node)) && isEnvironment(node) &&
       !(ts.isVariableDeclaration(node.parent) && node.parent.name === node) &&
       !ts.isImportSpecifier(node.parent)) {
-      const parent = node.parent;
+      let value = node;
+      while (ts.isParenthesizedExpression(value.parent)) value = value.parent;
+      const parent = value.parent;
       if (ts.isPropertyAccessExpression(parent) && parent.name === node) return;
       const key = access(parent) && parent.expression === node ? property(parent) : undefined;
       if (key && ambient.test(key)) reads.push(key);
-      else if (!key && ts.isVariableDeclaration(parent) && ts.isObjectBindingPattern(parent.name)) {
+      else if (!key && (ts.isVariableDeclaration(parent) || ts.isParameter(parent)) &&
+        parent.initializer === value && ts.isObjectBindingPattern(parent.name)) {
         // Pin every binding, including non-CI names, computed keys and rest.
         reads.push(`destructure ${parent.name.getText(ast).replace(/\s+/gu, ' ')}`);
+      } else if (!key && ts.isBinaryExpression(parent) && parent.right === value &&
+        parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isObjectLiteralExpression(parent.left)) {
+        reads.push(`destructure ${parent.left.getText(ast).replace(/\s+/gu, ' ')}`);
       } else if (!key) {
         // Computed reads and whole-environment forwarding also carry CI values.
         // Pin their exact expression and count; aliases must be declared as well.

@@ -33,6 +33,12 @@ and target files are permitted; another server file or plugin target fails.
 | `packages/server/src/local-html.js` | `plugins/claude-html/src/index.js` | AIT-211: existing deterministic HTML adapter |
 | `packages/server/elevenlabs-compat.js` | `plugins/elevenlabs/src/provider.js`, `plugins/elevenlabs/src/callbacks.js` | #173: frozen legacy root exports |
 | `packages/server/src/local-images.js` | `plugins/openai-images/src/index.js`, `plugins/openai-images/src/image-artifact.js` | AIT-211 |
+| `plugins/composed-voice/src/server.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
+| `plugins/composed-voice/src/qualification.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
+| `packages/server/src/composed-voice.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
+| `plugins/composed-voice/src/component.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
+| `plugins/elevenlabs/src/components.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
+| `plugins/voxtral/src/index.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/elevenlabs/src/components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
 | `demo/server.js` | Exact VOICE/IMAGE host-module expressions | #173: injected host entrypoints |
@@ -40,6 +46,7 @@ and target files are permitted; another server file or plugin target fails.
 | `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/fake-voice.js` | Relative public source URLs | AIT-205: native browser loading |
+| `packages/server/src/voice-provider.js` | `packages/server/src/dev/local-voice-manifest.js` | AIT-218: private simulator manifest |
 | `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |
 | `plugins/fake-voice/src/server.js` | `packages/server/src/dev/local-voice.js` | Test-only compatibility forwarder |
 | `demo/fake-voice.js` | `plugins/fake-voice/src/client.js` | Test-only browser simulator forwarder |
@@ -52,18 +59,19 @@ links here for the host policy. Browser exceptions must still resolve public
 exports and must remain used; fake-voice is a test-only, unpublished dependency.
 
 AIT-205 scans non-test demo modules; package/plugin tests still require literal
-imports. Tests may inspect internals. The sole implementation exempt from layer checks is
-`packages/server/src/dev/local-voice.js`, which retains its production guard.
-Other `dev/` sources are checked normally and cannot be imported by production
-code. The fake-voice manifest and factory forwarders above preserve #173's layout.
-The public `local-voice-identity` subpath exposes recognition only; the private
-registry cannot be imported through a package subpath. The obsolete
-`packages/server/dev/local-voice.js` shim is removed.
+imports. Tests may inspect internals. The public simulator entrypoint forwards to
+AIT-218's private implementation in `packages/server/src/voice-provider.js`.
+Its frozen start/adapter pairings, refused local binding and private dispatch
+snapshots remain intact. Other `dev/` sources are checked normally and cannot be
+imported by production code. The fake-voice manifest and factory forwarders above
+preserve the candidate layout. The public `local-voice-identity` subpath exposes
+recognition only; no package subpath exports enrollment or implementation access.
+The obsolete `packages/server/src/local-voice.js` shim is removed.
 
-The composed coordinator stays in server at `/composed-voice` and is packed.
-Generic component admission, bounded streams and audio queues belong to core at
-`/voice-components`. The composed compatibility entry re-exports those helpers.
-The ElevenLabs component implementation imports core directly.
+The composed coordinator and generic core component helpers remain source-only
+proof code. Neither `/composed-voice` nor `/voice-components` is public or packed.
+The exact proof edges above permit their unpublished consumers without admitting
+new consumers. Next-release migration notes are in `release/next-notes.md`.
 
 The checker parses static imports, re-exports, dynamic imports, CommonJS require,
 createRequire bindings (including aliases and namespace factories), TypeScript

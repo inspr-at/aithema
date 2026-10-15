@@ -403,14 +403,13 @@ relative adapter import; it is served by a separate test host, outside the demo
 module graph. The new ElevenLabs components are internal package implementation
 files, and the demo does not import them directly. Neither needs a demo guard
 exception or a new public export.
-The unexported ElevenLabs `components.js` also imports
-`plugins/composed-voice/src/component.js`, which has no publishable package.
-It stays in the workspace/source archive alongside the Voxtral proof, and is
-omitted from the ElevenLabs module tarball. AIT-202 moves its shared component
-helpers to public core `/voice-components` and packs server `/composed-voice`. No current package export or demo entrypoint imports it. This
-keeps the proof and its tests while avoiding a public composed-component API
-in this candidate. The packer still rejects any admitted runtime module that
-tries to import an unpublished dependency.
+The unexported ElevenLabs `components.js`, server composed coordinator and core
+component helpers remain in the workspace/source archive alongside the Voxtral
+proof. They are omitted from module tarballs. Exact source-to-target proof edges
+in the boundary checker retain their internal imports while avoiding a public
+composed-component API. Neither `/composed-voice` nor `/voice-components` is
+exported. The packer rejects admitted runtime modules that import unpublished
+code. See [next-release notes](../release/next-notes.md) for the identity API change.
 
 
 ### Core subpath decisions (AIT-202)
@@ -418,12 +417,10 @@ tries to import an unpublished dependency.
 The #173 release candidate already exposes the subpaths below. Each is retained
 because an actual production module consumes it; none is added speculatively.
 These are explicit public contracts, not permission to import arbitrary `src/`
-files. The root remains the normal host entrypoint. `/voice-components` is the
-one additional core subpath in AIT-202; it removes the generic server-to-composed
-plugin dependency. Server also adds `/composed-voice` and packs its target.
-These export and packed-file changes invalidate #173's freeze; this branch does
-not re-freeze it. The public server `/local-voice-identity` now exports only
-`isLocalVoice`; hosts cannot register providers as the simulator.
+files. The root remains the normal host entrypoint. AIT-202 adds no core or
+server package subpath. The public server `/local-voice-identity` retains only
+`isLocalVoice`; AIT-218's always-throwing `markLocalVoice` compatibility export is
+removed in the next release. Hosts cannot enroll providers as the simulator.
 
 | Core subpath | Keep reason and actual consumer |
 | --- | --- |
@@ -453,4 +450,3 @@ not re-freeze it. The public server `/local-voice-identity` now exports only
 | `./reasoning` | Device adapter and ElevenLabs facade operation scopes. |
 | `./reply-opener` | ElevenLabs facade opener delivery. |
 | `./chat-completions` | Device adapter chat protocol. |
-| `./voice-components` | Server composed coordinator, ElevenLabs components and Voxtral adapter. |

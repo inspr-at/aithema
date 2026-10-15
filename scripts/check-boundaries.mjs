@@ -25,6 +25,12 @@ export const edgeExceptions = [
 ];
 // #173's unpublished proof composes adapters that are deliberately not packed.
 export const proofEdges = [
+  { from: 'plugins/composed-voice/src/server.js', target: 'packages/server/src/composed-voice.js' },
+  { from: 'plugins/composed-voice/src/qualification.js', target: 'packages/server/src/composed-voice.js' },
+  { from: 'packages/server/src/composed-voice.js', target: 'packages/core/src/voice-components.js' },
+  { from: 'plugins/composed-voice/src/component.js', target: 'packages/core/src/voice-components.js' },
+  { from: 'plugins/elevenlabs/src/components.js', target: 'packages/core/src/voice-components.js' },
+  { from: 'plugins/voxtral/src/index.js', target: 'packages/core/src/voice-components.js' },
   { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/elevenlabs/src/components.js' },
   { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/voxtral/src/index.js' },
 ];
@@ -38,6 +44,7 @@ export function renderExceptionTable() {
     ...proofEdges.map(row => `| \`${row.from}\` | \`${row.target}\` | #173: unpublished composition proof |`),
     '| `demo/server.js` | Exact VOICE/IMAGE host-module expressions | #173: injected host entrypoints |',
     ...browserSources.map(path => `| \`${path}\` | Relative public source URLs | AIT-205: native browser loading |`),
+    '| `packages/server/src/voice-provider.js` | `packages/server/src/dev/local-voice-manifest.js` | AIT-218: private simulator manifest |',
     '| `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |',
     '| `plugins/fake-voice/src/server.js` | `packages/server/src/dev/local-voice.js` | Test-only compatibility forwarder |',
     '| `demo/fake-voice.js` | `plugins/fake-voice/src/client.js` | Test-only browser simulator forwarder |',
@@ -67,6 +74,17 @@ export function parseSource(path, source) {
 const literal = node => node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : undefined;
 export function importSpecifiers(ast) {
   const imports = [], factories = new Set(), namespaces = new Set(), requires = new Set(['require']);
+  const unwrap = node => ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node;
+  const isFactory = node => {
+    node = unwrap(node);
+    return ts.isIdentifier(node) && factories.has(node.text) ||
+      ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) &&
+      namespaces.has(node.expression.text) && node.name.text === 'createRequire';
+  };
+  const isRequire = node => {
+    node = unwrap(node);
+    return ts.isIdentifier(node) && requires.has(node.text) || ts.isCallExpression(node) && isFactory(node.expression);
+  };
   function bindings(node) {
     if (ts.isImportDeclaration(node) && ['node:module', 'module'].includes(literal(node.moduleSpecifier))) {
       const named = node.importClause?.namedBindings;
@@ -75,23 +93,23 @@ export function importSpecifiers(ast) {
       if (named && ts.isNamespaceImport(named)) namespaces.add(named.name.text);
       if (node.importClause?.name) namespaces.add(node.importClause.name.text);
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const init = node.initializer;
-      if (ts.isCallExpression(init) && (ts.isIdentifier(init.expression) && factories.has(init.expression.text) ||
-        ts.isPropertyAccessExpression(init.expression) && ts.isIdentifier(init.expression.expression) && namespaces.has(init.expression.expression.text) && init.expression.name.text === 'createRequire')) requires.add(node.name.text);
-      if (ts.isIdentifier(init) && requires.has(init.text)) requires.add(node.name.text);
-    }
+    const name = ts.isVariableDeclaration(node) ? node.name :
+      ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.left : undefined;
+    const value = ts.isVariableDeclaration(node) ? node.initializer : name && node.right;
+    if (name && ts.isIdentifier(name) && value && isRequire(value)) requires.add(name.text);
     ts.forEachChild(node, bindings);
   }
-  // A second pass resolves a require binding declared before its factory import.
-  bindings(ast); bindings(ast);
+  // Resolve aliases to a fixed point, including assignments and reversed chains.
+  let size;
+  do { size = factories.size + namespaces.size + requires.size; bindings(ast); }
+  while (size !== factories.size + namespaces.size + requires.size);
   function visit(node) {
     let expression;
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) expression = node.moduleSpecifier;
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) expression = node.moduleReference.expression;
     else if (ts.isImportTypeNode(node)) expression = ts.isLiteralTypeNode(node.argument) ? node.argument.literal : node.argument;
     else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-      ts.isIdentifier(node.expression) && requires.has(node.expression.text))) {
+      isRequire(node.expression))) {
       expression = node.arguments[0];
       if (!expression) imports.push({ specifier: undefined, position: node.getStart(ast) });
     }
@@ -161,6 +179,7 @@ export function checkBoundaries(root) {
       if (to.path === 'packages/server' && subpath === './dev/local-voice') targetPath = 'packages/server/src/dev/local-voice.js';
       const simulator = targetPath === 'packages/server/src/dev/local-voice.js';
       if (simulator && !['demo/server.js', 'plugins/fake-voice/src/server.js'].includes(path)) { fail(`Production imports dev/test entry: ${spec}`); continue; }
+      if (path === 'packages/server/src/voice-provider.js' && targetPath === 'packages/server/src/dev/local-voice-manifest.js') continue;
       if (path === 'plugins/fake-voice/src/manifest.js' && targetPath === 'packages/server/src/dev/local-voice-manifest.js') continue;
       if (/(?:^|\/)dev\//u.test(targetPath ?? '') && !simulator) { fail(`Production imports dev/test entry: ${spec}`); continue; }
       if (from === to && target) continue;
