@@ -445,9 +445,6 @@ export async function visitorCreditMatrix(t, locales) {
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').dataset.ended), 'true', `${label}: footer shows used-up during call ending`);
-      const capturedRailText = await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent);
-      assert.equal(capturedRailText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up', `${label}: F7 after-hangup-used-up capture matches its label`);
-      passLines.push({ locale, theme, width, state: 'after-hangup-used-up', displacementPx: endingDisplacement, railText: capturedRailText, pass: true }); await shot('after-hangup-used-up');
       await page.waitForFunction(reads => window.a2.creditsReads > reads, { timeout: 20_000, polling: 40 }, creditsBefore);
       await until(page, () => {
         const root = document.querySelector('aithema-session').shadowRoot;
@@ -455,6 +452,10 @@ export async function visitorCreditMatrix(t, locales) {
           root.querySelector('.composer-shell').hasAttribute('data-used-up') && root.querySelector('.question-card').inert;
       });
       await settle(page);
+      // F7: the 600ms ending phrase is transient. Capture the stable post-hangup state under its own name.
+      const capturedRailText = await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent);
+      assert.equal(capturedRailText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up', `${label}: F7 after-hangup-used-up capture matches its label`);
+      passLines.push({ locale, theme, width, state: 'after-hangup-used-up', displacementPx: endingDisplacement, railText: capturedRailText, pass: true }); await shot('after-hangup-used-up');
       const calm = await shadow(page, c => {
         const r = c.shadowRoot, ink = getComputedStyle(r.querySelector('.composer-out__title')).color;
         return { questionReadable: !r.querySelector('.question-card').hidden, answersRest: r.querySelector('.question-card').inert,
