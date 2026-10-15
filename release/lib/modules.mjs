@@ -10,7 +10,7 @@ export function moduleFiles(files, pkg) {
     if (folder === 'packages/server' && ['src/local-voice.js', 'src/composed-voice.js'].includes(local)) continue;
     let content = bytes;
     if (/\.(?:js|ts)$/u.test(local)) {
-      content = Buffer.from(bytes.toString().replace(/(['"])(\.{1,2}\/[^'"\n]+)\1/gu, (match, quote, specifier) => {
+      content = Buffer.from(bytes.toString().replace(/(\b(?:from\s*|import\(\s*))(['"])(\.{1,2}\/[^'"\n]+)\2/gu, (match, introducer, quote, specifier) => {
         const target = posix.normalize(posix.join(posix.dirname(path), specifier));
         if (target.startsWith(prefix)) return match;
         const metadataPath = target.replace(/\/src\/.+$/u, '/package.json');
@@ -19,7 +19,7 @@ export function moduleFiles(files, pkg) {
         const metadata = JSON.parse(targetBytes);
         const subpath = './' + target.split('/src/')[1].replace(/\.(?:d\.ts|js)$/u, '');
         if (!metadata.exports?.[subpath]) throw new Error(`Missing package export: ${metadata.name}/${subpath}`);
-        return quote + metadata.name + '/' + subpath.slice(2) + quote;
+        return introducer + quote + metadata.name + '/' + subpath.slice(2) + quote;
       }));
     }
     members.set(local, content);
