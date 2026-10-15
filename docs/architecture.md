@@ -103,6 +103,7 @@ they are not test coverage switches.
 
 | Test or helper | Ambient reads / forwarding (occurrences) | Deliberate purpose |
 | --- | --- | --- |
+| `test/browser-launch.test.js` | `process.env` ×1 | Hermetic fake-CDP executable child-process environment forwarding for launcher retry coverage |
 | `test/browser-matrix-coverage.test.js` | `process.env` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
@@ -127,6 +128,7 @@ they are not test coverage switches.
 | `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
 | `test/browser/voice-presentation.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
+| `test/fixtures/launch-browser.mjs` | `destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }` ×1 | Pinned fake-CDP fixture controls; exact destructured keys and aliases required |
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/measurements/browser-comparison.js` | `process.env` ×1 | Intentional browser measurement child-process environment forwarding; exact occurrence pinned |
 | `test/release-prep.test.js` | `GITHUB_RUN_ID` ×1 | Evidence/source provenance; release test matches the run identifier |

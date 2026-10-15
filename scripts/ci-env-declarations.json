@@ -220,5 +220,17 @@
       "process.env"
     ],
     "reason": "Isolated browser-path installer child process; exact occurrence pinned"
+  },
+  "test/browser-launch.test.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "Hermetic fake-CDP executable child-process environment forwarding for launcher retry coverage"
+  },
+  "test/fixtures/launch-browser.mjs": {
+    "reads": [
+      "destructure { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error }"
+    ],
+    "reason": "Pinned fake-CDP fixture controls; exact destructured keys and aliases required"
   }
 }
