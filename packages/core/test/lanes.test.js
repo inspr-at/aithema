@@ -255,4 +255,3 @@ for (const output of ['valid', 'invalid']) test(`AIT-183 revoke during ${output}
   assert.deepEqual(settlements, [{ failed: false }]);
   assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
 });
-
