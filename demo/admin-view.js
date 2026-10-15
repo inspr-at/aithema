@@ -1,5 +1,4 @@
-import { de } from '../packages/ui/src/i18n/de.js';
-import { en } from '../packages/ui/src/i18n/en.js';
+import { adminCopy } from './admin-copy.js';
 import { wholeCredits } from '../packages/ui/src/display.js';
 export const TIERS = ['anonymous', 'emailGiven', 'emailConfirmed'];
 export const esc = s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -38,7 +37,7 @@ export function adminModel(state, audit) {
     updatedAt: s.updatedAt, sec: { credits: { mode: 'clean' }, confirm: { mode: 'clean' }, mail: { mode: 'clean' } } };
 }
 export function renderAdmin(m, locale = 'de') {
-  const C = (locale === 'en' ? en : de).admin;
+  const C = adminCopy[locale === 'en' ? 'en' : 'de'];
   const nf = n => new Intl.NumberFormat(C.locale).format(n);
   const usd = credits => new Intl.NumberFormat(C.locale, { style: 'currency', currency: 'USD', currencyDisplay: 'code' }).format(credits / 100);
   const hm = iso => new Intl.DateTimeFormat(C.locale, { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));

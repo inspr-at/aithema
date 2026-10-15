@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
-import { voiceOperation } from '../../../packages/core/src/live-voice.js';
+import { PluginError, PLUGIN_ERROR_CODES } from '@inspr/aithema-core/invocation';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
 
 const codeFor = error => error instanceof PluginError && PLUGIN_ERROR_CODES.includes(error.code) ? error.code : 'provider';
 const statusFor = code => code === 'not-admitted' ? 403 : code === 'deadline' ? 504 : code === 'limit' ? 413 : 502;

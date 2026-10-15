@@ -1,6 +1,6 @@
 {
   "name": "@inspr/aithema-core",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.js",
@@ -9,11 +9,41 @@
     "./live-voice": "./src/live-voice.js",
     "./extractor": "./src/extractor.js",
     "./extractor-process": "./src/extractor-process.js",
-    "./extractor-zip": "./src/extractor-zip.js"
+    "./extractor-zip": "./src/extractor-zip.js",
+    "./invocation": "./src/invocation.js",
+    "./session": "./src/session.js",
+    "./ui-html": "./src/ui-html.js",
+    "./reply": "./src/reply.js",
+    "./prompts": "./src/prompts.js",
+    "./document-context": "./src/document-context.js",
+    "./text-origin": "./src/text-origin.js",
+    "./presets": "./src/presets.js",
+    "./settings": "./src/settings.js",
+    "./ai-notice": "./src/ai-notice.js",
+    "./voice-lifecycle": "./src/voice-lifecycle.js",
+    "./reply-replay": "./src/reply-replay.js",
+    "./voice-lifecycle-controller": "./src/voice-lifecycle-controller.js",
+    "./cost": "./src/cost.js",
+    "./plugins": "./src/plugins.js",
+    "./plugin-contract": {
+      "types": "./src/plugin-contract.d.ts"
+    },
+    "./safeguards": "./src/safeguards.js",
+    "./reasoning": "./src/reasoning.js",
+    "./reply-opener": "./src/reply-opener.js",
+    "./chat-completions": "./src/chat-completions.js"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "packages/core"
+  }
 }

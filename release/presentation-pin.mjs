@@ -2,7 +2,7 @@ import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { sha256 } from './lib/digest.mjs';
-export function verifyPresentation(root) {
+export function verifyPresentation(root, { requireTracked = true } = {}) {
   const pin = JSON.parse(readFileSync(join(root, 'release/presentation.json'))), dir = join(root, pin.path);
   const bytes = readFileSync(join(dir, 'manifest.json'));
   if (!/^[a-f0-9]{40}$/u.test(pin.revision) || sha256(bytes) !== pin.manifest_sha256) throw new Error('Presentation manifest pin mismatch');
@@ -17,7 +17,9 @@ export function verifyPresentation(root) {
   }
   if (sha256(readFileSync(join(dir, 'display.json'))) !== pin.config_sha256) throw new Error('Presentation config pin mismatch');
   // Every regular build rejects an untracked payload as well as byte drift.
-  const tracked = execFileSync('git', ['ls-files', '-z', '--', pin.path], { cwd: root }).toString().split('\0').filter(Boolean).sort();
-  if (JSON.stringify(tracked) !== JSON.stringify(expected.map(path => `${pin.path}/${path}`).sort())) throw new Error('Presentation payload is untracked');
+  if (requireTracked) {
+    const tracked = execFileSync('git', ['ls-files', '-z', '--', pin.path], { cwd: root }).toString().split('\0').filter(Boolean).sort();
+    if (JSON.stringify(tracked) !== JSON.stringify(expected.map(path => `${pin.path}/${path}`).sort())) throw new Error('Presentation payload is untracked');
+  }
   return pin;
 }

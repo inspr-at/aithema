@@ -30,7 +30,7 @@ const failures = [
 ];
 for (const [name, fail, reason, transient] of failures) test(`AIT-161 classifies ${name} without changing its reason`, async t => {
   const { opts } = fixture(t);
-  await assert.rejects(ensureAgent({ ...opts, fetchImpl: async () => fail() }), error => {
+  await assert.rejects(ensureAgent({ ...opts, agentName: 'aithema-start2', facadeSecretName: 'aithema-start2-facade', fetchImpl: async () => fail() }), error => {
     assert.equal(error.message, reason); assert.equal(error.transient, transient); return true;
   });
 });

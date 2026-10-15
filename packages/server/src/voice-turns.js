@@ -1,5 +1,5 @@
-import { PluginError, PLUGIN_ERROR_CODES } from '../../core/src/invocation.js';
-import { voiceOperation } from '../../core/src/live-voice.js';
+import { PluginError, PLUGIN_ERROR_CODES } from '@inspr/aithema-core/invocation';
+import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { createVoiceDiagnostics, voiceReconciliationAge } from './voice-observability.js';
 
 export const DEFAULT_VOICE_TURN_REPLAY_MS = 120_000;

@@ -1,20 +1,37 @@
 {
   "name": "@inspr/aithema-server",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.js",
-    "./http": "./src/http.js"
+    "./http": "./src/http.js",
+    "./local-voice-identity": "./src/local-voice-identity.js",
+    "./dev/local-voice": "./src/dev/local-voice.js"
   },
   "bin": {
     "aithema-server": "./bin/server.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "*"
+    "@inspr/aithema-core": "261015164601.0.0",
+    "@inspr/aithema-plugin-claude-html": "261015164601.0.0",
+    "@inspr/aithema-plugin-openai-images": "261015164601.0.0",
+    "@inspr/aithema-plugin-elevenlabs": "261015164601.0.0"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "0.0.0",
-  "license": "AGPL-3.0-only"
+  "version": "261015164601.0.0",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "src/",
+    "bin/",
+    "elevenlabs-compat.js",
+    "!src/local-voice.js",
+    "!src/composed-voice.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inspr-at/aithema.git",
+    "directory": "packages/server"
+  }
 }

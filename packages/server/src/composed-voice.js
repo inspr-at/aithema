@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { PluginError } from '../../core/src/invocation.js';
-import { deepFreeze } from '../../core/src/plugins.js';
-import { createVoiceLifecycle, reduceVoiceLifecycle } from '../../core/src/voice-lifecycle.js';
-import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
-import { voiceOperation, voiceLifetime } from '../../core/src/live-voice.js';
+import { PluginError } from '@inspr/aithema-core/invocation';
+import { deepFreeze } from '@inspr/aithema-core/plugins';
+import { createVoiceLifecycle, reduceVoiceLifecycle } from '@inspr/aithema-core/voice-lifecycle';
+import { recoverableVoiceEnd } from '@inspr/aithema-core/voice-lifecycle';
+import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
 import { audioQueue, boundedEvents } from '../../../plugins/composed-voice/src/component.js';
 
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {

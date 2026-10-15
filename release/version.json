@@ -1,18 +1,19 @@
 {
   "schema": "aithema-version/1",
-  "status": "unreserved",
-  "version_scheme": "legacy",
-  "version": "0.0.0",
+  "status": "reserved",
+  "version_scheme": "inspr-calver-3",
+  "version": "261015164601.0.0",
   "release_channel": "stable",
-  "release_sequence": null,
+  "release_sequence": 12,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
     "last_legacy_scheme": "legacy",
     "last_legacy_version": "0.10.1",
     "last_legacy_sequence": 11,
-    "first_calendar_version": null,
+    "first_calendar_version": "261015164601.0.0",
     "first_calendar_sequence": 12
   },
-  "dry_run_version": "261014000000.0.0"
+  "dry_run_version": "261014000000.0.0",
+  "reservation_purpose": "candidate; Markus AIT-105 2026-10-15; no publish go"
 }

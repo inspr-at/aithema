@@ -1,7 +1,7 @@
 import { createTransport as nodemailerTransport } from 'nodemailer';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
-import { formatCredits } from '../../../packages/ui/src/display.js';
+import { formatCredits } from '@inspr/aithema-ui/display';
 import { confirmationMessage } from './templates.js';
 export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js';
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
