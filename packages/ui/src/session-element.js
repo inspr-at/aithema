@@ -319,7 +319,7 @@ export class AithemaSession extends HTMLElement {
     } });
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
-      receive: event => this.receive(event), feature: () => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true) });
+      receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
@@ -626,17 +626,18 @@ export class AithemaSession extends HTMLElement {
     return refresh;
   }
   #hasLiveCall() { return Boolean(this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting'); }
-  #feature(feature, visitor = false) {
+  #feature(feature, visitor = false, { ignorePause = false } = {}) {
     const preset = this.#session.processingPreset ?? 'best';
     if (this.#host?.usedUp && preset !== 'device') return { available: false, reason: this.#copy.voiceStates.usedUp, rawReason: 'host-limit' };
     // Held voice commands need the server verdict too: a local pause must not hide
     // a budget or consent refusal behind the explicit take-back exception.
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
-    if (this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
-    if (this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
+    if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
+    if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
     let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
+    if (ignorePause && value.reason === 'session paused' && value.unpaused) value = value.unpaused;
     if (!this.#hasLiveCall() && this.#postCallMatrix === this.#session.featureMatrix && value.reason === 'budget denied') {
       value = { ...value, reason: 'budget reconciling' };
     }

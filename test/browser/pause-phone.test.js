@@ -48,6 +48,9 @@ async function fixture(t, touch = true) {
   await page.setRequestInterception(true);
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
+    if (page.reloadSession && request.method() === 'GET' && path === `/api/sessions/${page.reloadSession.id}`) {
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(page.reloadSession) });
+    }
     if (path.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
     // Server-scenario events are replayed into this isolated UI host. Its empty
     // demo stream stays genuinely open; it does not own the replay's cursor.
@@ -223,6 +226,66 @@ test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause 
     assert.equal(view.pausesInComposer, true);
     assert.deepEqual(await boxes(page, ['.concept-bar', '.composer', '.display-foot']), before, `${label}: shift 0 px`);
     await record(t, 'L1', page, label, { ...view, stage, afterStage, shiftPx: 0 });
+  }
+});
+
+test('AIT-189: reloaded purpose/session pauses match unpaused stage, visual drafts on/off, DE/EN L/D 390/1440', { timeout: 120_000 }, async t => {
+  const page = await fixture(t), seed = await shadow(page, () => globalThis.tickSeed);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const enabled of [true, false]) for (const reason of ['purpose', 'session']) {
+    page.reloadSession = null;
+    await shadow(page, (c, seed) => { globalThis.tickSeed = seed; }, seed);
+    // Use the same visual-drafts scene as AIT-188 L1, including its disabled verdict.
+    await voiceScene(page, locale, theme, width);
+    await shadow(page, (c, enabled) => {
+      const session = structuredClone(c.session);
+      session.featureMatrix.best.html = enabled ? { available: true } : { available: false, reason: 'not configured' };
+      session.conceptVisualKind = 'html'; session.conceptCost = { maxMicro: 100_000 };
+      c.configure({ copy: globalThis.pauseCopy, session, host: { library: true } });
+    }, enabled);
+    await frame(page);
+    const stage = await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').innerText);
+    assert.ok(stage.trim(), 'the non-paused reference has visible stage text');
+    assert.equal(/nicht eingerichtet|not set up|not configured/iu.test(stage), !enabled, 'fixture exercises both visual-draft verdicts');
+    const selectors = ['.concept-bar', '.composer', '.display-foot'];
+    const before = await boxes(page, selectors);
+    await shadow(page, (c, reason) => c.receive({ seq: c.session.seq + 1, type: 'session.paused',
+      data: { paused: true, ...(reason === 'purpose' ? { reason } : {}) } }), reason);
+    await frame(page);
+    const livePause = await boxes(page, selectors);
+    assert.deepEqual(livePause, before, 'live pause shift 0 px');
+    page.reloadSession = await shadow(page, c => c.session);
+    // A real server snapshot gates a configured visual with session paused while
+    // carrying its underlying verdict for presentation only (server-tested).
+    if (enabled) page.reloadSession.featureMatrix.best.html = { available: false, reason: 'session paused',
+      unpaused: page.reloadSession.featureMatrix.best.html };
+    await page.evaluate(async locale => {
+      const { localeKey, remember } = await import('/demo/page-preferences.js'); remember(localeKey, locale);
+    }, locale);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.paused);
+    await frame(page);
+    const label = `${locale}-${theme}-${width}-drafts-${enabled ? 'on' : 'off'}-${reason}-pause-reloaded`;
+    const value = await shadow(page, c => {
+      const r = c.shadowRoot, rail = r.querySelector('.concept-rail');
+      const text = r.querySelector('.concept-activity').hidden ? r.querySelector('.concept-request') : r.querySelector('.concept-activity-text');
+      const b = text.getBoundingClientRect(), style = getComputedStyle(text);
+      return { stage: rail.innerText, text: text.innerText, textVisible: !text.hidden && style.visibility === 'visible' && style.opacity !== '0'
+        && b.width > 0 && b.height > 0 && b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth,
+        actionDisabled: r.querySelector('.concept-request').disabled, paused: c.session.paused, pauseReason: c.session.pauseReason,
+        locale: c.session.locale, theme: document.querySelector('#theme').value };
+    });
+    assert.equal(value.stage, stage, `${label}: reloaded stage equals non-paused text`);
+    assert.ok(value.text.trim(), `${label}: never icon-only`);
+    assert.equal(value.textVisible, true, `${label}: stage text visible in viewport`);
+    assert.equal(value.actionDisabled, true, `${label}: pause disables generation`);
+    assert.equal(value.paused, true); assert.equal(value.pauseReason === 'purpose', reason === 'purpose');
+    assert.equal(value.locale, locale); assert.equal(value.theme, theme);
+    assert.deepEqual(await boxes(page, selectors), livePause, `${label}: reload shift 0 px`);
+    const view = await metrics(page);
+    assert.equal(view.pauseElements, 1, `${label}: pause said exactly once`);
+    assert.equal(view.pausesInComposer, true, `${label}: pause stays in composer`);
+    assert.equal(view.inViewport, true, `${label}: composer remains in viewport`);
+    await record(t, 'AIT-189', page, label, { ...value, nonPausedStage: stage, ...view, shiftPx: 0 });
   }
 });
 

@@ -366,3 +366,25 @@ test('the request gate follows the host visual kind; a refused request says why 
   refused.c.receive({ seq: refused.c.session.seq + 1, type: 'concept.state', data: { intent: refused.c.session.conceptIntent, status: { phase: 'pending', startedAt: Date.now(), estimateMs: 45000 } } });
   assert.equal(refused.root.querySelector('.concept-activity-text').textContent, 'Creating your clickable draft…', 'the refusal stands only until the state moves on');
 });
+
+for (const copy of [de, en]) for (const enabled of [true, false]) for (const reason of ['purpose', 'session']) {
+  test(`AIT-189 ${copy.display.locale} drafts ${enabled ? 'on' : 'off'} ${reason}: freshly mounted pause equals unpaused stage`, t => {
+    const { c } = setup(t, { copy, concepts: [], session: { locale: copy.display.locale, conceptVisualKind: 'html', conceptCost: { maxMicro: 100_000 } } });
+    const session = structuredClone(c.session);
+    session.featureMatrix.best.html = enabled ? { available: true } : { available: false, reason: 'not configured' };
+    c.configure({ copy, session });
+    const stage = root => ['.concept-activity-text', '.concept-request'].filter(selector => {
+      const node = root.querySelector(selector); return !node.hidden && !node.parentElement.hidden;
+    }).map(selector => root.querySelector(selector).textContent).join('');
+    const before = stage(c.shadowRoot);
+    assert.ok(before.trim(), 'non-paused stage has text');
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, ...(reason === 'purpose' ? { reason } : {}) } });
+    assert.equal(stage(c.shadowRoot), before, 'live pause retains stage');
+    const reloaded = structuredClone(c.session);
+    if (enabled) reloaded.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: session.featureMatrix.best.html };
+    c.configure({ copy, session: reloaded });
+    assert.equal(stage(c.shadowRoot), before, 'freshly mounted paused stage equals same non-paused state');
+    assert.equal(c.shadowRoot.querySelector('.concept-request').disabled, true, 'pause still gates generation');
+    assert.doesNotMatch(stage(c.shadowRoot), /paused|pausiert/iu, 'pause copy stays in composer');
+  });
+}
