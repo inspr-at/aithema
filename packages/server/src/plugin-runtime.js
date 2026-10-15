@@ -365,7 +365,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     }
     return { selection };
   }
+  let laneDiagnostic = () => {};
+  const emitOutcome = (lane, outcome, reason) => {
+    try { Promise.resolve(laneDiagnostic({ event: `${lane === 'reaction' ? 'reply' : lane}.${outcome}`, count: 1, lane,
+      ...(reason ? { reason } : {}) })).catch(() => {}); } catch { /* Diagnostics cannot interrupt paid work. */ }
+  };
   const runtime = {
+    setLaneDiagnostic(callback) { laneDiagnostic = callback; },
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
     voiceServerAdapters: () => registry.list().flatMap(plugin => plugin.ports?.serverAdapter ? [plugin.ports.serverAdapter] : []),
     setOwnerWallet(provider) { ownerWallet = provider; },
@@ -880,6 +886,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef, model: binding.model, estimateMicro: plugin.estimateUncertainCost?.(request, operation) ?? plugin.uncertainEstimateMicro } } : {}),
         requestSha256: hash(html ? { ...request, previousArtifact: request.previousArtifact?.provenance.subject.contentDigest } : lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback, references: request.references?.map(r => ({
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
+      const diagnosticLane = options.voiceReply ? 'voice-facade' : lane;
+      if (budget.startOutcome(attemptId, diagnosticLane)) emitOutcome(diagnosticLane, 'started');
       const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false;
       const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
@@ -929,7 +937,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const described = runtime.describe(session);
       return { plugin, consentScope: result.scope ? structuredClone(result.scope) : null,
         ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
-        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false } = {}) {
+        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false, error } = {}) {
         try {
           if (!reported) {
             report({ attemptId, outcome: 'uncertain' });
@@ -937,7 +945,17 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             throw new PluginError('invalid-output', 'Plugin omitted its terminal report');
           }
         } catch (error) { if (!failed) throw error; }
-        finally { if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId); }
+        finally {
+          if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId);
+          const row = budget.get(attemptId), latest = storage.get(session.id);
+          const outcome = row.outcome === 'uncertain' ? 'uncertain'
+            : !invocationCurrent() ? 'superseded'
+            : latest.paused && row.outcome !== 'completed' ? 'deferred'
+            : options.signal?.aborted ? 'aborted'
+            : failed || row.outcome !== 'completed' ? 'failed' : 'completed';
+          if (budget.finishOutcome(attemptId, outcome)) emitOutcome(diagnosticLane, outcome,
+            outcome === 'uncertain' ? 'provider-cost-unknown' : ['4xx', '5xx'].includes(error?.providerErrorClass) ? `provider-${error.providerErrorClass}` : undefined);
+        }
       } };
     },
   };

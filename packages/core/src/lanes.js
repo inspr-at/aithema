@@ -103,15 +103,15 @@ export class SessionLanes {
             // current consent, price checks and its own terminal settlement.
             admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request: input, options });
             flight.admitted = Boolean(admitted);
-            let failed = false, retry = false;
+            let failed = false, retry = false, failureError;
             try {
               raw = await untilCancelled((admitted?.plugin ?? binding).structured(input, admitted?.options ?? options), scope.signal);
               if (!matchesSchema(raw, request.schema)) throw new TypeError('Invalid understanding output');
             } catch (error) {
-              failed = true;
+              failed = true; failureError = error;
               if (attempt === 0 && error.responseFormatUnsupported === true && !scope.signal.aborted && current()) retry = true;
               else throw error;
-            } finally { await admitted?.finish({ failed }); }
+            } finally { await admitted?.finish({ failed, error: failureError }); }
             if (!retry) break;
             scope.signal.throwIfAborted();
             if (!current()) return 'stale';
