@@ -146,3 +146,34 @@ test('fake commands are unavailable during recovery; a synchronous Pause waits a
   assert.deepEqual(pauses, ['new']); assert.equal(f.snapshot().muted, true);
   await session.resume(); assert.equal(f.snapshot().muted, false);
 });
+
+for (const completed of [false, true]) test(`AIT-190 r2: fake replay completed=${completed} reports completion and retires only played-through actions`, async t => {
+  const { Window } = await import('happy-dom');
+  const { RecoveryNotices } = await import('../../../packages/ui/src/recovery-notices.js');
+  const { en } = await import('../../../packages/ui/src/i18n/en.js');
+  const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+  t.after(() => window.happyDOM.close());
+  const finished = Promise.withResolvers(), final = Promise.withResolvers(), stopped = Promise.withResolvers(), events = [];
+  const now = Date.now(), control = {
+    start: () => ({ callId: 'call', providerSessionId: 'segment', spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 }),
+    close: () => ({ closureConfirmed: true }), pause: () => ({ acknowledged: true, paused: true }),
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat: () => ({ acknowledged: true, browserLivenessDeadlineAt: now + 30_000 }),
+    speakText: async () => ({ kind: 'audio', audio: {} }),
+  };
+  const f = createFakeVoice({ control, persistEvent: () => {}, document: undefined, copy: { fakeVoiceGreeting: 'Exact reply' },
+    playAudio: async () => ({ stop() {}, finished: finished.promise }) });
+  const session = await f.client.start({ callId: 'call' });
+  const notices = new RecoveryNotices({ root, copy: en, available: () => true, replay: () => session.replayLastReply() });
+  const reading = (async () => { for await (const event of session.events) {
+    events.push(event);
+    if (event.type === 'final' && event.role === 'assistant') { notices.pageReply = { text: event.text, turnId: event.turnId }; notices.render(); final.resolve(); }
+    if (event.replay && event.type === 'listening') { notices.playbackEnded(event.completed); stopped.resolve(); }
+  } })();
+  t.after(async () => { await session.close(); await reading; });
+  await final.promise; await notices.repeat();
+  assert.equal(notices.button.hidden, false, 'active audio retains the row');
+  finished.resolve(completed); await stopped.promise;
+  assert.equal(events.find(event => event.replay && event.type === 'listening').completed, completed);
+  assert.equal(notices.button.hidden, completed);
+  assert.equal(notices.readText.hidden, completed);
+});

@@ -234,3 +234,20 @@ for (const completed of [false, true]) test(`AIT-190: in-call replay completion=
   f.rail.render();
   assert.equal(f.rail.notices.button.hidden, completed, 'render preserves the completion verdict');
 });
+
+for (const completion of ['undefined', 'missing']) test(`AIT-190 r2: ${completion} playback completion keeps reply actions`, async t => {
+  const { RecoveryNotices } = await import('../src/recovery-notices.js');
+  const { createReplyReplay } = await import('../../core/src/reply-replay.js');
+  const window = new Window(), root = window.document.createElement('div');
+  window.document.body.append(root); t.after(() => window.happyDOM.close());
+  const reply = { turnId: 'reply', text: 'Exact reply' };
+  const replay = createReplyReplay({ current: () => true,
+    synthesize: async () => ({ kind: 'audio', audio: {} }),
+    playAudio: async () => ({ stop() {}, ...(completion === 'undefined' ? { finished: Promise.resolve(undefined) } : {}) }),
+    onState: (playing, detail) => { if (!playing) notices.playbackEnded(detail.completed); } });
+  const notices = new RecoveryNotices({ root, copy: en, available: () => true, replay: () => replay.replay(reply) });
+  notices.pageReply = reply; notices.render();
+  await notices.repeat(); await tick();
+  assert.equal(notices.button.hidden, false, 'unknown completion cannot retire the row');
+  assert.equal(notices.readText.hidden, false);
+});

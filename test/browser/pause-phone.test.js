@@ -494,7 +494,7 @@ test('AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390
       const following = position === 'following';
       const positionTranscript = () => shadow(page, (c, position) => {
         const s = c.shadowRoot.querySelector('.transcript-shell');
-        s.scrollTop = position === 'following' ? s.scrollHeight : position === 'near-bottom' ? s.scrollHeight - s.clientHeight - 20 : 400;
+        s.scrollTop = position === 'following' ? s.scrollHeight : position.startsWith('near-bottom') ? s.scrollHeight - s.clientHeight - Number(position.split('-')[2] ?? 20) : 400;
         s.dispatchEvent(new Event('scroll'));
       }, position);
       await positionTranscript(); await frame(page);
@@ -626,11 +626,11 @@ async function recoveryRowMetrics(page) {
   });
 }
 
-test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1440, DE/EN L/D, 0px reading shift', { timeout: 120_000 }, async t => {
-  for (const width of [390, 1440]) await t.test(`${width}px`, async t => {
+test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift', { timeout: 120_000 }, async t => {
+  for (const width of [390, 1024, 1440]) await t.test(`${width}px`, async t => {
     const page = await fixture(t, width === 390);
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
-    for (const position of width === 390 ? ['following', 'scrolled-up', 'near-bottom'] : ['following']) {
+    for (const position of width === 390 ? ['following', 'scrolled-up', 'near-bottom'] : ['following', 'scrolled-up', 'near-bottom-9', 'near-bottom-20', 'near-bottom-43']) await t.test(`${locale}-${theme}-${position}`, async t => {
       await voiceScene(page, locale, theme, width);
       await page.evaluate(async () => {
         const { createPageReplay } = await import('/packages/ui/src/page-replay.js');
@@ -645,7 +645,7 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       const following = position === 'following';
       const setPosition = () => shadow(page, (c, position) => {
         const s = c.shadowRoot.querySelector('.transcript-shell');
-        s.scrollTop = position === 'following' ? s.scrollHeight : position === 'near-bottom' ? s.scrollHeight - s.clientHeight - 20 : 400;
+        s.scrollTop = position === 'following' ? s.scrollHeight : position.startsWith('near-bottom') ? s.scrollHeight - s.clientHeight - Number(position.split('-')[2] ?? 20) : 400;
         s.dispatchEvent(new Event('scroll'));
       }, position);
       await setPosition(); await frame(page);
@@ -658,7 +658,10 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       }); await frame(page);
       const sentence = await recoveryRowMetrics(page), label = `${locale}-${theme}-${width}-${position}`;
       if (!following) assert.deepEqual(sentence.first, before.first, 'notice add: first visible bubble shifts 0px');
-      if (following && width === 390) for (const b of sentence.controls) assert.ok(b.top >= sentence.shell.top && b.bottom <= sentence.shell.bottom && b.bottom <= sentence.dock.top - 12, 'sentence controls fully above dock');
+      if (following) for (const b of sentence.controls) {
+        assert.ok(b.top >= sentence.shell.top && b.bottom <= sentence.shell.bottom, 'sentence controls fully visible');
+        if (width === 390) assert.ok(b.bottom <= sentence.dock.top - 12, 'sentence controls fully above dock');
+      }
       await record(t, 'ait190', page, `${label}-clear`, { ...sentence, shiftPx: following ? sentence.dock.top - before.dock.top : sentence.first.top - before.first.top });
       await setPosition(); await frame(page);
       const beforeClear = await recoveryRowMetrics(page);
@@ -669,7 +672,10 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       assert.equal(row.emptySpaceAbovePx, 0, 'no empty line above the action row');
       for (const b of row.controls) {
         assert.equal(b.height, 44, '44px target'); assert.equal(b.border, '0px', 'no control box'); assert.equal(b.background, 'rgba(0, 0, 0, 0)', 'quiet transparent action');
-        if (following && width === 390) assert.ok(b.top >= row.shell.top && b.bottom <= row.shell.bottom && b.bottom <= row.dock.top - 12, 'action row fully above dock');
+        if (following) {
+          assert.ok(b.top >= row.shell.top && b.bottom <= row.shell.bottom, 'action row fully visible');
+          if (width === 390) assert.ok(b.bottom <= row.dock.top - 12, 'action row fully above dock');
+        }
       }
       if (!following) assert.deepEqual(row.first, beforeClear.first, 'notice clear to row: first visible bubble shifts 0px');
       await record(t, 'ait190', page, `${label}-action-row`, { ...row, shiftPx: following ? row.dock.top - beforeClear.dock.top : row.first.top - beforeClear.first.top });
@@ -704,9 +710,15 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       const gone = await recoveryRowMetrics(page);
       assert.ok(gone.controls.every(b => b.hidden && b.height === 0), 'fully visible and played-through reply has no controls');
       if (!following) assert.deepEqual(gone.first, beforeGone.first, 'row removal: first visible bubble shifts 0px');
-      if (following && width === 390) assert.equal(gone.scrollTop, gone.maxScroll, 'following remains at bottom');
+      if (following) assert.equal(gone.scrollTop, gone.maxScroll, 'following remains at bottom');
       await record(t, 'ait190', page, `${label}-gone`, { ...gone, emptySpaceAbovePx: 0, shiftPx: following ? gone.dock.top - beforeGone.dock.top : gone.first.top - beforeGone.first.top });
-    }
+      await page.evaluate(() => { globalThis.tickRail.notices.completedReply = null; globalThis.tickRail.notices.render(); });
+      await frame(page);
+      const readded = await recoveryRowMetrics(page);
+      if (!following) assert.deepEqual(readded.first, gone.first, 'row add: first visible bubble shifts 0px');
+      if (following) for (const b of readded.controls) assert.ok(b.top >= readded.shell.top && b.bottom <= readded.shell.bottom, 'added action row fully visible');
+      await record(t, 'ait190', page, `${label}-readded`, { ...readded, shiftPx: following ? readded.dock.top - gone.dock.top : readded.first.top - gone.first.top });
+    });
     }
   });
 });
