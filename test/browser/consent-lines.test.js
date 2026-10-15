@@ -95,7 +95,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
         action: line.querySelector('button')?.textContent, placeholder: r.querySelector('.notice').textContent,
         italic: getComputedStyle(line).fontStyle,
         actionWrap: getComputedStyle(line.querySelector('button')).whiteSpace,
-        actionWidth: line.querySelector('button').getBoundingClientRect().width,
+        actionWidth: line.querySelector('button').clientWidth,
         actionScrollWidth: line.querySelector('button').scrollWidth };
     }, { selector, expected });
     assert.equal(state.text, expected, label); assert.equal(state.lines, 1, label + ': once in its own place');
@@ -160,6 +160,9 @@ test('AIT-197 C1: the local host consent editor saves through the real endpoint 
     session.locale = 'de'; session.transcript = [{ id: 'local-user', role: 'user', content: 'Wir brauchen eine Website.' }];
     c.configure({ session, copy });
   });
+  const doc = await shadow(page, async c => fetch(`/api/sessions/${c.session.id}/consent`).then(r => r.json()));
+  assert.deepEqual(doc.features.analysis, ['mock-processing']);
+  await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
   await page.locator('aithema-session >>> .notice button').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing');
   await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
