@@ -307,3 +307,20 @@ test('the local fake draft names its revision in the page language: "Fassung N" 
   const english = await html.edit(await html.generate(spec('en'), '', options()), spec('en'), 'More contrast', options());
   assert.match(visible(text(english)), /<p>Revision 2<\/p>/u);
 });
+
+for (const enabled of [true, false]) for (const reason of ['purpose', 'session']) {
+  test(`AIT-189: paused snapshot keeps underlying visual verdict, drafts ${enabled ? 'on' : 'off'}, ${reason}`, async t => {
+    const h = await setup(t);
+    if (!enabled) delete h.presets.best.bindings.html;
+    await h.turn('stage-reload');
+    const before = await (await h.call()).json();
+    assert.equal(before.featureMatrix.best.html.available, enabled);
+    h.storage.append(h.id, 'session.paused', { paused: true, ...(reason === 'purpose' ? { reason } : {}) });
+    const after = await (await h.call()).json(), feature = after.featureMatrix.best.html;
+    assert.equal(after.paused, true);
+    assert.equal(feature.available, false, 'admission verdict stays unavailable');
+    assert.deepEqual(feature.unpaused ?? feature, before.featureMatrix.best.html, 'snapshot supplies exactly the same underlying visual verdict');
+    assert.equal((await h.request('paused-stage')).status, 403, 'presentation verdict cannot authorize generation');
+    assert.equal(h.records.length, 0, 'snapshot and paused request generate nothing');
+  });
+}

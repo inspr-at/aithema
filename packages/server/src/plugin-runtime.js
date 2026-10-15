@@ -526,6 +526,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         for (const feature of FEATURES) {
           const result = await boundedEvaluate(session, preset, feature);
           matrix[preset][feature] = result.reason ? featureUnavailable(result.reason) : { available: true, reason: null };
+          // Paused reloads need the stage's ordinary words. This nested verdict
+          // is presentation only; the outer verdict and admission stay paused.
+          if (visual(feature) && result.reason === 'session paused') {
+            const unpaused = await boundedEvaluate({ ...session, paused: false }, preset, feature);
+            matrix[preset][feature].unpaused = unpaused.reason ? featureUnavailable(unpaused.reason) : { available: true, reason: null };
+          }
         }
       }
       return matrix;
