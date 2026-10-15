@@ -89,8 +89,7 @@ export class ConversationFold {
 
 /** Viewport-clamped tooltips, shared by notice/build, wallet and preset; hover changes only opacity. */
 export class FooterPopups {
-  constructor(root, { onNoticesChange = () => {} } = {}) {
-    this.onNoticesChange = onNoticesChange;
+  constructor(root) {
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.entries = [...root.querySelectorAll('[data-footer-popup]')];
     for (const entry of this.entries) {
