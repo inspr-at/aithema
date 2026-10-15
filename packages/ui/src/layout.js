@@ -130,3 +130,45 @@ export class FooterPopups {
     this.view?.removeEventListener('scroll', this.resize);
   }
 }
+
+/** Keep the phone dock in the visual viewport, including keyboards that resize
+ * only that viewport. Geometry comes from the existing band, footer and dock. */
+export class PhoneComposerViewport {
+  constructor(root) {
+    this.root = root; this.view = root.ownerDocument.defaultView;
+    this.paint = () => {
+      const view = this.view, viewport = view?.visualViewport;
+      const height = viewport?.height ?? view?.innerHeight ?? 0;
+      // Pinch zoom is a reading gesture; do not move controls while zooming.
+      if (viewport && viewport.scale !== 1) return;
+      const workspace = root.querySelector('.workspace');
+      const values = {
+        '--phone-height': height,
+        '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
+        '--phone-band': root.querySelector('.band').getBoundingClientRect().height,
+        '--phone-footer': root.querySelector('.display-foot').getBoundingClientRect().height,
+        '--phone-dock': root.querySelector('.composer-dock').getBoundingClientRect().height,
+      };
+      for (const [key, value] of Object.entries(values)) workspace.style.setProperty(key, `${value}px`);
+    };
+    this.connect();
+  }
+  connect() {
+    this.view?.addEventListener('resize', this.paint);
+    this.view?.visualViewport?.addEventListener('resize', this.paint);
+    this.view?.visualViewport?.addEventListener('scroll', this.paint);
+    const Observer = this.view?.ResizeObserver;
+    this.observer?.disconnect();
+    if (Observer) {
+      this.observer = new Observer(this.paint);
+      for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
+    }
+    this.paint();
+  }
+  destroy() {
+    this.observer?.disconnect();
+    this.view?.removeEventListener('resize', this.paint);
+    this.view?.visualViewport?.removeEventListener('resize', this.paint);
+    this.view?.visualViewport?.removeEventListener('scroll', this.paint);
+  }
+}

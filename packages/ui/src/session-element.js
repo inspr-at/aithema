@@ -27,7 +27,7 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, settingsFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
-import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
@@ -81,7 +81,7 @@ export class AithemaSession extends HTMLElement {
   #deferredAnalysis = null; #analysisRecovery = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
-  #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
+  #introOrb = null; #reveal = null; #fold; #phoneViewport; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
@@ -150,7 +150,7 @@ export class AithemaSession extends HTMLElement {
     this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), { product: 'Aithema 2026.10', ...this.#options.host?.version }, { locale: this.#session.locale });
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
-    this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
+    this.#phoneViewport?.connect(); this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
     this.#observePanes(); this.#syncReconciling();
@@ -160,7 +160,7 @@ export class AithemaSession extends HTMLElement {
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#questionCard?.destroy();
-    this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
+    this.#phoneViewport?.destroy(); this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     clearTimeout(this.#creditEndTimer); this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     this.#pings?.close(); this.#pings = null;
@@ -436,6 +436,7 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
+    this.#phoneViewport = new PhoneComposerViewport(root);
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
     this.#observePanes();
