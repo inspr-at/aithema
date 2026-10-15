@@ -26,6 +26,12 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
     entry.closed = true; clearTimeout(entry.timer); connections.delete(entry.id);
     void Promise.resolve(disconnect ? entry.transport.disconnect() : entry.transport.frames.return?.()).catch(() => {});
   };
+  async function assertActive(entry, owner) {
+    if (entry.closed || now() >= entry.expiresAt) { close(entry); throw new PluginError('not-admitted'); }
+    if (await authorize(entry.grant, owner) !== true || entry.closed || now() >= entry.expiresAt) {
+      close(entry); throw new PluginError('not-admitted');
+    }
+  }
   function charge(entry, bytes = 0) {
     const at = now();
     if (at - entry.windowAt >= 1000) { entry.windowAt = at; entry.requests = 0; entry.bytes = 0; }
@@ -68,7 +74,7 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
         }
         const entry = connections.get(request.headers.get('x-composed-connection'));
         if (!entry || entry.owner !== owner) throw new PluginError('not-admitted');
-        if (now() >= entry.expiresAt || await authorize(entry.grant, owner) !== true) { close(entry); throw new PluginError('not-admitted'); }
+        await assertActive(entry, owner);
         charge(entry);
         if (action === 'frame') {
           if (entry.polling) throw new PluginError('limit');
@@ -85,7 +91,8 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
           } finally { entry.polling = false; request.signal.removeEventListener('abort', aborted); }
         }
         if (action === 'audio') {
-          const bytes = await boundedBody(request, 16_000); charge(entry, bytes.length);
+          const bytes = await boundedBody(request, 16_000);
+          await assertActive(entry, owner); charge(entry, bytes.length);
           if (entry.ingress) throw new PluginError('limit');
           entry.ingress = true;
           try { await entry.transport.sendAudio(bytes); } finally { entry.ingress = false; }
@@ -93,6 +100,7 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
         }
         if (action === 'command') {
           const { name, args = [] } = JSON.parse(Buffer.from(await boundedBody(request, 8192)).toString());
+          await assertActive(entry, owner);
           if (!Array.isArray(args) || !['pause', 'resume', 'interrupt', 'setInput', 'setOutput', 'updateContext', 'heartbeat', 'close'].includes(name)) throw new PluginError('not-admitted');
           // A paused network grant is revoked. Resume obtains a new admitted segment via AIT-138.
           const pending = entry.transport.command(name, ...args);

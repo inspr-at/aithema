@@ -83,3 +83,15 @@ test('network relay rejects cross-site and concurrent reads and enforces byte-ra
   assert.equal((await h.post('audio', new Uint8Array(1000), id)).status, 429);
   assert.deepEqual(await (await pending).json(), { done: true });
 });
+
+test('grant revocation fences an audio upload already waiting for its body', async t => {
+  const h = fixture(); t.after(() => h.route.close());
+  const id = (await (await h.post('open', h.relay.grant)).json()).connectionId;
+  let upload;
+  const body = new ReadableStream({ start(controller) { upload = controller; } });
+  const pending = h.route.handle(new Request('http://localhost/composed/relay', { method: 'POST', duplex: 'half', body,
+    headers: { 'x-owner': 'alice', 'x-composed-action': 'audio', 'x-composed-connection': id } }));
+  await new Promise(resolve => setImmediate(resolve));
+  h.route.revoke('segment'); upload.enqueue(new Uint8Array(1280)); upload.close();
+  assert.equal((await pending).status, 403); assert.equal(h.received, 0);
+});
