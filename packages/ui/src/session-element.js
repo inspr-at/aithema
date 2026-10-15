@@ -1399,7 +1399,7 @@ export class AithemaSession extends HTMLElement {
     if (gone && button) {
       // Focus stays where it was: on the row, never dropped to the page.
       const focused = this.shadowRoot.activeElement === button;
-      button.remove(); if (focused) row.focus();
+      button.remove(); if (focused) row.focus({ preventScroll: true });
     }
   }
   #uploadWithdrawButton(row, uploadId) {
