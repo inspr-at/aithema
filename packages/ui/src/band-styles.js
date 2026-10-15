@@ -189,6 +189,10 @@ export const bandStyles = `
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
   .voice-state { max-width:100%; }
+  /* The hidden pause stays reserved; only reconciliation copy borrows its space. */
+  .audio-rail[data-call-reconciling]:not(:has(:is(.pause,.voice-pause)[aria-pressed="true"])) .voice-state {
+    position:absolute; left:0; width:calc(100% + 48px); max-width:none;
+  }
   .fold-strip { gap:8px; padding-left:max(12px,calc(54px - var(--aithema-gutter))); padding-right:12px; grid-template-columns:auto minmax(0,1fr); }
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }
