@@ -8,7 +8,7 @@ export function createPageReplay({ control, document = globalThis.document, play
     synthesize: (reply, options) => control.speakText?.({ turnId: reply.turnId, replayId: options.replayId }, options),
     release: replayId => control.stopReplyReplay?.({ replayId }),
     playAudio: (audio, options) => playAudio(audio, { ...options, document }),
-    onState: playing => { onState?.(playing); if (!playing) { cleanup?.(); cleanup = null; } } });
+    onState: (playing, detail) => { onState?.(playing, detail); if (!playing) { cleanup?.(); cleanup = null; } } });
   return { stop() { const released = player.stop(); cleanup?.(); cleanup = null; return released; }, get active() { return player.active; },
     async replay(reply, options = {}) {
       player.stop();
