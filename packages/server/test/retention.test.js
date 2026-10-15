@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { createUIRenderLimiter } from '../src/ui-render-limits.js';
 import { SQLiteBudgetLedger, createSpendCap, createVoiceCap } from '../src/index.js';
-import { testToken, ownedRequest, mockConsent } from '../../../test/helpers.js';
+import { testToken, ownedRequest, mockConsent, temporaryDb } from '../../../test/helpers.js';
 
 const request = path => ownedRequest(`http://localhost/api/sessions/${path}`);
 function fixture(t) {
@@ -50,7 +50,7 @@ test('last activity uses server events and authorized reads, strict cutoff, and 
   await handlers.handle(request(s.id));
   assert.deepEqual(await handlers.retire({ before: Date.now() - 1000, limit: 1 }), { retired: 0, more: false });
   age(storage, s.id);
-  storage.postTurn(s.id, 'one', Buffer.from('one'), 'hello');
+  storage.append(s.id, 'turn.final', { id: 'old-client-time', role: 'user', content: 'hello', at: '1970-01-01T00:00:00.001Z' });
   assert.deepEqual(await handlers.retire({ before: Date.now() - 1000, limit: 1 }), { retired: 0, more: false });
   const stream = await handlers.handle(request(`${s.id}/events`));
   age(storage, s.id);
@@ -107,13 +107,19 @@ test('an authorized request waiting for its body protects the session', async t 
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
 });
 
-test('failed host cleanup is queued durably, retried and only then acknowledged', async t => {
-  const storage = new SQLiteStorage(); let attempts = 0;
-  const handlers = createHandlers({ storage, consent: mockConsent, host: { erased() { if (++attempts === 1) throw new Error('host unavailable'); } } });
+test('failed host cleanup survives restart, is retried and only then acknowledged', async t => {
+  const path = await temporaryDb();
+  let storage = new SQLiteStorage(path), attempts = 0;
+  const host = { erased() { if (++attempts === 1) throw new Error('host unavailable'); } };
+  let handlers = createHandlers({ storage, consent: mockConsent, host });
   t.after(async () => { await handlers.close(); storage.close(); });
   const s = storage.create(); age(storage, s.id);
   await assert.rejects(handlers.retire({ before: 2, limit: 1 }), /host unavailable/);
   assert.ok(storage.get(s.id).tombstone);
+  assert.deepEqual(storage.pendingRetirements(10), [s.id]);
+  await handlers.close(); storage.close();
+  storage = new SQLiteStorage(path);
+  handlers = createHandlers({ storage, consent: mockConsent, host });
   assert.deepEqual(storage.pendingRetirements(10), [s.id]);
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
   assert.equal(attempts, 2); assert.deepEqual(storage.list(), []);
