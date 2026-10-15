@@ -41,6 +41,26 @@ export const questionCardStyles = `
   scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent; }
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,var(--question-card-limit,35dvh),calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
+  .qcard:not([data-compact]) .qopts { min-height:var(--question-options-floor,66px); }
+  /* When a vertical list cannot show a whole answer and a scroll hint, retain
+     the question and one horizontal row. The next chip peeks into view. */
+  .qcard[data-compact] { max-height:none; grid-template-rows:auto 44px; padding:6px 10px; gap:4px; }
+  .qcard[data-compact] .qtext { -webkit-line-clamp:1; }
+  .qcard[data-compact] .qopts { display:flex; gap:6px; height:44px; margin:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+  .qcard[data-compact] .qopt { flex:0 0 auto; max-width:calc(100% - 24px); grid-template-columns:minmax(0,1fr) 30px; }
+  .qcard[data-compact] .qopt .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .qcard[data-compact] .tag { display:none; }
+  .qcard[data-compact] .qhint { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  /* A short keyboard viewport needs the input and its 44px actions on one row
+     as well, leaving a strip of the latest reply above the answer chips. */
+  .workspace[data-question-compact] .display-foot { display:none; }
+  .workspace[data-question-compact] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
+  .workspace[data-question-compact] textarea { height:44px; min-height:44px; }
+  .workspace[data-question-compact] .composer-actions { gap:6px; }
+  .workspace[data-question-compact] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .workspace[data-question-compact] .conversation { row-gap:4px;
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 12px); }
+  .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
 }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
@@ -80,29 +100,59 @@ export class QuestionCard {
       const button = event.target.closest('.qopt');
       if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true' && this.answers.has(button)) send(this.answers.get(button));
     });
+    this.view = root.ownerDocument.defaultView;
+    this.scheduleReserve = () => {
+      if (this.frame != null) return;
+      this.frame = this.view.requestAnimationFrame(() => { this.frame = null; this.reserve(); });
+    };
     this.connect();
   }
   connect() {
     const Resize = this.root.ownerDocument.defaultView?.ResizeObserver;
     if (Resize) {
-      this.observer ??= new Resize(() => this.reserve());
+      this.observer ??= new Resize(this.scheduleReserve);
       this.observer.observe(this.card); this.observer.observe(this.root.querySelector('.transcript-shell'));
     }
+    this.view?.addEventListener('resize', this.scheduleReserve);
+    this.view?.visualViewport?.addEventListener('resize', this.scheduleReserve);
   }
   reserve() {
     if (this.root.querySelector('.conversation').hidden) return;
+    const shell = this.root.querySelector('.transcript-shell');
     // Add back the existing reservation to measure the unobstructed scrollport.
     // Preserve 128px for the latest reply, its fade and the Latest control.
-    const available = this.root.querySelector('.transcript-shell').getBoundingClientRect().height + (this.height ?? 0);
-    if (available > 0) this.card.style.setProperty('--question-card-limit', `${Math.max(0, available - 128)}px`);
-    // While reading, retain space through a shorter replacement or closure so
-    // the scroll range cannot clamp the reading position. Release on following.
+    const available = shell.getBoundingClientRect().height + (this.height ?? 0);
+    const limit = Math.max(0, available - 128);
+    if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
+    const phone = this.view?.matchMedia('(max-width:600px)').matches;
+    this.card.removeAttribute('data-compact');
+    let compact = false;
+    if (phone && !this.card.hidden) {
+      const style = this.view.getComputedStyle(this.card);
+      const rows = [...this.card.querySelectorAll('.qopt')];
+      const floor = Math.max(66, ...rows.map(row => row.getBoundingClientRect().height + 22));
+      this.card.style.setProperty('--question-options-floor', `${floor}px`);
+      const minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
+        + this.card.querySelector('.qhint').getBoundingClientRect().height
+        + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2 * parseFloat(style.rowGap) + 2;
+      const viewport = this.view.visualViewport?.height ?? this.view.innerHeight;
+      compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
+    }
+    this.card.toggleAttribute('data-compact', compact);
+    this.root.querySelector('.workspace')?.toggleAttribute('data-question-compact', compact);
     const measured = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
-    const height = this.followsTranscript() ? measured : Math.max(this.height ?? 0, measured);
+    const previous = this.height ?? 0, scrollTop = shell.scrollTop;
+    // Releasing space enlarges the scrollport. At the bottom that would clamp
+    // scrollTop and move every visible line. Wait until enough content remains
+    // below the reading position, then release without following the new end.
+    this.held = measured < previous && (!this.followsTranscript() || this.held);
+    const release = this.held && scrollTop <= Math.max(0, shell.scrollHeight - shell.clientHeight - (previous - measured));
+    const height = this.held && !release ? previous : measured;
     if (this.height === height) return;
     this.height = height;
     this.root.querySelector('.conversation').style.setProperty('--question-card-height', `${height}px`);
-    this.onResize?.();
+    if (release) { this.held = false; shell.scrollTop = scrollTop; }
+    else this.onResize?.();
   }
   update(question, copy, unavailable, sending = false) {
     const focused = this.card.contains(this.root.activeElement);
@@ -135,5 +185,11 @@ export class QuestionCard {
     });
     this.reserve();
   }
-  destroy() { this.observer?.disconnect(); }
+  destroy() {
+    this.observer?.disconnect();
+    this.view?.removeEventListener('resize', this.scheduleReserve);
+    this.view?.visualViewport?.removeEventListener('resize', this.scheduleReserve);
+    if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
 }

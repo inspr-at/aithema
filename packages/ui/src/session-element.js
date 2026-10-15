@@ -430,10 +430,8 @@ export class AithemaSession extends HTMLElement {
     const shell = root.querySelector('.transcript-shell');
     shell.addEventListener('scroll', () => {
       this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
-      if (this.#follow) {
-        this.#questionCard.reserve();
-        root.querySelector('.transcript-latest').style.visibility = 'hidden';
-      }
+      this.#questionCard.scheduleReserve();
+      if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => {

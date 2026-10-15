@@ -170,9 +170,12 @@ test('AIT-225: the options scroll region has a translated accessible name and re
   }
 });
 
-test('AIT-225: closing while reading retains the transcript reservation until following resumes', () => {
+test('AIT-225: a held reservation releases only when the scroll position cannot clamp, without following the new end', () => {
   const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}<textarea></textarea>`;
+  const shell = root.querySelector('.transcript-shell');
+  Object.defineProperties(shell, { scrollHeight: { value: 1500 }, clientHeight: { value: 300 } });
+  shell.scrollTop = 1200;
   let following = true, resizes = 0;
   const card = new QuestionCard({ root, send() {}, followsTranscript: () => following, onResize: () => resizes++ });
   card.card.getBoundingClientRect = () => ({ height: 290 });
@@ -184,7 +187,31 @@ test('AIT-225: closing while reading retains the transcript reservation until fo
   card.update(null, en, false);
   assert.equal(reserved(), '290px', 'closing a question must not clamp a reading scroll position');
   following = true; card.reserve();
-  assert.equal(reserved(), '0px');
-  card.reserve(); assert.equal(resizes, 2, 'idempotent reservation must not cause another scroll');
+  assert.equal(reserved(), '290px', 'following at the old bottom must not release and clamp visible text');
+  shell.scrollTop = 500; following = false; card.reserve();
+  assert.equal(reserved(), '0px'); assert.equal(shell.scrollTop, 500, 'release preserves the reading position');
+  card.reserve(); assert.equal(resizes, 1, 'release must not call the follow callback or cause another scroll');
   card.destroy();
+});
+
+test('AIT-225: scroll and visual viewport resize reservations coalesce into one animation frame and disconnect cleanly', t => {
+  const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}`;
+  const descriptor = Object.getOwnPropertyDescriptor(window, 'visualViewport'), viewport = new window.EventTarget();
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+  t.after(() => { if (descriptor) Object.defineProperty(window, 'visualViewport', descriptor); else delete window.visualViewport; });
+  const frames = [], cancelled = [];
+  t.mock.method(window, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  t.mock.method(window, 'cancelAnimationFrame', id => cancelled.push(id));
+  const card = new QuestionCard({ root, send() {} });
+  let calls = 0; t.mock.method(card, 'reserve', () => calls++);
+  card.scheduleReserve(); card.scheduleReserve(); viewport.dispatchEvent(new window.Event('resize'));
+  window.dispatchEvent(new window.Event('resize'));
+  assert.equal(frames.length, 1); assert.equal(calls, 0, 'events do no synchronous layout work');
+  frames[0](); assert.equal(calls, 1);
+  viewport.dispatchEvent(new window.Event('resize'));
+  assert.equal(frames.length, 2, 'a later visual viewport resize schedules fresh geometry');
+  card.destroy(); assert.deepEqual(cancelled, [2]);
+  viewport.dispatchEvent(new window.Event('resize')); window.dispatchEvent(new window.Event('resize'));
+  assert.equal(frames.length, 2, 'disconnect removes both resize listeners');
 });
