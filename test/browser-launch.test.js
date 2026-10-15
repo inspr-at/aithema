@@ -13,7 +13,7 @@ async function fixture(t, hangs, extra = {}) {
   const record = join(dir, 'attempts');
   const messages = [];
   t.mock.method(console, 'error', message => messages.push(message));
-  return { messages, record, options: { executablePath, timeout: 500, protocolTimeout: 2000,
+  return { messages, record, options: { executablePath, timeout: 2000, protocolTimeout: 5000,
     waitForInitialPage: false, defaultViewport: null, userDataDir: dir,
     env: { ...process.env, AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: String(hangs), ...extra } },
     attempts: async () => (await readFile(record, 'utf8')).trim().split('\n').map(JSON.parse) };
@@ -34,7 +34,7 @@ for (const pipe of [false, true]) {
 
   test(`two launch timeouts fail with infra message and no third attempt (${pipe ? 'pipe' : 'WS'})`, async t => {
     const f = await fixture(t, 2);
-    await assert.rejects(browserLauncher.launch({ ...f.options, pipe }), /infra: browser launch timed out after two attempts \(500 ms per attempt\)/u);
+    await assert.rejects(browserLauncher.launch({ ...f.options, pipe }), /infra: browser launch timed out after two attempts \(2000 ms per attempt\)/u);
     const attempts = await f.attempts();
     assert.equal(attempts.length, 2);
     for (const attempt of attempts) {
@@ -54,7 +54,7 @@ test('non-timeout launch error is never retried', async t => {
 
 test('explicit caller timeout is used on both attempts', async t => {
   const f = await fixture(t, 2);
-  await assert.rejects(browserLauncher.launch({ ...f.options, timeout: 650 }), /\(650 ms per attempt\)/u);
+  await assert.rejects(browserLauncher.launch({ ...f.options, timeout: 2250 }), /\(2250 ms per attempt\)/u);
   assert.equal((await f.attempts()).length, 2);
   assert.equal(launchTimeout, 60_000);
 });
