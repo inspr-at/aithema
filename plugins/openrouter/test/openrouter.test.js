@@ -119,7 +119,7 @@ test('structured output uses strict JSON Schema and requires parameter-capable r
   assert.deepEqual(sent.reasoning, { enabled: false });
 });
 
-test('START bindings send lane-specific routing and reserve the configured reply/analysis token ceilings', async () => {
+test('START bindings exclude Azure for analysis without PROVIDER_ONLY and reserve lane-specific token ceilings', async () => {
   const prices = { 'openai/fixture': { prompt: 0.000001, completion: 0.000002 },
     'anthropic/fixture': { prompt: 0.000003, completion: 0.000004 },
     '~anthropic/claude-opus-latest': { prompt: 0.000001, completion: 0.000002 },
@@ -400,29 +400,44 @@ test('AIT-181 round2 provider schema removes nonportable constraints recursively
   assert.deepEqual(input.schema, original);
 });
 
-for (const status of [400, 401, 403, 404, 408, 409, 413, 422, 429, 499]) test(`AIT-181 round2 unknown constrained HTTP ${status} retries prompt-only with fresh admission`, async () => {
+for (const status of [400, 401, 402, 403, 404, 408, 409, 413, 422, 429, 499]) test(`AIT-198 non-compatibility HTTP ${status} has no prompt-only retry`, async () => {
   const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
   const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
   const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
-  const bodies = [], reports = [], claims = [], diagnostics = [];
+  const bodies = [], reports = [], diagnostics = [];
   const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
     fetchImpl: async (_, init) => {
       bodies.push(JSON.parse(init.body));
-      if (bodies.length === 1) return status === 400 ? new Response('Private unrecognized non-JSON refusal', { status })
-        : Response.json({ error: { message: 'Private unrecognized provider refusal' }, usage: { cost: 0 } }, { status });
+      // Even a schema-shaped message cannot make auth, payment or rate-limit errors compatible.
+      const message = [401, 402, 429].includes(status) ? 'response_format json_schema is unsupported' : 'Private unrecognized provider refusal';
+      return status === 400 ? new Response('Private unrecognized non-JSON refusal', { status })
+        : Response.json({ error: { message }, usage: { cost: 0 } }, { status });
+    } });
+  await assert.rejects(collectPurposeReply(input, request => plugin.stream(request, options({ report: report => reports.push(report) })),
+    { onDiagnostic: event => diagnostics.push(event) }), error =>
+    error.code === ([401, 403].includes(status) ? 'auth' : status === 429 ? 'rate-limit' : 'provider') && !error.responseFormatUnsupported);
+  assert.equal(bodies.length, 1); assert.ok(bodies[0].response_format);
+  assert.equal(reports.length, 1); assert.deepEqual(diagnostics, []);
+});
+
+for (const status of [400, 422]) test(`AIT-198 schema rejection HTTP ${status} permits exactly one fresh prompt-only retry`, async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  const bodies = [], reports = [], claims = [];
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      bodies.push(JSON.parse(init.body));
+      if (bodies.length === 1) return Response.json({ error: { message: 'Invalid schema for response_format: unsupported keyword' } }, { status });
       return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ content: 'Safe model reply', scope: 'in', question_short: null, options: [] }) }, finish_reason: 'stop' }], usage: { cost: 0 } }) + '\n\ndata: [DONE]\n\n');
     } });
   const reply = await collectPurposeReply(input, request => {
     const opts = options({ report: report => reports.push(report) }); claims.push(opts.attempt.attemptId);
     return plugin.stream(request, opts);
-  }, { onDiagnostic: event => diagnostics.push(event) });
+  });
   assert.equal(reply.content, 'Safe model reply'); assert.equal(bodies.length, 2);
   assert.ok(bodies[0].response_format); assert.equal(Object.hasOwn(bodies[1], 'response_format'), false);
   assert.equal(new Set(claims).size, 2); assert.equal(reports.length, 2);
-  assert.deepEqual(diagnostics, [{ kind: 'schema-retry', reason: 'provider-4xx', attemptCount: 1 }]);
-  assert.deepEqual(reply.fallback, { kind: 'prompt-only-retry', reason: 'provider-4xx', attemptCount: 2 });
-  assert.doesNotMatch(JSON.stringify(reply), /fallback|attemptCount/u);
-  assert.doesNotMatch(JSON.stringify(diagnostics), /Private/u);
 });
 
 for (const failure of ['500', '503', 'network']) test(`AIT-181 round2 ${failure} retains the existing provider error path`, async () => {

@@ -3126,3 +3126,22 @@ for (const dryRun of [true, false]) test(`AIT-163 fix1: limited voice repairs ro
     assert.equal(Object.hasOwn(event, 'callId'), false); assert.equal(Object.hasOwn(event, 'providerSessionId'), false);
   }
 });
+
+
+test('AIT-198 voice Resume wakes understanding that could not dispatch during the pause', async t => {
+  const h = voiceFixture(t), grant = await h.start(), identity = { providerSessionId: grant.providerSessionId };
+  const entered = Promise.withResolvers(), gate = Promise.withResolvers(); t.after(gate.resolve);
+  h.handlers.lanes.beforeDispatch = async () => { entered.resolve(); await gate.promise; return true; };
+  assert.equal((await h.route(`/voice/${grant.callId}/events`, { ...identity,
+    event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:project`, role: 'user', text: 'systems: API' } })).status, 200);
+  await entered.promise;
+  assert.equal((await h.route(`/voice/${grant.callId}/pause`, identity)).status, 200);
+  gate.resolve(); await h.handlers.idle();
+  assert.equal(h.storage.get(h.session.id).understanding.inputRevision, null);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='understanding'").get().n, 0,
+    'paused admission never dispatches or charges an analysis');
+  assert.equal((await h.route(`/voice/${grant.callId}/resume`, identity)).status, 200);
+  await h.handlers.idle();
+  assert.ok(h.storage.get(h.session.id).understanding.constraints.systems);
+  assert.equal(h.storage.get(h.session.id).understanding.inputRevision, inputRevision(h.storage.get(h.session.id)));
+});

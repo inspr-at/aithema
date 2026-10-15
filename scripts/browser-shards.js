@@ -17,8 +17,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // latest observations below include AIT-190's expanded pause matrix.
 // Headless-shell PR benchmarks: 38773142800-1 and 38773893654-1.
 // Not on this base yet: AIT-197 consent-lines = 76.396s (38774634960-1),
-// planning weight 90s; AIT-198 understanding-failure = 32.829s (38770896962-1),
-// planning weight 50s. Reserve both entries below; discovery enables them
+// planning weight 90s; now merged AIT-198 understanding-failure = 32.829s (38770896962-1),
+// planning weight 50s. Keep both entries below; discovery enables them
 // automatically when their source files merge (no placeholder test files).
 // Sum top-level test durations only; nested subtests are already included.
 // Estimates exclude setup, file-process overhead and evidence upload. The final

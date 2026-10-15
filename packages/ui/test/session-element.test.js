@@ -21,6 +21,14 @@ function setup() {
 }
 function turn(component, id, content) { component.receive({ seq: component.session.seq + 1, type: 'turn.final',
   data: { id, role: 'user', content } }); }
+function reply(component, id) { component.receive({ seq: component.session.seq + 1, type: 'turn.final',
+  data: { id, role: 'assistant', content: 'Reply', inputRevision: inputRevision(component.session) } }); }
+function assertInlineRetry(component, message) {
+  const root = component.shadowRoot;
+  assert.equal(root.querySelector('.retry').hidden, true, message);
+  assert.equal(root.querySelector('.overview-retry').hidden, false, message);
+  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed} · ${en.understandingRetry}`, message);
+}
 function understanding(component, draft = false) {
   const session = component.session;
   const raw = { summary: '<script>untrusted</script>', signals: ['Known'], openQuestions: ['Deadline?', 'Budget?'],
@@ -35,7 +43,7 @@ test('host copy, multiline composer, safe transcript bubbles, export and respons
   assert.match(root.querySelector('style').textContent, /min-width:60rem/); assert.match(root.querySelector('style').textContent, /--aithema-accent/);
 });
 test('readiness/aside uses draft truth, five missing rows plus overflow and preserved clarified expansion', () => {
-  const c = setup(), root = c.shadowRoot; turn(c, 't1', 'SAP');
+  const c = setup(), root = c.shadowRoot; turn(c, 't1', 'SAP'); reply(c, 'a1');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c, true) });
   assert.equal(root.querySelector('.notice').textContent, en.draft); assert.equal(root.querySelector('.scale').getAttribute('aria-valuenow'), '47');
   assert.equal(root.querySelectorAll('.missing li').length, 5); assert.match(root.querySelector('.overflow').textContent, /1 more/);
@@ -45,7 +53,7 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   assert.equal(root.querySelector('.summary-text script'), null); assert.equal(root.querySelector('.notice').textContent, en.final);
   root.querySelector('.expand').click(); assert.equal(details.open, false);
   root.querySelector('.expand').click(); assert.equal(details.open, true);
-  turn(c, 't2', 'More'); assert.equal(root.querySelector('.notice').textContent, en.stale);
+  turn(c, 't2', 'More'); reply(c, 'a2'); assert.equal(root.querySelector('.notice').textContent, en.stale);
 });
 test('automatic aside and transcript changes render at once under the pointer; rows update in place and append below', () => {
   const c = setup(), root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
@@ -174,14 +182,14 @@ test('late acknowledgements and events from a previous conversation cannot alter
     assert.equal(c.session.id, next.id); assert.equal(c.session.transcript.length, 0);
   } finally { globalThis.fetch = originalFetch; }
 });
-test('fresh configure after lane failure exposes Retry for unfinished understanding or a missing reply', () => {
+test('fresh configure after lane failure exposes inline Retry for unfinished understanding or a stuck missing reply', () => {
   const c = setup(); turn(c, 'first', 'First');
   c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
   c.configure({ copy: en, session: c.session });
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+  assertInlineRetry(c);
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   c.configure({ copy: en, session: c.session });
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false, 'the latest person turn still has no reply');
+  assertInlineRetry(c, 'the latest person turn still has no reply, so Tick requires the inline stuck-state action');
   const session = c.session;
   session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
   c.configure({ copy: en, session });
@@ -226,11 +234,13 @@ test('AIT-109 N2: Retry stays hidden while anonymous understanding is deferred',
     assert.equal(c.shadowRoot.querySelector('.retry').hidden, true, 'waiting for the turn threshold is not a failure');
   }
   turn(c, 'person-3', 'Third message');
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false, 'assessment can now be retried');
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
+  assertInlineRetry(c, 'missing reply is a stuck state with inline retry');
   const identified = setup(), identifiedSession = identified.session;
   identifiedSession.demo = false; identifiedSession.identified = true;
   identified.configure({ copy: en, session: identifiedSession }); turn(identified, 'identified', 'First');
-  assert.equal(identified.shadowRoot.querySelector('.retry').hidden, false, 'identified people bypass the threshold');
+  identified.receive({ type: 'lane.status', data: { inputRevision: inputRevision(identified.session), running: [], lastFailure: null } });
+  assertInlineRetry(identified, 'identified people bypass the threshold; missing reply uses inline retry');
 });
 
 test('AIT-109 N3: failed snapshot recovery waits one second before reconnecting', async t => {
@@ -383,7 +393,8 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
 test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
   const c = setup(); turn(c, 'first', 'Hello');
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
+  assertInlineRetry(c);
   const session = c.session;
   session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
   c.configure({ copy: en, session });
@@ -907,7 +918,7 @@ test('screen readers get the AI notice once, as the last description of every co
 for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpose pause only presents in composer and preserves overview`, () => {
   const c = setup(), session = c.session; session.locale = copy.display.locale;
   c.configure({ copy, session });
-  turn(c, 'purpose-project', 'systems: SAP');
+  turn(c, 'purpose-project', 'systems: SAP'); reply(c, 'purpose-reply');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const root = c.shadowRoot, notice = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
   const startCell = root.querySelector('.voice-start').parentNode;
@@ -924,4 +935,102 @@ for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpos
   assert.doesNotMatch(root.querySelector('.status__label').textContent, /pausiert|paused/iu);
   assert.equal(root.querySelector('.notice').textContent, notice);
   assert.equal(root.querySelector('.summary-text').textContent, summary);
+});
+
+test('AIT-198 inline overview Retry keeps its node and keyboard focus across live renders', async t => {
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => new Response(new ReadableStream({ start(controller) {
+    options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } })));
+  const c = setup(), root = c.shadowRoot; document.body.append(c); t.after(() => c.remove());
+  turn(c, 'focus-person', 'First project detail');
+  c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
+  const retry = root.querySelector('.overview-retry'); retry.focus();
+  assert.equal(root.activeElement, retry);
+  c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
+  assert.ok(root.querySelector('.overview-retry') === retry, 'live render keeps the inline button');
+  assert.ok(root.activeElement === retry, 'keyboard focus survives');
+  assert.equal(root.querySelector('.retry').hidden, true);
+});
+
+for (const copy of [de, en]) test(`AIT-198 ${copy === de ? 'DE' : 'EN'} missing reply with idle operations and no failure is a stuck overview`, () => {
+  const c = setup(); turn(c, 'stuck-person', 'First project detail');
+  const session = c.session;
+  session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
+  c.configure({ copy, session });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed} · ${copy.understandingRetry}`);
+  assert.equal(root.querySelectorAll('.notice .overview-retry').length, 1);
+  assert.equal(root.querySelector('.overview-retry').disabled, false);
+  assert.equal(root.querySelector('.retry').hidden, true, 'never a bare footer retry next to the placeholder');
+});
+
+
+function assertNoFailedOverview(c, message) {
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.overview-retry').hidden, true, message);
+  assert.doesNotMatch(root.querySelector('.notice').textContent, /couldn't be built|konnte gerade nicht erstellt/iu, message);
+  assert.equal(root.querySelector('.retry').hidden, true, message);
+}
+
+test('AIT-198 typed turn waits for current lane.status without flashing a stuck overview', () => {
+  const c = setup();
+  turn(c, 'typed-person', 'First detail');
+  const revision = inputRevision(c.session);
+  assertNoFailedOverview(c, 'turn.final precedes lane.status');
+  c.receive({ type: 'lane.status', data: { inputRevision: 'obsolete', running: [], lastFailure: null } });
+  assertNoFailedOverview(c, 'obsolete status cannot settle this revision');
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: ['reaction'], lastFailure: null } });
+  assertNoFailedOverview(c, 'reaction now owns the reply');
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  assertInlineRetry(c, 'confirmed idle still exposes a genuinely stuck reply');
+});
+
+for (const source of ['live call', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${source}: no failed overview from person final through assistant final`, () => {
+  const c = setup(), session = c.session;
+  if (source === 'live call') session.voiceLifecycle = { callId: 'voice-call', providerSessionId: 'voice-provider', epoch: 1, state: 'active' };
+  c.configure({ copy: en, session });
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Voice detail',
+    ...(source === 'facade pending' ? { voiceCallId: 'voice-call', voiceProviderId: 'voice-provider' } :
+      source === 'spoken facade pending' ? { callId: 'voice-call', providerSessionId: 'voice-provider' } : {}) } });
+  const revision = inputRevision(c.session);
+  assertNoFailedOverview(c, 'person final');
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  assertNoFailedOverview(c, 'the facade needs no reaction lane');
+  c.receive({ type: 'turn.partial', data: { id: 'voice-reply', inputRevision: revision, delta: 'Reply' } });
+  assertNoFailedOverview(c, 'assistant partial');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  reply(c, 'voice-reply');
+  assertNoFailedOverview(c, 'assistant final');
+});
+
+for (const recovering of [false, true]) test(`AIT-198 ${recovering ? 'recovering' : 'deferred'} analysis never shows a stuck overview`, async t => {
+  const c = setup(), retryStarted = Promise.withResolvers(), retryDone = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    if (url.endsWith('/retry')) { retryStarted.resolve(); await retryDone.promise; return Response.json({ accepted: true }); }
+    return Response.json(c.session);
+  });
+  document.body.append(c); t.after(() => { retryDone.resolve(); c.remove(); });
+  turn(c, 'deferred-person', 'First detail');
+  const revision = inputRevision(c.session);
+  c.receive({ type: 'lane.failed', data: { inputRevision: revision, lane: 'understanding', reason: 'budget reconciling' } });
+  c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  if (recovering) {
+    c.receive({ seq: c.session.seq + 1, type: 'identity.unlocked', data: {} });
+    await retryStarted.promise;
+    c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], lastFailure: null } });
+  }
+  assertNoFailedOverview(c, recovering ? 'retry request is in flight' : 'analysis is deferred');
+  retryDone.resolve();
+});
+
+
+test('AIT-198 an ended facade call can expose a genuinely stuck missing reply', () => {
+  const c = setup();
+  c.receive({ seq: 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Detail', voiceCallId: 'call' } });
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
+  assertNoFailedOverview(c, 'accepted facade input is still pending');
+  c.receive({ type: 'voice.state', data: { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'ended' } });
+  assertInlineRetry(c, 'authoritative call end releases the pending facade reply');
 });

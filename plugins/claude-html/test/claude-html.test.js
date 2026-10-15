@@ -145,7 +145,7 @@ test('concurrent calls cannot overcommit; a reservation left by a crash stays co
   writeFileSync(g.spendPath, JSON.stringify({ version: 1, spentMicro: 0, reservations: { crashed: 1_000_000 } }));
   await assert.rejects(g.plugin.generate(spec, '', options()), { code: 'limit' }); assert.equal(g.requests.length, 0);
 });
-test('unknown cost and dispatched HTTP refusals keep the full computed ceiling', async t => {
+test('unknown cost and 5xx keep the full ceiling; 4xx without usage release at zero', async t => {
   const f = await fake(t, { maxMicro: 700_000 });
   f.respond((_req, res) => res.end(completion(dummy, { prompt_tokens: 5, completion_tokens: 6 })));
   const completed = options();
@@ -156,8 +156,10 @@ test('unknown cost and dispatched HTTP refusals keep the full computed ceiling',
     const before = f.plugin.spend.snapshot().uncertainMicro;
     f.respond((_req, res) => { res.writeHead(status); res.end('private-provider-detail'); });
     const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), error => error.code === code && error.message === code);
-    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
-    assert.equal(f.plugin.spend.snapshot().uncertainMicro - before, f.ceiling(), String(status)); assert.deepEqual(f.spent().reservations, {});
+    if (status >= 500) assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
+    assert.equal(f.plugin.spend.snapshot().uncertainMicro - before, status < 500 ? 0 : f.ceiling(), String(status)); assert.deepEqual(f.spent().reservations, {});
+    if (status < 500) assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'cancelled',
+      usage: { inputTokens: 0, outputTokens: 0 }, chargedMicro: 0 }]);
   }
   assert.equal(costMicro(0.1), 100_000); assert.equal(costMicro(0.0000001), 1); assert.equal(costMicro(-1), null); assert.equal(costMicro('1'), null);
   assert.equal(costMicro(1e-12), 1); assert.equal(costMicro(Number.MAX_VALUE), null);

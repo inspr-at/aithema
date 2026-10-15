@@ -143,7 +143,8 @@ capped by `OPENROUTER_MAX_TOKENS` (default `1200`), while understanding uses
 ceilings truncated real assessments. Every request requires parameter-capable
 upstreams. `OPENROUTER_PROVIDER_ONLY` is the optional comma-separated upstream
 allow-list and must mirror START exactly as part of the legal profile.
-`OPENROUTER_ANALYSIS_PROVIDER_IGNORE` defaults to `Azure` for understanding only.
+`OPENROUTER_ANALYSIS_PROVIDER_IGNORE` defaults to `Azure` for understanding/analysis
+and HTML; its START workspace rejects `response_format` despite advertised support.
 `MISTRAL_MODEL` selects the Mistral model. Live OpenRouter uses the START host
 qualification below and still requires current consent; Mistral remains
 unverified until a host supplies private qualification and current consent.
