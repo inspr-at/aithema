@@ -179,3 +179,27 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
     const values = { ...view, shiftPx: 0 }; await evidence('F5', page, label, values); t.diagnostic(`PASS F5 ${label}: ${JSON.stringify(values)}`);
   }
 });
+
+// F8 investigation: safeguards.test.js:26 ends its stub SSE response. The live
+// handlers.js events() stream stays open, so pause must keep its Connected status.
+test('AIT-186 F8: purpose pause keeps Connected with the real open event stream', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await voiceScene(page, locale, theme, width);
+    const before = await boxes(page, [...railBoxes, '.display-foot', '.status']);
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } }));
+    await settle();
+    const view = await shadow(page, c => {
+      const root = c.shadowRoot;
+      return { footer: root.querySelector('.status__label').textContent, connected: root.querySelector('.status').hasAttribute('data-connected'),
+        paused: c.session.paused, reason: c.session.pauseReason, composer: root.querySelector('.purpose-pause-copy').textContent,
+        railText: root.querySelector('.voice-state').textContent };
+    });
+    const label = `${locale}-${theme}-${width}-purpose-pause-live-stream`;
+    assert.equal(view.footer, locale === 'de' ? 'Verbunden' : 'Connected'); assert.equal(view.connected, true);
+    assert.equal(view.paused, true); assert.equal(view.reason, 'purpose'); assert.equal(view.railText, '');
+    assert.deepEqual(await boxes(page, [...railBoxes, '.display-foot', '.status']), before, `${label}: 0 px shift`);
+    const values = { ...view, shiftPx: 0, cause: 'finite SSE fixture at test/browser/safeguards.test.js:26; no production fix' };
+    await evidence('F8', page, label, values); t.diagnostic(`PASS F8 ${label}: ${JSON.stringify(values)}`);
+  }
+});
