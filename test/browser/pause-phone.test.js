@@ -345,7 +345,8 @@ test('AIT-188 notice option a: last scroll item follows and preserves scrolled-u
       c.configure({ copy: globalThis.pauseCopy, session });
     });
     await page.mouse.move(0, 0); await frame(page);
-    for (const following of [true, false]) {
+    for (const position of ['following', 'scrolled-up', 'near-bottom']) {
+      const following = position === 'following';
       await shadow(page, (c, following) => { const s = c.shadowRoot.querySelector('.transcript-shell'); s.scrollTop = following ? s.scrollHeight : 400; s.dispatchEvent(new Event('scroll')); }, following);
       if (following) { const box = await boxes(page, ['.transcript-shell']); await page.mouse.move(box[0][0] + 60, box[0][1] + box[0][3] - 60); }
       await frame(page); const before = await noticeMetrics(page);
@@ -356,11 +357,16 @@ test('AIT-188 notice option a: last scroll item follows and preserves scrolled-u
         for (const b of [shown.notice, ...shown.controls]) assert.ok(b.top >= shown.viewport.top && b.bottom <= shown.viewport.bottom && b.bottom <= shown.dockTop - 12, `fully visible notice/controls ${JSON.stringify(shown)}`);
         for (const b of shown.controls) assert.ok(b.height >= 44);
       } else { assert.deepEqual(shown.first, before.first, 'notice appears: first bubble shift 0px'); assert.equal(shown.badge, before.badge, 'notice adds no badge'); }
-      await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${following ? 'following' : 'scrolled-up'}`, { ...shown, firstBubbleShift: following ? null : shown.first.top - before.first.top });
+      await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${position}`, { ...shown, firstBubbleShift: following ? null : shown.first.top - before.first.top });
+      let beforeClear = shown;
+      if (position === 'near-bottom') {
+        await shadow(page, c => { const s = c.shadowRoot.querySelector('.transcript-shell'); s.scrollTop = s.scrollHeight - s.clientHeight - 20; s.dispatchEvent(new Event('scroll')); });
+        await frame(page); beforeClear = await noticeMetrics(page);
+      }
       await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page); const cleared = await noticeMetrics(page);
-      if (!following) assert.deepEqual(cleared.first, before.first, 'notice removed: first bubble shift 0px');
+      if (!following) assert.deepEqual(cleared.first, beforeClear.first, 'notice removed: first bubble shift 0px');
       else assert.equal(cleared.scrollTop, cleared.maxScroll, 'removed last item settles at bottom');
-      await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${following ? 'following' : 'scrolled-up'}-removed`, { ...cleared, firstBubbleShift: following ? null : cleared.first.top - before.first.top });
+      await record(t, 'r2-notice', page, `${locale}-${theme}-${width}-${position}-removed`, { ...cleared, firstBubbleShift: following ? null : cleared.first.top - beforeClear.first.top });
     }
   }
 });
