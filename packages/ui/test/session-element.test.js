@@ -950,4 +950,8 @@ for (const copy of [de, en]) for (const reason of ['not configured', 'budget den
   assert.equal(root.querySelector('.notice').textContent, reason === 'current processing consent required'
     ? `${copy.featureConsent.analysis} · ${copy.featureConsent.action}` : copy.reasons[reason]);
   assert.equal(root.querySelector('.notice button') !== null, reason === 'current processing consent required');
+  assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), reason !== 'current processing consent required', 'the consent action stays interactive');
+  assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
+  assert.equal(root.querySelector('.retry').hidden, true);
 });
