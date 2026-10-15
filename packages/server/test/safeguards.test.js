@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createFacadeSecrets } from '../src/index.js';
-import { createMockReasoning, reasoningRequest, createSession, PluginRegistry, PluginError } from '@inspr/aithema-core';
+import { createMockReasoning, inputRevision, reasoningRequest, createSession, PluginRegistry, PluginError } from '@inspr/aithema-core';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
@@ -17,7 +17,8 @@ const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessio
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate, voiceCallbacks } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate, voiceCallbacks, consent = mockConsent } = {}) {
+  const assessmentStarted = Promise.withResolvers();
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
     calls.push(request);
@@ -27,8 +28,8 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
       ? 'Dabei kann ich Ihnen hier nicht helfen. Welches Vorhaben möchten Sie mit Augmentoring klären?'
       : 'I cannot help with that here. What would you like to clarify with Augmentoring?');
     for (let i = 0; i < text.length; i += 7) yield text.slice(i, i + 7);
-  }, async structured(...args) { assessments.push(args[0]); const result = await mock.structured(...args); if (analysisGate) await analysisGate; return result; } };
-  let runtime = instrumentedMockRuntime(storage, plugin);
+  }, async structured(...args) { assessments.push(args[0]); assessmentStarted.resolve(); const result = await mock.structured(...args); if (analysisGate) await analysisGate; return result; } };
+  let runtime = instrumentedMockRuntime(storage, plugin, consent);
   if (uploads || voice) {
     const registry = new PluginRegistry().register(mock), presets = mockPresets(); registerDemoExtractors(registry, presets);
     if (voice) { registry.register(createLocalVoiceProvider({ storage })); presets.best.plugins.push('fake-voice'); presets.best.bindings.voice = localVoiceBinding; }
@@ -41,7 +42,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
   const send = async (content, clientEventId = crypto.randomUUID()) => {
     const response = await handlers.handle(req(session.id, 'turns', { content, clientEventId })); await handlers.idle(); return response;
   };
-  return { storage, handlers, session, calls, assessments, send, plugin };
+  return { storage, handlers, session, calls, assessments, send, plugin, assessmentStarted: assessmentStarted.promise };
 }
 function framed(request, locale = 'en') {
   assert.ok(request.system.includes(purposePolicy.purpose[locale]));
@@ -492,4 +493,32 @@ test('AIT-188 gate1 voice: off-topic completion wakes retained overview without 
   assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, true);
   assert.equal(f.assessments.length, 1, 'scope wake starts no replacement assessment');
   assert.doesNotMatch(f.storage.get(f.session.id).understanding.summary, /soup/iu);
+});
+
+for (const project of [false, true]) test(`AIT-197 R3: consent in purpose pause recovers ${project ? 'earlier in-scope input once' : 'no off-topic analysis'}`, { timeout: 5000 }, async t => {
+  const gate = Promise.withResolvers(); t.after(gate.resolve);
+  const f = fixture(t, { analysisGate: gate.promise, consent: { ...mockConsent, grant: () => true } });
+  const id = f.session.id;
+  for (const [index, content] of [...(project ? ['We need a website.'] : []), ...Array(3).fill('Give me a soup recipe.')].entries()) {
+    f.storage.postTurn(id, `r3-${index}`, Buffer.from(content), content);
+    const revision = inputRevision(f.storage.get(id));
+    f.storage.appendPurposeReply(id, { id: `reply-${index}`, role: 'assistant', content: 'What should the project improve?', inputRevision: revision }, revision, !project || index > 0, 3);
+  }
+  assert.equal(f.storage.get(id).pauseReason, 'purpose');
+  assert.equal((await f.handlers.handle(req(id, 'consent', { granted: true }))).status, 200);
+  if (project) {
+    await f.assessmentStarted;
+    const snapshot = await f.handlers.handle(req(id)).then(r => r.json());
+    assert.deepEqual(snapshot.operations.running, ['understanding']);
+    assert.equal(f.assessments.length, 1); assert.doesNotMatch(JSON.stringify(f.assessments), /soup/);
+  }
+  gate.resolve(); await f.handlers.idle();
+  assert.equal(f.assessments.length, Number(project)); assert.equal(f.calls.length, 0);
+  assert.equal(f.storage.get(id).understanding.readinessAssessed, project);
+  assert.equal(f.storage.get(id).paused, true);
+  if (project) assert.match(f.storage.get(id).understanding.summary, /website/);
+  await f.handlers.handle(req(id, 'retry', {})); await f.handlers.idle();
+  assert.equal(f.assessments.length, Number(project), 'retry after settlement cannot duplicate admission');
+  const updates = f.storage.read(id).filter(event => event.type === 'understanding.updated');
+  assert.equal(updates.length, Number(project));
 });
