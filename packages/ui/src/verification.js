@@ -123,8 +123,12 @@ export class Verification {
     else if (event.type === 'identity.resend-blocked') { this.#ui.message = this.#v.rateLimited; this.#ui.error = true; this.#paint(); }
   }
   connect() { this.#connected = true; this.#schedule(); }
-  disconnect() { this.#connected = false; clearTimeout(this.#poll); this.#poll = null; }
-  destroy() { this.#alive = false; this.#email.destroy(); this.disconnect(); clearInterval(this.#tick); this.#tick = null; if (this.#dialog.open) this.#dialog.close(); }
+  disconnect() {
+    this.#connected = false;
+    clearTimeout(this.#poll); this.#poll = null;
+    clearInterval(this.#tick); this.#tick = null;
+  }
+  destroy() { this.#alive = false; this.#email.destroy(); this.disconnect(); if (this.#dialog.open) this.#dialog.close(); }
   async openDialog(opener = this.#entry.querySelector('button')) {
     if (!this.enabled || !this.canCollect || !this.#email.viewDelivery) return;
     const delivery = this.#email.viewDelivery;
@@ -295,7 +299,9 @@ export class Verification {
   }
   // The cooldown counts down each second; polling asks the host whether the link was confirmed.
   #schedule() {
-    const counting = this.#mode() === 'pending' && this.#cooldown() > 0;
+    // Detached elements retain their identity for reconnect, but own no timers.
+    // In-flight identity replies can call set() after disconnect too.
+    const counting = this.#alive && this.#connected && this.#mode() === 'pending' && this.#cooldown() > 0;
     if (counting && !this.#tick) this.#tick = setInterval(() => { if (!this.#alive) return; this.#paint(); if (this.#cooldown() === 0) { clearInterval(this.#tick); this.#tick = null; } }, 1000);
     if (!counting && this.#tick) { clearInterval(this.#tick); this.#tick = null; }
     clearTimeout(this.#poll); this.#poll = null;

@@ -10,7 +10,8 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 const window = new Window({ url: 'http://localhost/' });
 // Dispose pending DOM tasks after all component assertions, as in session-element.test.js.
-const { dumpHandles } = await import('../../../scripts/unit-handles.js');
+const dumpHandles = process.env.AITHEMA_UNIT_HANDLES === '1'
+  ? (await import('../../../scripts/unit-handles.js')).dumpHandles : () => {};
 test.after(async () => {
   dumpHandles('before happyDOM.close');
   await window.happyDOM.close();
