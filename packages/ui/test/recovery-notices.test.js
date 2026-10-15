@@ -205,10 +205,10 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-190: ${locale} 
   notices.pageReply = reply;
   notices.recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.text, lastReplyTurnId: reply.turnId });
   const actions = host.querySelector('.voice-reply-actions'), button = notices.button;
-  assert.equal(actions.parentElement, root.querySelector('.voice-notice--reply'), 'sentence owns actions while present');
+  assert.equal(actions.parentElement === root.querySelector('.voice-notice--reply'), true, 'sentence owns actions while present');
   notices.clear();
-  assert.equal(actions.parentElement, bubble, 'cleared sentence attaches the same controls directly to its bubble');
-  assert.equal(bubble.lastElementChild, actions);
+  assert.equal(actions.parentElement === bubble, true, 'cleared sentence attaches the same controls directly to its bubble');
+  assert.equal(bubble.lastElementChild === actions, true);
   assert.equal(button.hidden, false);
   notices.playing = true;
   notices.playbackEnded(false);
