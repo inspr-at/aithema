@@ -127,6 +127,24 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
             label: document.querySelector('#language-value').textContent, locale: document.querySelector('#locale').value,
             title: (() => { const r = document.querySelector('.wordmark').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })(), boxes: window.controlBoxes(), session: document.querySelector('aithema-session').session.locale };
         });
+        const spacing = await page.evaluate(() => {
+          const label = document.querySelector('#theme-value'), reserve = label.getBoundingClientRect();
+          const chevron = document.querySelector('.utility-theme .utility-chevron').getBoundingClientRect();
+          const probe = document.createElement('span');
+          probe.style.cssText = `position:absolute;white-space:nowrap;font:${getComputedStyle(label).font}`;
+          document.body.append(probe);
+          const widths = Object.fromEntries(['Dunkel', 'Hell', 'System', 'Light', 'Dark'].map(text => {
+            probe.textContent = text; return [text, probe.getBoundingClientRect().width];
+          }));
+          probe.remove();
+          return { gap: chevron.left - reserve.right, reserve: reserve.width, widths };
+        });
+        assert.ok(spacing.gap >= 0 && spacing.gap <= 8, `theme reserve-to-chevron gap ${spacing.gap}`);
+        const widest = Math.max(...Object.values(spacing.widths));
+        assert.ok(Math.abs(spacing.reserve - widest) <= 0.02, 'reserve is the widest actual label with zero slack');
+        for (const [label, width] of Object.entries(spacing.widths)) assert.ok(width <= spacing.reserve + 0.02, `${label} fits without overflow or truncation`);
+        const spacingPass = `AIT-206 SPACING ${width} ${result.language}: gap=${spacing.gap}px reserve=${spacing.reserve}px labels=${JSON.stringify(spacing.widths)} overflow=none`;
+        passes.push(spacingPass); console.log(spacingPass);
         assert.equal(result.early, undefined);
         assert.equal(result.theme, storedTheme);
         const themeLabels = { de: { light: 'Hell', dark: 'Dunkel', system: 'System' }, en: { light: 'Light', dark: 'Dark', system: 'System' } };
@@ -159,15 +177,24 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
   }
   const browser = await browserForFile();
   try {
+    for (const failure of ['blocked', 'throws']) {
     const page = await browser.newPage();
     await page.setViewport({ width: 390, height: 844 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluateOnNewDocument(() => { localStorage.clear(); localStorage.setItem('aithema-demo-locale', 'en'); });
     await page.setRequestInterception(true);
     page.on('request', request => {
-      if (new URL(request.url()).pathname === '/demo/host.js') void request.abort('failed');
+      if (new URL(request.url()).pathname === '/demo/host.js') {
+        if (failure === 'blocked') void request.abort('failed');
+        else void request.respond({ status: 200, contentType: 'application/javascript', body: 'throw new Error("AIT-206 injected runtime failure");' });
+      }
       else void request.continue();
     });
     await page.goto(demo.url, { waitUntil: 'networkidle0' });
-    for (const selector of ['.utility-language', '.utility-theme', '#language-icon svg', '.utility-language .utility-chevron svg']) {
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-unavailable'));
+    assert.equal(await page.$eval('#language-value', n => n.textContent), 'EN');
+    assert.equal(await page.$eval('#theme-value', n => n.textContent), 'System');
+    for (const selector of ['#language-value', '#theme-value', '.utility-language', '.utility-theme', '#language-icon svg', '.utility-language .utility-chevron svg']) {
       assert.equal(await page.$eval(selector, n => {
         const r = n.getBoundingClientRect(), style = getComputedStyle(n);
         return r.width > 0 && r.height > 0 && style.visibility === 'visible' && style.display !== 'none';
@@ -185,10 +212,17 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
     assert.equal(await page.evaluate(() => localStorage.getItem('aithema-theme')), 'dark');
     await page.select('#theme', 'light');
     assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
-    assert.equal(await page.$eval('#language-value', n => n.textContent), '');
-    const pass = `AIT-206 PASS head=${evidenceCommit} host.js BLOCKED: language/globe/chevron/theme visible; native selects usable; EN preference stored; dark/light applied; label stays blank`;
+    assert.equal(await page.$eval('#language-value', n => n.textContent), 'EN');
+    assert.equal(await page.$eval('#theme-value', n => n.textContent), 'Light');
+    await page.select('#locale', 'de');
+    assert.equal(await page.$eval('#language-value', n => n.textContent), 'DE');
+    assert.equal(await page.$eval('#theme-value', n => n.textContent), 'Hell');
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    if (evidence) await page.screenshot({ path: join(evidence, `host-${failure}-fallback.png`), fullPage: false, captureBeyondViewport: false });
+    const pass = `AIT-206 PASS head=${evidenceCommit} host.js ${failure}: current EN/System visible; native selects usable; preferences stored; dark/light applied; current DE/Hell visible`;
     passes.push(pass); console.log(pass);
     await page.close();
+    }
   } finally { await browser.close(); }
   if (evidence) await writeFile(join(evidence, 'pass-lines.txt'), passes.join('\n') + '\n');
 });

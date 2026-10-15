@@ -22,6 +22,7 @@ function paintPage() {
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
   document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
   paintUtilities(copy);
+  document.documentElement.dataset.hostReady = '';
   const privacyLink = document.querySelector('[data-aithema-privacy]');
   if (privacyLink) paintPrivacyLink(privacyLink, privacyLink.closest('nav'), document.documentElement.lang);
   for (const [selector, value] of [['#title', h.title], ['#new', h.newConversation], ['#resume-hint', h.resumeHint], ['#source', h.slots.source],
