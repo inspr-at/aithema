@@ -54,12 +54,13 @@ function exposeFallback() {
   if (component && actions) component.before(actions);
   paintFallback();
 }
+document.addEventListener('aithema-host-failed', exposeFallback);
 document.addEventListener('error', event => {
   if (event.target?.matches?.('script[src="/demo/host.js"]')) exposeFallback();
 }, true);
 document.defaultView?.addEventListener('error', event => {
-  // Dependencies can fail before upgrade, or the host can fail after upgrade.
-  if (event.filename && /^\/(demo|packages|plugins)\//.test(new URL(event.filename, location.href).pathname)) exposeFallback();
+  // Once host code starts, its explicit failure signal owns startup errors.
+  if (!document.documentElement.hasAttribute('data-host-started') && isHostModule(event.filename)) exposeFallback();
 });
 // Only failures attributed to this origin's host module graph count. Unrelated
 // scripts and extensions can reject during startup without breaking the host.
@@ -70,6 +71,7 @@ function isHostModule(source) {
   } catch { return false; }
 }
 document.defaultView?.addEventListener('unhandledrejection', event => {
+  if (document.documentElement.hasAttribute('data-host-started')) return;
   const reason = event.reason;
   if (isHostModule(reason?.fileName) || (typeof reason?.stack === 'string'
     && (reason.stack.match(/https?:\/\/[^\s)]+/g) ?? []).some(isHostModule))) exposeFallback();

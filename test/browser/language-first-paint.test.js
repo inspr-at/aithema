@@ -246,11 +246,23 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
       }
       await page.close();
     }
-    for (const failure of ['blocked', 'throws', 'dependency-throws', 'host-after-import-throws', 'dependency-rejects']) for (const locale of ['de', 'en']) for (const storedTheme of ['light', 'dark', 'system']) {
+    for (const failure of ['blocked', 'throws', 'dependency-throws', 'host-after-import-throws', 'dependency-rejects', 'config-stackless', 'session-stackless', 'restore-stackless']) for (const locale of ['de', 'en']) for (const storedTheme of ['light', 'dark', 'system']) {
     const page = await browser.newPage();
     await page.setViewport({ width: 390, height: 844 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.evaluateOnNewDocument(({ locale, storedTheme }) => { localStorage.clear(); localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-theme', storedTheme); }, { locale, storedTheme });
+    if (failure.endsWith('-stackless')) await page.evaluateOnNewDocument(failure => {
+      if (failure === 'restore-stackless') localStorage.setItem('aithema-reset-slice-1-session', 'stackless-saved');
+      const fetch = window.fetch;
+      window.fetch = (...args) => {
+        const path = new URL(args[0], location.href).pathname;
+        if (path === (failure === 'config-stackless' ? '/demo/config' : failure === 'restore-stackless' ? '/api/sessions/stackless-saved' : '/api/sessions')) {
+          window.stacklessStartupRejections = (window.stacklessStartupRejections ?? 0) + 1;
+          return Promise.reject({ startup: 'injected fetch failure' });
+        }
+        return fetch(...args);
+      };
+    }, failure);
     await page.setRequestInterception(true);
     page.on('request', request => {
       const path = new URL(request.url()).pathname;
@@ -258,7 +270,7 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
         void request.respond({ status: 200, contentType: 'application/javascript', body: failure === 'dependency-rejects'
           ? 'await Promise.reject(new Error("AIT-206 injected dependency rejection"));'
           : 'throw new Error("AIT-206 injected dependency failure");' });
-      } else if (path === '/demo/host.js' && !failure.startsWith('dependency-')) {
+      } else if (path === '/demo/host.js' && !failure.startsWith('dependency-') && !failure.endsWith('-stackless')) {
         if (failure === 'blocked') void request.abort('failed');
         else void request.respond({ status: 200, contentType: 'application/javascript', body: (failure === 'host-after-import-throws' ? "import '../packages/ui/src/session-element.js';\n" : '') + 'throw new Error("AIT-206 injected runtime failure");' });
       }
@@ -266,7 +278,8 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
     });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-unavailable'));
-    assert.equal(await page.evaluate(() => Boolean(customElements.get('aithema-session'))), failure === 'host-after-import-throws', 'failure exercises the intended component-definition boundary');
+    assert.equal(await page.evaluate(() => Boolean(customElements.get('aithema-session'))), failure === 'host-after-import-throws' || failure.endsWith('-stackless'), 'failure exercises the intended component-definition boundary');
+    if (failure.endsWith('-stackless')) assert.equal(await page.evaluate(() => window.stacklessStartupRejections), 1, 'real startup fetch rejected with a plain object');
     assert.equal(await page.$eval('#language-value', n => n.textContent), locale.toUpperCase());
     const labels = { de: { light: 'Hell', dark: 'Dunkel', system: 'System' }, en: { light: 'Light', dark: 'Dark', system: 'System' } };
     assert.equal(await page.$eval('#theme-value', n => n.textContent), labels[locale][storedTheme]);

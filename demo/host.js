@@ -9,6 +9,13 @@ import { postJson } from './post-json.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
+// Startup owns its failures, including rejection values without a stack or message.
+function signalStartupFailure() {
+  document.dispatchEvent(new Event('aithema-host-failed'));
+}
+async function startup() {
+  document.documentElement.dataset.hostStarted = '';
+  try {
 const component = document.querySelector('aithema-session'), bundles = { en, de };
 mountTheme();
 let fakeVoice, liveVoiceClient, localeChoice = preferredLocale(), copy = bundles[localeChoice];
@@ -66,7 +73,7 @@ async function open(fresh = false, request = {}) {
     if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: localeChoice });
     if (!response.ok) throw new Error();
     await adopt(await response.json());
-  } catch { document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
+  } catch { signalStartupFailure(); document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 // The demo handover reaches a local fake recipient, so its success line says nobody calls back.
 const componentCopy = (bundle = copy) => binding.demoHost !== true ? bundle
@@ -99,7 +106,7 @@ async function adopt(session) {
     await component.changeLocale(localeChoice);
     paintPage();
     document.querySelector('#error').textContent = '';
-  } catch { document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
+  } catch { signalStartupFailure(); document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 const binding = await fetch('/demo/config').then(r => r.json());
 // Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.
@@ -182,6 +189,7 @@ component.addEventListener('aithema-features', paintVisuals);
 component.addEventListener('aithema-locale', () => { copy = bundles[component.session.locale] ?? en; paintPage(); });
 // Remember the next-conversation choice even when a call or an existing turn prevents changing this one.
 document.querySelector('#locale').addEventListener('change', async event => {
+  if (document.documentElement.hasAttribute('data-host-unavailable')) return;
   const locale = event.target.value; localeChoice = locale; remember(localeKey, locale);
   await component.changeLocale(locale); paintPage();
 });
@@ -191,3 +199,8 @@ if (binding.operatorLogin && location.hash === '#settings-general') {
   const cleaned = new URL(location.href); cleaned.searchParams.delete('operator'); cleaned.hash = '';
   history.replaceState(null, '', cleaned.pathname + cleaned.search);
 }
+  } catch {
+    signalStartupFailure();
+  }
+}
+void startup().catch(signalStartupFailure);
