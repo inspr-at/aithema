@@ -1,10 +1,9 @@
-import { de } from '../packages/ui/src/i18n/de.js';
-import { en } from '../packages/ui/src/i18n/en.js';
+import { adminCopy } from './admin-copy.js';
 import { adminModel, renderAdmin, TIERS, esc, fill } from './admin-view.js';
 import { preferredLocale } from './page-preferences.js';
 
 const locale = new URL(location.href).searchParams.get('lang') ?? preferredLocale();
-const C = (locale === 'en' ? en : de).admin;
+const C = adminCopy[locale === 'en' ? 'en' : 'de'];
 const nf = n => new Intl.NumberFormat(C.locale).format(n);
 const usd = credits => new Intl.NumberFormat(C.locale, { style: 'currency', currency: 'USD', currencyDisplay: 'code' }).format(credits / 100);
 const parseWhole = s => { const t = s.replace(/[\s.,'  ]/gu, ''); return /^\d{1,7}$/u.test(t) ? Number(t) : null; };

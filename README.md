@@ -28,11 +28,14 @@ shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
-All development packages remain private at `0.0.0`. **AIT-105/AIT-32** prepare
-the first reset release with INSPR-CalVer3 (`inspr-calver-3`) and a reproducible
-workspace artifact. No coordinate is reserved and no reset release is published.
-See [the consumer guide](docs/embedding.md) for exports, the version source,
-rollback and the pending AIT-139/AIT-160 live qualification checklist.
+**AIT-105/AIT-32** reserve the first reset candidate with INSPR-CalVer3
+(`inspr-calver-3`). Core, server, UI and twelve shipped plugin packages have exact
+versions and reproducible, independently installable tarballs; the root workspace
+stays private. No tag, GitHub release or registry publication is made here.
+See [the consumer guide](docs/embedding.md), [candidate notes](release/notes.md)
+and [registry recommendation](release/README.md). AIT-139's soak is not measured;
+AIT-160's second voice pipeline is not yet proven. Both are disclosed limits,
+not release blockers; presentation pin review remains for the cross-family gate.
 
 ## Tests and demo
 

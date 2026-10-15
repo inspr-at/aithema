@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { PluginError } from '@inspr/aithema-core';
-import { generationId } from '../../core/src/cost.js';
+import { generationId } from '@inspr/aithema-core/cost';
 const integer = n => Number.isSafeInteger(n) && n >= 0;
 const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0";
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,

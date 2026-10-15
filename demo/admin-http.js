@@ -1,6 +1,6 @@
 import { readAdminSettings, readAdminMailCap, readProviderCap } from './admin-read.js';
 import { renderAdmin, adminModel, esc } from './admin-view.js';
-import { adminCopy } from '../packages/ui/src/i18n/admin.js';
+import { adminCopy } from './admin-copy.js';
 
 const headers = { 'cache-control': 'no-store', vary: 'Cookie', 'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'x-robots-tag': 'noindex',
