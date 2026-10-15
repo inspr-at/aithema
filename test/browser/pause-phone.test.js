@@ -9,14 +9,15 @@ import { pausedOverview } from '../fixtures/pause-overview.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
-// Puppeteer's setViewport also sends setTouchEmulationEnabled(false), which
-// restores the platform's pointer (none on headless Linux), discarding Blink's
-// explicit desktop capabilities. Resize that fixture through metrics alone.
+// Configure device capabilities once, before navigation. Keyboard/orientation
+// resizes must only change metrics: setViewport also reapplies touch emulation
+// and can reload when hasTouch/isMobile changes. Desktop keeps Blink's native
+// fine pointer, which setTouchEmulationEnabled(false) would reset on Linux.
 async function setViewport(page, viewport) {
-  if (page.phoneTouch !== false) return page.setViewport(viewport);
-  page.desktopViewport ??= await page.createCDPSession();
-  return page.desktopViewport.send('Emulation.setDeviceMetricsOverride', {
+  page.metricsSession ??= await page.createCDPSession();
+  return page.metricsSession.send('Emulation.setDeviceMetricsOverride', {
     width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false,
+    screenOrientation: viewport.isLandscape ? { angle: 90, type: 'landscapePrimary' } : { angle: 0, type: 'portraitPrimary' },
   });
 }
 
@@ -35,7 +36,8 @@ async function fixture(t, touch = true) {
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage();
   page.phoneTouch = touch;
-  await setViewport(page, { width: 800, height: 600, hasTouch: touch });
+  if (touch) await page.setViewport({ width: 800, height: 600, hasTouch: true, isMobile: false });
+  else await setViewport(page, { width: 800, height: 600 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -46,21 +48,13 @@ async function fixture(t, touch = true) {
     if (path.endsWith('/events')) return request.continue({ headers: { ...request.headers(), 'last-event-id': '0' } });
     return request.continue();
   });
-  await page.evaluateOnNewDocument(() => {
-    globalThis.focusTrace = [];
-    for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'focusin', 'focusout', 'resize']) window.addEventListener(type, event => {
-      const c = document.querySelector('aithema-session'), target = event.composedPath()[0];
-      globalThis.focusTrace.push({ type, target: target?.id || target?.className, active: c?.shadowRoot.activeElement?.id, height: innerHeight, time: performance.now() });
-      if (globalThis.focusTrace.length > 40) globalThis.focusTrace.shift();
-    }, true);
-  });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.tickSeed = c.session; });
   return page;
 }
 async function scene(page, locale, theme, width) {
-  await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
+  await setViewport(page, { width, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
   await page.evaluate(async locale => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
@@ -137,11 +131,11 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
     await voiceScene(page, locale, theme, width);
-    await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); await frame(page);
+    await setViewport(page, { width, height: width === 393 ? 852 : 844 }); await frame(page);
     assert.ok((await metrics(page)).transcriptHeight >= 320, 'phone keeps a usable transcript viewport above the dock');
     const baseline = (await metrics(page)).composer;
     for (const state of ['idle', 'in-call', 'purpose-pause', 'session-pause']) {
-      if (state === 'session-pause') { await voiceScene(page, locale, theme, width); await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); }
+      if (state === 'session-pause') { await voiceScene(page, locale, theme, width); await setViewport(page, { width, height: width === 393 ? 852 : 844 }); }
       if (state === 'in-call') await page.evaluate(() => globalThis.tickRail.start());
       if (state === 'purpose-pause' || state === 'session-pause') {
         await shadow(page, (c, state) => c.receive({ seq: c.session.seq + 1, type: 'session.paused',
@@ -157,17 +151,30 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     // Reconfigure an unpaused scene, focus by pointer, then shrink the visible
     // viewport as a phone keyboard does. No real OS keyboard is claimed here.
     await voiceScene(page, locale, theme, width);
-    assert.equal(page.viewport().hasTouch, page.phoneTouch, 'touch emulation is already configured before focus');
-    await page.click('aithema-session >>> textarea');
-    await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: 480 }); await frame(page);
+    assert.equal(await page.evaluate(() => navigator.maxTouchPoints > 0), true, 'touch emulation is configured before focus');
+    await shadow(page, c => {
+      const input = c.shadowRoot.querySelector('textarea');
+      globalThis.keyboardFocusProbe = { input, blurs: 0 };
+      input.addEventListener('blur', () => { globalThis.keyboardFocusProbe.blurs++; });
+    });
+    // The scene was rebuilt: click only after its input is enabled and stable.
+    await page.locator('aithema-session >>> textarea').click();
+    assert.equal((await metrics(page)).focused, 'message', 'pointer focuses the composer before keyboard resize');
+    await setViewport(page, { width, height: 480 }); await frame(page);
+    const continuity = await shadow(page, c => ({
+      sameInput: globalThis.keyboardFocusProbe.input === c.shadowRoot.querySelector('textarea'),
+      blurs: globalThis.keyboardFocusProbe.blurs,
+      focused: c.shadowRoot.activeElement?.id,
+    }));
+    assert.deepEqual(continuity, { sameInput: true, blurs: 0, focused: 'message' }, 'keyboard resize retains the input and focus without a blur');
     await page.keyboard.type(locale === 'de' ? 'Mein Vorhaben' : 'My project');
     const keyboard = await metrics(page);
     assert.equal(keyboard.inViewport, true, `${locale}/${theme}/${width}: keyboard does not cover input ${JSON.stringify(keyboard)}`);
-    assert.equal(keyboard.focused, 'message', `resize retains focus: ${JSON.stringify(await page.evaluate(() => globalThis.focusTrace))}`);
+    assert.equal(keyboard.focused, 'message');
     await page.keyboard.press('Tab');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'attach');
     await record(t, 'L2', page, `${locale}-${theme}-${width}-keyboard`, keyboard);
-    await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: 844 }); await frame(page);
+    await setViewport(page, { width, height: 844 }); await frame(page);
     await page.evaluate(() => {
       globalThis.nativeViewport = visualViewport;
       const viewport = new EventTarget(); Object.assign(viewport, { height: 440, offsetTop: 30, scale: 1 });
@@ -219,7 +226,7 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
     const scenario = await pausedOverview(locale);
     for (const theme of ['light', 'dark']) for (const width of [390, 393, 1440]) {
       await scene(page, locale, theme, width);
-      await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
+      await setViewport(page, { width, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
       await page.evaluate(async ({ before, locale }) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         document.querySelector('aithema-session').configure({ copy, session: { ...before, id: globalThis.tickSeed.id } });
@@ -278,11 +285,11 @@ test('AIT-188 L2a: opaque phone dock backdrop hits in gaps and gutters, all stat
   const page = await fixture(t);
   for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
     await voiceScene(page, 'de', theme, width);
-    await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 });
+    await setViewport(page, { width, height: width === 393 ? 852 : 844 });
     for (const state of ['idle', 'purpose-pause', 'session-pause', 'resized-keyboard', 'overlay-keyboard']) {
-      if (state !== 'idle') { await voiceScene(page, 'de', theme, width); await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); }
+      if (state !== 'idle') { await voiceScene(page, 'de', theme, width); await setViewport(page, { width, height: width === 393 ? 852 : 844 }); }
       if (state.endsWith('pause')) await shadow(page, (c, state) => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, ...(state === 'purpose-pause' ? { reason: 'purpose' } : {}) } }), state);
-      if (state === 'resized-keyboard') { await page.click('aithema-session >>> textarea'); await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: 480 }); }
+      if (state === 'resized-keyboard') { await page.click('aithema-session >>> textarea'); await setViewport(page, { width, height: 480 }); }
       if (state === 'overlay-keyboard') await overlayKeyboard(page);
       await frame(page);
       const values = await backdropMetrics(page), label = `de-${theme}-${width}-${state}`;
@@ -302,9 +309,9 @@ test('AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcri
   const page = await fixture(t);
   for (const theme of ['light', 'dark']) for (const width of [390, 393]) for (const mode of ['resized', 'overlay']) {
     await voiceScene(page, 'de', theme, width);
-    await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 });
+    await setViewport(page, { width, height: width === 393 ? 852 : 844 });
     await page.click('aithema-session >>> textarea');
-    if (mode === 'resized') await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: 480 }); else await overlayKeyboard(page);
+    if (mode === 'resized') await setViewport(page, { width, height: 480 }); else await overlayKeyboard(page);
     // Dispatch in the current task and inspect before a frame or observer can run.
     const synchronous = await shadow(page, c => {
       (visualViewport ?? window).dispatchEvent(new Event('resize'));
@@ -321,7 +328,7 @@ test('AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcri
       (visualViewport ?? window).dispatchEvent(new Event('resize'));
       return getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display;
     }), 'none', 'footer stays hidden while keyboard remains open after focus moves');
-    if (mode === 'overlay') await closeOverlay(page); else { await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: width === 393 ? 852 : 844 }); await frame(page); }
+    if (mode === 'overlay') await closeOverlay(page); else { await setViewport(page, { width, height: width === 393 ? 852 : 844 }); await frame(page); }
     assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'footer returns when keyboard closes');
   }
 });
@@ -458,7 +465,7 @@ test('AIT-188 r3 keyboard: fine-pointer desktop resize keeps footer', async t =>
   t.diagnostic(`desktop device: ${JSON.stringify(device)}`);
   assert.equal(device.fine && device.touchPoints === 0, true, JSON.stringify(device));
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
-  await setViewport(page, { width: 500, height: 644, hasTouch: false }); await frame(page);
+  await setViewport(page, { width: 500, height: 644 }); await frame(page);
   assert.equal(await page.evaluate(() => matchMedia('(pointer:fine)').matches && navigator.maxTouchPoints === 0), true, 'resizing retains native desktop capabilities');
   assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display), 'none', 'desktop window shrink is not an on-screen keyboard');
 });
@@ -468,15 +475,15 @@ test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick fo
   await voiceScene(page, 'de', 'dark', 390);
   const footer = () => shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.display-foot')).display);
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
-  await setViewport(page, { width: 390, height: 480, hasTouch: true }); await frame(page);
+  await setViewport(page, { width: 390, height: 480 }); await frame(page);
   assert.equal(await footer(), 'none', 'touch keyboard opens');
-  await setViewport(page, { width: 500, height: 600, hasTouch: true, isLandscape: true }); await frame(page);
+  await setViewport(page, { width: 500, height: 600, isLandscape: true }); await frame(page);
   assert.notEqual(await footer(), 'none', 'width/orientation establishes a new unobstructed baseline');
-  await setViewport(page, { width: 500, height: 400, hasTouch: true, isLandscape: true }); await frame(page);
+  await setViewport(page, { width: 500, height: 400, isLandscape: true }); await frame(page);
   assert.equal(await footer(), 'none', 'keyboard detected against the new baseline');
   await shadow(page, c => c.shadowRoot.querySelector('.fold').focus({ preventScroll: true })); await frame(page);
   assert.notEqual(await footer(), 'none', 'leaving composer clears keyboard state without resize');
-  await setViewport(page, { width: 500, height: 600, hasTouch: true, isLandscape: true }); await frame(page);
+  await setViewport(page, { width: 500, height: 600, isLandscape: true }); await frame(page);
   assert.notEqual(await footer(), 'none', 'keyboard closed');
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true })); await frame(page);
   assert.notEqual(await footer(), 'none', 'focus alone cannot reuse a stale height');
