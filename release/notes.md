@@ -48,6 +48,19 @@ before dispatch. Public manifests contain technical capabilities, never secrets
 or a legal qualification promise. The `apiVersion: ^1.0.0` plugin protocol is
 separate from the CalVer3 product coordinate.
 
+## Host exports (AIT-205)
+
+German copy is available through `@inspr/aithema-ui/i18n/de`, with the same
+recursive key set as English. `@inspr/aithema-plugin-elevenlabs/voice-host`
+provides the live-voice host factory and binding normalizer; hosts inject naming,
+openers, costs and their own legal qualification. The demo consumes that factory.
+`@inspr/aithema-server/dev/local-voice` supplies the credential-free simulator
+for development/tests only, never production. Operator copy stays with the demo
+operator page; UI implementation helpers and release metadata stay internal.
+The symbol decisions and exact browser URL exceptions are in the consumer
+section of `docs/embedding.md`. The outside-workspace consumer exercises all
+runtime exports and verifies types-only declarations and locale key parity.
+
 ## Migration and known limits
 
 Legacy 0.10.1 was a private monolith with `lib`, `runtime` and `workspace` APIs.
