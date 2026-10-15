@@ -6,7 +6,7 @@ import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { contrast, mix, tokens } from '../../test/contrast.js';
 
-test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async () => {
+test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
   const nativeFetch = globalThis.fetch, window = new Window({ url: running.url });
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'location'];
@@ -28,9 +28,10 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     };
     await import('../host.js');
     const component = document.querySelector('aithema-session'), root = component.shadowRoot;
-    const wait = async predicate => {
-      for (let i = 0; i < 400; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); }
-      assert.fail('Demo did not reach the expected consent/pause/preset state');
+    const wait = async (step, predicate) => {
+      const started = performance.now();
+      for (let i = 0; i < 400; i++) { if (predicate()) { if (process.env.AITHEMA_WAIT_TIMING) t.diagnostic(`${step}: ${(performance.now() - started).toFixed(1)}ms`); return; } await new Promise(resolve => setTimeout(resolve, 5)); }
+      assert.fail(`Demo did not reach ${step} after ${(performance.now() - started).toFixed(0)}ms`);
     };
     assert.ok(component.session.id);
     assert.equal(document.querySelector('#error').textContent, '');
@@ -38,47 +39,47 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     input.value = 'A draft before language choice';
     const language = document.querySelector('#locale');
     language.value = 'de'; language.dispatchEvent(new window.Event('change'));
-    await wait(() => component.session.locale === 'de' && document.documentElement.lang === 'de');
+    await wait('German locale acknowledged', () => component.session.locale === 'de' && document.documentElement.lang === 'de');
     assert.equal(component.session.id, firstId); assert.equal(root.querySelector('textarea'), input);
     assert.equal(input.value, 'A draft before language choice'); assert.equal(document.querySelector('#language-note').textContent, '');
     language.value = 'en'; language.dispatchEvent(new window.Event('change'));
-    await wait(() => component.session.locale === 'en' && document.documentElement.lang === 'en');
+    await wait('English locale acknowledged', () => component.session.locale === 'en' && document.documentElement.lang === 'en');
     assert.equal(root.querySelector('.intro').dataset.mode, 'chooser', 'a new conversation starts with the preset chooser');
     assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
     assert.equal(root.querySelector('.send').disabled, true, 'initial mock admission waits for consent');
     await reviseMockConsent(component);
-    await wait(() => !root.querySelector('.send').disabled);
+    await wait('send enabled after initial consent', () => !root.querySelector('.send').disabled);
     const send = root.querySelector('.send'), pause = root.querySelector('.pause');
     root.querySelector('textarea').value = 'systems: API; data: public';
     root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
-    await wait(() => component.session.understanding.constraints.systems?.value === 'API');
+    await wait('submitted systems constraint reflected in understanding', () => component.session.understanding.constraints.systems?.value === 'API');
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
     const features = root.querySelector('.features').textContent;
     pause.click();
-    await wait(() => component.session.paused && send.disabled);
+    await wait('pause acknowledged and send disabled', () => component.session.paused && send.disabled);
     assert.equal(pause.textContent, 'Resume');
     assert.notEqual(root.querySelector('.features').textContent, features, 'preset rows update at once under the pointer');
     assert.equal(document.documentElement.lang, 'en'); assert.equal(component.session.locale, 'en');
     assert.equal(root.querySelector('.readiness').style.visibility, '', 'cached analysis stays visible during pause');
-    pause.click(); await wait(() => !component.session.paused && !send.disabled);
+    pause.click(); await wait('resume acknowledged and send enabled', () => !component.session.paused && !send.disabled);
     await reviseMockConsent(component, false);
-    await wait(() => component.session.consentWithdrawn && send.disabled);
+    await wait('consent withdrawal acknowledged and send disabled', () => component.session.consentWithdrawn && send.disabled);
     assert.equal(root.querySelector('.summary-text').textContent, '');
     assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.pause'), pause);
     await reviseMockConsent(component);
-    await wait(() => !component.session.consentWithdrawn && !send.disabled);
+    await wait('renewed consent acknowledged and send enabled', () => !component.session.consentWithdrawn && !send.disabled);
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
     // Settings: the demo operator allowlist, enforced and acknowledged by the server.
     const previousId = component.session.id, dialog = root.querySelector('dialog.settings');
     const option = (name, label) => [...dialog.querySelectorAll(`[data-select="${name}"] [role=option]`)].find(node => node.querySelector('strong').textContent === label);
     root.querySelector('.settings-open').click();
-    await wait(() => dialog.open && option('model', 'Deep (mock)'));
+    await wait('settings model options opened', () => dialog.open && option('model', 'Deep (mock)'));
     const eu = dialog.querySelector('.preset-option[data-preset="eu"]'), before = posts.length;
     assert.equal(eu.getAttribute('aria-disabled'), 'true'); eu.click();
     assert.equal(posts.length, before, 'an unavailable preset is never sent');
     assert.equal(option('model', 'GPT-4.1 mini').getAttribute('aria-disabled'), 'true', 'declared providers stay disabled with a reason');
     option('model', 'Deep (mock)').click();
-    await wait(() => component.session.settings.model === 'mock/deep');
+    await wait('Deep mock model acknowledged', () => component.session.settings.model === 'mock/deep');
     assert.equal(component.session.id, previousId, 'model changes apply to this conversation');
     assert.match(root.querySelector('.engine__detail').textContent, /Replies: Deep \(mock\)/u);
     // AIT-118: the header and the mock consent name the active visual kind from the server's binding, never always the image label.
@@ -88,19 +89,19 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     assert.equal(header(), `Mock reasoning — deterministic demo · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
     assert.equal(header(), 'Mock reasoning — deterministic demo · Test drafts (local click-dummy)');
     option('visuals', 'Fake images (local PNG)').click();
-    await wait(() => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
+    await wait('image visuals acknowledged in header', () => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
     option('visuals', 'Off').click();
-    await wait(() => header().endsWith(h.visualsOff));
+    await wait('visuals disabled in header', () => header().endsWith(h.visualsOff));
     option('visuals', 'Fake HTML (local click-dummy)').click();
-    await wait(() => header().endsWith('Test drafts (local click-dummy)'));
+    await wait('HTML visuals acknowledged in header', () => header().endsWith('Test drafts (local click-dummy)'));
     dialog.querySelector('.preset-option[data-preset="custom"]').click();
-    await wait(() => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
+    await wait('custom preset saved', () => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
     assert.equal(component.session.id, previousId);
     dialog.querySelector('.preset-option[data-preset="device"]').click();
-    await wait(() => dialog.querySelector('.notice-action:not([hidden])'));
+    await wait('device preset offers a new conversation', () => dialog.querySelector('.notice-action:not([hidden])'));
     assert.equal(component.session.processingPreset, 'custom', 'a started conversation never becomes a device conversation in place');
     dialog.querySelector('.notice-action').click();
-    await wait(() => component.session.processingPreset === 'device' && component.session.id !== previousId);
+    await wait('new device conversation created', () => component.session.processingPreset === 'device' && component.session.id !== previousId);
     assert.equal(component.shadowRoot.querySelector('.intro').dataset.mode, 'ready', 'the explicit device choice is confirmed');
     assert.equal(document.querySelector('#error').textContent, '');
     assert.ok(posts.some(post => post.path.endsWith('/settings')));
