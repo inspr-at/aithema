@@ -39,6 +39,7 @@ async function fixture(t, real = false) {
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (page.forceAnalysisBlocked && path.endsWith('/features')) return json({ featureMatrix: { best: { analysis: { available: false, reason: 'current processing consent required' } } } });
     if (page.state && path.endsWith('/consent')) {
       if (request.method() === 'GET') return json({ contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
       const body = JSON.parse(request.postData()); page.posts.push(body);
@@ -281,6 +282,7 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
   const page = await fixture(t, true);
   for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    page.forceAnalysisBlocked = true;
     await shadow(page, async (c, locale) => {
       await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
       const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
