@@ -86,7 +86,7 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   assert.equal(intervals.mock.callCount(), before, `late response leaves countdown stopped\n${intervals.mock.calls.slice(before).map(call => call.stack.stack).join('\n')}`);
   assert.equal(timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length, polls, 'late response leaves polling stopped');
   document.body.append(c); await tick(8);
-  assert.equal(intervals.mock.callCount(), before + 1, 'reconnect resumes the updated countdown once');
+  assert.equal(intervals.mock.callCount(), before + 2, 'reconnect resumes the verification and connection clocks exactly once each');
 });
 
 for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
