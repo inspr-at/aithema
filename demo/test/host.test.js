@@ -6,7 +6,7 @@ import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { contrast, mix, tokens } from '../../test/contrast.js';
 
-test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async t => {
+test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 60_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
   const nativeFetch = globalThis.fetch, window = new Window({ url: running.url });
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'location'];
@@ -30,8 +30,15 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     const component = document.querySelector('aithema-session'), root = component.shadowRoot;
     const wait = async (step, predicate) => {
       const started = performance.now();
-      for (let i = 0; i < 400; i++) { if (predicate()) { if (process.env.AITHEMA_WAIT_TIMING) t.diagnostic(`${step}: ${(performance.now() - started).toFixed(1)}ms`); return; } await new Promise(resolve => setTimeout(resolve, 5)); }
-      assert.fail(`Demo did not reach ${step} after ${(performance.now() - started).toFixed(0)}ms`);
+      // HTTP admission, mock reasoning and the event stream compete with the full
+      // unit suite. Bound elapsed time, rather than counting nominal timer ticks.
+      const timeoutMs = 10_000;
+      while (!predicate()) {
+        const elapsed = performance.now() - started;
+        assert.ok(elapsed < timeoutMs, `Demo did not reach ${step} within ${timeoutMs}ms (elapsed ${elapsed.toFixed(0)}ms)`);
+        await new Promise(resolve => setTimeout(resolve, Math.min(5, timeoutMs - elapsed)));
+      }
+      if (process.env.AITHEMA_WAIT_TIMING) t.diagnostic(`${step}: ${(performance.now() - started).toFixed(1)}ms`);
     };
     assert.ok(component.session.id);
     assert.equal(document.querySelector('#error').textContent, '');
