@@ -12,7 +12,7 @@ import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
-import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
 
 test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-reuse-'));
@@ -87,6 +87,10 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
     }, locale);
+    // The first configured conversation still has an entrance/resize cycle.
+    // Wait for its actual live paint, then reset the fixture's scroll anchor.
+    await finishWorkspaceEntry(page);
+    await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0); });
     await page.mouse.move(0, 500); await settle();
     assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off', `${label}: stable paint through the real motion preference`);
     const baseline = await boxes(page, selectors);
