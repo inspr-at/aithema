@@ -273,3 +273,18 @@ rule('contract-cost-reconciliation', async t => {
     } else assert.equal(row.cost_reconciliation_json, null);
   }
 });
+
+rule('contract-cost-reconciliation', async t => {
+  const costCalls = [], usageCalls = []; let lookups = 0;
+  const host = await admittedHost(t, { reconcileCost() { lookups++; },
+    costEvidence(id) { costCalls.push(id); return { chargedMicro: 3 }; },
+    usageCost(value, model) { usageCalls.push([value, model]); return 3; } });
+  const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
+  const { attempt, report } = admitted.options;
+  await attempt.consume(); attempt.dispatchCost();
+  report({ attemptId: attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 } }); admitted.finish();
+  await host.pluginRuntime.reconcileCosts();
+  assert.equal(lookups, 0); assert.deepEqual(costCalls, [attempt.attemptId]);
+  assert.deepEqual(usageCalls, [[{ inputTokens: 1, outputTokens: 1 }, host.binding.model]]);
+  assert.equal(host.pluginRuntime.budget.get(attempt.attemptId).settled_micro, 3);
+});
