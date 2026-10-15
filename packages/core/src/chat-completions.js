@@ -115,8 +115,8 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     if (value && typeof value === 'object') observe(value, options, invocation, spend);
     // A fully received 4xx without usage is an unbilled rejection. Persist zero
     // through the same receipt path to release session and account holds alike.
-    // Usage-bearing errors and 5xx without cost remain conservative.
-    if (response.status >= 400 && response.status < 500 && value?.usage == null) {
+    // Timeouts (408/499), usage-bearing errors and 5xx without cost remain conservative.
+    if (response.status >= 400 && response.status < 500 && ![408, 499].includes(response.status) && value?.usage == null) {
       invocation.usage({ inputTokens: 0, outputTokens: 0 });
       observe({ usage: { cost: 0 } }, options, invocation, spend);
     }

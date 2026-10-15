@@ -234,10 +234,12 @@ test('AIT-109 N2: Retry stays hidden while anonymous understanding is deferred',
     assert.equal(c.shadowRoot.querySelector('.retry').hidden, true, 'waiting for the turn threshold is not a failure');
   }
   turn(c, 'person-3', 'Third message');
+  c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
   assertInlineRetry(c, 'missing reply is a stuck state with inline retry');
   const identified = setup(), identifiedSession = identified.session;
   identifiedSession.demo = false; identifiedSession.identified = true;
   identified.configure({ copy: en, session: identifiedSession }); turn(identified, 'identified', 'First');
+  identified.receive({ type: 'lane.status', data: { inputRevision: inputRevision(identified.session), running: [], lastFailure: null } });
   assertInlineRetry(identified, 'identified people bypass the threshold; missing reply uses inline retry');
 });
 
@@ -993,6 +995,7 @@ for (const source of ['live call', 'facade pending']) test(`AIT-198 ${source}: n
   assertNoFailedOverview(c, 'the facade needs no reaction lane');
   c.receive({ type: 'turn.partial', data: { id: 'voice-reply', inputRevision: revision, delta: 'Reply' } });
   assertNoFailedOverview(c, 'assistant partial');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   reply(c, 'voice-reply');
   assertNoFailedOverview(c, 'assistant final');
 });

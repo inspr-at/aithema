@@ -182,7 +182,8 @@ for (const kind of ['typed', 'live voice', 'facade pending']) test(`AIT-198 ${ki
     assert.deepEqual(await boxes(page, targets), before, 'pending reply causes exactly 0 px surrounding displacement');
     await shadow(page, c => {
       window.captureGap('paint before assistant final');
-      c.receive({ seq: 2, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Welche Arbeit?', inputRevision: window.gapRevision } });
+      c.receive({ seq: 2, type: 'understanding.updated', data: { ...c.session.understanding, inputRevision: window.gapRevision } });
+      c.receive({ seq: 3, type: 'turn.final', data: { id: 'reply', role: 'assistant', content: 'Welche Arbeit?', inputRevision: window.gapRevision } });
       c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: [], lastFailure: null } });
       window.captureGap('assistant final');
     });
