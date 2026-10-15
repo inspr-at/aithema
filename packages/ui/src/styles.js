@@ -303,6 +303,9 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .scale::after { content:''; left:calc(100% - .4rem); background:var(--aithema-amber); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-amber) 50%,var(--aithema-line)); }
 .scale-labels { display:flex; justify-content:space-between; height:1.4rem; font-size:.72rem; color:var(--aithema-muted); }
 .readiness p { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-ink); } .readiness p:empty { display:none; }
+/* Keep the build row before the first result so retry recovery cannot move the pane. */
+.readiness .build-progress { min-height:1.35em; }
+.readiness .build-progress:empty { display:block; }
 .analysis-content { min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable; overflow-wrap:anywhere;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;
@@ -397,7 +400,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-understanding="absent"] .understanding { display:none; }
   .workspace[data-reveal] .understanding { animation:rise-in 420ms ease-out; }
   .transcript-shell { height:clamp(20rem,60svh,36rem); }
-  .understanding { max-height:none; } .analysis-content { max-height:440px; overflow:auto; }
+  .understanding { max-height:none; } .analysis-content { height:440px; max-height:440px; overflow:auto; }
 }
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {

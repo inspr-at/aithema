@@ -36,6 +36,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     }, locale);
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.includes('…'));
     await settle(page);
+    if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
     const targets = ['.understanding', '.composer-shell', '.display-foot', '.host-credits', '.audio-rail'];
     console.log(`AIT-198 fixture ${locale}/${width}/${verdict}: holding`);
     const before = await boxes(page, targets);
