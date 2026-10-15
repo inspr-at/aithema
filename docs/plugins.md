@@ -36,7 +36,10 @@ usage terminals; their accounting is distinct from reasoning tokens.
 
 The manifest is public technical metadata. Validate it with `validateManifest`;
 `PluginRegistry.register` rejects invalid manifests, duplicate IDs, missing
-operations and missing health. Registration freezes a copy of the manifest.
+operations and missing health. <a id="contract-manifest-freeze"></a>
+Registration keeps an already deeply frozen manifest by identity; otherwise it
+deep-clones and deep-freezes a copy. Later edits to an unfrozen original cannot
+change the registered manifest.
 
 Required fields are `id`, `version`, `apiVersion` (currently `^1.0.0`), `kinds`,
 `placement` (`server` or `browser`), `entrypoints`, `configSchema`, `vendor` and
@@ -103,20 +106,139 @@ zero for unknown usage or price. Before dispatch, cancellation costs zero.
 AIT-198's two obligations are independent: **never emit an assistant final made
 from provider thinking** (including reasoning-only, truncated and cancelled
 responses), and **report the cost even when no publishable answer exists**.
-Yield only answer content; validate structured output against the requested
-schema. Keep provider thinking out of reply deltas/finals and saved transcripts.
+Yield only the reply wire output described below; never provider thinking.
+Validate `structured` output against its requested schema. Keep provider thinking
+out of reply deltas/finals and saved transcripts.
 For providers with authoritative receipts, use
 `beginInvocation(options, { authoritativeCost: true })`, record usage and cost,
 and finish in `finally`. Missing cost then produces an uncertain terminal even
 if tokens were observed. The external fixture tests this behavior through the
-real budget ledger. Provider-specific reconciliation is an optional extension;
-it must preserve conservative holds until trustworthy evidence arrives.
+real budget ledger. The optional cost extensions below govern later reconciliation.
 
 Voice uses `VoiceTerminal` with closure confirmation, duration, upstream/visitor
 costs and provider identity. Components report `ComponentTerminal` and
 `ComponentUsage` units. Images and HTML must return their validated artifacts,
 origin and generator provenance, and report their actual costs through the
 admitted operation. Do not invent watermark/signature assurances.
+
+## Reply wire output
+
+<a id="contract-reply-request"></a>
+The `Reasoning` type above is the minimal port. At runtime, text reaction
+requests also carry `schema` (in addition to `system`, `messages`, `locale`,
+`preset`, `draft` and `documentMessageIndex`). With an enabled purpose policy,
+they carry normalized `purposePolicy`, `offTopicTurns` and private
+`hiddenGuidance`; `schema` then includes `scope`. Without that policy they carry
+the ordinary reply schema. Voice replies without a purpose policy omit schema.
+Do not expose private guidance in output or logs.
+
+<a id="contract-reply-policy"></a>
+With a purpose policy, `stream` yields string chunks which concatenate to one
+JSON object matching the supplied schema: `content` (complete natural reply),
+`question_short` (string or null), `options` (up to four `{text, likely?}`
+choices, at most one likely), and `scope` (`in`, `unclear`, `off`). Put `content`
+first. JSON fences are accepted. The host buffers the whole stream before UI or
+TTS publication, parses JSON and rejects plain text, empty content, invalid
+normalized base replies and unsafe output. Card metadata is normalized rather
+than strictly validating the entire raw object: malformed choices are dropped;
+missing/invalid scope becomes `unclear`, clearing choices. Off-topic or unsafe
+output cannot publish the provider's requested off-topic content.
+
+<a id="contract-reply-plain"></a>
+Without a purpose policy, lanes use `ReplyStream`: plain text is accepted, even
+though text requests carry a schema and prompt for JSON. Content-first JSON
+streams decoded `content` only; final parsing supplies optional question cards.
+Malformed card metadata is dropped without failing usable content. Empty replies
+are rejected; reply content is bounded to 16000 characters. Never yield SSE
+framing or provider reasoning as reply content.
+
+## Failures and retry
+
+<a id="contract-error-codes"></a>
+Throw `PluginError` with one of these codes. When it reaches the HTTP handler,
+the response is `{error: code}` (with a reason only for specific allowlisted host
+messages), with these status codes. `normalizedError` preserves `PluginError`,
+turns an ordinary error into `provider`, and gives an aborted signal precedence
+(`deadline` for TimeoutError, otherwise `cancelled`).
+
+| Code | HTTP status |
+| --- | --- |
+| `cancelled` | 502 |
+| `deadline` | 502 |
+| `not-admitted` | 403 |
+| `already-claimed` | 502 |
+| `unavailable` | 502 |
+| `auth` | 502 |
+| `rate-limit` | 429 |
+| `provider` | 502 |
+| `invalid-output` | 502 |
+| `limit` | 502 |
+
+<a id="contract-reply-retry"></a>
+The purpose-policy collector permits at most two reply attempts. Each invocation
+needs fresh admission and its own settlement. Rejected output (`TypeError`,
+`invalid-output`, or a parsed reply rejected by the guard) permits the second
+attempt with additional safe-JSON guidance. Two rejected outputs yield a host
+neutral question or off-topic redirect, never the rejected wire text.
+`responseFormatUnsupported: true` on a constrained attempt requests a second,
+prompt-only attempt (`replySchemaConstrained: false`); it still carries `schema`
+and must return safe JSON. `providerErrorClass: '4xx'` labels that retry's reason
+`provider-4xx`, otherwise `schema-unsupported`. A provider error during the second
+attempt falls back unless its class is `4xx`; other provider errors propagate.
+Generic first-attempt errors, auth, rate-limit, cancellation and deadline are
+not automatically retried.
+
+<a id="contract-http-settlement"></a>
+The shared chat-completions adapter sets `providerErrorClass` from the HTTP
+status (`4xx` or `5xx`). It sets `responseFormatUnsupported` only for HTTP 400/422
+when a `response_format` was sent and the fully read error contains explicit
+schema/parameter compatibility evidence. Status alone, unrelated 400s, 408/499,
+429 and 5xx do not enable that retry. Other adapters may explicitly signal a
+streamed capability refusal with this flag; the collector trusts that signal.
+A fully received 4xx with no usage settles at zero except 408/499. Usage-bearing
+errors and 5xx without actual cost stay conservative for authoritative-cost
+adapters; actual receipts still settle actual cost. Incomplete/erroring body
+reads cannot prove zero spend. This is settlement evidence, independent of
+whether an answer is publishable.
+
+## Optional cost extensions
+
+<a id="contract-cost-reservation"></a>
+These are runtime extensions, not required members of the minimal typed port.
+`estimateCost(request, operation)` is optional: it supplies the reservation in
+feature evaluation and again for actual admission; the latter must be a safe
+integer within `binding.maxMicro`. Without it, reasoning reserves
+`binding.maxMicro`; a separate prompt/token bound still checks that ceiling.
+`providerOptions(isStream)` is optional: its adapter options enter the serialized
+prompt byte bound alongside `request.providerOptions`, system, messages and
+schema. Neither replaces the required consume/report contract.
+
+<a id="contract-cost-reconciliation"></a>
+`reconcileCost(record, options)` is optional: its presence enables durable
+provider-cost metadata and supplies `attempt.observeCost(evidence)` and
+`attempt.dispatchCost()` on admitted options. Call dispatchCost at outbound
+dispatch, observeCost as generation identity, observed floor or actual receipt
+arrives. They persist evidence and dispatch state in the budget ledger, separate
+from the required terminal report. The runtime calls reconcileCost for uncertain
+attempts without an actual receipt, with a deadline capped at five seconds.
+Without this hook, these attempt extensions are absent and uncertain terminals
+retain their reservation.
+
+`uncertainEstimateMicro` is an optional configured fallback;
+`estimateUncertainCost(request, operation)` optionally overrides it per request.
+After the reconciliation window, a valid configured
+estimate can replace the uncertain reservation, never below observed spend or a
+previous estimate. Without evidence or an estimate, the hold remains pending.
+`costEvidence(attemptId)` optionally supplies saved receipts before lookup;
+`usageCost(usage, model)` optionally supplies an observed token-cost floor;
+`reconcileSpend(attemptId, chargedMicro)` optionally repairs an adapter's spend
+ledger after non-estimated reconciliation. Actual evidence can correct an
+estimated settlement later. Receipt lookups are bounded to twelve attempts when
+a generation ID is present.
+
+The behavioural drift guard is [plugin-contract-behaviour.test.js](../test/plugin-contract-behaviour.test.js).
+Its test names include the stable paragraph anchors above; the typed inventory
+is additionally checked by [embedding.test.js](../test/embedding.test.js).
 
 ## Consent and data scope
 
@@ -185,6 +307,9 @@ browser-only text route, not automatic server fallback.
 1. **Text:** create an independently importable package with declared public
    dependencies, a manifest and a factory. Implement `Reasoning.stream`,
    `structured`, `health`, lifetime/claim/report handling and schema validation.
+   Follow [reply wire output](#contract-reply-policy): stream schema JSON under a
+   purpose policy; the no-policy host also accepts plain text. Test both paths
+   and [separate admissions for retries](#contract-reply-retry).
    Use public exports only. Give replies and analysis explicit host bindings;
    select the package solely through registry and preset configuration.
 2. **Voice:** choose STT/TTS components or a live agent. Declare audio formats,

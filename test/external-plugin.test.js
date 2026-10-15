@@ -6,10 +6,36 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import ts from 'typescript';
 import { processingScope, reasoningRequest, createSession, understandingSchema, validateManifest, PluginError } from '@inspr/aithema-core';
 import { chargedMicro, consentItem, createExternalReasoning, manifest, reply, summary, usage } from './fixtures/external-plugin/index.js';
 import { createExternalHost, externalBinding } from './fixtures/external-plugin-host.js';
 import { ownedRequest, testToken } from './helpers.js';
+
+// Parse syntax rather than matching `from`: side effects, re-exports and dynamic
+// imports are dependencies too. Non-literal imports cannot prove isolation.
+function moduleImports(source) {
+  const file = ts.createSourceFile('plugin.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS), imports = [];
+  function visit(node) {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      assert.ok(ts.isStringLiteralLike(node.moduleSpecifier), 'literal module required');
+      imports.push(node.moduleSpecifier.text);
+    }
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      assert.ok(ts.isStringLiteralLike(node.arguments[0]), 'dynamic import must have a literal public module');
+      imports.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file); return imports;
+}
+test('external import guard catches bare, dynamic and re-export dependencies', () => {
+  const forms = ["import { x } from 'private/core.js'", "import 'private/core.js'", "import('private/core.js')",
+    "export { x } from 'private/core.js'", "export * from 'private/core.js'", "import(`private/core.js`)"];
+  for (const source of forms) assert.deepEqual(moduleImports(source), ['private/core.js']);
+  assert.throws(() => moduleImports('import(variable)'), /literal public module/u);
+  assert.deepEqual(moduleImports('// import(\'ignored\')\nconst text = "from ignored";'), []);
+});
 
 test('external package resolves outside the workspace and imports only public core exports', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-external-package-'));
@@ -22,7 +48,7 @@ test('external package resolves outside the workspace and imports only public co
   const result = await promisify(execFile)(process.execPath, [join(directory, 'probe.mjs')], { cwd: directory });
   assert.equal(result.stdout.trim(), 'external/proof-v1');
   const source = await readFile(new URL('./fixtures/external-plugin/index.js', import.meta.url), 'utf8');
-  assert.deepEqual([...source.matchAll(/from ['"]([^'"]+)['"]/gu)].map(m => m[1]), ['@inspr/aithema-core']);
+  assert.deepEqual(moduleImports(source), ['@inspr/aithema-core']);
   assert.deepEqual(validateManifest(manifest), { ok: true, errors: [] });
 });
 
