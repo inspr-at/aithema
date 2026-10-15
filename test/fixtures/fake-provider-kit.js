@@ -65,9 +65,9 @@ export function createFakeProviderKit({ profile = 'openrouter' } = {}) {
       settled = true; call.released = true; init.signal?.removeEventListener('abort', onAbort); gate[method](value);
     };
     const call = { body, signal: init.signal, violation, claimed: false, released: false,
-      resolve(value = body.stream ? reply : assessment, { usage = true, cost = true, finishReason = 'stop' } = {}) {
+      resolve(value = body.stream ? reply : assessment, { usage = true, cost = true, costUSD = 0.00011, finishReason = 'stop' } = {}) {
         if (violation) return finish('resolve', Response.json(invalid(violation), { status: 400 }));
-        const receipt = usage ? { usage: { prompt_tokens: 30, completion_tokens: 40, ...(cost ? { cost: 0.00011 } : {}) } } : {};
+        const receipt = usage ? { usage: { prompt_tokens: 30, completion_tokens: 40, ...(cost ? { cost: costUSD } : {}) } } : {};
         const content = typeof value === 'string' ? value : JSON.stringify(value);
         finish('resolve', body.stream ? new Response(`data: ${JSON.stringify({ ...receipt, choices: [{ delta: { content }, finish_reason: finishReason }] })}\n\ndata: [DONE]\n\n`)
           : Response.json({ ...receipt, choices: [{ finish_reason: finishReason, message: { content } }] }));

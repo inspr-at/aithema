@@ -37,7 +37,7 @@ export async function createLaneRaceHarness() {
     const turnId = `person-${++ordinal}`;
     storage.postTurn(id, turnId, Buffer.from(content), content); handlers.lanes.supersede(id); return turnId;
   };
-  const source = turn(); handlers.conceptLane.recordIntent(id, { intentId: 'visual-wish', sourceTurnId: source });
+  const source = turn();
   const call = { callId: 'race-call', providerSessionId: 'race-provider', facadeSecretRef: 'fake-reference',
     signal: callController.signal, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 60_000 };
   const turns = createVoiceTurnOperations({ storage, log: () => {} });
@@ -58,9 +58,12 @@ export async function createLaneRaceHarness() {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
   const run = lane => {
     let promise;
-    if (lane === 'concept') promise = handlers.conceptLane.run(id, { trigger: 'manual', signal: controller.signal });
+    if (lane === 'concept') {
+      handlers.conceptLane.recordIntent(id, { intentId: 'visual-wish', sourceTurnId: source });
+      promise = handlers.conceptLane.run(id, { trigger: 'manual', signal: controller.signal });
+    }
     else if (lane === 'voice-facade') promise = facade(new Request('http://fixture/api/voice/race-call/llm/chat/completions', {
-      method: 'POST', headers: { authorization: 'Bearer fake-only' }, body: JSON.stringify({ stream: false, messages: [{ role: 'user', content: `Voice input ${ordinal}` }] })
+      method: 'POST', headers: { authorization: 'Bearer fake-only' }, body: JSON.stringify({ aithema_call: call.callId, stream: false, messages: [{ role: 'user', content: `Voice input ${ordinal}` }] })
     })).then(async response => ({ status: response.status, body: await response.json() }));
     else promise = handlers.lanes.run(id, lane, { signal: controller.signal });
     // A test may intentionally await the other lane before this rejection.
