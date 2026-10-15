@@ -564,8 +564,9 @@ async function recoveryRowMetrics(page) {
 }
 
 test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1440, DE/EN L/D, 0px reading shift', { timeout: 120_000 }, async t => {
-  const page = await fixture(t);
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
+  for (const width of [390, 1440]) await t.test(`${width}px`, async t => {
+    const page = await fixture(t, width === 390);
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
     for (const position of width === 390 ? ['following', 'scrolled-up', 'near-bottom'] : ['following']) {
       await voiceScene(page, locale, theme, width);
       await page.evaluate(async () => {
@@ -587,6 +588,7 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       await setPosition(); await frame(page);
       const before = await recoveryRowMetrics(page);
       if (width === 390) assert.equal(before.coarse && !before.fine && before.touchPoints > 0, true, 'phone has touch and no mouse pointer');
+      else assert.equal(before.fine && !before.coarse && before.touchPoints === 0, true, 'desktop has native fine pointer');
       await page.evaluate(() => {
         const reply = document.querySelector('aithema-session').session.transcript.at(-1);
         globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.content, lastReplyTurnId: reply.id });
@@ -618,8 +620,9 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
           return { hit: hit?.className, disabled: button.disabled, sameRail: globalThis.tickRail.root === r.querySelector('.audio-rail') };
         }, { x: b.left + 12, y: b.top + 22 });
         assert.deepEqual(target, { hit: 'voice-read-text', disabled: false, sameRail: true }, `text action hit target ${label}`);
-        await page.touchscreen.tap(b.left + 12, b.top + 22);
-        t.diagnostic(`touch ${label}: ${JSON.stringify(await page.evaluate(() => globalThis.rowTouchEvents))}`);
+        if (width === 390) await page.touchscreen.tap(b.left + 12, b.top + 22);
+        else await page.mouse.click(b.left + 12, b.top + 22);
+        t.diagnostic(`action ${label}: ${JSON.stringify(await page.evaluate(() => globalThis.rowTouchEvents))}`);
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), true);
         await shadow(page, c => { const dialog = c.shadowRoot.querySelector('dialog'); dialog.close(); }); await frame(page);
@@ -641,5 +644,6 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       if (following && width === 390) assert.equal(gone.scrollTop, gone.maxScroll, 'following remains at bottom');
       await record(t, 'ait190', page, `${label}-gone`, { ...gone, emptySpaceAbovePx: 0, shiftPx: following ? gone.dock.top - beforeGone.dock.top : gone.first.top - beforeGone.first.top });
     }
-  }
+    }
+  });
 });
