@@ -256,6 +256,17 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     eraseVisitor(ownerToken) { visitorCredits.eraseVisitor(hash(ownerToken)); purgeMail(); },
     retainVisitors(options) { const result = visitorCredits.retain(options); purgeMail(); return result; },
     outbox,
+    async retired({ sessionId }) {
+      await host.erased({ sessionId });
+      storage.transaction(() => {
+        // The demo chooses to discard consent history with its session.
+        for (const table of ['processing_consent_events', 'processing_consents']) {
+          if (storage.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) {
+            storage.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+          }
+        }
+      });
+    },
     async erased({ sessionId }) {
       sink.erased(sessionId);
       storage.transaction(() => {

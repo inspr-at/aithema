@@ -235,7 +235,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const event = storage.erase(id, guard);
     if (!event) return null;
     await invalidate(id, event, 'session-erased');
-    await host?.erased?.({ sessionId: id, ownerToken });
+    if (!guard.retire) await host?.erased?.({ sessionId: id, ownerToken });
     return event;
   }
   async function consentDocument(session) {
@@ -637,7 +637,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (!Number.isSafeInteger(before) || before < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new TypeError('Invalid retention request');
       const pending = storage.pendingRetirements(limit);
       const candidates = [...pending, ...storage.retirementCandidates(before, limit - pending.length)];
-      let retired = 0;
+      let retired = 0, failed = 0;
       for (const id of candidates) {
         if (retiring.has(id)) continue;
         retiring.add(id);
@@ -645,17 +645,20 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           if (pending.includes(id)) {
             const event = storage.read(id).findLast(event => event.type === 'session.erased');
             await invalidate(id, event, 'session-erased');
-            await host?.erased?.({ sessionId: id });
           } else {
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
           await consent?.withdraw?.({ sessionId: id });
+          await host?.retired?.({ sessionId: id, ownerHash: storage.retirementOwnerHash(id) });
           storage.purgeRetired(id); retired++;
+        } catch (error) {
+          // A durable tombstone is retried independently; other sessions keep moving.
+          storage.failRetirement(id); failed++;
         } finally { retiring.delete(id); }
       }
       storage.checkpointErasure();
-      return { retired, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 };
+      return { retired, failed, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 };
     },
     async reconcileUncertain({ apply = false, limit = 10 } = {}) {
       if (typeof apply !== 'boolean' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair request');

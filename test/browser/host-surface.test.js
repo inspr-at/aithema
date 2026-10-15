@@ -396,7 +396,7 @@ test('AIT-214: retiring an idle session removes its export and reload creates a 
   await page.goto('about:blank');
   const retired = once(child, 'message'); child.send({ type: 'retire', id });
   const [result] = await retired;
-  assert.deepEqual(result, { type: 'retired', result: { retired: 1, more: false } });
+  assert.deepEqual(result, { type: 'retired', result: { retired: 1, failed: 0, more: false } });
   await page.goto(ready.url);
   await page.waitForFunction(id => {
     const c = document.querySelector('aithema-session'); return c?.session?.id && c.session.id !== id;

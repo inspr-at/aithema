@@ -117,20 +117,26 @@ settings, uploads, withdrawal, concepts, and host routes.
 Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
 sessions**, without possessing visitor tokens. `before` is a nonnegative Unix
 millisecond timestamp; eligibility is strictly `lastActivity < before`. `limit`
-is an integer from 1 to 1000 (default 100). The result is `{ retired, more }`:
-`retired` counts completed full erasures; `more` means another eligible or
-pending batch exists. Repeated and overlapping calls are safe. An interrupted
+is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
+`retired` counts completed core erasures; `failed` counts sessions that failed
+this call; `more` means another eligible or due retry batch exists. Repeated and overlapping calls are safe. An interrupted
 retirement is durably queued and retried, including the host cleanup hook.
-Hooks must therefore be idempotent; failures reject the call rather than
-acknowledging incomplete deletion.
+Hooks must therefore be idempotent. A failing session stays tombstoned and
+pending with a durable attempt count and exponential backoff (1 second up to
+1 hour); the batch continues. Deferred retries do not set `more`: call again
+on the maintenance schedule even when `more` is false. Monitor `failed`;
+host failures can delay deletion beyond the intended retention window.
 
 Last activity is the latest **server timestamp** of session creation, a committed
 session event (including settings, consent, text, uploads and voice), or an
 authorized request to a session route or individual library item (including reads and export). Client turn
 timestamps cannot backdate it. Completing a protected request, stream or reasoning
 job also advances activity, so a long-lived connection starts its idle window
-when it disconnects. Failed ownership checks and maintenance scans do
-not renew activity. In-flight authorized requests, open SSE streams and running
+when it disconnects. Failed ownership checks and read-only maintenance scans do
+not renew activity. Today `expire` writes withdrawal events and schedules jobs:
+those events and job completion **do renew activity**, including when invoked
+by maintenance. Running `expire` alongside idle retention can therefore extend
+the idle window; use whole-session `retire` alone for an idle-erasure policy. In-flight authorized requests, open SSE streams and running
 text reasoning jobs exclude the session from retirement; active voice calls
 and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
 and the final idle check run under the exclusive SQLite writer, before any
@@ -139,9 +145,15 @@ from a stale candidate list. On migration, the latest stored event timestamp
 initializes activity (unknown timestamps conservatively start at migration).
 
 Retirement uses the erase route's `session.erased` invalidation: it broadcasts
-and closes live streams, cancels lanes, concepts, uploads and voice, and invokes
-`host.erased({ sessionId })`. No owner token is invented for maintenance. It then
-withdraws consent and physically deletes the session and its dependent rows.
+and closes live streams and cancels lanes, concepts, uploads and voice. It then
+withdraws consent, awaits `host.retired({ sessionId, ownerHash })`, and physically
+deletes core rows in child-before-parent FK order, then the session. The owner
+hash is captured inside the tombstone transaction. No owner token is invented;
+the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
+The host hook runs after the tombstone commits and before the separate core
+purge transaction; it may open its own transaction. A failure keeps core rows
+pending for retry. Core purge and the final batch checkpoint truncate the WAL
+for sessions already purged even if another session's hook fails.
 
 | Data | After successful retirement |
 | --- | --- |
@@ -157,11 +169,35 @@ withdraws consent and physically deletes the session and its dependent rows.
 
 SQLite uses `secure_delete` and truncates its WAL before acknowledging the
 full erase. Unreconciled deployment holds remain conservatively charged in
-aggregate; their deleted receipts can no longer be reconciled. This does not erase independent backups or remote provider copies.
-The host must use its idempotent `erased` hook to remove external session data,
-including in-memory projections; the demo removes its session mail outbox.
-SQLite extension tables using `session_id` are included in deletion; extensions
-with other keys must clean those in the hook. Visitor identity, visitor credit
+aggregate; their deleted receipts can no longer be reconciled. Retained totals
+are deployment spend/reserved/uncertain amounts and breach flags per account,
+render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
+On low-volume days, a daily total may reveal one session's usage. Daily buckets
+remain necessary for daily cap enforcement; hosts should aggregate reports by
+week and restrict access to raw daily accounting. This does not erase independent backups or remote provider copies.
+Core removes only its own explicit table list. Hosts must clean their own SQLite
+and external session rows in the idempotent `retired` hook, including in-memory
+projections. Index host `session_id` columns to avoid a full scan per session.
+Host FKs to `sessions(id)` must be removed or detached before the hook returns;
+a remaining FK blocks core purge and causes a retry. Host tables are never
+automatically deleted merely because they have a `session_id` column. Hosts may
+retain legally required records such as consent proof: that is their decision,
+to document under their own policy, with a schema independent of the deleted
+session (or a detached nullable FK). For example:
+
+```js
+const host = {
+  async retired({ sessionId, ownerHash }) {
+    storage.transaction(() => {
+      storage.db.prepare('DELETE FROM host_consent_events WHERE session_id=?').run(sessionId);
+      storage.db.prepare('DELETE FROM host_consent_grants WHERE session_id=?').run(sessionId);
+    });
+    await removeExternalSessionData({ sessionId, ownerHash }); // idempotent
+  },
+};
+```
+
+The demo deletes its own consent history, session mail outbox and wallet holds. Visitor identity, visitor credit
 accounts and deployment abuse controls are separate host records, governed by
 the host's visitor-retention policy. Shared owner credit guards are removed
 when they refer to the retired session. Do not promise provider-side deletion

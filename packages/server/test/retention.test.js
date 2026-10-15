@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { CORE_RETIREMENT_TABLES } from '../src/storage.js';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { createUIRenderLimiter } from '../src/ui-render-limits.js';
@@ -8,7 +9,7 @@ import { testToken, ownedRequest, mockConsent, temporaryDb } from '../../../test
 const request = path => ownedRequest(`http://localhost/api/sessions/${path}`);
 function fixture(t) {
   const storage = new SQLiteStorage(), erased = [];
-  const handlers = createHandlers({ storage, consent: mockConsent, host: { erased: info => erased.push(info) } });
+  const handlers = createHandlers({ storage, consent: mockConsent, host: { retired: info => erased.push(info) } });
   t.after(async () => { await handlers.close(); storage.close(); });
   return { storage, handlers, erased };
 }
@@ -28,9 +29,9 @@ test('retire erases whole sessions, calls the host, bounds batches and is idempo
     storage.db.prepare('INSERT INTO voice_turn_operations VALUES (?,?,?,?,?)').run(`op-${id}`, id, 'call', 'provider', '{}');
     age(storage, id);
   }
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 2, more: true });
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 1, more: false });
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 2, failed: 0, more: true });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 1, failed: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 0, failed: 0, more: false });
   for (const { name } of storage.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()) {
     if (storage.db.prepare(`PRAGMA table_info("${name}")`).all().some(c => c.name === 'session_id')) {
       assert.equal(storage.db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get().n, 0, name);
@@ -38,7 +39,7 @@ test('retire erases whole sessions, calls the host, bounds batches and is idempo
   }
   assert.deepEqual(storage.list(), []);
   assert.equal(erased.length, 3);
-  assert.ok(erased.every(info => info.ownerToken === undefined && ids.includes(info.sessionId)));
+  assert.ok(erased.every(info => info.ownerToken === undefined && /^[a-f0-9]{64}$/.test(info.ownerHash) && ids.includes(info.sessionId)));
   for (const id of ids) assert.equal((await handlers.handle(request(`${id}/export`))).status, 404);
 });
 
@@ -46,21 +47,21 @@ test('last activity uses server events and authorized reads, strict cutoff, and 
   const { storage, handlers } = fixture(t);
   const s = storage.create({ ownerToken: testToken });
   age(storage, s.id, 100);
-  assert.deepEqual(await handlers.retire({ before: 100, limit: 1 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 100, limit: 1 }), { retired: 0, failed: 0, more: false });
   await handlers.handle(request(s.id));
-  assert.deepEqual(await handlers.retire({ before: Date.now() - 1000, limit: 1 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: Date.now() - 1000, limit: 1 }), { retired: 0, failed: 0, more: false });
   age(storage, s.id);
   storage.append(s.id, 'turn.final', { id: 'old-client-time', role: 'user', content: 'hello', at: '1970-01-01T00:00:00.001Z' });
-  assert.deepEqual(await handlers.retire({ before: Date.now() - 1000, limit: 1 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: Date.now() - 1000, limit: 1 }), { retired: 0, failed: 0, more: false });
   const stream = await handlers.handle(request(`${s.id}/events`));
   age(storage, s.id);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, failed: 0, more: false });
   const disconnectedAt = Date.now();
   await stream.body.cancel(); await handlers.idle();
   assert.ok(storage.db.prepare('SELECT last_activity FROM session_retention WHERE session_id=?').get(s.id).last_activity >= disconnectedAt,
     'the idle clock starts when protected activity finishes, not when a long-lived stream opened');
   age(storage, s.id);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
 });
 
 test('many tombstones never enter expire or retire candidate queries', async t => {
@@ -73,7 +74,7 @@ test('many tombstones never enter expire or retire candidate queries', async t =
   await handlers.expire(2);
   assert.ok(reads <= 3, `expire hydrated ${reads} sessions`);
   reads = 0;
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
   assert.ok(reads < 15, `retire hydrated ${reads} sessions`);
   const plan = storage.db.prepare('EXPLAIN QUERY PLAN SELECT session_id FROM session_retention WHERE busy=0 AND last_activity<? ORDER BY last_activity,session_id LIMIT ?').all(2, 2);
   assert.ok(plan.some(row => /SEARCH.*retention_idle/.test(row.detail)), JSON.stringify(plan));
@@ -93,7 +94,7 @@ test('a candidate revived after selection survives the final transactional idle 
   const { storage, handlers } = fixture(t), s = storage.create({ ownerToken: testToken }); age(storage, s.id);
   const candidates = storage.retirementCandidates.bind(storage);
   storage.retirementCandidates = (...args) => { const ids = candidates(...args); if (ids.includes(s.id)) storage.touch(s.id); return ids; };
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, failed: 0, more: false });
   assert.equal(storage.get(s.id).tombstone, null);
 });
 
@@ -104,28 +105,30 @@ test('an authorized request waiting for its body protects the session', async t 
     method: 'POST', duplex: 'half', body: new ReadableStream({ start(controller) { body = controller; } }),
   }));
   age(storage, s.id);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, failed: 0, more: false });
   body.enqueue(new TextEncoder().encode('{"paused":true}')); body.close();
   assert.equal((await pending).status, 200);
   age(storage, s.id);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
 });
 
 test('failed host cleanup survives restart, is retried and only then acknowledged', async t => {
   const path = await temporaryDb();
   let storage = new SQLiteStorage(path), attempts = 0;
-  const host = { erased() { if (++attempts === 1) throw new Error('host unavailable'); } };
+  const host = { retired() { if (++attempts === 1) throw new Error('host unavailable'); } };
   let handlers = createHandlers({ storage, consent: mockConsent, host });
   t.after(async () => { await handlers.close(); storage.close(); });
   const s = storage.create(); age(storage, s.id);
-  await assert.rejects(handlers.retire({ before: 2, limit: 1 }), /host unavailable/);
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, failed: 1, more: false });
   assert.ok(storage.get(s.id).tombstone);
-  assert.deepEqual(storage.pendingRetirements(10), [s.id]);
+  assert.deepEqual(storage.pendingRetirements(10, Number.MAX_SAFE_INTEGER), [s.id]);
   await handlers.close(); storage.close();
   storage = new SQLiteStorage(path);
   handlers = createHandlers({ storage, consent: mockConsent, host });
-  assert.deepEqual(storage.pendingRetirements(10), [s.id]);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, failed: 0, more: false });
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(storage.pendingRetirements(10, Number.MAX_SAFE_INTEGER), [s.id]);
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
   assert.equal(attempts, 2); assert.deepEqual(storage.list(), []);
   const live = storage.create();
   assert.throws(() => storage.db.prepare('DELETE FROM events WHERE session_id=?').run(live.id), /append only/);
@@ -145,7 +148,7 @@ test('retirement removes accounting links while preserving deployment spend and 
   renders.consume('render-attempt', s.id, () => {});
   const spentBefore = spend.snapshot({ includeBreachReason: true }), voiceBefore = voice.snapshot();
   age(storage, s.id);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
   assert.deepEqual(spend.snapshot({ includeBreachReason: true }), spentBefore);
   assert.deepEqual(voice.snapshot(), voiceBefore);
   assert.equal(renders.reason('new-session'), 'UI render limit reached for this UTC day');
@@ -160,5 +163,76 @@ test('retirement removes accounting links while preserving deployment spend and 
 test('unauthorized reads cannot renew another session retention deadline', async t => {
   const { storage, handlers } = fixture(t), s = storage.create({ ownerToken: 'another-owner' }); age(storage, s.id);
   assert.equal((await handlers.handle(request(s.id))).status, 404);
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
+});
+
+
+test('host retired deletes FK rows before core purge, preserving host retention decisions', async t => {
+  const storage = new SQLiteStorage();
+  storage.db.exec(`CREATE TABLE host_parent (id TEXT PRIMARY KEY, conversation TEXT REFERENCES sessions(id));
+    CREATE TABLE host_child (session_id TEXT REFERENCES host_parent(id));
+    CREATE TABLE legal_proof (session_id TEXT, proof TEXT);
+    CREATE INDEX legal_proof_session ON legal_proof(session_id);`);
+  const session = storage.create(); age(storage, session.id);
+  storage.db.prepare('INSERT INTO host_parent VALUES (?,?)').run(session.id, session.id);
+  storage.db.prepare('INSERT INTO host_child VALUES (?)').run(session.id);
+  storage.db.prepare('INSERT INTO legal_proof VALUES (?,?)').run(session.id, 'retain by host policy');
+  const handlers = createHandlers({ storage, consent: mockConsent, host: {
+    erased() { assert.fail('retire must use its dedicated hook'); },
+    retired({ sessionId, ownerHash }) {
+      assert.ok(storage.get(sessionId).tombstone);
+      assert.equal(ownerHash, session.ownerHash);
+      storage.db.prepare('DELETE FROM host_child WHERE session_id=?').run(sessionId);
+      storage.db.prepare('DELETE FROM host_parent WHERE conversation=?').run(sessionId);
+    },
+  } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
+  assert.deepEqual(storage.db.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM host_child').get().n, 0);
+  assert.equal(storage.db.prepare('SELECT proof FROM legal_proof WHERE session_id=?').get(session.id).proof, 'retain by host policy');
+});
+
+test('one failing hook does not block the batch, checkpoint or later batches', async t => {
+  const storage = new SQLiteStorage();
+  const bad = storage.create(), good = storage.create();
+  for (const s of [bad, good]) age(storage, s.id);
+  let fail = true, checkpoints = 0;
+  const checkpoint = storage.checkpointErasure.bind(storage);
+  storage.checkpointErasure = () => { checkpoints++; checkpoint(); };
+  const handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ sessionId }) {
+    if (sessionId === bad.id && fail) throw new Error('offline');
+  } } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 1, failed: 1, more: false });
+  assert.ok(checkpoints >= 3);
+  assert.ok(storage.get(bad.id).tombstone);
+  assert.throws(() => storage.get(good.id), /not found/i);
+  const pending = storage.db.prepare('SELECT * FROM retirement_pending').get();
+  assert.equal(pending.attempts, 1); assert.equal(pending.owner_hash, bad.ownerHash);
+  assert.ok(pending.retry_at > Date.now());
+  const later = storage.create(); age(storage, later.id);
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
+  fail = false;
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
+});
+
+test('explicit core list covers initialized core session tables and respects child FKs', t => {
+  const { storage } = fixture(t);
+  new SQLiteBudgetLedger(storage);
+  createSpendCap({ storage, account: 'schema', capMicro: 100 });
+  createVoiceCap({ storage }); createUIRenderLimiter({ storage });
+  for (const { name } of storage.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()) {
+    if (storage.db.prepare(`PRAGMA table_info("${name}")`).all().some(c => c.name === 'session_id')) {
+      assert.ok(CORE_RETIREMENT_TABLES.includes(name), `unlisted core table: ${name}`);
+    }
+  }
+  // Exercise a child-to-child FK, independent of table creation/list order.
+  storage.db.exec('CREATE TABLE IF NOT EXISTS lane_failures (session_id TEXT REFERENCES sessions(id)); ALTER TABLE lane_failures ADD COLUMN content_id TEXT REFERENCES content(id)');
+  const order = storage.retirementDeleteOrder();
+  assert.ok(order.indexOf('lane_failures') < order.indexOf('content'));
+  for (const name of order) for (const fk of storage.db.prepare(`PRAGMA foreign_key_list("${name}")`).all()) {
+    if (order.includes(fk.table)) assert.ok(order.indexOf(name) < order.indexOf(fk.table));
+  }
 });
