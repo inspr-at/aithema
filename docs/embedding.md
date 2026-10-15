@@ -392,3 +392,15 @@ The symbol audit of the original MISS rows is:
 | elevenlabs/config | Public through `./voice-host`: `normalizeElevenLabsDurationBinding` is needed at the host's adapter boundary. |
 | elevenlabs/ensure-agent | Internal implementation behind public `createElevenLabsVoiceHost`; ownership/read-back and retries stay in one implementation. |
 | plugins/fake-voice/client | Internal test-only fixture: retained browser simulator path, no public plugin package. |
+
+Round 5 integration keeps consent coverage on the existing core root export:
+`plugins/elevenlabs/src/components.js` and
+`plugins/composed-voice/src/configuration.js` import `consentCoverage` through
+core's index, which already re-exports it. The packer maps that edge to
+`@inspr/aithema-core`; no `./consent` subpath or new public symbol is added.
+The composed-voice adapter remains an internal proof without a package manifest.
+The AIT-200 external-plugin fixture uses public core/server imports and its own
+relative adapter import; it is served by a separate test host, outside the demo
+module graph. The new ElevenLabs components are internal package implementation
+files, and the demo does not import them directly. Neither needs a demo guard
+exception or a new public export.
