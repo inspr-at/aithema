@@ -17,7 +17,7 @@ const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessio
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {}, analysisGate, voiceCallbacks } = {}) {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
     calls.push(request);
@@ -35,7 +35,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
     const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets(), ...(voiceCallbacks ? { callbackAdapter: { bindCallbacks(operations) { voiceCallbacks(operations); return { callbackRoutes: [] }; } } } : {}) } } : {}), log });
   const session = storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
@@ -460,4 +460,32 @@ for (const next of ['project', 'withdrawal']) test(`AIT-188 V1: ${next} still in
   const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
   if (next === 'project') { assert.equal(updates.length, 1); assert.match(updates[0].data.summary, /order processing/u); }
   else { assert.equal(updates.length, 0); assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false); }
+});
+
+
+test('AIT-188 gate1 voice: off-topic completion wakes retained overview without another event', { timeout: 3000 }, async t => {
+  const analysis = Promise.withResolvers(), scope = Promise.withResolvers(), entered = Promise.withResolvers(), published = Promise.withResolvers();
+  let callbacks;
+  const f = fixture(t, { voice: true, voiceCallbacks: value => { callbacks = value; }, analysisGate: analysis.promise,
+    outputs: async (_, n) => { if (n > 1) await scope.promise; return envelope('What should the project improve?', n === 1 ? 'in' : 'off'); } });
+  t.after(() => { analysis.resolve(); scope.resolve(); });
+  await f.handlers.handle(req(f.session.id, 'turns', { content: 'Our company needs a website.', clientEventId: 'voice-project' }));
+  await waitForPurpose(() => f.assessments.length === 1);
+  const call = await f.handlers.handle(req(f.session.id, 'voice', { callId: 'settle-voice' })).then(r => r.json());
+  const settle = f.handlers.lanes.settleUnderstanding;
+  f.handlers.lanes.settleUnderstanding = (...args) => { const result = settle(...args); entered.resolve(); return result; };
+  const publish = f.handlers.lanes.publish;
+  f.handlers.lanes.publish = (...args) => { const result = publish(...args); if (args[1] === 'understanding.updated' && result) published.resolve(); return result; };
+  assert.equal((await f.handlers.handle(req(f.session.id, `voice/${call.callId}/events`, { providerSessionId: call.providerSessionId,
+    event: { type: 'final', callId: call.callId, turnId: 'voice-off', role: 'user', text: 'Give me a soup recipe.', userTurnOrdinal: 1 } }))).status, 200);
+  await waitForPurpose(() => f.calls.length === 2);
+  analysis.resolve(); await entered.promise;
+  assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false);
+  callbacks.onCompletion({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: 'off-reply',
+    content: 'What should the project improve?', userTurnOrdinal: 1, scope: 'off' });
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
+  await published.promise;
+  assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, true);
+  assert.equal(f.assessments.length, 1, 'scope wake starts no replacement assessment');
+  assert.doesNotMatch(f.storage.get(f.session.id).understanding.summary, /soup/iu);
 });
