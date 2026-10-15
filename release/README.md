@@ -31,6 +31,9 @@ Retain `first/`, `candidate-evidence.json`, `deployment-pin.json`,
 The consumer deployment contains relative `file:artifacts/` pins, tarballs,
 package/lock and the executable smoke script: run `npm ci` then `node smoke.mjs`
 in that directory on the build runner. It contains no workspace links.
+PR CI also retains a `reset-candidate` artifact for 90 days, with canonical GNU
+archives and the same consumer proof; this is artifact storage, not registry or
+forge publication.
 The remote evidence copy is placed under ignored `dist/ait105/`; the committed
 `release/evidence.json` records the source commit and digest table. Reproduce
 the recorded source commit, not a subsequent evidence-only commit. BSD and GNU

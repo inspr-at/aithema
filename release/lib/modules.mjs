@@ -26,7 +26,7 @@ export function moduleFiles(files, pkg) {
   }
   members.set('LICENSE', files.get('LICENSE'));
   members.set('README.md', files.get('docs/embedding.md'));
-  // Keep source provenance/rights and the dependency lock available in each package.
+  // Keep source provenance and rights notes available in each package.
   members.set('SOURCE.md', files.get('README.md'));
   members.set('release-runtime.json', files.get('release/runtime.json'));
   const metadata = JSON.parse(members.get('package.json'));
