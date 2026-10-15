@@ -79,5 +79,6 @@ export function migrationGate(source, evidence = {}) {
   if (!/^sha256:[a-f0-9]{64}$/u.test(evidence['immutable-candidate']?.artifact_sha256 ?? '') ||
     !/^[a-f0-9]{40}$/u.test(evidence['immutable-candidate']?.source_commit ?? '') ||
     evidence['immutable-candidate']?.version !== source.version) pending.push('candidate-binding');
-  return { authoritative: pending.length === 0, pending };
+  return { authoritative: pending.length === 0, pending,
+    qualifications: { 'AIT-139': 'not measured (Markus decision)', 'AIT-160': 'not measured (Markus decision)' } };
 }

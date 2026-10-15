@@ -2,7 +2,7 @@
   "schema": "aithema-migration-inventory/1",
   "ticket": "AIT-105 / AIT-32",
   "decision": "Markus 2026-10-14: first reset release adopts inspr-calver-3; separate publish go required",
-  "presentation_pin": "release/presentation.json; independent controller review pending",
+  "presentation_pin": "release/presentation.json; pin review passed in controller-supplied AIT-105 gate1",
   "compatibility_window": "Keep stable legacy and calendar/v1 readers until every supported consumer and rollback path is evidenced; removal needs a separate owner-approved change",
   "not_applicable": [
     "OCI images (none shipped)",
@@ -10,9 +10,7 @@
     "native apps (none shipped)",
     "automatic update feeds (none shipped)"
   ],
-  "pending": [
-    "presentation pin review"
-  ],
+  "pending": [],
   "surfaces": [
     {
       "repository_alias": "aithema",
@@ -24,9 +22,9 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "workspace-package",
-      "release_surfaces": "fifteen npm-compatible module tarballs plus workspace/source archive, exact package/lock, SPDX SBOM; tag-only GitHub artifact attestation",
+      "release_surfaces": "fifteen npm-compatible module tarballs plus workspace/source archive, exact package/lock, SPDX SBOM; tag-only immutable GitHub release + SHA256SUMS + GitHub artifact attestations",
       "consumers": "release scripts; workspace dependency pins; npm; deployment pin; backup labels",
       "external_constraints": "npm SemVer syntax; no bounded integer/shortened coordinate"
     },
@@ -40,7 +38,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "service",
       "release_surfaces": "HTTP health API, exported ZIP generator, logs/support diagnostics",
       "consumers": "thin hosts; archive consumers; operators",
@@ -56,7 +54,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "web-components",
       "release_surfaces": "hover/focus version details; canonical clipboard; product name",
       "consumers": "web embedding hosts; shared pinned renderer/interaction",
@@ -72,7 +70,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "plugin-packages",
       "release_surfaces": "package metadata; workspace artifact; technical plugin manifest API protocol",
       "consumers": "plugin loaders; registry; binding runtime",
@@ -88,7 +86,7 @@
       "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar 261015164601.0.0 sequence 12",
       "owning_ticket": "AIT-105 / AIT-32",
       "owner_role": "product-owner",
-      "status": "candidate evidenced; separate publish go and presentation pin review outstanding",
+      "status": "candidate evidenced; separate publish go outstanding; presentation pin passed in gate1",
       "artifact_class": "release-set",
       "release_surfaces": "source tree and dependency lock provenance; every output/member digest; validation run",
       "consumers": "CI admission; verification; exact-artifact rollback",

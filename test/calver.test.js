@@ -55,6 +55,11 @@ test('owner candidate authorization reserves without claiming publication or mea
   assert.equal(gate.authoritative, false);
   assert.ok(gate.pending.includes('presentation-pin'));
   assert.ok(!gate.pending.includes('AIT-139')); assert.ok(!gate.pending.includes('AIT-160'));
+  assert.deepEqual(gate.qualifications, {
+    'AIT-139': 'not measured (Markus decision)', 'AIT-160': 'not measured (Markus decision)',
+  });
+  const claimed = migrationGate(candidate, { 'AIT-139': { status: 'verified' }, 'AIT-160': { status: 'verified' } });
+  assert.deepEqual(claimed.qualifications, gate.qualifications);
 });
 
 test('historical release-manifest scheme declarations remain explicit, unchanged legacy records', () => {

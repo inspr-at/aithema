@@ -255,13 +255,13 @@
   },
   "delivery": {
     "draft_pr": "https://github.com/inspr-at/aithema/pull/173",
-    "registry_recommendation": "public npm under @inspr; owner choice remains open",
     "release_notes": "release/notes.md",
-    "inventory_pending": [
-      "presentation pin review"
-    ],
+    "inventory_pending": [],
     "tag_created": false,
     "github_release_created": false,
-    "registry_published": false
+    "registry_published": false,
+    "publish_route": "GitHub release tarballs + SHA256SUMS + attestations; GITHUB_TOKEN only; OPS publishes after Markus Desk go",
+    "shipped_bytes": "The Linux tag build is the single source of shipped bytes; it runs consumer.mjs on dist/release before checksums, attestation and release creation. This historical BSD evidence does not identify shipped bytes.",
+    "presentation_pin_review": "passed in controller-supplied AIT-105 gate1"
   }
 }

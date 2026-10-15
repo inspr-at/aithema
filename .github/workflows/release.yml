@@ -1,9 +1,8 @@
-name: release-prep
+name: release
 
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,9 +13,9 @@ concurrency:
 
 jobs:
   pack:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: read
+      contents: write
       id-token: write
       attestations: write
     runs-on: ubuntu-latest
@@ -37,20 +36,69 @@ jobs:
         env:
           RELEASE_REF: ${{ github.ref }}
         run: node release/gate.mjs tag "$RELEASE_REF"
+      - name: Cache the locked consumer dependency closure
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build the immutable workspace artifact once
         env:
           AITHEMA_CANONICAL_RELEASE: '1'
         run: node release/pack.mjs pack dist/release "$GITHUB_REF"
       - name: Verify the same bytes
         run: node release/pack.mjs verify dist/release
-      - name: Attest the manifest and every immutable archive
+      - name: Test consumers against the exact archives to be shipped
+        run: node release/consumer.mjs dist/release
+      - name: Generate SHA256SUMS from the tested release set
+        working-directory: dist/release
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const manifestBytes = readFileSync('release-set.json');
+          const manifest = JSON.parse(manifestBytes);
+          const consumer = JSON.parse(readFileSync('consumer-evidence.json'));
+          const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+          assert.equal(consumer.source_commit, manifest.source.commit);
+          assert.equal(consumer.manifest_sha256, 'sha256:' + sha256(manifestBytes));
+          assert.deepEqual(consumer.packages, manifest.artifacts.filter(a => a.kind === 'module')
+            .map(({ name, path, sha256 }) => ({ name, path, sha256 })));
+          assert.deepEqual(readdirSync('.').filter(path => path.endsWith('.tgz')).sort(),
+            manifest.artifacts.map(a => a.path).sort());
+          const lines = manifest.artifacts.map(a => {
+            assert.match(a.path, /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.tgz$/u);
+            assert.match(a.sha256, /^sha256:[a-f0-9]{64}$/u);
+            assert.equal('sha256:' + sha256(readFileSync(a.path)), a.sha256);
+            return `${a.sha256.slice(7)}  ${a.path}`;
+          });
+          for (const path of ['release-set.json', 'consumer-evidence.json', 'consumer-package-lock.json', 'deployment-pin.json']) {
+            lines.push(`${sha256(readFileSync(path))}  ${path}`);
+          }
+          writeFileSync('SHA256SUMS', lines.join('\n') + '\n', { flag: 'wx' });
+          NODE
+      - name: Attest the tested archives, checksums, manifest and consumer evidence
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
             dist/release/*.tgz
+            dist/release/SHA256SUMS
             dist/release/release-set.json
-      # Artifact retention only. Registry/forge publication remains a separate owner go.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+            dist/release/consumer-evidence.json
+            dist/release/consumer-package-lock.json
+            dist/release/deployment-pin.json
+      # OPS enables repository release immutability before the authorized tag push.
+      # gh stages attached assets in a draft, then publishes the completed set.
+      - name: Create the immutable GitHub release from the tested bytes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file release/notes.md \
+            dist/release/*.tgz dist/release/SHA256SUMS dist/release/release-set.json \
+            dist/release/consumer-evidence.json dist/release/consumer-package-lock.json \
+            dist/release/deployment-pin.json
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq '.isImmutable')" = true
+      - name: Retain the tested set and portable consumer deployment
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aithema-reset-${{ github.ref_name }}
           path: dist/release/

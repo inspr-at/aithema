@@ -1,4 +1,4 @@
-# Candidate operation and registry recommendation
+# Candidate operation and GitHub release route
 
 The sole version authority is `release/version.json`; package manifests and the
 lockfile mirror its exact coordinate. An owner-authorized candidate reservation
@@ -38,41 +38,73 @@ PR CI also retains a `reset-candidate` artifact for 90 days, with canonical GNU
 archives and the same consumer proof; this is artifact storage, not registry or
 forge publication.
 The remote evidence copy is placed under ignored `dist/ait105/`; the committed
-`release/evidence.json` records the source commit and digest table. Reproduce
-the recorded source commit, not a subsequent evidence-only commit. BSD and GNU
-tar encode different bytes: remote evidence records its exact toolchain;
-the tag workflow requires Node 24 and GNU tar, so its artifact set needs its own
-retained manifest. Never label a rebuilt tag archive as the retained BSD candidate.
+`release/evidence.json` records a historical BSD candidate, not shipped bytes.
+BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
+and retention evidence for that CI source commit, not a promise that a later tag
+build has the same digests.
 
-## Recommendation for Markus's separate publish go
+## OPS publish route after Markus's Desk go
 
-Recommend **public npm packages under `@inspr`**, subject to Markus choosing the
-registry and confirming scope ownership. This fits the existing public package
-names, public AGPL source and ordinary npm consumers such as START, and supports
-npm's provenance/trusted publishing path. GitHub Packages remains an alternative
-if the owner prefers repository-scoped distribution; it adds consumer registry
-configuration/authentication. Its scope must match the package owner: distribution
-from `inspr-at` would require `@inspr-at` names (or an owner arrangement for
-`@inspr`), so it cannot silently substitute for the proposed npm namespace.
-No registry URL is hardwired into `publishConfig`, and no publishing command or
-credential is added to the workflow.
+OPS owns the exact-SHA rehearsal, clean-clone `v*` tag push, release run,
+attestation verification and publication after Markus's separate Desk go.
+The builder only prepares the candidate, notes and reservation through the PR.
+The route is **public GitHub release tarballs**, SHA256SUMS and GitHub artifact
+attestations, using only the workflow's `GITHUB_TOKEN`. No npm registry account,
+npm publication, GitHub Packages registry or consumer token is required.
 
-For this step, registry-neutral GitHub artifact attestations cover the manifest
-and every tarball in the **tag-only** job. `id-token: write` and
-`attestations: write` are scoped to that job; the action is pinned to a full
-commit. PR/manual execution cannot enter the tag build. A later authorized tag
-must match the reserved version and belong to main. Its upload retention is 90
-days; move the exact archive/manifest/bundle to durable owner storage before it
-expires. Candidate digests alone are not a cryptographic attestation.
+Before pushing the authorized tag, OPS must enable **immutable releases** in the
+repository settings. It was disabled at the round-2 read-only check. This is an
+owner setting, not a permission added to the release job. GitHub CLI stages the
+assets in a draft and publishes the completed set; the workflow then requires
+`isImmutable` to be true. A failed run must be investigated, never fixed by
+replacing published assets or reusing the coordinate for changed bytes.
 
-After the separate go, verify downloaded tagged bytes using
-`gh attestation verify ARCHIVE --repo inspr-at/aithema` and
-`gh attestation verify release-set.json --repo inspr-at/aithema`, then compare the
-retained manifest digest. If npm is selected, configure trusted publishing and
-provenance for every package as a separate publication change; publish these
-already-built tarballs, never repack on publication.
+The **tag build is the single source of shipped bytes**. Only a pushed `v*` tag
+can enter `.github/workflows/release.yml`; there is no manual publication path.
+The tag must exactly match the reservation and its commit must belong to main.
+On Ubuntu with Node 24 and GNU tar, the job:
+
+1. Caches the source lock's dependencies with `npm ci`, packs once into
+   `dist/release`, and verifies every archive against `release-set.json`.
+2. Runs `release/consumer.mjs dist/release` against those exact archives before
+   attestation or release creation. The scratch install, locked reinstall,
+   dependency replacement and exact rollback must all pass.
+3. Generates SHA256SUMS from the manifest's artifact digest table, rechecks the
+   actual archive hashes and exact archive set, and rejects consumer evidence
+   whose source, manifest digest or package digest table differs. It also hashes
+   the manifest, consumer evidence, portable lock and deployment pin.
+4. Attests every tarball, SHA256SUMS, manifest and the three evidence files with
+   the SHA-pinned `actions/attest-build-provenance`. Only this job has
+   `contents: write`, `id-token: write` and `attestations: write`.
+5. Uses `gh release create --verify-tag --notes-file release/notes.md` to attach
+   those same files without repacking, then verifies the release is immutable.
+   The complete portable consumer deployment is also retained for 90 days.
+
+The signed SHA256SUMS and manifest therefore name the files tested in that same
+Linux tag run and attached to the release. `consumer-evidence.json` binds the
+manifest SHA-256, source commit and all fifteen package digests;
+`consumer-package-lock.json` records sha512 integrity for those tarball bytes.
+No earlier BSD or PR candidate digest is presented as the shipped digest.
+
+Download all release assets into a clean directory on the build runner. Verify
+`gh attestation verify SHA256SUMS --repo inspr-at/aithema` and the manifest,
+evidence and every tarball with the same command, then run
+`sha256sum --check SHA256SUMS`. Retain this exact set and its manifest digest in
+durable owner storage. Consumers install the fifteen module tarballs by release
+URL in one invocation (one URL per module), for example:
+
+```sh
+npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<tag>/<pkg>.tgz
+```
+
+Here `<tag>` is `v` followed by the reserved version, and `<pkg>` is a module
+archive filename without the `.tgz` suffix from `release-set.json`. Pass all
+fifteen URLs together so their mutual dependencies resolve without a registry
+publication. Commit the host's lockfile: its URL resolutions and sha512 integrity
+pin the downloaded bytes. Use `npm ci` for subsequent installations; retain the
+verified archives and deployment pin for an exact-artifact rollback. The
+workspace archive is retained source, not an installable root package.
 
 References: [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations),
-[npm provenance](https://docs.npmjs.com/generating-provenance-statements/),
-[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/),
-[GitHub npm registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry).
+[GitHub CLI release creation and immutability](https://cli.github.com/manual/gh_release_create),
+[repository immutability setting](https://docs.github.com/en/rest/repos/repos#check-if-immutable-releases-are-enabled-for-a-repository).

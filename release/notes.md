@@ -67,11 +67,11 @@ and reruns the consumer smoke test. No release coordinate or mutable alias moves
   exchangeability evidence. This is disclosed, not a release blocker.
 - **Legal formalisation is out of scope (D3).** Existing rights/provenance notes
   and AGPL-3.0-only remain; this candidate grants no additional licence.
-- The independent shared presentation pin review stays pending for the
-  cross-family gate. No review gate is run as part of this builder lane.
+- The shared presentation pin review passed in the controller-supplied AIT-105
+  gate1 report. No review gate is run as part of this builder lane.
 - A browser bundler/import map and module JSON support are required. Scratch DOM
   mounts do not prove real-browser layout, CSP enforcement or live provider quality.
 
-See [embedding](../docs/embedding.md), [registry recommendation and reproduction](README.md)
+See [embedding](../docs/embedding.md), [GitHub release route and reproduction](README.md)
 and [migration inventory](inventory.json). Machine-readable evidence is retained
 with the candidate and summarized in `release/evidence.json` after verification.

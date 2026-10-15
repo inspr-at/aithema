@@ -5,7 +5,7 @@ single version authority. The root workspace is private. The release packer
 emits independently installable core, server, UI and twelve provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
 No reset package has been published. Node.js 24 or newer is required.
-See [candidate notes](../release/notes.md) and the [registry recommendation](../release/README.md).
+See [candidate notes](../release/notes.md) and the [GitHub release route](../release/README.md).
 
 ## Consume Aithema as a module (START or another thin host)
 
@@ -23,6 +23,22 @@ Use `npm ci` with those retained paths for subsequent deployments. A browser
 bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
+
+After OPS publishes the immutable GitHub release following Markus's Desk go,
+install the same fifteen modules by release URL in one invocation, rather than
+from a package registry. The URL pattern is:
+
+```sh
+npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<tag>/<pkg>.tgz
+```
+
+Use the exact `v<version>` tag and module filenames from `release-set.json`, and
+pass all fifteen module URLs together. First download and verify the attested
+SHA256SUMS, manifest and tarballs as described in the [release route](../release/README.md).
+Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
+`npm ci` for repeat deployments and retain the verified artifacts for rollback.
+Public release downloads need no consumer token. The Linux tag build tests the
+exact published tarballs; historical BSD candidate digests do not cover them.
 
 The host supplies durable storage, authoritative identity/ownership and consent,
 and budget policy. The server and UI are mounted independently; the demo is
@@ -135,7 +151,9 @@ uses the pinned shared Pretty renderer there, with canonical copy, UTC tooltip,
 keyboard/touch interaction and reduced motion. The popup shows the notice, then
 `Version 26.10.14 · 08:00` on its own line, followed by muted UTC build details.
 Tick’s approved separators are passed to the shared renderer by the product
-adapter; the upstream bundle stays pinned. Copy confirmation replaces the
+adapter, with weight 1 for hours/minutes and dark ink for segments/separators;
+the upstream bundle and base config stay pinned. `release/presentation.json`
+records these intended product overrides. Copy confirmation replaces the
 version in a reserved slot for 1.2 seconds. Unknown schemes hide only the
 version row and log once, leaving the session usable. Auto colors use the host branding;
 `host.version.display: "semver"` selects the full reduced coordinate in that same
