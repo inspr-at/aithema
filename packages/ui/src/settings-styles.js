@@ -153,6 +153,13 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .done:hover { background:var(--aithema-ink); }
 .general { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem; align-items:start; }
 .general section { display:grid; gap:.6rem; align-content:start; }
+.general .consent-editor { grid-column:1/-1; }
+.consent-items { border:0; padding:0; margin:0; display:grid; gap:1.2rem; }
+.consent-item { display:grid; gap:.35rem; }
+.consent-item label { display:flex; align-items:center; gap:.6rem; }
+.consent-item input { flex:none; width:20px; height:20px; accent-color:var(--aithema-accent); }
+.consent-item p, .consent-intro, .consent-withdrawal, .consent-status { margin:0; font-size:.8125rem; line-height:1.5; color:var(--aithema-muted); }
+.consent-status { min-height:1.5em; }
 .general h3 { font:400 1.25rem/1.2 var(--aithema-display); }
 .general button { justify-self:start; margin-left:-.85rem; }
 .status-line { font-size:.85rem; }

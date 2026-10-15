@@ -1,3 +1,4 @@
+import { ConsentSettings } from './consent-settings.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
@@ -69,11 +70,12 @@ export function engineView(session) {
 }
 
 export class SettingsDialog {
-  #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
+  #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
+    if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, save: ports.saveConsent, done: () => this.close() } });
     if (operator) this.#operator = new OperatorSettings({ parent: this.#q('.general'), copy: this.#copy, operator });
   }
   get open() { return this.#dialog.open; }
@@ -122,7 +124,7 @@ export class SettingsDialog {
               <button type="button" class="general-consent-manage" data-text="manageConsent"></button></section>
             <section><h3 data-text="defaultsTitle"></h3><p class="note" data-text="defaultsHint"></p>
               <button type="button" class="general-recommended" data-text="recommended"></button></section>
-            <section class="host-verify" hidden></section></div>
+            <section class="consent-editor" hidden></section><section class="host-verify" hidden></section></div>
         </section>
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
@@ -150,6 +152,7 @@ export class SettingsDialog {
     this.#wire();
   }
   setCopy(copy) {
+    this.#consentEditor?.setCopy(copy);
     const old = this.#copy.settings;
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
@@ -298,6 +301,10 @@ export class SettingsDialog {
     this.sync();
   }
   /** The credits action opens General and scrolls to the existing E-Mail cell. */
+  openConsent(feature, opener) {
+    this.openAt('general', '.consent-editor', opener);
+    void this.#consentEditor?.open(feature);
+  }
   openAt(tab, anchor, opener) {
     this.open(opener, { tab });
     this.#setTab(tab);
@@ -336,10 +343,11 @@ export class SettingsDialog {
     // Unsent drafts are discarded; the summary always shows the acknowledged choice.
     if (!this.#saving) { this.#draft = this.#active ? { ...this.#active } : null; this.#failed = false; this.#notice = null; }
     if (typeof this.#dialog.close === 'function') this.#dialog.close(); else this.#dialog.removeAttribute('open');
+    this.#consentEditor?.close();
     this.#ports.closed?.();
     // A save can re-render the card that opened the dialog; focus then returns to a stable control.
-    const target = this.#opener?.isConnected ? this.#opener : this.#ports.focusFallback?.(this.#opener);
-    target?.focus();
+    const target = this.#opener?.isConnected ? this.#opener.hidden ? this.#opener.parentElement : this.#opener : this.#ports.focusFallback?.(this.#opener);
+    target?.focus({ preventScroll: true });
     this.#closing = false;
   }
   /** The verification dialog opens only after every draft is acknowledged. */

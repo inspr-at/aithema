@@ -512,6 +512,8 @@ export const de = {
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
   // Legal copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
+  featureConsent: { html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
+    action: 'Einwilligen…', save: 'Einwilligung speichern' },
   processingConsent: {
     // START src/lib/i18n.ts:2739 (consentCopy.de.intro).
     intro: 'Legen Sie einmal fest, welche Verarbeitung Sie freigeben. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange die gewählte Verarbeitung hier freigegeben ist, können Sie Einstellungen ändern, ohne erneut zuzustimmen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',

@@ -1,3 +1,5 @@
+import { isConsentReason } from '../../core/src/settings.js';
+import { paintConsentLine } from './consent-line.js';
 import { postJson, sameOrigin } from './post-json.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
@@ -50,8 +52,8 @@ export class ConceptView {
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
   }
-  constructor({ root, copy, baseUrl, sessionToken, receive, feature }) {
-    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature });
+  constructor({ root, copy, baseUrl, sessionToken, receive, feature, consent }) {
+    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature, consent });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -182,14 +184,16 @@ export class ConceptView {
     const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
     const initial = this.#stageFeature === undefined;
-    if (!this.#session.paused || initial) this.#stageFeature = this.feature({ ignorePause: true });
+    const current = this.feature({ ignorePause: true });
+    const consentChanged = isConsentReason(current.rawReason ?? current.reason) || isConsentReason(this.#stageFeature?.rawReason ?? this.#stageFeature?.reason);
+    if (!this.#session.paused || initial || consentChanged) this.#stageFeature = current;
     const feature = this.#session.consentWithdrawn || this.#session.tombstone ? this.feature() : this.#stageFeature;
     const words = conceptStateText({ copy: this.copy, status, feature, items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
     // Tick L1: pausing gates actions, but keeps the stage's pre-pause words.
     // A reload has no previous words: initialize from the underlying feature verdict.
     // Consent withdrawal and erasure still clear dependent presentation normally.
-    if (initial || !this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) {
-      if (text.textContent !== words) text.textContent = words;
+    if (initial || !this.#session.paused || consentChanged || this.#session.consentWithdrawn || this.#session.tombstone) {
+      paintConsentLine(text, { copy: this.copy, feature: 'html', verdict: feature, text: words, open: opener => this.consent?.(opener) });
     }
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;

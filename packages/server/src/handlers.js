@@ -504,7 +504,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
-      if (action === 'consent' && request.method === 'GET' && consent.describe) return json(consent.describe(id));
+      if (action === 'consent' && request.method === 'GET' && consent.describe) {
+        const document = await consent.describe(id);
+        const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
+          pluginRuntime.scopes(authorized, { feature }).map(scope => scope.purpose).filter(purpose => document.items?.some(item => item.id === purpose)))]]));
+        return json({ ...document, features });
+      }
       if (action === 'erase' && request.method === 'POST') {
         const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
         await host?.erased?.({ sessionId: id, ownerToken });

@@ -1,3 +1,4 @@
+import { paintConsentLine } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
@@ -308,6 +309,12 @@ export class AithemaSession extends HTMLElement {
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
+      consentDocument: async () => {
+        const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/consent`, { headers: this.#headers() });
+        if (!response.ok) throw new Error('Consent document unavailable');
+        return response.json();
+      },
+      saveConsent: body => this.#saveConsent(body),
       generalShown: () => this.#host?.verification?.email.beginSettings?.(),
       closed: () => this.#host?.verification?.email.endSettings?.(),
       catalog: () => this.#loadCatalog(), save: body => this.#saveSettings(body),
@@ -319,6 +326,7 @@ export class AithemaSession extends HTMLElement {
     } });
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
+      consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');
@@ -368,6 +376,7 @@ export class AithemaSession extends HTMLElement {
         const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
         return turn && { turnId: turn.id, text: turn.content };
       },
+      consent: opener => this.#dialog.openConsent('voice', opener),
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       onRender: rail => this.#syncVoicePause(rail),
@@ -698,6 +707,21 @@ export class AithemaSession extends HTMLElement {
     this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { processingPreset, settings: structuredClone(settings ?? {}),
       previousSessionId: this.#session.id }, bubbles: true, composed: true }));
   }
+  async #saveConsent(body) {
+    const sessionId = this.#session.id;
+    const response = await postJson(`${this.#base}/api/sessions/${sessionId}/consent`, body, { sessionToken: this.#sessionToken });
+    if (!response.ok) throw new Error('Consent save failed');
+    const ack = await response.json();
+    if (sessionId !== this.#session.id || ack.granted !== body.granted) throw new Error('Consent acknowledgement missing');
+    // The current server document confirms the exact decision; HTTP success alone is not consent.
+    const current = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
+    if (!current.ok) throw new Error('Consent confirmation unavailable');
+    const doc = await current.json(), items = body.processing.items;
+    if (doc.contract !== body.processing.contract || !Array.isArray(doc.selected) || doc.selected.length !== items.length ||
+      !items.every(item => doc.selected.includes(item))) throw new Error('Consent decision unconfirmed');
+    if (ack.event) this.receive(ack.event);
+    await this.#refreshFeatures();
+  }
   #requestConsent(reason, features = FEATURES.filter(f => isConsentReason(this.#feature(f).reason))) {
     // The host's consent interface lies outside this modal dialog.
     this.#dialog.close();
@@ -933,7 +957,8 @@ export class AithemaSession extends HTMLElement {
       this.#syncPanes();
       return;
     }
-    const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
+    const unpausedAnalysis = this.#feature('analysis', true, { ignorePause: true });
+    const analysis = isConsentReason(unpausedAnalysis.rawReason) ? unpausedAnalysis : this.#feature('analysis', true), locked = this.#host?.locked ?? false;
     const reconciling = analysis.rawReason === 'budget reconciling';
     const cached = reconciling || this.#session.paused && this.#session.pauseReason !== 'purpose' ||
       (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
@@ -961,8 +986,11 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && (this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) root.querySelector('.notice').textContent = !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
-      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
+    if (!this.#host?.usedUp && (isConsentReason(analysis.rawReason) || this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) paintConsentLine(root.querySelector('.notice'), {
+      copy, feature: 'analysis', verdict: analysis, text: !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final,
+      open: opener => this.#dialog.openConsent('analysis', opener),
+    });
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');

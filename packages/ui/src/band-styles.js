@@ -3,6 +3,13 @@ import { palette } from './styles.js';
 
 // AIT-131, approved round 2: edge-to-edge band, one edge column and three footer zones.
 export const bandStyles = `
+.consent-action, .audio-rail .consent-action, .audio-rail .consent-action:hover:not(:disabled) {
+  display:inline; min-height:0; min-width:0; padding:0; margin:0; border:0; border-radius:0;
+  background:none; box-shadow:none; color:inherit; font:inherit; font-style:normal; text-decoration:underline;
+  text-underline-offset:3px; cursor:pointer; transform:none; }
+.consent-action[hidden] { display:none; }
+.voice-state:has(.consent-action:not([hidden])) { max-width:100%; text-wrap:initial; }
+.concept-activity-text { min-height:36.4px; display:block; }
 .workspace { position:relative; max-width:none; padding-bottom:68px; }
 .band { grid-area:top; position:sticky; top:0; z-index:10; display:grid; grid-template-columns:44px minmax(0,1fr) auto;
   align-items:center; gap:12px 24px; margin-inline:calc(-1 * var(--aithema-gutter));

@@ -635,11 +635,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         voice: choices.defaults.voice, visuals: choices.defaults.visuals };
     },
     /** Private processing scopes of the current choice, for the host consent ledger. */
-    scopes(session) {
+    scopes(session, { feature: only } = {}) {
       const preset = session.processingPreset ?? 'best';
       if (preset === 'device') return [];
       const result = [], kind = visualKind(session);
       for (const [feature, operation] of [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]) {
+        if (only && feature !== only) continue;
         const { raw } = selectedBinding(session, preset, map[feature][0]);
         if (!raw || !presets[preset]?.plugins?.includes(raw.plugin)) continue;
         let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { continue; }
@@ -651,6 +652,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const scope = registry.isCanonicalMock(plugin) || feature === 'voice' && isLocalVoice(plugin) || feature === 'images' && isLocalImages(plugin) ||
           feature === 'html' && isLocalHTML(plugin) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
         if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
+      }
+      const voice = selectedBinding(session, preset, 'voice').raw;
+      if (only === 'voice' && registry.get(voice?.plugin)?.manifest.liveVoice?.reasoning === 'delegated') {
+        for (const scope of runtime.scopes(session, { feature: 'text' })) if (!result.some(s => hash(s) === hash(scope))) result.push(scope);
       }
       return result;
     },

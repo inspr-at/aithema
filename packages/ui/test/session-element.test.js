@@ -706,7 +706,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
-    assert.equal(root.querySelector('.notice').textContent, en.reasons['current processing consent required']);
+    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent · Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });

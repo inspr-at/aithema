@@ -511,6 +511,8 @@ export const en = {
   },
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
   // Kept identical to the server's English legal fallback.
+  featureConsent: { html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
+    action: 'Give consent…', save: 'Save consent' },
   processingConsent: {
     intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',
