@@ -46,13 +46,20 @@ async function fixture(t, touch = true) {
   else await setViewport(page, { width: 800, height: 600 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
-  page.on('request', request => {
+  page.on('request', async request => {
     const path = new URL(request.url()).pathname;
     if (page.holdSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.snapshotId}`) {
-      page.holdSnapshot.resolve(request); return;
+      const hold = page.holdSnapshot; hold.resolve(); await hold.release.promise;
     }
     if (page.reloadSession && request.method() === 'GET' && path === `/api/sessions/${page.reloadSession.id}`) {
       return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(page.reloadSession) });
+    }
+    // Replayed events own this UI's state, including its snapshot reads. A late
+    // pause refresh from the real no-provider server can otherwise overwrite
+    // the next scene's enabled text verdict after configure resets its cursor.
+    if (page.replaySessionId && request.method() === 'GET' && path === `/api/sessions/${page.replaySessionId}`) {
+      const session = await shadow(page, c => c.session);
+      return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(session) });
     }
     if (path.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: '{}' });
     // Server-scenario events are replayed into this isolated UI host. Its empty
@@ -88,6 +95,7 @@ async function evidence(finding, page, label, values) {
 }
 
 async function voiceScene(page, locale, theme, width) {
+  page.replaySessionId = await shadow(page, c => c.session.id);
   await scene(page, locale, theme, width);
   await page.evaluate(async locale => {
     const { [locale]: pauseCopy } = await import(`/packages/ui/src/i18n/${locale}.js`); globalThis.pauseCopy = pauseCopy;
@@ -141,19 +149,32 @@ async function record(t, finding, page, label, values) {
 }
 async function clickComposer(t, page, label) {
   try {
-      await page.locator('aithema-session >>> textarea').click();
+    // Locator keeps its enabled/viewport/two-frame geometry checks. Also require
+    // the actual composer input to own the point that the pointer will click.
+    await page.locator('aithema-session >>> .composer #message').filter(input => {
+      const b = input.getBoundingClientRect();
+      return input.getRootNode().elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === input;
+    }).click();
   } catch (error) {
-      const click = await shadow(page, c => {
-        const r = c.shadowRoot, input = r.querySelector('#message'), b = input.getBoundingClientRect();
-        const point = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-        const describe = n => n ? { tag: n.localName, id: n.id, className: n.className } : null;
-        return { point, hit: describe(r.elementFromPoint(point.x, point.y)), documentHit: describe(document.elementFromPoint(point.x, point.y)),
-          input: { ...describe(input), disabled: input.disabled, inert: Boolean(input.closest('[inert]')), visibility: getComputedStyle(input).visibility,
-            rect: { x: b.x, y: b.y, width: b.width, height: b.height } },
-          session: { id: c.session.id, seq: c.session.seq, paused: c.session.paused, featureMatrix: c.session.featureMatrix }, viewport: { width: innerWidth, height: innerHeight },
-          animations: r.getAnimations().map(a => ({ state: a.playState, timing: a.effect.getComputedTiming() })) };
-      });
-      t.diagnostic(`FAIL L2 click ${label}: ${JSON.stringify(click)}`);
+    const click = await shadow(page, async c => {
+      const r = c.shadowRoot, input = r.querySelector('#message');
+      const rect = () => { const b = input.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; };
+      const before = rect(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const after = rect(), point = { x: after.x + after.width / 2, y: after.y + after.height / 2 };
+      const describe = n => n ? { tag: n.localName, id: n.id, className: n.className } : null;
+      const session = c.session;
+      return { point, hit: describe(r.elementFromPoint(point.x, point.y)), documentHit: describe(document.elementFromPoint(point.x, point.y)),
+        input: { ...describe(input), disabled: input.disabled, inert: Boolean(input.closest('[inert]')), visibility: getComputedStyle(input).visibility, before, after },
+        session: { seq: session.seq, paused: session.paused, featureMatrix: session.featureMatrix }, viewport: { width: innerWidth, height: innerHeight },
+        animations: r.getAnimations().map(a => ({ state: a.playState, timing: a.effect.getComputedTiming() })) };
+    });
+    t.diagnostic(`FAIL L2 click ${label}: ${JSON.stringify(click)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'L2'); await mkdir(dir, { recursive: true });
+      const name = `click-failure-${label.replaceAll('/', '-')}`;
+      await page.screenshot({ path: join(dir, `${name}.png`), fullPage: false, captureBeyondViewport: false });
+      await writeFile(join(dir, `${name}.json`), JSON.stringify({ head: evidenceCommit, label, ...click, pass: false }, null, 2));
+    }
     throw error;
   }
 }
@@ -224,21 +245,23 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
 });
 
 // Hold the pause-triggered snapshot until the next replay scene is mounted.
-// This models the late no-provider response observed under CI scheduling.
-test('AIT-194: delayed pause snapshot must not disable the next replay composer', async t => {
+// Before snapshot isolation, releasing it let the real demo's consent/provider
+// verdict disable #message: elementFromPoint still hit the input; no animations.
+test('AIT-194: delayed pause snapshot must not disable the next replay composer', { timeout: 45_000 }, async t => {
   const page = await fixture(t);
   await voiceScene(page, 'de', 'dark', 393);
   page.snapshotId = await shadow(page, c => c.session.id);
-  page.holdSnapshot = Promise.withResolvers();
+  const hold = page.holdSnapshot = { ...Promise.withResolvers(), release: Promise.withResolvers() };
+  t.after(() => hold.release.resolve());
   await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }));
-  const request = await page.holdSnapshot.promise;
+  await hold.promise;
   page.holdSnapshot = null;
   await voiceScene(page, 'de', 'dark', 393);
   await page.evaluate(() => {
     globalThis.pauseSnapshotApplied = new Promise(resolve => document.querySelector('aithema-session')
       .addEventListener('aithema-features', resolve, { once: true }));
   });
-  await request.continue();
+  hold.release.resolve();
   await page.evaluate(() => globalThis.pauseSnapshotApplied.then(() => true));
   await clickComposer(t, page, 'delayed-pause-snapshot');
   assert.equal((await metrics(page)).focused, 'message', 'a real pointer focuses the next replay composer');
