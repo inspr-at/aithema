@@ -76,8 +76,9 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
       if (typeof attemptId !== 'string' || !attemptId || !['candidate', 'baseline'].includes(lane) ||
         !['stt', 'tts', 'reasoning'].includes(role) || [provider, model, operation, accountRef, endpoint].some(x => typeof x !== 'string' || !x) ||
         !Number.isSafeInteger(maxMicro) || maxMicro < 0 || request === undefined) throw new TypeError('Complete attempt identity required');
-      const attempt = { attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, requestDigest: qualificationRequestDigest(request), retryOf };
-      const ceiling = await ceilingFor(attempt);
+      const exactRequest = structuredClone(request);
+      const attempt = { attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, requestDigest: qualificationRequestDigest(exactRequest), retryOf };
+      const ceiling = await ceilingFor({ ...attempt, request: exactRequest });
       change(snapshot => {
         if (snapshot.records.some(row => row.attemptId === attemptId)) throw new PluginError('already-claimed');
         if (snapshot.blocked || snapshot.exposureMicro + maxMicro > snapshot.capMicro) throw new PluginError('not-admitted', 'Qualification cap reached');
@@ -88,7 +89,7 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
       const admission = {
         attemptId, claimId: `qualification-${attemptId}`, maxMicro,
         async consume() {
-          const proof = await ceilingFor(attempt);
+          const proof = await ceilingFor({ ...attempt, request: exactRequest });
           change(snapshot => {
             const row = rowFor(snapshot, attemptId);
             if (snapshot.blocked) throw new PluginError('not-admitted');

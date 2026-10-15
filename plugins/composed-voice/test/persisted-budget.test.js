@@ -37,7 +37,7 @@ test('durable budget commits a shared reservation and dispatch before provider c
 
 test('every dispatch verifies its exact ceiling again, including expiry and request identity', async t => {
   const h = await fixture(t); let valid = true, calls = 0;
-  const budget = h.open({ verifyCeiling: async attempt => { calls++; return valid ? verifyCeiling(attempt) : { ...await verifyCeiling(attempt), expiresAt: 0 }; } });
+  const budget = h.open({ verifyCeiling: async attempt => { calls++; assert.equal(attempt.request.seconds, 30); return valid ? verifyCeiling(attempt) : { ...await verifyCeiling(attempt), expiresAt: 0 }; } });
   t.after(() => budget.close());
   const claim = await budget.admit(specification('a')); valid = false;
   await assert.rejects(claim.dispatch(() => assert.fail('must not dispatch')), { code: 'not-admitted' });
