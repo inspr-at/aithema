@@ -610,7 +610,16 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       await record(t, 'ait190', page, `${label}-action-row`, { ...row, shiftPx: following ? row.dock.top - beforeClear.dock.top : row.first.top - beforeClear.first.top });
       // Read the full text through the same moved control, without synthesis.
       if (following) {
-        const b = row.controls[1]; await page.touchscreen.tap(b.left + 12, b.top + 22);
+        const b = row.controls[1];
+        const target = await shadow(page, (c, point) => {
+          const r = c.shadowRoot, button = r.querySelector('.voice-read-text'), hit = r.elementFromPoint(point.x, point.y);
+          globalThis.rowTouchEvents = [];
+          for (const type of ['pointerdown', 'touchstart', 'click']) button.addEventListener(type, () => globalThis.rowTouchEvents.push(type));
+          return { hit: hit?.className, disabled: button.disabled, sameRail: globalThis.tickRail.root === r.querySelector('.audio-rail') };
+        }, { x: b.left + 12, y: b.top + 22 });
+        assert.deepEqual(target, { hit: 'voice-read-text', disabled: false, sameRail: true }, `text action hit target ${label}`);
+        await page.touchscreen.tap(b.left + 12, b.top + 22);
+        t.diagnostic(`touch ${label}: ${JSON.stringify(await page.evaluate(() => globalThis.rowTouchEvents))}`);
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), true);
         await shadow(page, c => { const dialog = c.shadowRoot.querySelector('dialog'); dialog.close(); }); await frame(page);
