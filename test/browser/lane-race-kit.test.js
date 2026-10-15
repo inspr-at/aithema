@@ -15,6 +15,7 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
   await page.setViewport({ width: 390, height: 844 });
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  const retryLanes = new Set();
   for (const pair of lanePairs) for (const order of [pair, [...pair].reverse()]) for (const failed of [false, true]) {
     const result = await page.evaluate(async (pair, order, failed) => {
       await fetch('/begin?pair=' + pair.join(','));
@@ -38,12 +39,15 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
       return { retries: [...r.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
         notice: r.querySelector('.notice').textContent, summary: r.querySelector('.summary-text').textContent };
     });
-    if (failed && ['reaction', 'understanding'].includes(order[0]))
+    const failureLane = result.session.operations.lastFailure?.lane;
+    if (['reaction', 'understanding'].includes(failureLane)) {
       assert.equal(state.retries, 1, JSON.stringify({ pair, order, failed, state }));
-    else assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
+      retryLanes.add(failureLane);
+    } else assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
     if (pair.includes('understanding') && !(failed && order[0] === 'understanding')) assert.equal(state.summary, 'Ein Überblick. An overview.');
     assert.doesNotMatch(state.notice, /wird erstellt|wird aktualisiert|building|updating/iu, 'no overview stays busy after work settled');
   }
+  assert.deepEqual([...retryLanes].sort(), ['reaction', 'understanding'], 'both retryable failure lanes require exactly one Retry');
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: join(evidence, 'ait201-lane-races-390.png'), fullPage: false, captureBeyondViewport: false }); }
   assert.deepEqual(errors, []);
