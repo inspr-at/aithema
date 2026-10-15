@@ -49,7 +49,7 @@ async function fixture(t, real = false) {
       return json({ granted: true, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: 2, conversationUnchanged: true } } });
     }
     if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, featureMatrix: page.state.matrix });
-    if (path.endsWith('/features')) return json(page.state ? { featureMatrix: page.state.matrix } : {});
+    if (path.endsWith('/features') && !real) return json(page.state ? { featureMatrix: page.state.matrix } : {});
     if (path.endsWith('/retry') && page.state) return json({});
     if (path.endsWith('/events')) return request.continue({ headers: { ...request.headers(), 'last-event-id': '0' } });
     return request.continue();
@@ -302,7 +302,8 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); c.configure({ session, copy });
     }, locale);
     await page.locator('aithema-session >>> .notice button').click();
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing');
+    try { await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing'); }
+    catch (error) { t.diagnostic(JSON.stringify(await shadow(page, c => ({ active: c.shadowRoot.activeElement?.outerHTML, editor: c.shadowRoot.querySelector('.consent-editor').outerHTML, open: c.shadowRoot.querySelector('dialog.settings').open })))); throw error; }
     await frame(page); const before = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
     await page.keyboard.press('Space'); await frame(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent), locale === 'de' ? 'Widerrufen und Gespräch beenden' : 'Withdraw and end conversation');
