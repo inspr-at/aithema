@@ -62,10 +62,19 @@ function closer(socket) {
   let closed = false;
   return () => { if (!closed) { closed = true; try { void Promise.resolve(socket.close()).catch(() => {}); } catch { /* Cleanup must not mask settlement. */ } } };
 }
+async function openSocket(connect, request, options) {
+  // A transport may ignore abort and resolve after the caller has already settled.
+  // Close that late socket before it can escape into an abandoned invocation.
+  const opening = Promise.resolve().then(() => connect(request)).then(socket => {
+    if (options.signal.aborted) { if (typeof socket?.close === 'function') closer(socket)(); options.signal.throwIfAborted(); }
+    return transportSocket(socket);
+  });
+  return voiceOperation(options, () => opening);
+}
 function hooks(role, model, config, reconcileReceipt) {
   const rate = role === 'stt' ? config.sttMicroPerSecond : config.ttsMicroPerCharacter;
   return { manifest: componentManifest, model, format: role === 'stt' ? STT_FORMAT : TTS_FORMAT,
-    estimateCost: request => cost(role === 'stt' ? request.maxDurationMs / 1000 : [...speechText(request.text)].length, rate),
+    estimateCost: request => cost(role === 'stt' ? request.maxDurationMs / 1000 : [...speechText(request.text)].length + 1, rate),
     usageCost: usage => cost(usage.quantity, rate),
     // No receipt endpoint or tariff can establish actual billing offline. OPS supplies
     // authenticated, attempt-bound evidence later; absent evidence retains reservation.
@@ -79,7 +88,7 @@ function hooks(role, model, config, reconcileReceipt) {
 }
 function speechText(text) {
   if (typeof text !== 'string' || !text.trim() || text.length > 240) throw new TypeError('A 1–240 character fragment is required');
-  // ElevenLabs requires a trailing space; include that exact wire text in estimates.
+  // ElevenLabs requires a trailing space; hooks also include the initialization space.
   return text.endsWith(' ') ? text : `${text} `;
 }
 
@@ -91,7 +100,8 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
     if (format !== STT_FORMAT.encoding || !audio?.[Symbol.asyncIterator]) throw new TypeError('PCM16 mono 16 kHz stream required');
     cost(0, config.sttMicroPerSecond);
     const invocation = await componentInvocation(options, { role: 'stt', unit: 'seconds', model: STT_MODEL });
-    const opts = { ...options, signal: invocation.signal }, iterator = audio[Symbol.asyncIterator]();
+    const cleanup = new AbortController();
+    const opts = { ...options, signal: AbortSignal.any([invocation.signal, cleanup.signal]) }, iterator = audio[Symbol.asyncIterator]();
     let socket, stop, pump, pumpError, completed = false, started = false, committed = false, bytes = 0;
     try {
       await coverage(consent, STT_MODEL, config, 'stream', opts);
@@ -100,7 +110,7 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
       url.search = new URLSearchParams({ model_id: STT_MODEL, audio_format: 'pcm_16000', commit_strategy: 'manual' }).toString();
       // Recheck coverage after asynchronous secret resolution, immediately before dispatch.
       await coverage(consent, STT_MODEL, config, 'stream', opts); invocation.dispatch();
-      try { socket = transportSocket(await voiceOperation(opts, () => connect({ url: url.href, headers: auth, signal: opts.signal }))); }
+      try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
       catch (error) { invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
       stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
       for await (const wire of boundedEvents(socket.events, opts)) {
@@ -120,7 +130,7 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
             committed = true;
             await voiceOperation(opts, () => socket.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: '', commit: true, sample_rate: 16000 })));
           })();
-          pump.catch(error => { pumpError = error; stop(); });
+          pump.catch(error => { pumpError = error; cleanup.abort(); stop(); });
         } else if (['partial_transcript', 'committed_transcript'].includes(event.message_type)) {
           if (!started || typeof event.text !== 'string' || event.text.length > 32_768) throw new PluginError('invalid-output');
           if (event.message_type === 'committed_transcript') {
@@ -137,10 +147,10 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
       }
       if (pumpError) throw pumpError;
       if (!completed) throw new PluginError('invalid-output', 'Missing committed transcript');
-    } catch (error) { throw normalizedError(error, opts.signal); }
+    } catch (error) { throw normalizedError(pumpError ?? error, invocation.signal); }
     finally {
       opts.signal.removeEventListener('abort', stop);
-      stop?.();
+      stop?.(); cleanup.abort();
       if (iterator.return) void Promise.resolve(iterator.return()).catch(() => {});
       await invocation.finish(completed);
     }
@@ -159,7 +169,7 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
     health: async () => ({ available: enabled && typeof connect === 'function', reason: 'offline-unqualified' }),
     async *speak({ text, voice = config.voiceId, format }, options) {
       if (!enabled || typeof connect !== 'function') throw new PluginError('unavailable');
-      const wireText = speechText(text), characters = [...wireText].length, amount = cost(characters, config.ttsMicroPerCharacter);
+      const wireText = speechText(text), characters = [...wireText].length + 1, amount = cost(characters, config.ttsMicroPerCharacter);
       if (typeof voice !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(voice) || format !== TTS_FORMAT.encoding) throw new TypeError('Saved voice and PCM16 24 kHz required');
       if (amount > options?.attempt?.maxMicro) throw new PluginError('not-admitted');
       const invocation = await componentInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL });
@@ -170,7 +180,7 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
         const url = new URL(`/v1/text-to-speech/${voice}/stream-input`, config.endpoint); url.protocol = 'wss:';
         url.search = new URLSearchParams({ model_id: TTS_MODEL, output_format: 'pcm_24000' }).toString();
         await coverage(consent, TTS_MODEL, config, 'speak', opts); invocation.dispatch();
-        try { socket = transportSocket(await voiceOperation(opts, () => connect({ url: url.href, headers: auth, signal: opts.signal }))); }
+        try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
         catch (error) { invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
         stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
         for (const message of [{ text: ' ' }, { text: wireText, flush: true }, { text: '' }]) {

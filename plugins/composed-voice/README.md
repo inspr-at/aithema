@@ -114,9 +114,10 @@ selection alone is insufficient. No new reasoning implementation is installed.
 
 `estimateCost(request)`, `usageCost(usage)` and `reconcileCost(record, options)` use
 the existing plugin hook names. STT reserves `ceil(maxDurationMs / 1000 * tariff)`;
-TTS reserves the character tariff times the exact text including a trailing space.
+TTS reserves the character tariff times the exact text including a trailing space
+and the initialization space.
 Tariffs in micro-USD are mandatory configuration, with no public-price default.
-Usage reports audio seconds or wire-text characters and marks tariff costs as
+Usage reports audio seconds or wire-text characters (including initialization) and marks tariff costs as
 estimated. These are not authoritative billable units or receipts. Reserve each
 maximum before dispatch, then report once to the shared qualification budget.
 Estimated success and uncertainty retain that maximum. A transport-observed 4xx

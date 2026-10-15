@@ -44,8 +44,8 @@ test('AIT-160: ElevenLabs TTS streams explicit PCM16/24k and includes trailing w
   assert.deepEqual(await tts.negotiateAudioFormat([TTS_FORMAT], {}), TTS_FORMAT);
   assert.deepEqual(await run('tts', tts, options(reports)), [new Uint8Array(4)]);
   assert.deepEqual(sent, [ttsWire.initialize, ttsWire.text('Hallo '), ttsWire.end]);
-  assert.equal(closed, 1); assert.equal(reports.length, 1); assert.equal(reports[0].usage.quantity, 6);
-  assert.equal(reports[0].chargedMicro, 12); assert.equal(tts.estimateCost({ text: 'Hallo' }), 12);
+  assert.equal(closed, 1); assert.equal(reports.length, 1); assert.equal(reports[0].usage.quantity, 7);
+  assert.equal(reports[0].chargedMicro, 14); assert.equal(tts.estimateCost({ text: 'Hallo' }), 14);
   assert.ok(unverified.length);
 });
 
@@ -119,4 +119,17 @@ test('AIT-160: ElevenLabs fixture candidate runs offline qualification against e
   assert.equal(result.candidate.qualified, false); assert.equal(result.baseline.qualified, false);
   assert.equal(result.componentAttempts, result.samples * 4); assert.ok(result.spendMicro > 0 && result.spendMicro < 25_000_000);
   console.log('ELEVENLABS_OFFLINE_QUALIFICATION', JSON.stringify(result));
+});
+
+for (const role of ['stt', 'tts']) test(`AIT-160: ${role} late connection after cancellation is closed without dispatching frames`, async () => {
+  const controller = new AbortController(), entered = Promise.withResolvers(), release = Promise.withResolvers(), reports = [];
+  let closed = 0, sends = 0;
+  const adapter = setup(role, { connect: async () => {
+    entered.resolve(); await release.promise;
+    return { close() { closed++; }, send() { sends++; }, events: (async function* () {})() };
+  } });
+  const pending = run(role, adapter, { ...options(reports), signal: controller.signal });
+  await entered.promise; controller.abort(); await assert.rejects(pending, { code: 'cancelled' });
+  release.resolve(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(closed, 1); assert.equal(sends, 0); assert.equal(reports.length, 1);
 });
