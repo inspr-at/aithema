@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 // AIT-132, approved card: it grows above the dock without moving the composer below it.
 export const questionCardStyles = `
 .composer-dock { position:relative; min-width:0; }
+.phone-dock-backdrop { display:none; }
 /* Tick L2: keep the same composer slot over the footer. The overview remains
    in the page below the bounded transcript; scrolling it never loses input. */
 @media(max-width:600px) {
@@ -13,6 +14,9 @@ export const questionCardStyles = `
     min-height:0; grid-template-rows:auto minmax(0,1fr); }
   .workspace[data-stage="live"] .transcript-shell { height:auto; min-height:0; }
   .transcript-shell > .voice-notices { margin-top:8px; }
+  .workspace[data-stage="live"] .phone-dock-backdrop { display:block; position:fixed; z-index:8;
+    left:0; right:0; bottom:var(--phone-bottom,0px);
+    height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); }
   .workspace[data-stage="live"] .composer-dock { position:fixed; z-index:9;
     left:var(--aithema-gutter); right:var(--aithema-gutter);
     bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
