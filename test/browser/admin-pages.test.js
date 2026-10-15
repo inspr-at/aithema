@@ -91,8 +91,10 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   for (const locale of ['de', 'en']) {
     at('launch', { locale, theme: 'light', width: 390 });
     const executablePath = await run('browserPath', () => browserPath());
+    const launchStarted = performance.now();
     browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_STEP_TIMEOUT, protocolTimeout: ADMIN_STEP_TIMEOUT, userDataDir: join(dir, locale),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: ADMIN_STEP_TIMEOUT });
+    t.diagnostic(`admin launch locale=${locale} duration_ms=${(performance.now() - launchStarted).toFixed(3)}`);
     const page = await run('browser.newPage', () => browser.newPage()); page.setDefaultTimeout(ADMIN_STEP_TIMEOUT);
     page.on('pageerror', e => errors.push(e.message));
     page.on('dialog', dialog => {
@@ -232,8 +234,10 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   f = await run('adminFixture', () => adminFixture({ origin: server.url }));
   f.host.visitorCredits.saveSettings({ baseRevision: 1, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '24' } }, { source: 'ops-cli', actor: 'ops-cli:fixture' });
   const executablePath = await run('browserPath', () => browserPath());
+  const launchStarted = performance.now();
   browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_STEP_TIMEOUT, protocolTimeout: ADMIN_STEP_TIMEOUT, userDataDir: join(dir, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: ADMIN_STEP_TIMEOUT });
+  t.diagnostic(`admin launch independent-edits duration_ms=${(performance.now() - launchStarted).toFixed(3)}`);
   at('independent-edits', { locale: 'de', theme: 'light', width: 800 });
   const page = await run('browser.newPage', () => browser.newPage()), errors = []; page.setDefaultTimeout(ADMIN_STEP_TIMEOUT);
   page.on('pageerror', e => errors.push(e.message));
