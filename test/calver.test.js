@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { parseVersion, compareVersions, reserveVersion, migrationGate, assertReleaseTag } from '../release/lib/version.mjs';
 const declared = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
@@ -85,7 +85,8 @@ test('candidate version gate admits the existing reservation and exact mirrored 
   assert.equal(declared.release_sequence, previous.release_sequence + 1);
   assert.equal(compareVersions(previous, declared, declared.migration), -1);
   const paths = ['package.json', ...['packages', 'plugins'].flatMap(directory =>
-    readdirSync(new URL(directory + '/', root)).map(name => `${directory}/${name}/package.json`))];
+    readdirSync(new URL(directory + '/', root)).map(name => `${directory}/${name}/package.json`)
+      .filter(path => existsSync(new URL(path, root))))];
   const lock = JSON.parse(readFileSync(new URL('package-lock.json', root)));
   const packages = paths.map(path => [path, JSON.parse(readFileSync(new URL(path, root)))]);
   const names = new Set(packages.map(([, pkg]) => pkg.name));
