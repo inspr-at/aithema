@@ -333,6 +333,9 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
       await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
       await settle(page);
       await page.screenshot({ path: join(evidence, `${stem}-overview.png`), fullPage: false, captureBeyondViewport: false });
+      await shadow(page, c => c.shadowRoot.querySelector('.understanding > .foot').scrollIntoView({ block: 'center' }));
+      await settle(page);
+      await page.screenshot({ path: join(evidence, `${stem}-footer.png`), fullPage: false, captureBeyondViewport: false });
       await page.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), scrollY);
       await settle(page);
     }
@@ -365,9 +368,17 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
     const before = await boxes(page, targets);
     const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
     await capture(locale, width, 'before');
+    await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' }));
+    await settle(page);
+    assert.equal(await shadow(page, c => {
+      const button = c.shadowRoot.querySelector('.retry'), box = button.getBoundingClientRect();
+      return c.shadowRoot.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === button;
+    }), true, 'visible Retry is reachable above the fixed dock');
+    const retryButton = await page.$('aithema-session >>> .retry');
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')),
-      shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
+      retryButton.click()]);
     assert.equal(response.status(), 202);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await until(page, () => {
       const c = document.querySelector('aithema-session');
       return c.shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.' &&
