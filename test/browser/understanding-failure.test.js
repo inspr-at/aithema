@@ -59,6 +59,12 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     assert.equal(failed.color, failed.quietInk);
     assert.equal(failed.alerts, 0); assert.equal(failed.background, 'rgba(0, 0, 0, 0)'); assert.equal(failed.reload, true);
     assert.deepEqual(await boxes(page, targets), before, 'failed overview causes 0 px surrounding displacement');
+    await shadow(page, c => {
+      const retry = c.shadowRoot.querySelector('.overview-retry');
+      retry.focus(); window.focusedOverviewRetry = retry;
+      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+    });
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement === window.focusedOverviewRetry && c.shadowRoot.querySelector('.overview-retry') === window.focusedOverviewRetry), true, 'inline retry retains keyboard focus across live renders');
     if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
     await page.evaluate(() => fetch('/success'));
     const retry = await shadow(page, c => ({ inlineDisabled: c.shadowRoot.querySelector('.overview-retry').disabled, footerDisabled: c.shadowRoot.querySelector('.retry').disabled, operations: c.session.operations, features: c.session.featureMatrix }));
@@ -77,4 +83,46 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
   assert.equal(passes.length, 8);
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait198-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+});
+
+test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 390/1440, one inline Retry and 0 px', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-stuck-overview-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), passes = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    await shadow(page, async (c, locale) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
+      session.transcript.push({ id: 'stuck-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
+      session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
+      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+    }, locale);
+    await settle(page);
+    if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const before = await boxes(page, targets);
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision, running: [], lastFailure: null } }));
+    await settle(page);
+    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden · Erneut versuchen' : "The overview couldn't be built just now · Try again";
+    const state = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
+      inline: c.shadowRoot.querySelectorAll('.notice .overview-retry').length,
+      disabled: c.shadowRoot.querySelector('.overview-retry')?.disabled,
+      footerHidden: c.shadowRoot.querySelector('.retry').hidden, operations: c.session.operations }));
+    assert.equal(state.notice, expected);
+    assert.equal(state.inline, 1); assert.equal(state.disabled, false); assert.equal(state.footerHidden, true);
+    assert.equal(state.operations.lastFailure, null); assert.deepEqual(state.operations.running, []);
+    assert.deepEqual(await boxes(page, targets), before, 'idle stuck state causes exactly 0 px displacement');
+    if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-stuck.png`), fullPage: false, captureBeyondViewport: false });
+    passes.push({ head: evidenceCommit, locale, width, missingReply: true, running: [], lastFailure: null, inlineRetries: 1, layoutShiftPx: 0, pass: true });
+  }
+  assert.equal(passes.length, 4);
+  if (evidence) await writeFile(join(evidence, 'ait198-stuck-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });

@@ -925,3 +925,29 @@ for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpos
   assert.equal(root.querySelector('.notice').textContent, notice);
   assert.equal(root.querySelector('.summary-text').textContent, summary);
 });
+
+test('AIT-198 inline overview Retry keeps its node and keyboard focus across live renders', async t => {
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => new Response(new ReadableStream({ start(controller) {
+    options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } })));
+  const c = setup(), root = c.shadowRoot; document.body.append(c); t.after(() => c.remove());
+  turn(c, 'focus-person', 'First project detail');
+  c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
+  const retry = root.querySelector('.overview-retry'); retry.focus();
+  assert.equal(root.activeElement, retry);
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  assert.equal(root.querySelector('.overview-retry'), retry, 'live render keeps the inline button');
+  assert.equal(root.activeElement, retry, 'keyboard focus survives');
+  assert.equal(root.querySelector('.retry').hidden, true);
+});
+
+for (const copy of [de, en]) test(`AIT-198 ${copy === de ? 'DE' : 'EN'} missing reply with idle operations and no failure is a stuck overview`, () => {
+  const c = setup(); turn(c, 'stuck-person', 'First project detail');
+  const session = c.session;
+  session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
+  c.configure({ copy, session });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed} · ${copy.understandingRetry}`);
+  assert.equal(root.querySelectorAll('.notice .overview-retry').length, 1);
+  assert.equal(root.querySelector('.overview-retry').disabled, false);
+  assert.equal(root.querySelector('.retry').hidden, true, 'never a bare footer retry next to the placeholder');
+});

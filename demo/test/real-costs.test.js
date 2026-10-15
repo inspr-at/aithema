@@ -138,7 +138,7 @@ for (const operation of ['stream', 'structured']) for (const mode of ['known', '
   });
 }
 
-for (const mode of ['unknown', 'partial', 'cancel-body', 'transport-failure']) test(`unknown dispatch is visible and durably reconciled: ${mode}`, async t => {
+for (const mode of ['unknown', 'partial', 'cancel-body', 'transport-failure']) test(`unknown dispatch is reconciled; published analysis charges conservatively, failed lanes release visitor credits: ${mode}`, async t => {
   const path = await temporaryDb(), state = { ready: false, queries: 0 };
   let h = await costFixture(t, { mode, path, state });
   const controller = new AbortController(), operation = mode === 'partial' ? 'stream' : 'structured';
@@ -155,6 +155,8 @@ for (const mode of ['unknown', 'partial', 'cancel-body', 'transport-failure']) t
   assert.ok(held > 0); assert.equal(h.balance().session.reservedMicro, 0);
   assert.equal(h.balance().session.confirmedSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, held);
+  assert.equal(h.balance().owner.committedMicro, mode === 'unknown' || operation === 'stream' ? held : 0,
+    'a published analysis retains the unknown-cost hold; failed understanding is free');
   await h.runtime.reconcileCosts(); assert.equal(h.balance().session.uncertainSpendMicro, held);
   h.storage.close(); state.ready = true;
   h = await costFixture(t, { mode, path, state });
@@ -169,7 +171,8 @@ for (const mode of ['unknown', 'partial', 'cancel-body', 'transport-failure']) t
     assert.equal(h.cap.snapshot().uncertainMicro, 0);
     assert.equal(state.queries, 2, 'one failed lookup and one retry after restart; settled results are not fetched twice');
   }
-  assert.equal(h.balance().owner.committedMicro, operation === 'structured' ? 0 : 53, 'uncertain understanding remains free after a receipt');
+  assert.equal(h.balance().owner.committedMicro, mode === 'unknown' || operation === 'stream' ? 53 : 0,
+    'Tick refunds failed lanes only: a published analysis with unknown cost retains its conservative visitor charge');
 });
 
 for (const crash of ['admitted', 'reserved', 'consumed', 'dispatched', 'id-receipt', 'cost-receipt', 'budget-receipt', 'settled']) {
