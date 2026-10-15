@@ -65,3 +65,11 @@ test('initial page timeout is not retried', async t => {
   assert.equal((await f.attempts()).length, 1);
   assert.deepEqual(f.messages, []);
 });
+
+test('a caller abort during startup is never retried', async t => {
+  const f = await fixture(t, 2);
+  const controller = new AbortController();
+  controller.abort(new Error('caller cancelled'));
+  await assert.rejects(browserLauncher.launch({ ...f.options, signal: controller.signal }), /caller cancelled|aborted/iu);
+  assert.deepEqual(f.messages, []);
+});

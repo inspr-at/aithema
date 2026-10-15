@@ -67,22 +67,24 @@ export default {
           args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
         });
         launcher.started = true;
+        browser.once('disconnected', () => options.signal?.removeEventListener('abort', abort));
         if (run && !browser.process().spawnargs.some(arg => arg.startsWith('--user-data-dir=') && arg.includes(`/ci.noindex/${run}/`))) {
           await browser.close();
           throw new Error('Browser profile must be inside the OPS memory guard run path');
         }
         return browser;
       } catch (cause) {
-        await launcher.process?.close();
-        await rm(launcher.profile, { recursive: true, force: true });
+        clearTimeout(launcher.timer);
         const timedOut = !launcher.initialPage && !options.signal?.aborted
           && (pipeTimedOut || cause instanceof TimeoutError);
+        await launcher.process?.close();
+        await rm(launcher.profile, { recursive: true, force: true });
         if (!timedOut) throw cause;
         if (attempt === 1) throw new Error(`infra: browser launch timed out after two attempts (${timeout} ms per attempt)`, { cause });
         console.error('infra: browser launch (retry 1/1)');
       } finally {
         clearTimeout(launcher.timer);
-        options.signal?.removeEventListener('abort', abort);
+        if (!launcher.started) options.signal?.removeEventListener('abort', abort);
       }
     }
   },
