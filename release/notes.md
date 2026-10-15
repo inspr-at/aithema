@@ -31,7 +31,7 @@ Download the assets for `v261015164601.0.0` into a clean directory:
 gh release download v261015164601.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
-  gh attestation verify "$asset" --repo inspr-at/aithema || exit 1
+  gh attestation verify "$asset" --repo inspr-at/aithema
 done
 sha256sum --check SHA256SUMS
 ```
@@ -76,8 +76,7 @@ assets, manifest and deployment pin for rollback to those exact bytes.
 - **Test reliability (AIT-209):** the repository browser launcher has a bounded
   launch timeout and one launch-only retry. It is excluded from release tarballs
   and does not change consumer runtime behavior.
-- Package validation rejects imports of excluded source-only siblings. Host voice
-  options retain defaults when explicitly null or undefined.
+- Package validation rejects imports of excluded source-only siblings.
 
 ## Compatibility and known follow-ups
 
