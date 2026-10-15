@@ -10,7 +10,6 @@ import { browserPath } from './start2-display-helpers.js';
 
 let launch, directory;
 after(async () => {
-  console.error('AIT-192 shared browser file cleanup');
   try { if (launch) await (await launch).close(); }
   finally { if (directory) await rm(directory, { recursive: true, force: true }); }
 });
@@ -18,19 +17,18 @@ after(async () => {
 export async function browserForFile() {
   launch ??= (async () => {
     directory = await mkdtemp(join(tmpdir(), 'aithema-shared-chrome-'));
-    const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
+    return puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
       userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
       args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
-    browser.process().on('exit', (code, signal) => console.error('AIT-192 Chrome exit', { code, signal }));
-    // Keep a default-context target alive while disposable contexts are closed.
-    // The process belongs to the file, including gaps between locale/test cases.
-    await browser.newPage();
-    return browser;
   })();
-  const browser = await launch;
-  console.error('AIT-192 create context', browser.connected);
-  const context = await browser.createBrowserContext();
-  const close = context.close.bind(context);
-  context.close = async () => { console.error('AIT-192 close context'); await close(); console.error('AIT-192 context closed', browser.connected); };
+  const context = await (await launch).createBrowserContext();
+  // mbp2606 Chrome 155 SIGSEGVs on createBrowserContext after disposing a context.
+  // Close every fixture page now (including its connections/timers); release the
+  // empty, isolated contexts together when the file-owned Chrome process closes.
+  // Cleanup is idempotent because nested tests may register the same fixture.
+  let closing;
+  context.close = () => closing ??= (async () => {
+    await Promise.all((await context.pages()).map(page => page.close()));
+  })();
   return context;
 }
