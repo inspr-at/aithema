@@ -352,6 +352,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 `390×${height}: the answer is on screen below the band: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.bubbleBottom <= keyboard.cardTop && keyboard.shellBottom <= keyboard.cardTop,
                 `390×${height}: the latest reply ends above the card: ${JSON.stringify(keyboard)}`);
+              assert.ok(keyboard.bubbleBottom >= keyboard.shellTop + 20, `390×${height}: the latest reply remains visible: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.composerBottom <= height && height - keyboard.composerBottom <= 14, 'the composer stays docked to the visible viewport');
               // Shift+Tab from the composer reaches the final answer through
               // the browser's native order and scrolls the chip into view.

@@ -55,13 +55,15 @@ export const questionCardStyles = `
      as well, leaving a strip of the latest reply above the answer chips. */
   .workspace[data-question-compact] .display-foot { display:none; }
   .workspace[data-question-compact] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
-  .workspace[data-question-compact] textarea { height:44px; min-height:44px; }
+  .workspace[data-question-compact] textarea { height:44px; min-height:44px; padding-block:10px; }
   .workspace[data-question-compact] .composer-actions { gap:6px; }
   .workspace[data-question-compact] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
   .workspace[data-question-compact] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-  .workspace[data-question-compact] .conversation { row-gap:4px;
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 36px); }
+  .workspace[data-question-compact] .concept-bar { display:none; }
+  .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 28px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
+  .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
   .workspace[data-question-compact] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
