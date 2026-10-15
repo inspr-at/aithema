@@ -9,11 +9,17 @@ import { pausedOverview } from '../fixtures/pause-overview.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
-// Configure device capabilities once, before navigation. Keyboard/orientation
-// resizes must only change metrics: setViewport also reapplies touch emulation
-// and can reload when hasTouch/isMobile changes. Desktop keeps Blink's native
-// fine pointer, which setTouchEmulationEnabled(false) would reset on Linux.
+// Device capabilities are configured before navigation. Resizes keep that
+// exact configuration: changing hasTouch/isMobile would reload and lose focus.
+// Desktop resizes use metrics alone because resetting touch emulation would
+// discard the explicit native fine pointer on headless Linux.
 async function setViewport(page, viewport) {
+  if (page.phoneTouch) {
+    const device = page.viewport();
+    assert.equal(device.hasTouch, true, 'phone touch emulation must already be configured');
+    assert.equal(device.isMobile, false, 'resizing must not change mobile emulation');
+    return page.setViewport({ ...device, ...viewport });
+  }
   page.metricsSession ??= await page.createCDPSession();
   return page.metricsSession.send('Emulation.setDeviceMetricsOverride', {
     width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: false,
