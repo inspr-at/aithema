@@ -88,6 +88,13 @@ provenance in `evidence`. Estimates exclude setup, process overhead and evidence
 upload; validate whole-job wall time against the 450s budget separately.
 
 `test/browser-shards.test.js` checks weight parsing, missing weights and stale measurements.
-Its frozen AIT-216 fixture records the legacy weights and exact shard layout at
-`8d52ace2`, proving the migration changed neither. It compares the committed sibling weights 1:1 with the legacy weights and checks their computed shard layout against the old literal. The fixture is
-test evidence only and never feeds the sharder.
+Adding a browser test requires only its own sibling `.weight.json`; refreshing a
+measurement edits only that sibling file. Algorithm unit tests use inline data,
+so neither operation requires updating a shared fixture.
+
+AIT-216 migration evidence (one-time comparison on mbp2606 against the legacy
+literal in merge base `8d52ace2d36c1e8d40bcd2d738e1db5d7ad04cb7`):
+`28/28 equal; identical layout (shard membership/order and totals)`.
+Projected totals were `490 / 500 / 480 / 480` seconds. The legacy and current
+packing function bodies were identical. This records migration identity, not a
+permanent constraint on future test additions or measured weight refreshes.

@@ -48,15 +48,16 @@ test('invalid shard selectors fail instead of silently dropping coverage', () =>
 });
 
 test('LPT packing is complete and independent of file and weight insertion order', () => {
-  const files = discoverBrowserTests();
-  const reversedWeights = Object.fromEntries(Object.entries(browserTestWeights).reverse());
+  const weights = { a: 200, b: 130, c: 110, d: 90, e: 80, f: 60, g: 30, h: 20 };
+  const files = Object.keys(weights);
+  const reversedWeights = Object.fromEntries(Object.entries(weights).reverse());
   const packed = packBrowserTests([...files].reverse(), reversedWeights);
-  assert.deepEqual(packed, { shards: browserShards, totals: browserShardTotals });
+  assert.deepEqual(packed, packBrowserTests(files, weights));
   assert.equal(packed.shards.length, 4);
-  assert.deepEqual(packed.shards.flat().sort(), files);
+  assert.deepEqual(packed.shards.flat().sort(), [...files].sort());
   assert.equal(new Set(packed.shards.flat()).size, files.length);
-  const total = Object.values(browserTestWeights).reduce((sum, weight) => sum + weight, 0);
-  const largest = Math.max(...Object.values(browserTestWeights));
+  const total = Object.values(weights).reduce((sum, weight) => sum + weight, 0);
+  const largest = Math.max(...Object.values(weights));
   // List scheduling bound: average load + (1 - 1/m) times the largest job.
   assert.ok(Math.max(...packed.totals) <= total / 4 + 3 * largest / 4);
 });
@@ -119,23 +120,6 @@ test('the shard guard command prints projected totals for every shard', () => {
     assert.ok(result.stdout.includes(`Browser shard ${index + 1}/4: projected file work ${total.toFixed(3)}s`));
   });
   assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across 4 shards.`));
-});
-
-// Frozen legacy data is only a migration oracle, never a source for packing.
-test('AIT-216 preserves every legacy weight and the exact four-shard layout', t => {
-  const legacy = JSON.parse(readFileSync(new URL('./fixtures/browser-shards-ait-216.json', import.meta.url), 'utf8'));
-  const root = mkdtempSync(join(tmpdir(), 'browser-weight-migration-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(join(root, 'test/browser'), { recursive: true });
-  for (const [file, measurement] of Object.entries(legacy.measurements)) {
-    writeFileSync(join(root, file.replace(/\.test\.js$/u, '.weight.json')), JSON.stringify(measurement));
-  }
-  const files = Object.keys(legacy.weights);
-  const migrated = readBrowserTestWeights(files, root);
-  assert.deepEqual(migrated, legacy.weights);
-  assert.deepEqual(packBrowserTests(files, migrated), { shards: legacy.shards, totals: legacy.totals });
-  assert.deepEqual(browserTestWeights, legacy.weights);
-  assert.deepEqual(packBrowserTests(discoverBrowserTests(), browserTestWeights), packBrowserTests(files, legacy.weights));
 });
 
 test('per-file weights reject stale measurements after a test is removed or renamed', t => {
