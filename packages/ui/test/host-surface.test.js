@@ -91,7 +91,7 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   document.body.append(c); await tick(8);
   const liveClocks = () => intervals.mock.calls.slice(before).filter(call => call.arguments[1] === 1000 &&
     !clears.mock.calls.some(clear => clear.arguments[0] === call.result));
-  assert.equal(liveClocks().length, 2, 'reconnect keeps exactly one verification and one connection clock running');
+  assert.equal(liveClocks().length, 2, `reconnect keeps exactly one verification and one connection clock running\n${liveClocks().map(call => `timer=${call.result}\n${call.stack.stack}`).join('\n')}\ncleared=${clears.mock.calls.map(call => call.arguments[0]).join(',')}`);
   c.remove();
   assert.equal(liveClocks().length, 0, 'both clocks stop again on the next disconnect');
 });
