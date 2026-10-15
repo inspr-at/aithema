@@ -114,7 +114,7 @@ export class SQLiteStorage {
     return () => {
       if (released) return;
       released = true;
-      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1) WHERE session_id=?').run(id);
+      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1),last_activity=MAX(last_activity,?) WHERE session_id=?').run(Date.now(), id);
     };
   }
   liveIds(after = '', limit = 100) {

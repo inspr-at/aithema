@@ -55,7 +55,11 @@ test('last activity uses server events and authorized reads, strict cutoff, and 
   const stream = await handlers.handle(request(`${s.id}/events`));
   age(storage, s.id);
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 0, more: false });
-  await stream.body.cancel(); await handlers.idle(); age(storage, s.id);
+  const disconnectedAt = Date.now();
+  await stream.body.cancel(); await handlers.idle();
+  assert.ok(storage.db.prepare('SELECT last_activity FROM session_retention WHERE session_id=?').get(s.id).last_activity >= disconnectedAt,
+    'the idle clock starts when protected activity finishes, not when a long-lived stream opened');
+  age(storage, s.id);
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, more: false });
 });
 

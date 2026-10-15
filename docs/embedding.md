@@ -127,7 +127,9 @@ acknowledging incomplete deletion.
 Last activity is the latest **server timestamp** of session creation, a committed
 session event (including settings, consent, text, uploads and voice), or an
 authorized request to a session route or individual library item (including reads and export). Client turn
-timestamps cannot backdate it. Failed ownership checks and maintenance scans do
+timestamps cannot backdate it. Completing a protected request, stream or reasoning
+job also advances activity, so a long-lived connection starts its idle window
+when it disconnects. Failed ownership checks and maintenance scans do
 not renew activity. In-flight authorized requests, open SSE streams and running
 text reasoning jobs exclude the session from retirement; active voice calls
 and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
