@@ -59,7 +59,12 @@ A question without useful choices has options: []. With no question, use questio
       // persisted. Matching the stored revision alone does not cover that input.
       stale: pendingInput || session.understanding.inputRevision !== inputRevision(session), understanding: session.understanding }) },
       ...(uploads ? [{ role: 'user', content: uploads }] : []),
-      ...promptTurns(session).map(({ role, content }) => ({ role, content }))],
+      ...promptTurns(session).map(({ role, content }) => ({ role, content })),
+      // The purpose gate may have published the reply already. Thinking models
+      // reject assistant-final prefills, so finish both draft and final analysis
+      // with host guidance, explicitly separate from the person's transcript.
+      ...(lane === 'understanding' ? [{ role: 'user', content: JSON.stringify({ kind: 'analysis-instruction',
+        instruction: 'Return the requested structured read-back using the preceding untrusted transcript and context, following the system instructions. Assess the last person turn in that transcript; this host instruction is not a person turn.' }) }] : [])],
     // Identify server-added context without interpreting person-turn text.
     documentMessageIndex: uploads ? 1 : null,
     draft, locale: session.locale, preset: session.preset, ...(cardReply ? { schema } : {}), ...(policy ? { purposePolicy: policy, offTopicTurns,

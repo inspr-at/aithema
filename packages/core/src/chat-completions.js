@@ -5,17 +5,19 @@ import { usdCostMicro, generationId } from './cost.js';
 
 // Only the portable strict-output subset crosses the wire. Limits, patterns,
 // numeric bounds and other validation rules stay in the original host schema.
-function providerReplySchema(schema) {
+function providerSchema(schema) {
+  // Feature availability quotes omit the schema; no wire request is sent there.
+  if (schema === undefined) return undefined;
   const safe = {};
   for (const key of ['type', 'enum', 'description', '$ref']) if (Object.hasOwn(schema, key)) safe[key] = schema[key];
   if (schema.properties) {
-    safe.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, shape]) => [key, providerReplySchema(shape)]));
+    safe.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, shape]) => [key, providerSchema(shape)]));
     safe.required = Object.keys(schema.properties);
     safe.additionalProperties = false;
   }
-  if (schema.items) safe.items = providerReplySchema(schema.items);
-  if (schema.anyOf) safe.anyOf = schema.anyOf.map(providerReplySchema);
-  if (schema.$defs) safe.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, shape]) => [key, providerReplySchema(shape)]));
+  if (schema.items) safe.items = providerSchema(schema.items);
+  if (schema.anyOf) safe.anyOf = schema.anyOf.map(providerSchema);
+  if (schema.$defs) safe.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, shape]) => [key, providerSchema(shape)]));
   return safe;
 }
 
@@ -50,17 +52,19 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   const payloadFor = (request, extra) => prepareBody({ model: binding.model,
     messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
     max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra });
-  const structuredExtra = request => ({ stream: false,
-    response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } });
+  const structuredExtra = request => ({ stream: false, ...(request.understandingSchemaConstrained === false ? {} : {
+    response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: providerSchema(request.schema) } } }) });
   // Opt in per adapter and guarded request; other hosts keep their wire contract.
   const streamExtra = request => {
     if (!streamSchema || !request.purposePolicy || !request.schema || request.replySchemaConstrained === false) return { stream: true };
-    const schema = providerReplySchema(request.schema);
+    const schema = providerSchema(request.schema);
     return { stream: true, response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema } } };
   };
-  const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
+  // invalid_request_error also covers thinking/prefill refusals. Status or error
+  // type alone cannot authorize a schema retry; require compatibility evidence.
+  const unsupportedResponseFormat = value => [value?.error?.message, value?.error?.metadata?.raw].some(message =>
     typeof message === 'string' && (/no endpoints (?:found (?:that|which) )?support (?:the )?(?:requested|required) parameters/iu.test(message) ||
-      /response_format|json_schema|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable|not permitted|not allowed|invalid schema/iu.test(message)));
+      /response_format|json_schema|\bschema\b|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable|not permitted|not allowed|invalid schema/iu.test(message)));
   const encoder = new TextEncoder();
   const outputBytes = message => {
     if (!message) return 0;
@@ -103,6 +107,21 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       if (cost !== null) spend.recordedCost = cost;
     }
   };
+  const observeResponse = async (response, signal, options, invocation, spend) => {
+    const text = response.body ? await responseText(response, 1_000_000, { signal,
+      observeId: id => observe({ id }, options, invocation, spend) }) : '';
+    let value;
+    try { value = JSON.parse(text); } catch { /* A rejection may have a plain-text or empty body. */ }
+    if (value && typeof value === 'object') observe(value, options, invocation, spend);
+    // A fully received 4xx without usage is an unbilled rejection. Persist zero
+    // through the same receipt path to release session and account holds alike.
+    // Timeouts (408/499), usage-bearing errors and 5xx without cost remain conservative.
+    if (response.status >= 400 && response.status < 500 && ![408, 499].includes(response.status) && value?.usage == null) {
+      invocation.usage({ inputTokens: 0, outputTokens: 0 });
+      observe({ usage: { cost: 0 } }, options, invocation, spend);
+    }
+    return value;
+  };
   async function dispatch(request, scope, extra, invocation, spend) {
     scope.signal.throwIfAborted();
     const key = resolveSecret?.(binding.secretRef);
@@ -123,8 +142,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     const tracked = pending.then(async response => {
       if (scope.signal.aborted) {
         const late = operationScope({ deadlineAt: Date.now() + 1000 });
-        try { observe(JSON.parse(await responseText(response, 1_000_000, { signal: late.signal,
-          observeId: id => observe({ id }, spend.options, invocation, spend) })), spend.options, invocation, spend); }
+        try { await observeResponse(response, late.signal, spend.options, invocation, spend); }
         catch { /* Durable unknown costs remain retryable. */ }
         finally { settleSpend(spend); late.dispose(); }
       }
@@ -135,12 +153,12 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       spend.httpError = true;
       const providerErrorClass = response.status >= 400 && response.status < 500 ? '4xx'
         : response.status >= 500 && response.status < 600 ? '5xx' : undefined;
-      const responseFormatUnsupported = extra.stream && Boolean(extra.response_format) && providerErrorClass === '4xx';
-      // A received HTTP error may still carry billed usage. Otherwise keep the hold.
+      let responseFormatUnsupported = false;
+      // Read the complete response before classifying an unbilled rejection.
+      // Abort/read failure without that response still keeps the dispatched hold.
       try {
-        const value = JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,
-          observeId: id => observe({ id }, spend.options, invocation, spend) }));
-        observe(value, spend.options, invocation, spend);
+        const value = await observeResponse(response, scope.signal, spend.options, invocation, spend);
+        responseFormatUnsupported = Boolean(extra.response_format) && [400, 422].includes(response.status) && unsupportedResponseFormat(value);
       }
       catch { /* unknown cost */ }
       const error = new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);

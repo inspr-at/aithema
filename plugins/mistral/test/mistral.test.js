@@ -24,7 +24,8 @@ test('Mistral both operations report usage, refuse missing/reused claims and emi
   const bad = await chatServer(t, { handler: (_, res) => { res.writeHead(429); res.end('private-detail'); } });
   const failed = createMistralReasoning({ binding: binding('mistral', bad.endpoint), resolveSecret: () => 'local-fixture' });
   const options = invocationOptions(); await assert.rejects(failed.structured(request, options), { code: 'rate-limit' });
-  assert.equal(options.reports[0].outcome, 'uncertain');
+  assert.deepEqual(options.reports, [{ attemptId: options.attempt.attemptId, outcome: 'cancelled',
+    usage: { inputTokens: 0, outputTokens: 0 } }], 'a received 429 without usage is unbilled');
 });
 test('Mistral cancels active streams and structured bodies; deadlines charge uncertain after dispatch', async t => {
   const fake = await chatServer(t), plugin = createMistralReasoning({ binding: binding('mistral', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
