@@ -403,3 +403,8 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 /* Before upgrade these children have no header slot. After upgrade the shadow
    tree itself withholds them until configure creates the toolbar and its slot. */
 :root:not([data-host-unavailable]) .conversation-page aithema-session:not(:defined) .host-actions { visibility:hidden; }
+
+/* Keep Tick's full Conversations label from 448px beside the reserved values. */
+@media(448px <= width < 480px) {
+  .conversation-page .utility { gap:1px; padding-inline:2px; }
+}
