@@ -59,7 +59,10 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     assert.deepEqual(await boxes(page, targets), before, 'failed overview causes 0 px surrounding displacement');
     if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
     await page.evaluate(() => fetch('/success'));
-    await shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click());
+    const retry = await shadow(page, c => ({ inlineDisabled: c.shadowRoot.querySelector('.overview-retry').disabled, footerDisabled: c.shadowRoot.querySelector('.retry').disabled, operations: c.session.operations, features: c.session.featureMatrix }));
+    assert.equal(retry.inlineDisabled, false, JSON.stringify(retry)); assert.equal(retry.footerDisabled, false, JSON.stringify(retry));
+    const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry'), { timeout: 5000 }), shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click())]);
+    assert.equal(response.status(), 202, await response.text());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');

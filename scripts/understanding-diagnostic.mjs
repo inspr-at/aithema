@@ -1,7 +1,7 @@
 // OPS only. Inherit process configuration; never load files or print content.
 import { pathToFileURL } from 'node:url';
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { PluginRegistry, PluginError } from '../packages/core/src/index.js';
+import { PluginRegistry, inputRevision, PluginError } from '../packages/core/src/index.js';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createSpendCap } from '../packages/server/src/index.js';
 import { createOpenRouterReasoning } from '../plugins/openrouter/src/index.js';
 import { openRouterConfig } from '../demo/openrouter-config.js';
@@ -26,7 +26,7 @@ export async function runUnderstandingDiagnostic({ config, fetchImpl = globalThi
         calls++;
         if (!JSON.parse(args[1].body).stream) replyBeforeUnderstanding = calls === 2 &&
           storage.read(session.id).some(event => event.type === 'turn.final' && event.data.role === 'assistant') &&
-          storage.safeguards(session.id).assessed;
+          storage.safeguards(session.id, inputRevision(storage.get(session.id))).assessed;
         return fetchImpl(...args);
       } });
     const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(plugin),
