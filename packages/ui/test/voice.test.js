@@ -944,7 +944,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
     assert.deepEqual(resumes(calls), [], `${name}: no pause change without the person`);
     assert.equal(c.session.paused, true, `${name}: still paused`);
     const root = c.shadowRoot, resume = root.querySelector('.pause');
-    assert.equal(root.querySelector('.status__label').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
+    assert.equal(root.querySelector('.status__label').textContent, en.connected, `${name}: footer keeps the connection status`);
     assert.equal(resume.textContent, en.resume); assert.equal(root.activeElement, resume, `${name}: Resume has focus`);
     c.remove();
   }
@@ -952,7 +952,8 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
   c.shadowRoot.querySelector('.pause').click(); await until(() => !c.session.paused, 'one click resumes');
   assert.deepEqual(resumes(calls).map(call => call.body), [{ paused: false }]);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.paused, 'the prompt ends with that pause');
+  assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.connected, 'the footer stays connected after another manual pause');
+  assert.equal(c.shadowRoot.querySelector('.composer-reason').textContent, en.paused, 'pause appears in the composer');
 });
 test('without BroadcastChannel a reload never closes the journaled call; the lease ends it (AIT-116 D4)', async t => {
   const { c, calls, storage, session } = await reloadOrphan(t, { record: { callId: 'old-call', providerSessionId: 'old-provider' }, channel: false });

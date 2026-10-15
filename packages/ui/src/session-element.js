@@ -523,14 +523,13 @@ export class AithemaSession extends HTMLElement {
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
-    const voicePause = this.#session.paused && this.#session.pauseReason !== 'purpose';
-    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || (voicePause ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
+    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
     // Reserve the longest steady status in this locale; action messages use the existing popup.
     reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
     setText(status.querySelector('.status__label'), words); status.title = words;
     status.toggleAttribute('data-connected', connected);
-    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice || voicePause && this.#pausePrompt));
+    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
     this.#timer?.setConnected(connected);
   }
@@ -917,7 +916,7 @@ export class AithemaSession extends HTMLElement {
     }
     const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
     const reconciling = analysis.rawReason === 'budget reconciling';
-    const cached = reconciling || (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
+    const cached = reconciling || this.#session.paused || this.#host?.usedUp && this.#session.understanding.inputRevision !== null;
     for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
       node.style.minHeight = ''; delete node.dataset.redacted;
     }
@@ -942,7 +941,7 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available && !reconciling ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available && !reconciling && !this.#session.paused ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
