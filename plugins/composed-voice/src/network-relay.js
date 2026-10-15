@@ -102,7 +102,7 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
         if (action === 'disconnect') { close(entry); return json({ acknowledged: true }); }
         return json({ error: 'action' }, 400);
       } catch (error) {
-        return json({ error: error?.code ?? 'invalid-request' }, error?.code === 'limit' ? 429 : error?.code === 'not-admitted' ? 403 : 400);
+        return json({ error: error?.code ?? 'invalid-request' }, error?.code === 'limit' ? 429 : ['not-admitted', 'deadline'].includes(error?.code) ? 403 : 400);
       }
     },
     revoke(providerSessionId) { for (const entry of connections.values()) if (entry.grant.providerSessionId === providerSessionId) close(entry, false); },

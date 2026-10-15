@@ -58,7 +58,8 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
     const requestedAt = clock();
     for (const row of sources) { clearTimeout(row.timer); row.source.stop(); row.source.disconnect(); row.resolve(); }
     sources.clear(); cursor = context?.currentTime ?? 0;
-    onTiming({ kind: 'playback-stop', requestedAt, stoppedAt: clock() });
+    onTiming({ kind: 'playback-stop', requestedAt, stoppedAt: clock(), outputLatency: context?.outputLatency ?? null,
+      outputTimestamp: context?.getOutputTimestamp?.() ?? null });
   };
   return Object.freeze({
     async play(bytes, { format, sampleRateHz, channels, replyId } = {}) {
@@ -67,11 +68,9 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
       const width = format === 'pcm_s16le' ? 2 : 4;
       if (bytes.length % width) throw new TypeError('Misaligned PCM frame');
       context ??= new Context();
-      const resuming = context.resume();
-      // Reserve order before awaiting resume. Multiple play() calls may overlap.
+      // Reserve and schedule synchronously; resume cannot reorder queued sources.
       const start = Math.max(cursor, context.currentTime + 0.02), duration = bytes.length / width / sampleRateHz;
       if (start + duration - context.currentTime > maxQueuedSeconds) throw new Error('Playback queue full');
-      cursor = start + duration;
       const buffer = context.createBuffer(1, bytes.length / width, sampleRateHz), samples = buffer.getChannelData(0),
         view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       for (let i = 0; i < samples.length; i++) {
@@ -80,11 +79,12 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
         samples[i] = Math.max(-1, Math.min(1, value));
       }
 
+      const resuming = context.resume(); cursor = start + duration;
       const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination);
       const completion = Promise.withResolvers(), row = { source, resolve: completion.resolve }; sources.add(row);
       source.onended = () => { clearTimeout(row.timer); sources.delete(row); source.disconnect(); completion.resolve(); };
       source.start(start);
-      void resuming.catch(error => { stop(); completion.reject(error); });
+      void resuming.catch(error => { completion.reject(error); stop(); });
       const observeOutput = () => {
         if (!sources.has(row)) return;
         const timestamp = context.getOutputTimestamp?.();

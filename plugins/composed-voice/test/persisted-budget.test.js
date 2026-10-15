@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os';
 import { initializeQualificationBudget, openPersistedQualificationBudget } from '../src/persisted-budget.js';
 
 const specification = (attemptId, maxMicro = 10_000_000, more = {}) => ({ attemptId, maxMicro, lane: 'candidate',
-  provider: 'fixture', model: 'fixture-1', operation: 'stream', role: 'stt', request: { seconds: 30 }, ...more });
+  provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture-1', operation: 'stream', role: 'stt', request: { seconds: 30 }, ...more });
 const verifyCeiling = async attempt => ({ ...attempt, verified: true, reference: 'offline-account-price-attestation', expiresAt: Date.now() + 60_000 });
 const ports = { verifyCeiling, verifyReceipt: async receipt => receipt.serverAuthenticated === true };
-const receipt = (attemptId, chargedMicro, more = {}) => ({ attemptId, chargedMicro, provider: 'fixture', model: 'fixture-1',
+const receipt = (attemptId, chargedMicro, more = {}) => ({ attemptId, chargedMicro, provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture-1',
   operation: 'stream', estimated: false, serverAuthenticated: true, receiptId: `receipt-${attemptId}`, ...more });
 async function fixture(t, capMicro = 25_000_000) {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-budget-')), path = join(directory, 'budget.sqlite');
@@ -55,6 +55,7 @@ test('authenticated receipts reconcile all lanes/components/retries without anot
     await assert.rejects(budget.reconcile(receipt(attemptId, 1, { serverAuthenticated: false })), { code: 'not-admitted' });
     await assert.rejects(budget.reconcile(receipt(attemptId, 1, { model: 'wrong' })), { code: 'not-admitted' });
     await budget.reconcile(receipt(attemptId, 100)); await budget.reconcile(receipt(attemptId, 100));
+    await assert.rejects(budget.reconcile(receipt(attemptId, 101)), { code: 'already-claimed' });
     assert.throws(() => claim.report({ attemptId, outcome: 'completed', chargedMicro: 0 }), { code: 'already-claimed' });
   }
   assert.equal(budget.snapshot().exposureMicro, 300);
@@ -82,4 +83,25 @@ test('concurrent writers cannot overbook; interrupted dispatch retains maximum a
   a.claimRun('operator-run-1'); assert.throws(() => b.claimRun('operator-run-1'), { code: 'not-admitted' });
   assert.throws(() => initializeQualificationBudget({ path: h.path }));
   assert.throws(() => openPersistedQualificationBudget({ path: ':memory:', ...ports }));
+});
+
+test('process death after committed dispatch restores full exposure; authenticated receipt can settle the orphan', async t => {
+  const { spawnSync } = await import('node:child_process');
+  const h = await fixture(t);
+  const code = `
+    const { openPersistedQualificationBudget } = await import(${JSON.stringify(new URL('../src/persisted-budget.js', import.meta.url).href)});
+    const budget = openPersistedQualificationBudget({ path: process.argv[1],
+      verifyCeiling: async a => ({ ...a, verified: true, reference: 'offline-crash-proof', expiresAt: Date.now() + 60000 }), verifyReceipt: async () => true });
+    const claim = await budget.admit(${JSON.stringify(specification('killed-provider', 25_000_000))});
+    await claim.attempt.consume();
+    process.kill(process.pid, 'SIGKILL');
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', code, h.path], { env: { PATH: process.env.PATH }, timeout: 15_000 });
+  assert.equal(child.signal, 'SIGKILL', child.stderr.toString());
+  const restored = h.open(); t.after(() => restored.close());
+  assert.equal(restored.snapshot().records[0].state, 'dispatched'); assert.equal(restored.snapshot().exposureMicro, 25_000_000);
+  await assert.rejects(restored.admit(specification('after-crash', 1)), { code: 'not-admitted' });
+  await restored.reconcile(receipt('killed-provider', 5));
+  assert.equal(restored.snapshot().exposureMicro, 5);
+  const restarted = h.open(); t.after(() => restarted.close()); assert.equal(restarted.snapshot().exposureMicro, 5);
 });

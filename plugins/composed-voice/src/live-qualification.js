@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { evaluateQualification } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
 
-
 function blindWav(pcm, format) {
   const width = format.encoding === 'pcm_s16le' ? 2 : 4;
   if (pcm.byteLength % width || format.sampleRateHz < 8000 || format.sampleRateHz > 96000) throw new TypeError('Invalid blind PCM format');
@@ -26,19 +25,20 @@ export const PRELIVE_CHECKS = Object.freeze([
  * Timestamps come from device frames/output clocks, never fixture offsets or
  * server/browser wall-clock subtraction. Transcript authority remains server-only. */
 export function createQualificationMediaProbe() {
-  const trace = []; let speechEndAt, firstAudioAt, bargeInAt, stoppedAt;
+  const trace = [];
   return Object.freeze({
     onTiming(event) {
+      if (trace.length >= 100_000) throw new Error('Media evidence bound exceeded');
       trace.push(structuredClone(event));
-      if (trace.length > 100_000) throw new Error('Media evidence bound exceeded');
-      if (event.kind === 'capture' && event.voiced) {
-        if (firstAudioAt === undefined) speechEndAt = event.captureAt + event.durationMs;
-        else bargeInAt ??= event.captureAt;
-      }
-      if (event.kind === 'playback-start') firstAudioAt ??= event.firstAudioAt;
-      if (event.kind === 'playback-stop' && bargeInAt !== undefined) stoppedAt ??= event.stoppedAt;
     },
     evidence() {
+      // Worklet delivery and output clock observations can arrive out of order;
+      // compare their device timestamps, never callback delivery order.
+      const firstAudioAt = Math.min(...trace.filter(e => e.kind === 'playback-start').map(e => e.firstAudioAt));
+      const voiced = trace.filter(e => e.kind === 'capture' && e.voiced);
+      const speechEndAt = Math.max(...voiced.filter(e => e.captureAt < firstAudioAt).map(e => e.captureAt + e.durationMs));
+      const bargeInAt = Math.min(...voiced.filter(e => e.captureAt >= firstAudioAt).map(e => e.captureAt));
+      const stoppedAt = Math.min(...trace.filter(e => e.kind === 'playback-stop' && e.stoppedAt >= bargeInAt).map(e => e.stoppedAt));
       if (![speechEndAt, firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Real capture/output/barge-in evidence required');
       return { speechEndAt, firstAudioAt, bargeInAt, stoppedAt, trace: structuredClone(trace) };
     },
@@ -57,12 +57,13 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
   if (plan.checks.ttsFinalFlag.spelling !== 'is_final') throw new Error('Adapter expects is_final; resolve protocol spelling before run');
   if (![host?.verifyCeiling, host?.verifyReceipt, host?.runSample, host?.reconcile].every(fn => typeof fn === 'function')) throw new Error('OPS host ports required');
   const budget = openPersistedQualificationBudget({ path: budgetPath, verifyCeiling: host.verifyCeiling, verifyReceipt: host.verifyReceipt });
+  let runClaimed = false;
   try {
     if (budget.snapshot().blocked) throw new Error('Qualification budget blocked');
     for (const attempt of plan.ceilingChecks) await budget.verifyPricing(attempt);
     // Persist identity before touching media/providers. Interrupted runs require
     // an explicit new operator-approved plan and reuse the SAME shared ledger.
-    budget.claimRun(plan.runId);
+    budget.claimRun(plan.runId); runClaimed = true;
     await mkdir(outputDirectory, { recursive: true });
     const samples = { candidate: [], baseline: [] }, blind = [], answerKey = [];
     for (const [index, item] of plan.corpus.entries()) {
@@ -99,7 +100,12 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
     await writeFile(join(outputDirectory, 'report.json'), JSON.stringify(report, null, 2), { flag: 'wx', mode: 0o600 });
     return report;
   } finally {
-    await writeFile(join(outputDirectory, 'budget-final.json'), JSON.stringify(budget.snapshot(), null, 2), { mode: 0o600 }).catch(() => {});
-    budget.close();
+    try {
+      if (runClaimed) await host.reconcile({ snapshot: budget.snapshot(), reconcile: receipt => budget.reconcile(receipt) });
+    } finally {
+      try { await writeFile(join(outputDirectory, 'budget-final.json'), JSON.stringify(budget.snapshot(), null, 2), { mode: 0o600 }); }
+      catch { /* The durable ledger remains authoritative if evidence storage fails. */ }
+      budget.close();
+    }
   }
 }

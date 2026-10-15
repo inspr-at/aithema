@@ -48,13 +48,15 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
   async function ceilingFor(attempt) {
+    if (['provider', 'model', 'operation', 'accountRef', 'endpoint'].some(key => typeof attempt[key] !== 'string' || !attempt[key]) ||
+      !Number.isSafeInteger(attempt.maxMicro) || attempt.maxMicro < 0 || !/^[a-f0-9]{64}$/u.test(attempt.requestDigest)) throw new TypeError('Complete verified pricing identity required');
     const proof = await verifyCeiling(structuredClone(attempt));
     if (!proof || proof.verified !== true || typeof proof.reference !== 'string' || !proof.reference ||
       !Number.isFinite(proof.expiresAt) || proof.expiresAt <= now() ||
-      ['provider', 'model', 'operation', 'requestDigest', 'maxMicro'].some(key => proof[key] !== attempt[key])) {
+      ['provider', 'model', 'operation', 'accountRef', 'endpoint', 'requestDigest', 'maxMicro'].some(key => proof[key] !== attempt[key])) {
       throw new PluginError('not-admitted', 'Verified provider attempt ceiling required');
     }
-    return { ...proof };
+    return Object.fromEntries(['verified', 'reference', 'expiresAt', 'provider', 'model', 'operation', 'accountRef', 'endpoint', 'requestDigest', 'maxMicro'].map(key => [key, proof[key]]));
   }
   const rowFor = (snapshot, attemptId) => {
     const row = snapshot.records.find(row => row.attemptId === attemptId);
@@ -70,11 +72,11 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
       });
     },
     snapshot() { if (closed) throw new Error('Budget closed'); return structuredClone(read(db)); },
-    async admit({ attemptId, lane, provider, model, operation, role, maxMicro, request, retryOf = null }) {
+    async admit({ attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, request, retryOf = null }) {
       if (typeof attemptId !== 'string' || !attemptId || !['candidate', 'baseline'].includes(lane) ||
-        !['stt', 'tts', 'reasoning'].includes(role) || [provider, model, operation].some(x => typeof x !== 'string' || !x) ||
+        !['stt', 'tts', 'reasoning'].includes(role) || [provider, model, operation, accountRef, endpoint].some(x => typeof x !== 'string' || !x) ||
         !Number.isSafeInteger(maxMicro) || maxMicro < 0 || request === undefined) throw new TypeError('Complete attempt identity required');
-      const attempt = { attemptId, lane, provider, model, operation, role, maxMicro, requestDigest: qualificationRequestDigest(request), retryOf };
+      const attempt = { attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, requestDigest: qualificationRequestDigest(request), retryOf };
       const ceiling = await ceilingFor(attempt);
       change(snapshot => {
         if (snapshot.records.some(row => row.attemptId === attemptId)) throw new PluginError('already-claimed');
@@ -130,11 +132,12 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
       if (await verifyReceipt(structuredClone(receipt), structuredClone(original)) !== true ||
         receipt.estimated !== false || !Number.isSafeInteger(receipt.chargedMicro) || receipt.chargedMicro < 0 ||
         typeof receipt.receiptId !== 'string' || !receipt.receiptId ||
-        ['provider', 'model', 'operation'].some(key => receipt[key] !== original[key])) throw new PluginError('not-admitted', 'Authenticated matching server receipt required');
+        ['provider', 'model', 'operation', 'accountRef', 'endpoint'].some(key => receipt[key] !== original[key])) throw new PluginError('not-admitted', 'Authenticated matching server receipt required');
       const overrun = change(snapshot => {
         const row = rowFor(snapshot, receipt.attemptId);
+        if (snapshot.records.some(other => other.attemptId !== receipt.attemptId && other.receipt?.receiptId === receipt.receiptId)) throw new PluginError('already-claimed');
         if (row.receipt) {
-          if (JSON.stringify(row.receipt) !== JSON.stringify(receipt)) throw new PluginError('already-claimed');
+          if (['receiptId', 'attemptId', 'chargedMicro', 'estimated', 'provider', 'model', 'operation', 'accountRef', 'endpoint'].some(key => row.receipt[key] !== receipt[key])) throw new PluginError('already-claimed');
           return row.exposureMicro > row.maxMicro;
         }
         row.reconciled = true; row.receipt = structuredClone(receipt); row.exposureMicro = receipt.chargedMicro; row.reconciledAt = now();

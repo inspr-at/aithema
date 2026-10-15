@@ -35,7 +35,7 @@ test('network relay denies unauthenticated, wrong-owner, expired, altered and re
   h.advance(31_000);
   assert.equal((await h.post('audio', new Uint8Array(1280), connectionId)).status, 403);
   const expired = fixture(); t.after(() => expired.route.close()); expired.advance(31_000);
-  assert.notEqual((await expired.post('open', expired.relay.grant)).status, 200);
+  assert.equal((await expired.post('open', expired.relay.grant)).status, 403);
 });
 
 test('network relay carries explicit formats and PCM, closes on pause and revoke, bounds body/rate', async t => {

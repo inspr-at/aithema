@@ -23,8 +23,9 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     if (!enabled || !bound || bound.owner !== owner) return false;
     try {
       await storage.authorize(bound.sessionId, owner);
-      return await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId },
-        { deadlineAt: now() + 5000 }) === true;
+      const allowed = await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId },
+        { deadlineAt: now() + 5000 });
+      await storage.authorize(bound.sessionId, owner); return allowed === true;
     } catch { return false; }
   };
   const networkRelay = authenticateRelay ? createComposedRelayRoute({ authenticate: authenticateRelay, origin: relayOrigin, now,

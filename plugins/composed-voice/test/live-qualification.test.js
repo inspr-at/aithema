@@ -11,7 +11,7 @@ const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40
   { kind: 'capture', voiced: true, captureAt: 1000, durationMs: 40 }, { kind: 'playback-stop', stoppedAt: 1100 } ];
 const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH' }],
   checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'is_final' } : {}) }])),
-  ceilingChecks: [{ provider: 'fixture', model: 'fixture', operation: 'stream', maxMicro: 100, request: { seconds: 1 } }] });
+  ceilingChecks: [{ provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture', operation: 'stream', maxMicro: 100, request: { seconds: 1 } }] });
 
 test('OPS entry point refuses missing operator flag, persisted budget, checklist and pricing before dispatch', async () => {
   let calls = 0;
@@ -38,7 +38,7 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
     verifyReceipt: async () => true,
     async runSample({ lane, admit, onTiming }) {
       for (const role of ['stt', 'tts', 'reasoning']) {
-        const attemptId = `${lane}-${role}`, admission = await admit({ attemptId, provider: 'fixture', model: 'fixture', operation: 'stream',
+        const attemptId = `${lane}-${role}`, admission = await admit({ attemptId, provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture', operation: 'stream',
           role, maxMicro: 100, request: { fixture: true } });
         await admission.dispatch(async () => admission.report({ attemptId, outcome: 'completed', chargedMicro: 1 }));
       }
@@ -48,7 +48,7 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
     },
     async reconcile({ snapshot, reconcile }) {
       for (const row of snapshot.records.filter(row => !row.receipt)) await reconcile({ attemptId: row.attemptId,
-        receiptId: row.attemptId, provider: row.provider, model: row.model, operation: row.operation, chargedMicro: 1, estimated: false });
+        receiptId: row.attemptId, provider: row.provider, model: row.model, operation: row.operation, accountRef: row.accountRef, endpoint: row.endpoint, chargedMicro: 1, estimated: false });
     },
   };
   const options = { operatorApproved: true, plan: plan(), host, budgetPath, outputDirectory };
@@ -61,4 +61,15 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
   assert.equal((await readFile(join(outputDirectory, blind[0].file))).subarray(0, 4).toString(), 'RIFF');
   assert.equal(JSON.parse(await readFile(join(outputDirectory, 'ops-answer-key.json'))).length, 2);
   await assert.rejects(runLiveQualification(options), /Run already claimed/);
+});
+
+test('unverified pricing and unresolved final-flag spelling prevent all sample/provider work', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ops-refusal-')), budgetPath = join(directory, 'budget.sqlite');
+  t.after(() => rm(directory, { recursive: true, force: true })); initializeQualificationBudget({ path: budgetPath });
+  let calls = 0;
+  const host = { runSample() { calls++; }, verifyCeiling: async () => null, verifyReceipt: async () => false, reconcile() { calls++; } };
+  await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: plan(), host, outputDirectory: directory }), /Verified provider attempt ceiling/);
+  const unresolved = plan(); unresolved.checks.ttsFinalFlag.spelling = 'isFinal';
+  await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: unresolved, host, outputDirectory: directory }), /Adapter expects is_final/);
+  assert.equal(calls, 0);
 });

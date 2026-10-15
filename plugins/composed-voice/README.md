@@ -228,18 +228,18 @@ call consume twice. The trusted OPS integration must cover every attempt,
 including baseline and retries; the zero-cost composed parent is not a substitute.
 
 Each spec includes `attemptId`, `lane` (candidate/baseline), `role`
-(stt/tts/reasoning), `provider`, `model`, `operation`, `maxMicro`, exact `request`,
+(stt/tts/reasoning), `provider`, `model`, `operation`, non-secret `accountRef`, `endpoint`, `maxMicro`, exact `request`,
 and optionally `retryOf`. `verifyCeiling` is invoked both on admission and just
 before dispatch. It must return account-verified `verified: true`, an evidence
 `reference`, future `expiresAt`, and matching `provider`, `model`, `operation`,
-`maxMicro`, `requestDigest` (SHA-256 of the JSON request). A configured tariff
+`accountRef`, `endpoint`, `maxMicro`, `requestDigest` (SHA-256 of the JSON request). A configured tariff
 alone is not verification. The proof must bound all billable request bytes,
 initialization/whitespace, rounding, minimums, retries and maximum duration.
 
 Reports are exactly once. Estimated charges, missing usage and uncertainty retain
 the maximum. After dispatch, only `reconcile(receipt)` with a trusted
 `verifyReceipt(receipt, storedAttempt) === true` can release exposure. Receipts
-must include matching `attemptId`, `provider`, `model`, `operation`, unique
+must include matching `attemptId`, `provider`, `model`, `operation`, `accountRef`, `endpoint`, unique
 `receiptId`, integer `chargedMicro`, and `estimated: false`. OPS authenticates
 these server-observed receipts and also applies them through the existing AIT-198
 reconciliation ledger, without a second terminal report. Identical receipts are
