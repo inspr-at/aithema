@@ -40,6 +40,7 @@ export const browserTestWeights = {
   'test/browser/start2-display.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/tick-followups.test.js': 90.000, // CI 38726471579-1 (73.781s; rounded up + 10s margin)
   'test/browser/visitor-credit-tiers.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
+  'test/browser/understanding-failure.test.js': 30.000, // AIT-198 controlled provider / 8 visitor settlement cases
   'test/browser/voice-presentation.test.js': 90.000, // CI 38716800511-1 (rounded up + 10s margin)
 };
 
