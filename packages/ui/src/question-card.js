@@ -14,7 +14,7 @@ export const questionCardStyles = `
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 36px);
     min-height:0; grid-template-rows:auto minmax(0,1fr); }
   .workspace[data-stage="live"] .transcript-shell { height:auto; min-height:0; }
-  .transcript-shell > .voice-notices { margin-top:8px; }
+  .transcript-shell > .voice-notices { height:auto; margin-top:8px; }
   .workspace[data-stage="live"] .phone-dock-backdrop { display:block; position:fixed; z-index:8;
     left:0; right:0; bottom:var(--phone-bottom,0px);
     height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); }

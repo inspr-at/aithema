@@ -89,7 +89,8 @@ export class ConversationFold {
 
 /** Viewport-clamped tooltips, shared by notice/build, wallet and preset; hover changes only opacity. */
 export class FooterPopups {
-  constructor(root) {
+  constructor(root, { onNoticesChange = () => {} } = {}) {
+    this.onNoticesChange = onNoticesChange;
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.entries = [...root.querySelectorAll('[data-footer-popup]')];
     for (const entry of this.entries) {
@@ -134,7 +135,8 @@ export class FooterPopups {
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
 export class PhoneComposerViewport {
-  constructor(root) {
+  constructor(root, { onNoticesChange = () => {} } = {}) {
+    this.onNoticesChange = onNoticesChange;
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
       const view = this.view, viewport = view?.visualViewport;
@@ -148,7 +150,7 @@ export class PhoneComposerViewport {
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
       if (notices.parentNode !== parent) {
-        if (phone) parent.prepend(notices); else parent.append(notices);
+        parent.append(notices);
       }
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
@@ -181,9 +183,18 @@ export class PhoneComposerViewport {
       this.observer = new Observer(this.paint);
       for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
     }
+    this.noticesObserver?.disconnect();
+    const Mutation = this.view?.MutationObserver;
+    if (Mutation) {
+      this.noticesObserver = new Mutation(() => {
+        if (this.view.matchMedia('(max-width:600px)').matches) this.onNoticesChange();
+      });
+      this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'] });
+    }
     this.paint();
   }
   destroy() {
+    this.noticesObserver?.disconnect();
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.paint);
     this.view?.visualViewport?.removeEventListener('resize', this.paint);
