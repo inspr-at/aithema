@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { browserPath } from './start2-display-helpers.js';
 
-let launch, directory;
+let launch, directory, resetPage;
 after(async () => {
   try { if (launch) await (await launch).close(); }
   finally { if (directory) await rm(directory, { recursive: true, force: true }); }
@@ -16,9 +16,12 @@ after(async () => {
 export async function browserForFile() {
   launch ??= (async () => {
     directory = await mkdtemp(join(tmpdir(), 'aithema-shared-chrome-'));
-    return puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
+    const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
       userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
       args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+    // Storage commands need a page target's storage partition.
+    resetPage = await browser.newPage();
+    return browser;
   })();
   const browser = await launch, context = browser.defaultBrowserContext(), pages = [];
   // mbp2606 Chrome 155 SIGSEGVs when a second incognito context is created.
@@ -35,7 +38,7 @@ export async function browserForFile() {
         .filter(url => /^https?:/u.test(url)).map(url => new URL(url).origin));
       // Close pages first so an unload handler cannot write storage after reset.
       await Promise.all(pages.filter(page => !page.isClosed()).map(page => page.close()));
-      const session = await browser.target().createCDPSession();
+      const session = await resetPage.createCDPSession();
       try {
         for (const origin of origins) await session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' });
       } finally { await session.detach(); }

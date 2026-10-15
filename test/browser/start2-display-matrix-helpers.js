@@ -582,7 +582,7 @@ export async function displayMatrix(t, section) {
       try {
         const html = await readFile('/tmp/aithema-ait-131-approved.html', 'utf8');
         const reference = await browser.newPage();
-        for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
+        for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
           await reference.goto('about:blank');
           await reference.setViewport({ width, height: width === 390 ? 844 : 900 });
           await reference.setContent(html);
