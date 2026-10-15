@@ -63,7 +63,8 @@ CHROME_PATH=/absolute/path/to/chrome npm run test:browser
 `setup:browser` installs `chrome-headless-shell` **155.0.8059.39**, matching
 `puppeteer-core` **25.13.0**, through exactly pinned `@puppeteer/browsers` **3.2.4**.
 The cache is `~/.cache/aithema-browsers`; test launch also installs that exact build
-if it is missing. All browser suites and the voice soak use the same selection
+if it is missing. An atomic cache lock serializes installs across test processes.
+All browser suites and the voice soak use the same selection
 and disable Breakpad/Crashpad reporting. Full Chrome has no suite exceptions;
 the AIT-199 measurement batch uses it only as the old comparison baseline.
 On macOS the shell enables GPU compositing for parity with full Chrome; Linux
@@ -74,11 +75,18 @@ On OPS workers, an exact new PID/run match in `~/ci.noindex/mem-guard.log` label
 a SIGTERM exit `infra: memory guard` and fails the run.
 
 The separately invoked `test/measurements/headless-shell.test.js` runs a serial
-full-Chrome/shell sample (display, admin, A2, consent, pause and restart recovery).
+full-Chrome/shell sample twice per browser (display, admin, A2, consent, pause and
+restart recovery). Every pair contributes to the maximum; none are excluded.
 It writes viewport screenshots where the UI is fixed/sticky, raw pixel deltas,
-one-second sampled Chrome-tree RSS sums, system free percentages and the macOS
-ReportCrash log to `AITHEMA_EVIDENCE_DIR`. RSS sums can count shared pages more
-than once; the full browser suite belongs to PR CI.
+same-browser noise baselines, old/new/diff PNGs for every pair above its noise
+floor, one-second Chrome-tree RSS sums and system free percentages to
+`AITHEMA_EVIDENCE_DIR`. The historical >8 channel delta is diagnostic only;
+there is no blanket 1% acceptance limit. Root diagnostics record fonts, animation,
+geometry and a separate blur-off ablation without changing the real sample.
+RSS sums can count shared pages more than once. The ReportCrash suppression claim
+is withdrawn: SIGKILL has no macOS crash report, Puppeteer already disables
+Breakpad, and the previous runs lacked comparable observation windows.
+The full browser suite belongs to PR CI.
 
 The smoke test starts the
 mock demo on a free port with a temporary database, and always clicks **Allow mock
