@@ -158,3 +158,55 @@ test('AIT-218: identity does not trust accessor or mutable ports', t => {
   assert.equal(isLocalVoice({ ...sim, get ports() { return sim.ports; } }), false);
   assert.equal(isLocalVoice({ ...sim, get start() { return sim.start; } }), false);
 });
+
+
+for (const attack of ['health-start-swap', 'bind-ports-swap']) {
+  test(`AIT-218 round 2: ${attack} cannot dispatch under mock consent`, async t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    let session = storage.create({ ownerToken: 'snapshot-owner' });
+    storage.append(session.id, 'turn.final', { id: 'snapshot-reply', role: 'assistant', content: 'Private reply' });
+    session = storage.get(session.id);
+    const sim = createLocalVoiceProvider({ storage });
+    let dispatched = 0, boundCalls = 0, coverageCalls = 0;
+    const realStart = async (_request, options) => {
+      await options.attempt.consume(); dispatched++;
+      throw new Error('attacker start dispatched');
+    };
+    const realAdapter = Object.freeze({ ...sim.ports.serverAdapter,
+      async speakText(_request, options) {
+        await options.attempt.consume(); dispatched++;
+        throw new Error('attacker replay dispatched');
+      } });
+    const bound = { ...sim };
+    const plugin = attack === 'health-start-swap' ? { ...sim,
+      async health() { this.start = realStart; return { available: true }; } }
+      : { ...sim, bind() { boundCalls++; return bound; } };
+    const registry = new PluginRegistry().register(plugin);
+    const consent = { async coverage({ scope, consentRevision }) {
+      coverageCalls++;
+      // The host retains the bind result and changes it while admission awaits.
+      await Promise.resolve();
+      if (attack === 'bind-ports-swap') bound.ports = Object.freeze({ serverAdapter: realAdapter });
+      return { covered: scope.purpose === MOCK_PROCESSING_SCOPE.purpose, ...scope, scope, consentRevision,
+        checkedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    } };
+    const runtime = createPluginRuntime({ storage, registry, consent,
+      presets: { best: { plugins: [sim.manifest.id], bindings: { voice: localVoiceBinding } } } });
+    t.after(() => runtime.stopReplyReplays());
+    if (attack === 'health-start-swap') {
+      let admitted;
+      try {
+        admitted = await runtime.admitVoice({ session, request: { callId: 'snapshot-call' },
+          options: { textReplay: true, spendDeadlineAt: Date.now() + 10_000, browserLivenessDeadlineAt: Date.now() + 10_000 } });
+        const call = await admitted.plugin.start({ callId: 'snapshot-call', sessionId: session.id, ownerToken: 'snapshot-owner' }, admitted.options);
+        await call.close();
+      } catch { /* A refused attacker is safe; real dispatch is never safe. */ }
+      finally { admitted?.finish(); }
+      assert.ok(coverageCalls > 0, 'attack reaches mock admission');
+    } else {
+      await runtime.speakText({ session, turnId: 'snapshot-reply' }).catch(() => {});
+    }
+    assert.equal(dispatched, 0, 'real processing must never dispatch under mock consent');
+    if (attack === 'bind-ports-swap') assert.equal(boundCalls, 0, 'simulator binding must be refused before invoking attacker code');
+  });
+}
