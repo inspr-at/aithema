@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { assertBrowserShardCoverage, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { readBrowserTestWeights, assertBrowserShardCoverage, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 test('CI shards cover every browser test file exactly once; local command runs the same full set', () => {
   assertBrowserShardCoverage();
@@ -117,4 +119,36 @@ test('the shard guard command prints projected totals for every shard', () => {
     assert.ok(result.stdout.includes(`Browser shard ${index + 1}/4: projected file work ${total.toFixed(3)}s`));
   });
   assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across 4 shards.`));
+});
+
+// Frozen legacy data is only a migration oracle, never a source for packing.
+test('AIT-216 preserves every legacy weight and the exact four-shard layout', t => {
+  const legacy = JSON.parse(readFileSync(new URL('./fixtures/browser-shards-ait-216.json', import.meta.url), 'utf8'));
+  const root = mkdtempSync(join(tmpdir(), 'browser-weight-migration-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  for (const [file, measurement] of Object.entries(legacy.measurements)) {
+    writeFileSync(join(root, file.replace(/\.test\.js$/u, '.weight.json')), JSON.stringify(measurement));
+  }
+  const files = Object.keys(legacy.weights);
+  const migrated = readBrowserTestWeights(files, root);
+  assert.deepEqual(migrated, legacy.weights);
+  assert.deepEqual(packBrowserTests(files, migrated), { shards: legacy.shards, totals: legacy.totals });
+});
+
+test('per-file weights require readable JSON, positive seconds and measurement evidence', t => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-weights-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  const files = ['test/browser/new.test.js'];
+  const path = join(root, 'test/browser/new.weight.json');
+  assert.throws(() => readBrowserTestWeights(files, root), /Missing or unreadable.*new\.weight\.json/u);
+  writeFileSync(path, '{broken');
+  assert.throws(() => readBrowserTestWeights(files, root), /Missing or unreadable/u);
+  for (const measurement of [null, {}, { seconds: 0, evidence: 'CI run' }, { seconds: -1, evidence: 'CI run' }, { seconds: '90', evidence: 'CI run' }, { seconds: 90 }, { seconds: 90, evidence: ' ' }]) {
+    writeFileSync(path, JSON.stringify(measurement));
+    assert.throws(() => readBrowserTestWeights(files, root), /Invalid browser test weight/u);
+  }
+  writeFileSync(path, JSON.stringify({ seconds: 90, evidence: 'CI 123-1: 76.396s; rounded up + 10s' }));
+  assert.deepEqual(readBrowserTestWeights(files, root), { 'test/browser/new.test.js': 90 });
 });

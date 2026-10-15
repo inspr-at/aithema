@@ -59,3 +59,35 @@ Validate workflow syntax and expression types with pinned `actionlint` v1.7.7;
 no repository dependency or installation is needed.
 
 Browser launches use a 60 s default per attempt (caller overrides preserved), with exactly one retry for a startup timeout only, after process/profile cleanup; page and test failures are never retried. The bound adds headroom above the 30 s failure in run [38788184134](https://github.com/inspr-at/aithema/actions/runs/38788184134); recent run [38795278547](https://github.com/inspr-at/aithema/actions/runs/38795278547) logged admin launches of 718.973, 42.021 and 56.389 ms. Run [38794838496](https://github.com/inspr-at/aithema/actions/runs/38794838496) also recorded 10,984.398, 172.377 and 180.271 ms, demonstrating contention well above the subsecond baseline; 60 s is about 5.5 times that observed maximum and twice the failed bound. Each attempt uses an isolated temporary profile under the caller's `userDataDir` (or the system temp directory).
+
+## Browser shard weights
+
+Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`:
+
+```json
+{
+  "seconds": 90,
+  "evidence": "CI 38774634960-1: 76.396s; rounded up + 10s margin"
+}
+```
+
+Sibling files keep additions and refreshes independent of a shared manifest and
+avoid changing executable tests just to refresh timings. Discovery reads each
+sibling; missing files, malformed JSON, nonpositive seconds or empty evidence
+fail the shard guard with the offending path. No shared list needs editing.
+
+For a new file, measure it on the designated remote test machine or CI and
+record the run/attempt and observed seconds. Sum top-level test durations only;
+nested subtests are already included. Follow AIT-191: use the slowest observed
+successful per-file duration, round **up** to a 10-second bucket, then add 10s
+for variance (`Math.ceil(slowestSeconds / 10) * 10 + 10`). On refresh, retain
+slower historical observations and never reduce an existing planning weight
+because a newer run is faster. Preserve the historical floor and measurement
+provenance in `evidence`. Estimates exclude setup, process overhead and evidence
+upload; validate whole-job wall time against the 450s budget separately.
+
+`test/browser-shards.test.js` checks weight parsing and missing-weight failures.
+Its frozen AIT-216 fixture records the legacy weights and exact shard layout at
+`8d52ace2`, proving the migration changed neither. It exercises the production parser against frozen migrated measurements, so
+future additions and refreshes do not edit this shared fixture. The fixture is
+test evidence only and never feeds the sharder.
