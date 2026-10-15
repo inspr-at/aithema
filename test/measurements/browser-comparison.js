@@ -143,7 +143,20 @@ export async function compareBrowsers(t, files = batch) {
     maxChangedPct: Math.max(...rows.map(r => r.changedPct ?? Infinity)), maxMeanAbsoluteChannelDelta: Math.max(...rows.map(r => r.meanAbsoluteChannelDelta ?? Infinity)),
     dimensionMismatches: rows.filter(r => !r.sameSize).map(r => r.file) });
   const head = /aithema-runs\/([a-f0-9]{10})-/u.exec(process.cwd())?.[1];
-  const summary = { head, assessment: review.length ? 'visual review required for every pair above its measured same-browser noise floor' : 'no cross-browser pair above measured noise',
+  const rootDiagnostics = [];
+  for (const device of (files === batch ? ['desktop', 'phone'] : [])) for (const theme of ['light', 'dark']) {
+    const name = `ait-129-root-${device}-${theme}`;
+    const states = await Promise.all(variants.map(v => readFile(join(output, 'diagnostics', v.variant, `${name}.json`), 'utf8').then(JSON.parse)));
+    const ablations = {};
+    for (const suffix of ['unsettled', 'no-backdrop']) {
+      const [a, ar, b, br] = await Promise.all(variants.map(async v => pixels(await readFile(join(output, 'diagnostics', v.variant, `${name}-${suffix}.png`)))));
+      ablations[suffix] = { crossBrowser: difference(a, b, `${name}-${suffix}.png`),
+        fullChromeNoise: difference(a, ar, `${name}-${suffix}.png`), headlessShellNoise: difference(b, br, `${name}-${suffix}.png`) };
+      await reviewPng(join(output, 'review', 'diagnostics', `${name}-${suffix}.png`), a, b);
+    }
+    rootDiagnostics.push({ file: `${name}.png`, states, ablations });
+  }
+  const summary = { head, rootDiagnostics, assessment: review.length ? 'visual review required for every pair above its measured same-browser noise floor' : 'no cross-browser pair above measured noise',
     allPairs: comparisons.length, excludedPairs: [], fullPairSummary: summarize(comparisons),
     noiseBaselines: { fullChrome: summarize(chromeNoise), headlessShell: summarize(shellNoise), fullChromePairs: chromeNoise, headlessShellPairs: shellNoise },
     thresholds: { diagnosticChannelDelta: 8, acceptanceLimitPct: null,

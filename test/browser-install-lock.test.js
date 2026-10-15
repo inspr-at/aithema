@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, access, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installOnce } from '../scripts/browser-install-lock.js';
@@ -30,4 +30,6 @@ test('failed installation releases its lock so another process can retry', async
   const options = { executable: join(dir, 'browser'), lockPath: join(dir, 'install.lock') };
   await assert.rejects(installOnce({ ...options, install: async () => { throw new Error('download failed'); } }), /download failed/u);
   await assert.rejects(access(options.lockPath), { code: 'ENOENT' });
+  await installOnce({ ...options, install: () => writeFile(options.executable, 'retry succeeded', { mode: 0o755 }) });
+  assert.equal(await readFile(options.executable, 'utf8'), 'retry succeeded');
 });
