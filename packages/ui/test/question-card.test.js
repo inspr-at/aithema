@@ -209,7 +209,9 @@ test('AIT-225: scroll and visual viewport resize reservations coalesce into one 
   view.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 1); assert.equal(calls, 0, 'events do no synchronous layout work');
   frames[0](); assert.equal(calls, 1);
-  viewport.dispatchEvent(new view.Event('resize'));
+  viewport.scale = 2; viewport.dispatchEvent(new view.Event('resize'));
+  assert.equal(frames.length, 1, 'pinch zoom leaves the reader and dock in place');
+  viewport.scale = 1; viewport.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 2, 'a later visual viewport resize schedules fresh geometry');
   card.destroy(); assert.deepEqual(cancelled, [2]);
   viewport.dispatchEvent(new view.Event('resize')); view.dispatchEvent(new view.Event('resize'));

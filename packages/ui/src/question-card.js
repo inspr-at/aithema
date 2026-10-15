@@ -110,6 +110,7 @@ export class QuestionCard {
       this.frame = this.view.requestAnimationFrame(() => { this.frame = null; this.reserve(); });
     };
     this.viewportResize = () => {
+      if ((this.view.visualViewport?.scale ?? 1) !== 1) return;
       this.followOnResize ??= this.followsTranscript();
       this.scheduleReserve();
     };
@@ -146,7 +147,8 @@ export class QuestionCard {
       const minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
         + this.card.querySelector('.qhint').getBoundingClientRect().height
         + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2 * parseFloat(style.rowGap) + 2;
-      const viewport = this.view.visualViewport?.height ?? this.view.innerHeight;
+      const visual = this.view.visualViewport;
+      const viewport = visual?.scale === 1 ? visual.height : this.view.innerHeight;
       compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
     }
     this.card.toggleAttribute('data-compact', compact);
