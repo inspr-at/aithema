@@ -7,6 +7,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // AIT-191 baseline: slowest successful per-file observations across CI runs
 // 38692613866, 38701239296 and 38704006618. AIT-192 benchmark browser jobs:
 // 38714762515, 38715731356, 38716800511, 38717864470 and 38720349940 (attempt 1).
+// Round 2: all 24 files remeasured in 38726471579-1 after merging AIT-190.
+// New observations raise weights; slower historical observations remain.
 // Changed matrices use their slowest benchmark observation; unchanged files
 // retain a slower historical maximum. All weights round UP to 10-second planning
 // buckets; updated/slower observations reserve another 10s for run variance.
@@ -17,26 +19,26 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserTestWeights = {
   'test/browser/admin-pages.test.js': 80.000, // CI 38720349940-1 (rounded up + 10s margin)
   'test/browser/audio-replay.test.js': 50.000, // CI 38716800511-1 (rounded up + 10s margin)
-  'test/browser/confirmation-design.test.js': 80.000, // CI 38716800511-1 (rounded up + 10s margin)
+  'test/browser/confirmation-design.test.js': 90.000, // CI 38726471579-1 (74.518s; rounded up + 10s margin)
   'test/browser/credit-hold.test.js': 70.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/demo.test.js': 90.000, // CI 38704006618-1 (rounded up)
-  'test/browser/email-ask.test.js': 120.000, // CI 38714762515-1 (rounded up + 10s margin)
+  'test/browser/email-ask.test.js': 130.000, // CI 38726471579-1 (115.313s; rounded up + 10s margin)
   'test/browser/email-mail-space.test.js': 80.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/footer-width-sweep.test.js': 30.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/host-surface.test.js': 20.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/html-preview.test.js': 40.000, // CI 38701239296-1 (rounded up)
   'test/browser/operator-login.test.js': 60.000, // CI 38717864470-1 (rounded up + 10s margin)
-  'test/browser/orb-reveal.test.js': 90.000, // CI 38701239296-1 (rounded up)
-  'test/browser/pause-phone.test.js': 160.000, // CI 38718269610-1, AIT-190 (rounded up + 10s margin)
-  'test/browser/question-card.test.js': 20.000, // CI 38704006618-1 (rounded up)
+  'test/browser/orb-reveal.test.js': 100.000, // CI 38726471579-1 (84.326s; rounded up + 10s margin)
+  'test/browser/pause-phone.test.js': 190.000, // CI 38726471579-1 (176.200s; rounded up + 10s margin)
+  'test/browser/question-card.test.js': 30.000, // CI 38726471579-1 (14.920s; rounded up + 10s margin)
   'test/browser/safeguards.test.js': 20.000, // CI 38716800511-1 (rounded up + 10s margin)
-  'test/browser/start-journey.test.js': 20.000, // CI 38704006618-1 (rounded up)
+  'test/browser/start-journey.test.js': 30.000, // CI 38726471579-1 (13.488s; rounded up + 10s margin)
   'test/browser/start-look.test.js': 40.000, // CI 38716800511-1 (rounded up + 10s margin)
   'test/browser/start2-display-continuity.test.js': 60.000, // CI 38714762515-1 (rounded up + 10s margin)
   'test/browser/start2-display-geometry.test.js': 50.000, // CI 38704006618-2 (rounded up)
   'test/browser/start2-display-matrix.test.js': 70.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/start2-display.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
-  'test/browser/tick-followups.test.js': 80.000, // CI 38704006618-1 (rounded up)
+  'test/browser/tick-followups.test.js': 90.000, // CI 38726471579-1 (73.781s; rounded up + 10s margin)
   'test/browser/visitor-credit-tiers.test.js': 110.000, // CI 38715731356-1 (rounded up + 10s margin)
   'test/browser/voice-presentation.test.js': 90.000, // CI 38716800511-1 (rounded up + 10s margin)
 };

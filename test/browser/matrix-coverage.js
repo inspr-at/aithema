@@ -51,7 +51,7 @@ export const matrixCaseTotals = Object.freeze({
   'display-canvas': { full: 48, ci: 16 },
   'display-orb': { full: 12, ci: 4 },
   'display-held': { full: 36, ci: 12 },
-  'display-notices': { full: 120, ci: 40 }, // eight notice/dialog states + two waiting tooltips,
+  'display-notices': { full: 120, ci: 40 }, // eight notice/dialog states + two waiting tooltips
   'integrated-flow': { full: 272, ci: 90 },
   'integrated-narrow': { full: 120, ci: 20 },
   'continuity': { full: 72, ci: 24 },
