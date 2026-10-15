@@ -13,6 +13,7 @@ export const browserTestWeights = {
   'test/browser/admin-pages.test.js': 46.687, // CI 38692613866-1
   'test/browser/audio-replay.test.js': 30.572, // CI 38692613866-1
   'test/browser/confirmation-design.test.js': 97.374, // CI 38692613866-1
+  'test/browser/consent-lines.test.js': 180, // AIT-197 initial conservative matrix weight; remeasure in CI
   'test/browser/credit-hold.test.js': 48.490, // CI 38704006618-1
   'test/browser/demo.test.js': 84.780, // CI 38704006618-1
   'test/browser/email-ask.test.js': 224.498, // CI 38704006618-1
