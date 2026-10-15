@@ -122,7 +122,7 @@ export class Verification {
     else if (event.type === 'identity.unlocked') this.#status(event.data?.manualPaused ? this.#v.unlockedPaused : this.#v.unlocked);
     else if (event.type === 'identity.resend-blocked') { this.#ui.message = this.#v.rateLimited; this.#ui.error = true; this.#paint(); }
   }
-  connect() { this.#connected = true; this.#schedule(); }
+  connect() { this.#connected = true; this.#paint(); this.#schedule(); }
   disconnect() {
     this.#connected = false;
     clearTimeout(this.#poll); this.#poll = null;
