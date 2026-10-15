@@ -62,7 +62,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     await shadow(page, c => {
       const retry = c.shadowRoot.querySelector('.overview-retry');
       retry.focus(); window.focusedOverviewRetry = retry;
-      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+      c.receive({ type: 'lane.status', data: c.session.operations });
     });
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === window.focusedOverviewRetry && c.shadowRoot.querySelector('.overview-retry') === window.focusedOverviewRetry), true, 'inline retry retains keyboard focus across live renders');
     if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });

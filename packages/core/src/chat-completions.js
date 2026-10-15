@@ -62,7 +62,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   };
   const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
     typeof message === 'string' && (/no endpoints (?:found (?:that|which) )?support (?:the )?(?:requested|required) parameters/iu.test(message) ||
-      /response_format|json_schema|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable|not permitted|not allowed|invalid schema/iu.test(message)));
+      /response_format|json_schema|\bschema\b|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable|not permitted|not allowed|invalid schema/iu.test(message)));
   const encoder = new TextEncoder();
   const outputBytes = message => {
     if (!message) return 0;
@@ -137,12 +137,13 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       spend.httpError = true;
       const providerErrorClass = response.status >= 400 && response.status < 500 ? '4xx'
         : response.status >= 500 && response.status < 600 ? '5xx' : undefined;
-      const responseFormatUnsupported = Boolean(extra.response_format) && providerErrorClass === '4xx';
+      let responseFormatUnsupported = false;
       // A received HTTP error may still carry billed usage. Otherwise keep the hold.
       try {
         const value = JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,
           observeId: id => observe({ id }, spend.options, invocation, spend) }));
         observe(value, spend.options, invocation, spend);
+        responseFormatUnsupported = Boolean(extra.response_format) && [400, 422].includes(response.status) && unsupportedResponseFormat(value);
       }
       catch { /* unknown cost */ }
       const error = new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);

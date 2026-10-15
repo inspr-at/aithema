@@ -1,4 +1,4 @@
-# AIT-198 round 2: understanding requests and failure recovery
+# AIT-198 round 3: understanding requests and failure recovery
 
 The strict understanding request sent the full host schema, including numeric
 `minimum`/`maximum`, while AIT-181 had already removed those constraints from
@@ -34,7 +34,7 @@ The two fixed 2-second turn waits now poll for an actual dispatched ledger row.
 Fake provider latency remains intentional in the original slow-provider tests.
 The first full unit pass exposed older tests conflating provider liability with
 visitor charges. Their exact provider amounts remain asserted in the session
-ledger, with additional zero visitor-charge assertions for failed or uncertain
+ledger, with additional zero visitor-charge assertions for failed
 understanding. Their invocation fixture now reports its actual success/failure
 instead of unconditionally reporting failed during cleanup.
 
@@ -53,8 +53,9 @@ bounds, lengths, patterns and other validation constraints remain in the full
 host schema. Prompt-only compatibility carries the full schema in the prompt
 and validates the result against that same host schema.
 
-A constrained HTTP 4xx admits at most one prompt-only retry, after the first
-attempt settles. Each attempt repeats normal consent, budget and price checks.
+A constrained HTTP 400/422 with a response-format or schema compatibility rejection
+admits at most one prompt-only retry, after the first attempt settles. Generic
+4xx, auth, payment and rate-limit errors take the error path without a retry. Each attempt repeats normal consent, budget and price checks.
 Cancellation, stale input and deadline checks still fence the retry. Unknown
 first-attempt provider spend stays conservative even when the retry succeeds.
 
@@ -65,8 +66,9 @@ Parameter review against OpenRouter's official documentation:
 - Keep `provider.max_price` in USD per million tokens: it enforces the qualified
   price ceiling, independently from the local reservation.
 - Keep `allow_fallbacks: false` and explicitly configured `only`/`ignore` policy.
-  Remove the implicit Azure exclusion: it is irrelevant to Anthropic and should
-  not silently constrain unrelated model routes. Explicit exclusions still work.
+  Understanding/analysis and HTML default to excluding Azure: its START workspace
+  rejects `response_format` despite advertised support. This holds even when
+  `OPENROUTER_PROVIDER_ONLY` is unset. Explicit exclusions still override the default.
 - Keep the unified `reasoning` control: `{enabled:false}` for none, otherwise the
   validated configured effort. This avoids implicit reasoning spend and uses
   OpenRouter's documented Anthropic translation. Do not send duplicate native
@@ -79,7 +81,9 @@ This is a portability review, not a claim of a live Anthropic verification.
 
 ## Visitor credits and provider liability
 
-Failed or uncertain understanding attempts release visitor credits on settlement.
+Failed understanding lanes release visitor credits on settlement. Provider cost
+uncertainty alone does not imply failure: a published analysis with unknown cost
+retains its conservative visitor charge, which late receipts can reconcile.
 A durable `visitor_credit_released` flag separates the visitor wallet from the
 provider ledger. The owner wallet excludes released rows from display and future
 owner-credit admission. Provider costs, actual receipts, per-session technical
@@ -88,7 +92,10 @@ Late reconciliation cannot re-charge a released visitor attempt. A plugin that
 reports completed usage but then fails host validation also releases its credits.
 The UI refreshes footer credits from the failure event, with no polling interval
 required. The inline failure notice uses quiet ink and the required DE/EN copy;
-the next successful event restores the usual overview.
+the next successful event restores the usual overview. A missing reply with no
+work running and no failure is a stuck state and uses the same overview notice
+with exactly one inline Retry. Its button stays mounted across live renders to
+preserve keyboard focus.
 
 Local deadline, revoke, erase and consent/input fences after dispatch still report
 uncertain provider cost when no authoritative receipt exists

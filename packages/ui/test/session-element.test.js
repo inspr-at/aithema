@@ -21,6 +21,14 @@ function setup() {
 }
 function turn(component, id, content) { component.receive({ seq: component.session.seq + 1, type: 'turn.final',
   data: { id, role: 'user', content } }); }
+function reply(component, id) { component.receive({ seq: component.session.seq + 1, type: 'turn.final',
+  data: { id, role: 'assistant', content: 'Reply', inputRevision: inputRevision(component.session) } }); }
+function assertInlineRetry(component, message) {
+  const root = component.shadowRoot;
+  assert.equal(root.querySelector('.retry').hidden, true, message);
+  assert.equal(root.querySelector('.overview-retry').hidden, false, message);
+  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed} · ${en.understandingRetry}`, message);
+}
 function understanding(component, draft = false) {
   const session = component.session;
   const raw = { summary: '<script>untrusted</script>', signals: ['Known'], openQuestions: ['Deadline?', 'Budget?'],
@@ -35,7 +43,7 @@ test('host copy, multiline composer, safe transcript bubbles, export and respons
   assert.match(root.querySelector('style').textContent, /min-width:60rem/); assert.match(root.querySelector('style').textContent, /--aithema-accent/);
 });
 test('readiness/aside uses draft truth, five missing rows plus overflow and preserved clarified expansion', () => {
-  const c = setup(), root = c.shadowRoot; turn(c, 't1', 'SAP');
+  const c = setup(), root = c.shadowRoot; turn(c, 't1', 'SAP'); reply(c, 'a1');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c, true) });
   assert.equal(root.querySelector('.notice').textContent, en.draft); assert.equal(root.querySelector('.scale').getAttribute('aria-valuenow'), '47');
   assert.equal(root.querySelectorAll('.missing li').length, 5); assert.match(root.querySelector('.overflow').textContent, /1 more/);
@@ -45,7 +53,7 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   assert.equal(root.querySelector('.summary-text script'), null); assert.equal(root.querySelector('.notice').textContent, en.final);
   root.querySelector('.expand').click(); assert.equal(details.open, false);
   root.querySelector('.expand').click(); assert.equal(details.open, true);
-  turn(c, 't2', 'More'); assert.equal(root.querySelector('.notice').textContent, en.stale);
+  turn(c, 't2', 'More'); reply(c, 'a2'); assert.equal(root.querySelector('.notice').textContent, en.stale);
 });
 test('automatic aside and transcript changes render at once under the pointer; rows update in place and append below', () => {
   const c = setup(), root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
@@ -174,14 +182,14 @@ test('late acknowledgements and events from a previous conversation cannot alter
     assert.equal(c.session.id, next.id); assert.equal(c.session.transcript.length, 0);
   } finally { globalThis.fetch = originalFetch; }
 });
-test('fresh configure after lane failure exposes Retry for unfinished understanding or a missing reply', () => {
+test('fresh configure after lane failure exposes inline Retry for unfinished understanding or a stuck missing reply', () => {
   const c = setup(); turn(c, 'first', 'First');
   c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
   c.configure({ copy: en, session: c.session });
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+  assertInlineRetry(c);
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   c.configure({ copy: en, session: c.session });
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false, 'the latest person turn still has no reply');
+  assertInlineRetry(c, 'the latest person turn still has no reply, so Tick requires the inline stuck-state action');
   const session = c.session;
   session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
   c.configure({ copy: en, session });
@@ -226,11 +234,11 @@ test('AIT-109 N2: Retry stays hidden while anonymous understanding is deferred',
     assert.equal(c.shadowRoot.querySelector('.retry').hidden, true, 'waiting for the turn threshold is not a failure');
   }
   turn(c, 'person-3', 'Third message');
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false, 'assessment can now be retried');
+  assertInlineRetry(c, 'missing reply is a stuck state with inline retry');
   const identified = setup(), identifiedSession = identified.session;
   identifiedSession.demo = false; identifiedSession.identified = true;
   identified.configure({ copy: en, session: identifiedSession }); turn(identified, 'identified', 'First');
-  assert.equal(identified.shadowRoot.querySelector('.retry').hidden, false, 'identified people bypass the threshold');
+  assertInlineRetry(identified, 'identified people bypass the threshold; missing reply uses inline retry');
 });
 
 test('AIT-109 N3: failed snapshot recovery waits one second before reconnecting', async t => {
@@ -383,7 +391,7 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
 test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
   const c = setup(); turn(c, 'first', 'Hello');
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
-  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+  assertInlineRetry(c);
   const session = c.session;
   session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
   c.configure({ copy: en, session });
@@ -907,7 +915,7 @@ test('screen readers get the AI notice once, as the last description of every co
 for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpose pause only presents in composer and preserves overview`, () => {
   const c = setup(), session = c.session; session.locale = copy.display.locale;
   c.configure({ copy, session });
-  turn(c, 'purpose-project', 'systems: SAP');
+  turn(c, 'purpose-project', 'systems: SAP'); reply(c, 'purpose-reply');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const root = c.shadowRoot, notice = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
   const startCell = root.querySelector('.voice-start').parentNode;
@@ -934,9 +942,9 @@ test('AIT-198 inline overview Retry keeps its node and keyboard focus across liv
   c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
   const retry = root.querySelector('.overview-retry'); retry.focus();
   assert.equal(root.activeElement, retry);
-  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
-  assert.equal(root.querySelector('.overview-retry'), retry, 'live render keeps the inline button');
-  assert.equal(root.activeElement, retry, 'keyboard focus survives');
+  c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
+  assert.ok(root.querySelector('.overview-retry') === retry, 'live render keeps the inline button');
+  assert.ok(root.activeElement === retry, 'keyboard focus survives');
   assert.equal(root.querySelector('.retry').hidden, true);
 });
 

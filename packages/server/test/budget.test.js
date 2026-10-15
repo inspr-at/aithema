@@ -148,7 +148,12 @@ for (const recovery of [false, true]) test(`AIT-198 visitor understanding refund
   const session = storage.create();
   const { attemptId } = admit(ledger, session.id, { lane: 'understanding', providerCost: { plugin: 'openrouter' } });
   const claim = ledger.claim(attemptId); claim.consume(); ledger.markCostDispatch(attemptId);
-  if (!recovery) ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+  if (!recovery) {
+    ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+    assert.equal(ledger.get(attemptId).visitor_credit_released, 0, 'unknown provider cost alone is not lane failure');
+    // The lane reports failure after host validation/publication; this refunds it.
+    ledger.releaseUnderstandingCredits(attemptId);
+  }
   storage.close(); storage = new SQLiteStorage(db); ledger = new SQLiteBudgetLedger(storage);
   if (recovery) assert.equal(ledger.recover(session.id), 1);
   assert.equal(ledger.get(attemptId).settled_micro, 40, 'provider liability remains conservative');

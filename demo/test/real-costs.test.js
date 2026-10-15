@@ -312,7 +312,8 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   assert.equal(audit().length, 2);
   assert.equal(h.cap.snapshot().spentMicro, 1_000_037);
   assert.throws(() => h.storage.db.prepare('UPDATE budget_corrections SET new_micro=0 WHERE attempt_id=?').run(id), /append only/u);
-  assert.equal(h.balance().owner.committedMicro, operation === 'structured' ? 0 : 1_000_037);
+  assert.equal(h.balance().owner.committedMicro, mode === 'transport-failure' ? 0 : 1_000_037,
+    'published output remains billable after reconciliation; failed understanding stays free');
 });
 
 test('AIT-163 fix1: a completed lost analysis without identity uses its complete lane estimate', async t => {
@@ -379,7 +380,7 @@ test('AIT-163 fix1: estimated identity receipts retry after the slower window an
   assert.equal(h.balance().session.confirmedSpendMicro, 53);
   assert.equal(h.balance().session.uncertainSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, 0);
-  assert.equal(h.balance().owner.committedMicro, 0);
+  assert.equal(h.balance().owner.committedMicro, 53, 'published analysis costs the visitor the reconciled receipt');
 });
 
 for (const operation of ['stream', 'structured']) for (const [language, output] of [
@@ -395,7 +396,7 @@ for (const operation of ['stream', 'structured']) for (const [language, output] 
   assert.equal(row.overrun, 0); assert.equal(row.terminal_json, before.terminal_json);
   assert.equal(h.balance().session.uncertainSpendMicro, before.max_micro);
   assert.equal(h.cap.snapshot().uncertainMicro, before.max_micro, 'an estimate does not release the provider liability');
-  assert.equal(h.balance().owner.committedMicro, operation === 'structured' ? 0 : before.max_micro);
+  assert.equal(h.balance().owner.committedMicro, before.max_micro, 'published analysis retains its conservative visitor charge without a receipt');
 });
 
 for (const operation of ['stream', 'structured']) test(`AIT-163 fix2: ${operation} provider usage above the reservation remains uncapped`, async t => {

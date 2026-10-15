@@ -36,8 +36,9 @@ export function openRouterConfig(values) {
   const analysisEfforts = openRouterManifest.models[0].efforts;
   if (!analysisEfforts.includes(analysisEffort)) throw new TypeError(`OPENROUTER_ANALYSIS_EFFORT must be one of ${analysisEfforts.join(', ')}`);
   const providerOnly = read(values, 'OPENROUTER_PROVIDER_ONLY')?.split(',').map(entry => entry.trim()).filter(Boolean);
-  // Provider exclusions are account policy, never an implicit model capability fix.
-  const analysisProviderIgnore = (read(values, 'OPENROUTER_ANALYSIS_PROVIDER_IGNORE') ?? '')
+  // Azure's START workspace rejects response_format despite advertised support;
+  // it failed about half of structured analyses. Exclude it by default.
+  const analysisProviderIgnore = (read(values, 'OPENROUTER_ANALYSIS_PROVIDER_IGNORE') ?? 'Azure')
     .split(',').map(entry => entry.trim()).filter(Boolean);
   const binding = (model, maxTokens, effort, ignore) => {
     const price = modelPrice(prices, model);

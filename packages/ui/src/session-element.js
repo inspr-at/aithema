@@ -258,7 +258,7 @@ export class AithemaSession extends HTMLElement {
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
-        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
           <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
@@ -346,6 +346,7 @@ export class AithemaSession extends HTMLElement {
       const expand = !details.every(d => d.open);
       details.forEach(d => { d.open = expand; }); this.#expandLabel();
     });
+    root.querySelector('.overview-retry').addEventListener('click', () => root.querySelector('.retry').click());
     root.querySelector('.retry').addEventListener('click', async () => {
       if (!this.#feature('analysis').available) return;
       try {
@@ -961,8 +962,6 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && (this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) root.querySelector('.notice').textContent = !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? this.#failureLane === 'understanding' ? copy.understandingFailed : copy.reasoningFailed : !u.readinessAssessed ? copy.empty
-      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
@@ -970,15 +969,20 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').disabled = !analysis.available;
     if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || Boolean(running) || !(this.#failure || hasPersonTurn &&
       (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
-    const failedOverview = this.#failure && this.#failureLane === 'understanding' && !locked && !reconciling && !this.#host?.usedUp;
-    const notice = root.querySelector('.notice');
+    // Missing reply with no active work or recorded failure is also a stuck attempt.
+    const stuck = missingReply && !running && !this.#failure && analysis.available;
+    const failedOverview = (this.#failure && this.#failureLane === 'understanding' || stuck) &&
+      !locked && !reconciling && !this.#host?.usedUp;
+    const overviewRetry = root.querySelector('.overview-retry');
+    overviewRetry.hidden = !failedOverview;
+    overviewRetry.disabled = !analysis.available || Boolean(running);
+    setText(overviewRetry, failedOverview ? copy.understandingRetry : '');
     if (failedOverview) {
-      notice.textContent = `${copy.understandingFailed} · `;
-      const retry = element('button', copy.understandingRetry, 'overview-retry'); retry.type = 'button';
-      retry.disabled = !analysis.available || Boolean(running);
-      retry.addEventListener('click', () => root.querySelector('.retry').click());
-      notice.append(retry);
+      setText(root.querySelector('.notice-text'), `${copy.understandingFailed} · `);
       root.querySelector('.retry').hidden = true;
+    } else if (!this.#host?.usedUp && (this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) {
+      setText(root.querySelector('.notice-text'), !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? this.#failureLane === 'understanding' ? copy.understandingFailed : copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+        : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final);
     }
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);

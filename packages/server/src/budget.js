@@ -300,7 +300,8 @@ export class SQLiteBudgetLedger {
       this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=? WHERE claim_id=?")
         .run(!dispatched ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome, usage ? JSON.stringify(usage) : null,
           uncertain ? row.max_micro : actual, bytes, actual > row.max_micro ? 1 : 0, claimId);
-      if (row.lane === 'understanding' && terminal.outcome !== 'completed') this.releaseUnderstandingCredits(row.attempt_id);
+      // Provider cost certainty does not tell us whether an analysis published.
+      // The lane's finish({ failed: true }) releases failed understanding credits.
       return this.get(row.attempt_id);
     });
   }
