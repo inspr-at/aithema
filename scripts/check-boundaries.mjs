@@ -21,10 +21,20 @@ export const edgeExceptions = [
   { from: 'packages/server/src/plugin-runtime.js', targets: ['plugins/claude-html/src/index.js', 'plugins/claude-html/src/html-artifact.js'], reason: 'AIT-211' },
   { from: 'packages/server/src/local-images.js', targets: ['plugins/openai-images/src/index.js', 'plugins/openai-images/src/image-artifact.js'], reason: 'AIT-211' },
 ];
+// #173's unpublished proof composes adapters that are deliberately not packed.
+export const proofEdges = [
+  { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/elevenlabs/src/components.js' },
+  { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/voxtral/src/index.js' },
+];
+// Explicit host-supplied entrypoints; pin the complete expressions, not all import().
+export const hostImports = ['VOICE', 'IMAGE'].map(kind =>
+  `(await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_${kind}_HOST_MODULE)).href`);
 export const browserSources = ['demo/host.js', 'demo/consent-page.js', 'demo/admin-view.js', 'demo/fake-voice.js'];
 export function renderExceptionTable() {
   return ['| Source | Exact exception | Owner / reason |', '| --- | --- | --- |',
     ...edgeExceptions.map(row => `| \`${row.from}\` | \`${row.targets.join('`, `')}\` | ${row.reason} |`),
+    ...proofEdges.map(row => `| \`${row.from}\` | \`${row.target}\` | #173: unpublished composition proof |`),
+    '| `demo/server.js` | Exact VOICE/IMAGE host-module expressions | #173: injected host entrypoints |',
     ...browserSources.map(path => `| \`${path}\` | Relative public source URLs | AIT-205: native browser loading |`),
     '| `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |',
     '| `plugins/fake-voice/src/server.js` | `packages/server/src/dev/local-voice.js` | Test-only compatibility forwarder |',
@@ -83,7 +93,7 @@ export function importSpecifiers(ast) {
       expression = node.arguments[0];
       if (!expression) imports.push({ specifier: undefined, position: node.getStart(ast) });
     }
-    if (expression) imports.push({ specifier: literal(expression), position: expression.getStart(ast) });
+    if (expression) imports.push({ specifier: literal(expression), expression: expression.getText(ast), position: expression.getStart(ast) });
     ts.forEachChild(node, visit);
   }
   visit(ast); return imports;
@@ -119,11 +129,13 @@ export function checkBoundaries(root) {
   const owner = path => modules.find(module => path.startsWith(module.path + '/'));
   for (const file of sourceFiles(root, ['packages', 'plugins', 'demo'])) {
     const path = relative(root, file).split(sep).join('/'), from = owner(path);
+    if (path.startsWith('demo/test/')) continue; // AIT-205 scans non-test demo modules.
     const ast = parseSource(path, readFileSync(file, 'utf8'));
     for (const item of importSpecifiers(ast)) {
       const line = ast.getLineAndCharacterOfPosition(item.position).line + 1;
       const fail = message => errors.push(`${path}:${line}: ${message}`);
       const spec = item.specifier;
+      if (spec === undefined && path === 'demo/server.js' && hostImports.includes(item.expression)) continue;
       if (spec === undefined) { fail('Non-literal import specifier; use a finite set of literal imports'); continue; }
       // Only the frozen simulator implementation can cross the dev boundary.
       if (development(path) || path === 'packages/server/src/dev/local-voice.js') continue;
@@ -133,6 +145,7 @@ export function checkBoundaries(root) {
         if (existsSync(target)) target = realpathSync(target);
         targetPath = relative(root, target).split(sep).join('/');
         to = owner(targetPath);
+        if (!to && targetPath.startsWith('node_modules/')) continue;
         if (!to) { fail(`Import escapes declared modules: ${spec}`); continue; }
         if (development(targetPath)) { fail(`Production imports dev/test entry: ${spec}`); continue; }
       } else {
@@ -153,6 +166,7 @@ export function checkBoundaries(root) {
         if (!browserSources.includes(path)) { fail(`Demo must import a package export: ${spec}`); continue; }
         usedBrowserSources.add(path);
       }
+      if (proofEdges.some(edge => edge.from === path && edge.target === targetPath)) continue;
       // The fake-voice forwarder is the sole source-layout exception.
       if (simulator && path === 'plugins/fake-voice/src/server.js') continue;
       if (path === 'demo/fake-voice.js' && targetPath === 'plugins/fake-voice/src/client.js') continue;
@@ -161,7 +175,7 @@ export function checkBoundaries(root) {
         (edge.targets.includes(targetPath) || (to.exports ?? []).some(([key, value]) => key === subpath && targets(value).some(value => edge.targets.includes(`${to.path}/${value.slice(2)}`)))));
       if (from !== to && !from.layer.allows.includes(to.layer.layer) && !exactCycle) { fail(`Forbidden ${from.layer.layer} → ${to.layer.layer}: ${spec}`); continue; }
       const exported = (to.exports ?? []).some(([key, value]) => (!subpath || key === subpath) && targets(value).some(value =>
-        value.startsWith('./') && !development(value) && existsSync(resolve(root, to.path, value)) &&
+        value.startsWith('./') && !development(value) && (!/(?:^|\/)dev\//u.test(value) || simulator) && existsSync(resolve(root, to.path, value)) &&
         (!target || realpathSync(resolve(root, to.path, value)) === target)));
       if (!exported) fail(`Unexported target in ${to.path}: ${spec}`);
     }

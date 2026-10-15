@@ -365,7 +365,7 @@ metadata. The demo's operator page is internal for this release.
 The demo browser currently resolves source URLs without an import map. Its
 `host.js`, `consent-page.js`, shared `admin-view.js` and test-only `fake-voice.js`
 retain those browser paths; every other non-test demo module uses package
-specifiers. The unified [module boundary policy](architecture.md#module-boundaries) defines
+specifiers. The unified [module boundary policy](architecture.md#allowed-edges) defines
 and checks those exceptions with the packages/plugins rules. Existing static routes continue to serve package component dependencies.
 The packed consumer imports every runtime subpath and also attempts each
 types-only subpath, asserting Node's expected rejection and its installed type

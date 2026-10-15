@@ -30,6 +30,9 @@ and target files are permitted; another server file or plugin target fails.
 | --- | --- | --- |
 | `packages/server/src/plugin-runtime.js` | `plugins/claude-html/src/index.js`, `plugins/claude-html/src/html-artifact.js` | AIT-211 |
 | `packages/server/src/local-images.js` | `plugins/openai-images/src/index.js`, `plugins/openai-images/src/image-artifact.js` | AIT-211 |
+| `plugins/composed-voice/src/configuration.js` | `plugins/elevenlabs/src/components.js` | #173: unpublished composition proof |
+| `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
+| `demo/server.js` | Exact VOICE/IMAGE host-module expressions | #173: injected host entrypoints |
 | `demo/host.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
@@ -45,7 +48,8 @@ negative host fixtures in `test/demo-package-imports.test.js`. The embedding gui
 links here for the host policy. Browser exceptions must still resolve public
 exports and must remain used; fake-voice is a test-only, unpublished dependency.
 
-Tests may inspect internals. The sole implementation exempt from layer checks is
+AIT-205 scans non-test demo modules; package/plugin tests still require literal
+imports. Tests may inspect internals. The sole implementation exempt from layer checks is
 `packages/server/src/dev/local-voice.js`, which retains its production guard.
 Other `dev/` sources are checked normally and cannot be imported by production
 code. The fake-voice manifest and factory forwarders above preserve #173's layout.
@@ -60,8 +64,9 @@ The ElevenLabs component implementation imports core directly.
 
 The checker parses static imports, re-exports, dynamic imports, CommonJS require,
 createRequire bindings (including aliases and namespace factories), TypeScript
-import types and templates. Nonliteral specifiers fail even in tests and the
-simulator. Comments and ordinary strings are ignored. Env/config files,
+import types and templates. Nonliteral specifiers fail even in package/plugin tests and the simulator,
+except the two exact injected host-module expressions listed above. SDK worklet
+loaders use a finite literal import map. Comments and ordinary strings are ignored. Env/config files,
 dependencies and symlinks are not read. Relative browser imports must reach an
 exported target; Node hosts use package specifiers. Run checks on the designated
 test worker; the complete suite belongs to PR CI.
@@ -102,6 +107,7 @@ they are not test coverage switches.
 | `test/browser/consent-lines.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/credit-hold.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |
+| `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/host-surface.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
@@ -119,7 +125,10 @@ they are not test coverage switches.
 | `test/browser/voice-presentation.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
+| `test/measurements/browser-comparison.js` | `process.env` ×1 | Intentional browser measurement child-process environment forwarding; exact occurrence pinned |
 | `test/release-prep.test.js` | `GITHUB_RUN_ID` ×1 | Evidence/source provenance; release test matches the run identifier |
+| `test/release-workflow.test.js` | `process.env` ×1 | Hermetic release-workflow child-process setup; exact occurrence pinned |
 | `test/soak/unit-worker.test.js` | `process.env[key]` ×2 | Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned |
 | `test/soak/uploads.test.js` | `process.env[key]` ×2 | Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned |
+| `test/test-browser-setup.test.js` | `process.env` ×1 | Isolated browser-path installer child process; exact occurrence pinned |
 | `test/unit-timeout.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |

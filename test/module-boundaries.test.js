@@ -101,3 +101,31 @@ test('changing destructured environment keys requires a declaration', () => {
     assert.equal(checkCiEnv(dir, declared).length, 1, binding);
   }
 });
+
+
+test('dev exemptions and AIT-211 cycles are pinned to exact paths', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-exact-edges-'));
+  const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };
+  put('packages/core/package.json', JSON.stringify({ name: '@inspr/aithema-core', exports: { '.': './src/index.js' } }));
+  put('packages/core/src/index.js', '');
+  put('packages/server/package.json', JSON.stringify({ name: '@inspr/aithema-server', exports: { '.': './src/index.js', './dev/local-voice': './src/dev/local-voice.js' } }));
+  put('packages/server/src/index.js', '');
+  put('packages/server/src/dev/local-voice.js', "import '@inspr/aithema-core';");
+  put('plugins/claude-html/package.json', JSON.stringify({ name: '@inspr/aithema-plugin-claude-html', exports: { '.': './src/index.js', './html-artifact': './src/html-artifact.js', './new': './src/new.js' } }));
+  for (const name of ['index', 'html-artifact', 'new']) put(`plugins/claude-html/src/${name}.js`, '');
+  put('packages/server/src/plugin-runtime.js', "import '@inspr/aithema-plugin-claude-html/html-artifact';");
+  put('demo/server.js', "import '@inspr/aithema-server/dev/local-voice';");
+  put('plugins/fake-voice/src/server.js', "export * from '../../../packages/server/src/dev/local-voice.js';");
+  assert.deepEqual(checkBoundaries(dir), []);
+  put('packages/server/src/new.js', "import '@inspr/aithema-plugin-claude-html/html-artifact';");
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Forbidden server')));
+  put('packages/server/src/new.js', '');
+  put('packages/server/src/plugin-runtime.js', "import '@inspr/aithema-plugin-claude-html/new';");
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Forbidden server')));
+  put('packages/server/src/plugin-runtime.js', '');
+  put('packages/core/dev/bypass.js', "import '@inspr/aithema-server';");
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Forbidden core')));
+  put('packages/core/dev/bypass.js', '');
+  put('plugins/claude-html/src/new.js', "import '@inspr/aithema-server/dev/local-voice';");
+  assert.ok(checkBoundaries(dir).some(error => error.includes('dev/test')));
+});
