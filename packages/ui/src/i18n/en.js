@@ -275,7 +275,7 @@ export const en = {
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
   export: 'Export conversation', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',
   reconnecting: 'Reconnecting…', sending: 'Saving…', saved: 'Saved', failed: 'Could not save. Retry your message.',
-  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Start a conversation to see understanding here.',
+  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Your overview appears here after the first sentence.', preparingOverview: 'Preparing your overview …',
   draft: 'Draft — a thorough assessment is being prepared.', stale: 'Updating — showing the last assessment.',
   final: 'Current assessment', notAssessed: 'Not yet assessed', talk: 'Ready to talk', build: 'Ready to build',
   talkProgress: '{percent}% conversation readiness', buildProgress: '{percent}% implementation readiness',
@@ -511,8 +511,8 @@ export const en = {
   },
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
   // Kept identical to the server's English legal fallback.
-  featureConsent: { html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
-    action: 'Give consent…', save: 'Save consent' },
+  featureConsent: { images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
+    action: 'Give consent…', save: 'Save consent', withdraw: 'Withdraw and end conversation' },
   processingConsent: {
     intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',

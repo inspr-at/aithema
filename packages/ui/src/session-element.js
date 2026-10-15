@@ -717,7 +717,7 @@ export class AithemaSession extends HTMLElement {
     // The current server document confirms the exact decision; HTTP success alone is not consent.
     const current = await fetch(`${this.#base}/api/sessions/${sessionId}/consent`, { headers: this.#headers() });
     if (!current.ok) throw new Error('Consent confirmation unavailable');
-    const doc = await current.json(), items = body.processing.items;
+    const doc = await current.json(), items = body.granted ? body.processing.items : [];
     if (doc.contract !== body.processing.contract || !Array.isArray(doc.selected) || doc.selected.length !== items.length ||
       !items.every(item => doc.selected.includes(item))) throw new Error('Consent decision unconfirmed');
     if (ack.event) this.receive(ack.event);
@@ -987,14 +987,14 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
+    const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
     if (!this.#host?.usedUp && (isConsentReason(analysis.rawReason) || root.querySelector('.notice').dataset.consentFeature || this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) paintConsentLine(root.querySelector('.notice'), {
-      copy, feature: 'analysis', verdict: analysis, text: !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+      copy, feature: 'analysis', verdict: analysis, text: !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? hasPersonTurn ? copy.preparingOverview : copy.empty
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
-    const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
     const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
     if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || Boolean(running) || !(this.#failure || hasPersonTurn &&

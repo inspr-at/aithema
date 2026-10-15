@@ -193,7 +193,7 @@ export class ConceptView {
     // A reload has no previous words: initialize from the underlying feature verdict.
     // Consent withdrawal and erasure still clear dependent presentation normally.
     if (initial || !this.#session.paused || consentChanged || this.#session.consentWithdrawn || this.#session.tombstone) {
-      paintConsentLine(text, { copy: this.copy, feature: 'html', verdict: feature, text: words, open: opener => this.consent?.(opener) });
+      paintConsentLine(text, { copy: this.copy, feature: this.visualKind() === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener) });
     }
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;

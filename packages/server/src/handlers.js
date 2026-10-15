@@ -1,3 +1,4 @@
+import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
@@ -213,6 +214,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
+  async function consentDocument(session) {
+    const document = await consent.describe(session.id);
+    const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
+      pluginRuntime.scopes(session, { feature }).map(scope => document.mock && scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
+        .filter(purpose => document.mock ? purpose === 'mock-processing' : document.items?.some(item => item.id === purpose)))]]));
+    return { ...document, features };
+  }
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
       ...(['consent-withdrawn', 'consent-revised', 'session-erased'].includes(reason) ? [uploadHandlers.cancelSession(id)] : [])]);
@@ -488,6 +496,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
+        if (body.granted && body.processing && consent.describe) {
+          const document = await consentDocument(authorized);
+          if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
+            consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);
+        }
         const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
         if (body.granted) {
           if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
@@ -505,11 +518,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
       if (action === 'consent' && request.method === 'GET' && consent.describe) {
-        const document = await consent.describe(id);
-        const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-          pluginRuntime.scopes(authorized, { feature }).map(scope => document.mock && scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
-            .filter(purpose => document.mock ? purpose === 'mock-processing' : document.items?.some(item => item.id === purpose)))]]));
-        return json({ ...document, features });
+        return json(await consentDocument(authorized));
       }
       if (action === 'erase' && request.method === 'POST') {
         const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');

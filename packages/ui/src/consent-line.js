@@ -14,7 +14,8 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     line.replaceChildren(label, action); line.tabIndex = -1;
     line.dataset.focusKey = action.dataset.focusKey = `consent-${feature}`;
   }
-  const action = line.querySelector('.consent-action');
+  const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
+  label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
   setText(line.querySelector('.consent-line-copy'), `${copy.featureConsent[feature]} · `);
   setText(action, copy.featureConsent.action);
   line.dataset.consentFeature = feature;

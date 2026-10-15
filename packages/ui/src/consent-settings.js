@@ -1,3 +1,4 @@
+import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { setText } from './dom.js';
 
 /** The host's current, versioned consent document, edited inside Settings. */
@@ -13,12 +14,16 @@ export class ConsentSettings {
       if (ports.saveButton) { event.preventDefault(); event.stopImmediatePropagation(); }
       void this.#save();
     }, { capture: true });
+    root.addEventListener('change', () => this.#paintBusy());
     this.setCopy(copy);
   }
   setCopy(copy) { this.#copy = copy; if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
+  get saveLabel() { return this.#document && consentSaveEndsConversation(this.#document, this.#selected()) ? this.#copy.featureConsent.withdraw : this.#copy.featureConsent.save; }
+  #selected() { return [...this.#root.querySelectorAll('input:checked')].map(box => box.value); }
   get active() { return !this.#root.hidden; }
   close() {
     this.#epoch++; this.#root.hidden = true;
+    for (const row of this.#root.querySelectorAll('.consent-item--target')) row.classList.remove('consent-item--target');
     if (this.#ports.saveButton) { this.#button.classList.remove('consent-save'); this.#button.disabled = false; }
   }
   async open(feature) {
@@ -53,6 +58,7 @@ export class ConsentSettings {
       this.#busy = false; this.#status(''); this.#paintBusy();
       const targetId = ids.find(id => !doc.selected.includes(id)) ?? ids[0];
       const target = [...fieldset.querySelectorAll('input')].find(box => box.value === targetId);
+      target.closest('.consent-item').classList.add('consent-item--target');
       target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'center' });
     } catch {
       if (epoch !== this.#epoch) return;
@@ -63,15 +69,17 @@ export class ConsentSettings {
   #paintBusy() {
     this.#root.querySelector('fieldset').disabled = this.#busy || !this.#document;
     this.#button.disabled = this.#busy || !this.#document;
+    if (!this.#ports.saveButton) setText(this.#button, this.saveLabel);
     this.#ports.changed?.();
   }
   async #save() {
     if (this.#busy || !this.#document) return;
     const epoch = this.#epoch, doc = this.#document;
-    const items = [...this.#root.querySelectorAll('input:checked')].map(box => box.value);
+    const items = this.#selected();
+    if (!items.length && !doc.selected.length) { this.#ports.done(); return; }
     this.#busy = true; this.#status(this.#copy.host.consentPage.saving); this.#paintBusy();
     try {
-      await this.#ports.save({ granted: items.length > 0, processing: { contract: doc.contract, items } });
+      await this.#ports.save({ granted: items.length > 0 && !consentSaveEndsConversation(doc, items), processing: { contract: doc.contract, items } });
       if (epoch === this.#epoch) this.#ports.done();
     } catch {
       if (epoch !== this.#epoch) return;
