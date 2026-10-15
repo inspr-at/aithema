@@ -8,7 +8,7 @@ import ts from 'typescript';
 export const layers = [
   { layer: 'core', path: 'packages/core', allows: [], role: 'Headless domain, contracts and shared engine primitives' },
   { layer: 'ui', path: 'packages/ui', allows: ['core'], role: 'Web components and browser presentation' },
-  { layer: 'server', path: 'packages/server', allows: ['core'], role: 'Fetch handlers and persistence; AIT-211 permits only the two named plugin targets' },
+  { layer: 'server', path: 'packages/server', allows: ['core'], role: 'Fetch handlers and persistence; AIT-211 pins claude-html/openai-images; #173 pins the legacy bridge' },
   { layer: 'host', path: 'demo', allows: ['core', 'ui', 'server', 'plugin'], role: 'Reference host; package imports except named browser sources' },
   { layer: 'plugin', path: 'plugins/*', allows: ['core', 'ui', 'server', 'plugin'], role: 'Exchangeable provider adapters' },
 ];
@@ -19,6 +19,8 @@ export function renderLayerTable() {
 // Exact source -> package target allowances, never a blanket server -> plugin rule.
 export const edgeExceptions = [
   { from: 'packages/server/src/plugin-runtime.js', targets: ['plugins/claude-html/src/index.js', 'plugins/claude-html/src/html-artifact.js'], reason: 'AIT-211' },
+  { from: 'packages/server/src/local-html.js', targets: ['plugins/claude-html/src/index.js'], reason: 'AIT-211: existing deterministic HTML adapter' },
+  { from: 'packages/server/elevenlabs-compat.js', targets: ['plugins/elevenlabs/src/provider.js', 'plugins/elevenlabs/src/callbacks.js'], reason: '#173: frozen legacy root exports' },
   { from: 'packages/server/src/local-images.js', targets: ['plugins/openai-images/src/index.js', 'plugins/openai-images/src/image-artifact.js'], reason: 'AIT-211' },
 ];
 // #173's unpublished proof composes adapters that are deliberately not packed.

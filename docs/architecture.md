@@ -17,18 +17,21 @@ so changing policy requires updating both together.
 | --- | --- | --- | --- |
 | core | `packages/core` | none | Headless domain, contracts and shared engine primitives |
 | ui | `packages/ui` | core | Web components and browser presentation |
-| server | `packages/server` | core | Fetch handlers and persistence; AIT-211 permits only the two named plugin targets |
+| server | `packages/server` | core | Fetch handlers and persistence; AIT-211 pins claude-html/openai-images; #173 pins the legacy bridge |
 | host | `demo` | core, ui, server, plugin | Reference host; package imports except named browser sources |
 | plugin | `plugins/*` | core, ui, server, plugin | Exchangeable provider adapters |
 
 Every cross-module edge must resolve to an explicit package export. Core cannot
-import server, UI or plugins; UI cannot import server or plugins. The two existing
-server-to-plugin dependencies below belong to AIT-211. Only their listed source
+import server, UI or plugins; UI cannot import server or plugins. The existing
+server-to-claude-html/openai-images dependencies below belong to AIT-211. The
+separate legacy ElevenLabs bridge preserves #173's frozen server root exports. Only their listed source
 and target files are permitted; another server file or plugin target fails.
 
 | Source | Exact exception | Owner / reason |
 | --- | --- | --- |
 | `packages/server/src/plugin-runtime.js` | `plugins/claude-html/src/index.js`, `plugins/claude-html/src/html-artifact.js` | AIT-211 |
+| `packages/server/src/local-html.js` | `plugins/claude-html/src/index.js` | AIT-211: existing deterministic HTML adapter |
+| `packages/server/elevenlabs-compat.js` | `plugins/elevenlabs/src/provider.js`, `plugins/elevenlabs/src/callbacks.js` | #173: frozen legacy root exports |
 | `packages/server/src/local-images.js` | `plugins/openai-images/src/index.js`, `plugins/openai-images/src/image-artifact.js` | AIT-211 |
 | `plugins/composed-voice/src/configuration.js` | `plugins/elevenlabs/src/components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
