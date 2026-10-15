@@ -51,6 +51,7 @@ async function evidence(finding, page, label, values) {
 async function voiceScene(page, locale, theme, width) {
   await scene(page, locale, theme, width);
   await page.evaluate(async locale => {
+    const { [locale]: pauseCopy } = await import(`/packages/ui/src/i18n/${locale}.js`); globalThis.pauseCopy = pauseCopy;
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
     if (!globalThis.tickRailHook) {
       const render = AudioRail.prototype.render;
@@ -81,12 +82,12 @@ async function metrics(page) {
     const r = c.shadowRoot, b = r.querySelector('.composer').getBoundingClientRect(), f = r.querySelector('.display-foot').getBoundingClientRect();
     const v = visualViewport, top = v?.offsetTop ?? 0, bottom = top + (v?.height ?? innerHeight);
     const action = r.querySelector('.purpose-new'), a = action.getBoundingClientRect();
-    const pauses = [...r.querySelectorAll('*')].filter(n => !n.closest('style') && getComputedStyle(n).visibility === 'visible' && n.getClientRects().length)
+    const pauses = [...r.querySelectorAll('*')].filter(n => !n.closest('style, [aria-hidden="true"], .sr-only, .visually-hidden, .features') && getComputedStyle(n).visibility === 'visible' && n.getClientRects().length)
       .filter(n => [...n.childNodes].some(t => t.nodeType === Node.TEXT_NODE && /pausiert|paused/iu.test(t.textContent)));
     return { composer: { x: b.x, y: b.y, width: b.width, height: b.height, bottom: b.bottom },
       viewport: { top, bottom }, footerTop: f.top, inViewport: b.top >= top && b.bottom <= bottom && b.bottom <= f.top,
       newVisible: !action.hidden && a.top >= top && a.bottom <= bottom && a.bottom <= f.top,
-      pauseElements: pauses.length, pausesInComposer: pauses.every(n => n.closest('.composer-shell')),
+      pauseElements: pauses.length, pauseTextElements: pauses.map(n => ({ className: n.className, text: n.textContent })), pausesInComposer: pauses.every(n => n.closest('.composer-shell')),
       focused: r.activeElement?.id, transcriptHeight: r.querySelector('.transcript-shell').clientHeight };
   });
 }
@@ -131,5 +132,33 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     await page.keyboard.press('Tab');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'attach');
     await record(t, 'L2', page, `${locale}-${theme}-${width}-keyboard`, keyboard);
+  }
+});
+
+test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause said once, DE/EN L/D phone/desktop', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const reason of ['purpose', 'session']) {
+    await voiceScene(page, locale, theme, width);
+    await shadow(page, c => {
+      const session = structuredClone(c.session);
+      session.featureMatrix.best.html = { available: true };
+      session.conceptVisualKind = 'html';
+      session.conceptCost = { maxMicro: 100_000 };
+      c.configure({ copy: globalThis.pauseCopy, session, host: { library: true } });
+    });
+    await frame(page);
+    const stage = await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').innerText);
+    assert.doesNotMatch(stage, /nicht eingerichtet|not set up|not configured/iu, 'fixture exercises enabled visual drafts');
+    const before = await boxes(page, ['.concept-bar', '.composer', '.display-foot']);
+    await shadow(page, (c, reason) => c.receive({ seq: c.session.seq + 1, type: 'session.paused',
+      data: { paused: true, ...(reason === 'purpose' ? { reason } : {}) } }), reason);
+    await frame(page);
+    const afterStage = await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').innerText), view = await metrics(page);
+    const label = `${locale}-${theme}-${width}-${reason}-pause`;
+    assert.equal(afterStage, stage, `${label}: stage keeps pre-pause text`);
+    assert.equal(view.pauseElements, 1, `${label}: exactly one pause text ${JSON.stringify(view)}`);
+    assert.equal(view.pausesInComposer, true);
+    assert.deepEqual(await boxes(page, ['.concept-bar', '.composer', '.display-foot']), before, `${label}: shift 0 px`);
+    await record(t, 'L1', page, label, { ...view, stage, afterStage, shiftPx: 0 });
   }
 });

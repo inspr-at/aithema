@@ -113,7 +113,7 @@ export class AithemaSession extends HTMLElement {
     this.#postCallMatrix = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
-    this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
+    this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#phoneViewport?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -780,6 +780,9 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     start.removeAttribute('aria-description');
+    // The session pause speaks once in the composer, including an idle rail.
+    const railState = root.querySelector('.voice-state');
+    if (this.#session.paused && [this.#copy.paused, this.#copy.voiceStates.paused].includes(railState.textContent)) railState.textContent = '';
     if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
       const command = rail.button('pause'); pause.dataset.voiceCommand = '';
       // Waiting can stay Waiting while a takeover receipt changes its command.
