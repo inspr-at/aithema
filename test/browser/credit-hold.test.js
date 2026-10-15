@@ -65,7 +65,11 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         const voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
           async start(request) { const events = voiceEvents(); return { callId: request.callId, providerSessionId: 'hold-fixture', events,
             async setInput() {}, async setOutput() {}, async heartbeat() {}, async updateContext() {},
-            async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+            async close() {
+              // The server announces closing before its terminal can be lost.
+              c.receive({ type: 'voice.state', data: { callId: request.callId, providerSessionId: 'hold-fixture', state: 'closing' } });
+              events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null };
+            } }; } };
         c.setAttribute('motion', 'off');
         c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true } } });
         const legal = document.createElement('a'); legal.slot = 'legal'; legal.href = '/privacy'; legal.setAttribute('data-aithema-privacy', ''); c.replaceChildren(legal);
