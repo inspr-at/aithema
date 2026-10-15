@@ -11,6 +11,8 @@ export const questionCardStyles = `
   .workspace :is(.understanding,.transcript-shell) :is(button,a,input,textarea,select,[tabindex]) {
     scroll-margin-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-phone-keyboard] .display-foot { display:none; }
+  /* Linux and macOS font metrics differ; reclaim spacing, keeping every target 44px. */
+  .workspace[data-phone-keyboard] .conversation { row-gap:4px; }
   .workspace[data-stage="live"] { padding-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-stage="live"] .conversation {
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 36px);
