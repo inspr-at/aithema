@@ -1012,7 +1012,10 @@ export class AithemaSession extends HTMLElement {
     const scheduledAnalysis = this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
     const preparing = !u.readinessAssessed && (analysisRunning || (analysis.available || cached) && scheduledAnalysis && !this.#failure);
     const consentMissing = hasPersonTurn && isConsentReason(analysis.rawReason);
-    const stuck = missingReply && !running && !waiting && !this.#failure && (analysis.available || this.#session.paused);
+    // A purpose stop deliberately schedules no replacement reply after consent
+    // invalidates old replies; that idle state has no missing work to retry.
+    const stuck = missingReply && this.#session.pauseReason !== 'purpose' &&
+      !running && !waiting && !this.#failure && (analysis.available || this.#session.paused);
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
       (this.#failure && this.#failureLane === 'understanding' || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
