@@ -988,13 +988,20 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
-    if (!this.#host?.usedUp && (isConsentReason(analysis.rawReason) || root.querySelector('.notice').dataset.consentFeature || this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) paintConsentLine(root.querySelector('.notice'), {
-      copy, feature: 'analysis', verdict: analysis, text: !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? hasPersonTurn ? copy.preparingOverview : copy.empty
-      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final,
-      open: opener => this.#dialog.openConsent('analysis', opener),
-    });
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
+    // Tick's slot order: empty, consent, real work, failure, no project details,
+    // then the assessment. A purpose pause belongs to the composer alone.
+    const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
+    const overviewText = !hasPersonTurn ? copy.empty : analysisRunning ? copy.preparingOverview
+      : this.#failure && !reconciling ? copy.reasoningFailed
+      : !u.readinessAssessed ? copy.noProjectDetails
+      : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
+      : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
+    if (!this.#host?.usedUp) paintConsentLine(root.querySelector('.notice'), {
+      copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
+      open: opener => this.#dialog.openConsent('analysis', opener),
+    });
     const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
     if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || this.#deferredAnalysis === revision || this.#analysisRecovery === revision || Boolean(running) || !(this.#failure || hasPersonTurn &&

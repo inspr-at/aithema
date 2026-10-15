@@ -275,7 +275,7 @@ export const en = {
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
   export: 'Export conversation', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',
   reconnecting: 'Reconnecting…', sending: 'Saving…', saved: 'Saved', failed: 'Could not save. Retry your message.',
-  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Your overview appears here after the first sentence.', preparingOverview: 'Preparing your overview …',
+  reasoningFailed: 'Reasoning is unavailable. Your messages are saved.', empty: 'Your overview appears here after the first sentence.', noProjectDetails: 'No details about your project yet.', preparingOverview: 'Preparing your overview …',
   draft: 'Draft — a thorough assessment is being prepared.', stale: 'Updating — showing the last assessment.',
   final: 'Current assessment', notAssessed: 'Not yet assessed', talk: 'Ready to talk', build: 'Ready to build',
   talkProgress: '{percent}% conversation readiness', buildProgress: '{percent}% implementation readiness',

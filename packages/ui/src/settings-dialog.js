@@ -600,6 +600,7 @@ export class SettingsDialog {
     this.#q('.save-status').textContent = this.#consentEditor?.active ? this.#copy.host.consentPage.legend : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
     this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
+    this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
     this.#dialog.setAttribute('aria-busy', String(this.#busy));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';

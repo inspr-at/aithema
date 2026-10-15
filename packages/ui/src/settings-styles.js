@@ -152,7 +152,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   background:linear-gradient(145deg,color-mix(in srgb,var(--aithema-ink) 85%,var(--aithema-accent)),var(--aithema-ink)); }
 .consent-save-sizer { display:none; }
 .done.consent-save { display:grid; }
-.done.consent-save svg { display:none; }
+.done.consent-save svg { grid-area:1/1; justify-self:start; }
+.done.consent-save[data-withdraw=true] svg { display:none; }
+.done.consent-save[data-withdraw=false] .done-label { padding-inline:1.6rem; }
 .consent-save .done-label, .consent-save .consent-save-sizer { grid-area:1/1; }
 .consent-save .consent-save-sizer { display:block; visibility:hidden; pointer-events:none; user-select:none; }
 .done:hover { background:var(--aithema-ink); }

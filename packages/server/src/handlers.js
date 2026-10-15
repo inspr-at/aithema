@@ -136,7 +136,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection, retainUnderstanding, settleUnderstanding,
     offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
-    canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
+    canUnderstand: id => Boolean(storage.purposeAssessmentInput(storage.get(id))),
+    understandingInput: session => purposePolicy ? storage.purposeAssessmentInput(session) : session,
     scopeKnown: (id, revision) => storage.safeguards(id, revision).assessed,
     replyVisible: session => !voiceHandlers?.active(session.id),
     onScope(id, scope, revision, { reply = true } = {}) {
@@ -232,8 +233,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     let requested;
     if (purposePolicy) {
       const session = storage.get(id), scoped = storage.safeguards(id, inputRevision(session));
-      requested = scoped.assessed ? scoped.offTopic ? [] : ['understanding']
-        : voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id) ? [] : ['reaction'];
+      requested = storage.purposeAssessmentInput(session) ? ['understanding'] : [];
+      if (!scoped.assessed && session.pauseReason !== 'purpose' && !(voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id))) requested.unshift('reaction');
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
     for (const lane of requested) scheduleLane(id, lane);
     status(id);

@@ -171,9 +171,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const visual = feature => ['images', 'html'].includes(feature);
   // Single writer recovery is invoked by the host on startup, never on each dispatch.
-  const unchanged = (session, lane, allowTranscriptFinals = false) => {
+  const unchanged = (session, lane, allowTranscriptFinals = false, purposeAssessment = false) => {
     const current = storage.get(session.id);
-    if (!session.ownerHash || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn || current.paused ||
+    if (!session.ownerHash || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn || current.paused && !(purposeAssessment && current.pauseReason === 'purpose') ||
       selectionKey(current, lane) !== selectionKey(session, lane)) return false;
     if (inputRevision(current) === inputRevision(session)) return true;
     if (!allowTranscriptFinals || inputRevision({ ...current, inputRevision: session.inputRevision }) !== inputRevision(session)) return false;
@@ -528,7 +528,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           matrix[preset][feature] = result.reason ? featureUnavailable(result.reason) : { available: true, reason: null };
           // Paused reloads need the stage's ordinary words. This nested verdict
           // is presentation only; the outer verdict and admission stay paused.
-          if (visual(feature) && result.reason === 'session paused') {
+          if ((visual(feature) || feature === 'analysis') && result.reason === 'session paused') {
             const unpaused = await boundedEvaluate({ ...session, paused: false }, preset, feature);
             matrix[preset][feature].unpaused = unpaused.reason ? featureUnavailable(unpaused.reason) : { available: true, reason: null };
           }
@@ -844,7 +844,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return receipt;
     },
     async admit({ session, lane, operation, request, options = {} }) {
-      const invocationCurrent = () => unchanged(session, lane) && (lane !== 'concept' ||
+      const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
+        Boolean(storage.purposeAssessmentInput(session));
+      const invocationCurrent = () => unchanged(session, lane, false, purposeAssessment) && (lane !== 'concept' ||
         storage.get(session.id).conceptIntent?.pending?.id === session.conceptIntent?.pending?.id);
       const dispatchCurrent = () => (options.voiceReply === true && lane === 'reaction' ? unchanged(session, lane, true) : invocationCurrent()) &&
         options.beforeDispatch?.() !== false;
@@ -854,7 +856,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         storage.get(session.id).conceptIntent?.pending?.id !== session.conceptIntent.pending.id)) throw new PluginError('not-admitted', 'Visual intent required');
       const selected = visualKind(session), html = lane === 'concept' && selected === 'html';
       if (lane === 'concept' && options.visualKind && options.visualKind !== selected) throw new PluginError('not-admitted', 'Visual kind changed');
-      const result = await boundedEvaluate(session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation, costRequest: request });
+      const result = await boundedEvaluate(purposeAssessment && session.pauseReason === 'purpose' ? { ...session, paused: false } : session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation, costRequest: request });
       if (result.reason) throw new PluginError(result.reason.startsWith('UI render limit reached') ? 'rate-limit' : 'not-admitted', result.reason);
       options.signal?.throwIfAborted();
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');

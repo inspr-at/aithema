@@ -62,6 +62,9 @@ export class SQLiteStorage {
     if (!this.db.prepare('PRAGMA table_info(safeguard_inputs)').all().some(column => column.name === 'analysis_off')) {
       this.db.exec('ALTER TABLE safeguard_inputs ADD COLUMN analysis_off INTEGER NOT NULL DEFAULT 0; UPDATE safeguard_inputs SET analysis_off=off_topic;');
     }
+    if (!this.db.prepare('PRAGMA table_info(safeguard_inputs)').all().some(column => column.name === 'assessment_revision')) {
+      this.db.exec('ALTER TABLE safeguard_inputs ADD COLUMN assessment_revision TEXT; UPDATE safeguard_inputs SET assessment_revision=revision;');
+    }
     this.#migrate();
     this.voiceTurnStore = createVoiceOperationStore(this);
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
@@ -192,10 +195,32 @@ export class SQLiteStorage {
       assessed: rows.some(row => row.revision === revision),
       offTopic: rows.some(row => row.revision === revision && row.analysis_off === 1) };
   }
+  // Recover project input only across a suffix of classified off-topic person
+  // turns. Consent grants can carry this assessment gate without caching an
+  // erased reply; corrections, withdrawals, uploads and locale changes cannot.
+  purposeAssessmentInput(session) {
+    const revision = inputRevision(session), suffix = revision.slice(revision.indexOf(':'));
+    const rows = this.db.prepare('SELECT assessment_revision AS revision,analysis_off FROM safeguard_inputs WHERE session_id=?').all(session.id)
+      .filter(row => row.revision?.slice(row.revision.indexOf(':')) === suffix);
+    const latest = rows.find(row => row.revision === revision);
+    if (!latest) return null;
+    if (!latest.analysis_off) return session;
+    if (session.understanding.readinessAssessed) return null;
+    const source = rows.filter(row => !row.analysis_off).sort((a, b) => Number(b.revision.split(':')[0]) - Number(a.revision.split(':')[0]))[0];
+    if (!source) return null;
+    const first = Number(source.revision.split(':')[0]), count = session.inputRevision - first;
+    const persons = session.transcript.filter(turn => turn.role === 'user');
+    if (count <= 0 || count >= persons.length) return null;
+    for (let input = first + 1; input <= session.inputRevision; input++) {
+      if (!rows.some(row => row.revision === `${input}${suffix}` && row.analysis_off)) return null;
+    }
+    const boundary = session.transcript.indexOf(persons[persons.length - count]);
+    return { ...session, transcript: session.transcript.slice(0, boundary) };
+  }
   recordSafeguard(id, key, revision, offTopic, limit, { pause = true } = {}) {
     return this.transaction(() => {
       const session = this.get(id); this.#check(session);
-      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off) VALUES (?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)').run(id, key, revision ?? null, Number(offTopic), Number(offTopic));
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off,assessment_revision) VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,assessment_revision=excluded.assessment_revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)').run(id, key, revision ?? null, Number(offTopic), Number(offTopic), revision ?? null);
       const state = this.safeguards(id, revision);
       const event = pause && state.offTopicTurns >= limit && session.pauseReason !== 'purpose'
         ? this.#append(session, 'session.paused', { paused: true, reason: 'purpose' }) : null;
@@ -209,8 +234,8 @@ export class SQLiteStorage {
       const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
       const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
       const key = JSON.stringify(['text', person?.id ?? null, documents]);
-      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off) VALUES (?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)')
-        .run(id, key, revision, Number(offTopic), Number(offTopic));
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off,assessment_revision) VALUES (?,?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,assessment_revision=excluded.assessment_revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)')
+        .run(id, key, revision, Number(offTopic), Number(offTopic), revision ?? null);
       const events = data ? [this.#append(session, 'turn.final', data)] : [];
       if (this.safeguards(id).offTopicTurns >= limit && session.pauseReason !== 'purpose') {
         events.push(this.#append(this.get(id), 'session.paused', { paused: true, reason: 'purpose' }));
@@ -221,10 +246,10 @@ export class SQLiteStorage {
   carrySafeguardRevision(id, previousRevision, revision) {
     // An assistant heard-prefix correction changes no person/document input.
     // Retain its assessed purpose without creating another counter contribution.
-    this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND revision=?').run(revision, id, previousRevision);
+    this.db.prepare('UPDATE safeguard_inputs SET revision=?,assessment_revision=? WHERE session_id=? AND revision=?').run(revision, revision, id, previousRevision);
   }
   bindSafeguard(id, key, revision) {
-    this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND input_key=?').run(revision, id, key);
+    this.db.prepare('UPDATE safeguard_inputs SET revision=?,assessment_revision=? WHERE session_id=? AND input_key=?').run(revision, revision, id, key);
   }
   pauseForPurpose(id, limit) {
     if (this.safeguards(id).offTopicTurns < limit || this.get(id).pauseReason === 'purpose') return null;
@@ -651,8 +676,19 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard);
       conversationUnchanged = conversationUnchanged === true && granted && !session.consentWithdrawn;
       if (!conversationUnchanged) this.#invalidate(id, undefined, false, !granted);
-      return this.#append(session, 'consent.revised', { granted, at: new Date().toISOString(),
+      const event = this.#append(session, 'consent.revised', { granted, at: new Date().toISOString(),
         ...(conversationUnchanged ? { conversationUnchanged: true } : {}) });
+      if (granted) {
+        const suffix = inputRevision(session).split(':').slice(1).join(':');
+        const nextSuffix = inputRevision(this.get(id)).split(':').slice(1).join(':');
+        for (const row of this.db.prepare('SELECT input_key,assessment_revision FROM safeguard_inputs WHERE session_id=?').all(id)) {
+          if (row.assessment_revision?.split(':').slice(1).join(':') === suffix) {
+            this.db.prepare('UPDATE safeguard_inputs SET assessment_revision=? WHERE session_id=? AND input_key=?')
+              .run(`${row.assessment_revision.split(':')[0]}:${nextSuffix}`, id, row.input_key);
+          }
+        }
+      }
+      return event;
     });
   }
   pause(id, paused, guard = {}) {

@@ -32,8 +32,10 @@ async function fixture(t, real = false, purpose = false) {
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage();
+  let closed = false;
+  const close = async () => { if (closed) return; closed = true; await browser.close(); await demo.kill(); };
+  t.after(close);
+  const page = await browser.newPage(); page.closeFixture = close;
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -392,7 +394,7 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
       assert.doesNotMatch(JSON.stringify(messages), /soup/);
     }
     assert.deepEqual(await page.evaluate(() => fetch('/fixture/stats').then(r => r.json())), stats, 'settles exactly once');
-    await page.close();
+    await page.closeFixture();
   }
 });
 
