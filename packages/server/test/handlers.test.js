@@ -346,3 +346,24 @@ test('AIT-212 reconnect runs genuinely unfinished input exactly once', async () 
     assert.deepEqual(calls.sort(), ['reaction', 'understanding']);
   } finally { await handlers.close(); storage.close(); }
 });
+
+
+for (const failed of [['reaction'], ['reaction', 'understanding']]) test(`AIT-212 reconnect retains failures in ${failed.join(' and ')}`, async () => {
+  const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = { reaction: 0, understanding: 0 };
+  const reasoning = { ...mock,
+    async *stream(...args) { if (++calls.reaction === 1 && failed.includes('reaction')) throw new Error('reply failed'); yield* mock.stream(...args); },
+    async structured(...args) { if (++calls.understanding === 1 && failed.includes('understanding')) throw new Error('analysis failed'); return mock.structured(...args); } };
+  const handlers = createHandlers({ storage, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    await turn(handlers, session.id, 'failed-input', 'A website'); await handlers.idle();
+    assert.deepEqual(calls, { reaction: 1, understanding: 1 });
+    for (let i = 0; i < 3; i++) {
+      const stream = await handlers.handle(request(`${session.id}/events`)); await stream.body.cancel(); await handlers.idle();
+    }
+    assert.deepEqual(calls, { reaction: 1, understanding: 1 }, 'every failed lane stays failed, including when both failed');
+    await handlers.handle(request(`${session.id}/retry`, {})); await handlers.idle();
+    assert.deepEqual(calls, { reaction: 2, understanding: failed.includes('understanding') ? 2 : 1 });
+    assert.equal((await handlers.handle(request(session.id)).then(r => r.json())).operations.lastFailure, null);
+  } finally { await handlers.close(); storage.close(); }
+});
