@@ -477,7 +477,7 @@ test('AIT-188 gate1 voice: off-topic completion wakes retained overview without 
   const publish = f.handlers.lanes.publish;
   f.handlers.lanes.publish = (...args) => { const result = publish(...args); if (args[1] === 'understanding.updated' && result) published.resolve(); return result; };
   assert.equal((await f.handlers.handle(req(f.session.id, `voice/${call.callId}/events`, { providerSessionId: call.providerSessionId,
-    event: { type: 'final', callId: call.callId, turnId: 'voice-off', role: 'user', text: 'Give me a soup recipe.', userTurnOrdinal: 1 } }))).status, 200);
+    event: { type: 'final', callId: call.callId, turnId: `${call.providerSessionId}:voice-off`, role: 'user', text: 'Give me a soup recipe.', userTurnOrdinal: 1 } }))).status, 200);
   await waitForPurpose(() => f.calls.length === 2);
   analysis.resolve(); await entered.promise;
   assert.equal(f.storage.get(f.session.id).understanding.readinessAssessed, false);
