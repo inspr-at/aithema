@@ -36,3 +36,20 @@ test('nightly runs every browser shard with CI unset and an evidence directory',
   assert.equal(step.env.AITHEMA_EVIDENCE_DIR, '${{ runner.temp }}/evidence');
   assert.ok(job.steps.some(step => step.uses?.startsWith('actions/upload-artifact@') && step.if === 'always()'));
 });
+
+// Browser suites pass observed result-array lengths, never planned loop sizes.
+// A dropped state/width must fail in either execution mode.
+test('executed case guard rejects a dropped state or width in CI and full evidence', async () => {
+  const { assertMatrixCaseCount, matrixCaseTotals } = await import('./browser/matrix-coverage.js');
+  assert.equal(typeof assertMatrixCaseCount, 'function');
+  for (const [group, totals] of Object.entries(matrixCaseTotals)) {
+    for (const mode of ['ci', 'full']) {
+      assert.doesNotThrow(() => assertMatrixCaseCount(group, totals[mode], mode));
+      assert.throws(() => assertMatrixCaseCount(group, totals[mode] - 1, mode), /case coverage/);
+      assert.throws(() => assertMatrixCaseCount(group, totals[mode] + 1, mode), /case coverage/);
+    }
+  }
+  assert.equal(matrixCaseTotals['email-ask'].full, 296);
+  assert.equal(matrixCaseTotals['visitor-credit'].full, 444);
+  assert.throws(() => assertMatrixCaseCount('unregistered', 0), /Unknown matrix group/);
+});
