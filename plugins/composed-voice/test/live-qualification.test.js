@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification } from '../src/live-qualification.js';
@@ -72,4 +72,18 @@ test('unverified pricing and unresolved final-flag spelling prevent all sample/p
   const unresolved = plan(); unresolved.checks.ttsFinalFlag.spelling = 'isFinal';
   await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: unresolved, host, outputDirectory: directory }), /Adapter expects is_final/);
   assert.equal(calls, 0);
+});
+
+test('OPS CLI refuses a missing persisted budget before importing account-specific host code', async t => {
+  const { spawnSync } = await import('node:child_process'), { fileURLToPath } = await import('node:url');
+  const directory = await mkdtemp(join(tmpdir(), 'ops-cli-preflight-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), missing = join(directory, 'missing.sqlite');
+  await writeFile(planPath, JSON.stringify(plan())); await writeFile(hostPath, "throw new Error('OPS_HOST_SHOULD_NOT_LOAD');\n");
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../../scripts/composed-qualification.js', import.meta.url)),
+    '--operator-approved', '--budget', missing, '--plan', planPath, '--host', hostPath, '--out', directory], {
+    env: { PATH: process.env.PATH }, timeout: 15_000,
+  });
+  assert.notEqual(result.status, 0); assert.doesNotMatch(result.stderr.toString(), /OPS_HOST_SHOULD_NOT_LOAD/);
+  await assert.rejects(readFile(missing), { code: 'ENOENT' });
 });

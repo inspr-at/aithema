@@ -45,16 +45,21 @@ export function createQualificationMediaProbe() {
   });
 }
 
+export function validateQualificationPlan(plan) {
+  if (!plan || typeof plan.runId !== 'string' || !Array.isArray(plan.corpus) || !plan.corpus.length ||
+    !Array.isArray(plan.ceilingChecks) || !plan.ceilingChecks.length ||
+    PRELIVE_CHECKS.some(key => plan.checks?.[key]?.verified !== true || !plan.checks[key].reference) ||
+    !['is_final', 'isFinal'].includes(plan.checks.ttsFinalFlag.spelling)) throw new Error('Verified pre-live checklist and pricing plan required');
+  if (plan.checks.ttsFinalFlag.spelling !== 'is_final') throw new Error('Adapter expects is_final; resolve protocol spelling before run');
+}
+
 /** OPS supplies an account-specific host with existing Rule C, consent,
  * reconciliation, network auth and physical browser bindings. No provider key,
  * default network connector or synthetic observation is installed here. */
 export async function runLiveQualification({ operatorApproved = false, budgetPath, plan, host, outputDirectory } = {}) {
   if (operatorApproved !== true) throw new Error('Explicit --operator-approved required');
-  if (!plan || typeof plan.runId !== 'string' || !Array.isArray(plan.corpus) || !plan.corpus.length ||
-    !Array.isArray(plan.ceilingChecks) || !plan.ceilingChecks.length || !outputDirectory ||
-    PRELIVE_CHECKS.some(key => plan.checks?.[key]?.verified !== true || !plan.checks[key].reference) ||
-    !['is_final', 'isFinal'].includes(plan.checks.ttsFinalFlag.spelling)) throw new Error('Verified pre-live checklist and pricing plan required');
-  if (plan.checks.ttsFinalFlag.spelling !== 'is_final') throw new Error('Adapter expects is_final; resolve protocol spelling before run');
+  if (typeof outputDirectory !== 'string' || !outputDirectory) throw new Error('Evidence output directory required');
+  validateQualificationPlan(plan);
   if (![host?.verifyCeiling, host?.verifyReceipt, host?.runSample, host?.reconcile].every(fn => typeof fn === 'function')) throw new Error('OPS host ports required');
   const budget = openPersistedQualificationBudget({ path: budgetPath, verifyCeiling: host.verifyCeiling, verifyReceipt: host.verifyReceipt });
   let runClaimed = false;

@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { accessSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createQualificationBudget, QUALIFICATION_THRESHOLDS } from './qualification.js';
 import { PluginError } from '../../../packages/core/src/invocation.js';
@@ -15,12 +16,20 @@ const read = db => {
 };
 function open(path, create = false) {
   if (typeof path !== 'string' || !path || path === ':memory:') throw new TypeError('Durable budget path required');
+  if (!create) accessSync(path);
   const db = new DatabaseSync(path, { open: true, readOnly: false, enableForeignKeyConstraints: true });
   try {
     db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
     if (create) db.exec('CREATE TABLE IF NOT EXISTS qualification (id INTEGER PRIMARY KEY CHECK(id=1), snapshot TEXT NOT NULL)');
     return db;
   } catch (error) { db.close(); throw error; }
+}
+
+/** Read-only CLI preflight, before the account-specific OPS module is loaded. */
+export function readPersistedQualificationSnapshot(path) {
+  if (typeof path !== 'string' || !path || path === ':memory:') throw new TypeError('Durable budget path required');
+  const db = new DatabaseSync(path, { readOnly: true });
+  try { return structuredClone(read(db)); } finally { db.close(); }
 }
 
 /** Separate, explicit OPS initialization. Never resets an existing run. SQLite

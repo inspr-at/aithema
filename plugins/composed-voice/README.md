@@ -287,7 +287,9 @@ evidence rather than trusting fixtures:
   selected voices/models and account availability; Voxtral float32 remains distinct.
 - `retentionAndResidency`: verify actual account policy and processing location.
 
-The external host module exports `createQualificationHost()`. Its trusted server
+The external host module exports `createQualificationHost()`. Its factory must be
+inert: transports dispatch only through admitted attempts during `runSample`.
+The CLI checks the plan and reads the durable snapshot before loading this module. Its trusted server
 ports are `verifyCeiling`, `verifyReceipt`, `reconcile({ snapshot, reconcile })`
 and `runSample({ item, lane, runId, admit, onTiming })`, plus optional `close`.
 `runSample` drives the mounted relay and **physical** capture/player, forwards
