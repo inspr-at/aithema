@@ -399,7 +399,9 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
     await page.locator('aithema-session >>> .consent-save').click();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
     await until(page, project => { const s = document.querySelector('aithema-session').session; return s.operations?.running.length === (project ? 1 : 0) && s.featureMatrix.best.analysis.unpaused?.available; }, project);
-    await frame(page);
+    // Closing Settings can leave the pointer over the real host's credits rail.
+    // Park it outside controls so the viewport evidence has no incidental tooltip.
+    await page.mouse.move(1, 1); await frame(page);
     const notice = await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent);
     assert.equal(notice, project ? locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …' : locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.');
     assert.deepEqual(await boxes(page, geometry), before, 'paused real consent save shifts 0 px');
