@@ -1,5 +1,6 @@
 import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
 import { aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { voiceOverrides } from './options.js';
 
@@ -28,7 +29,7 @@ const leaves = (value, path = []) => value && typeof value === 'object' && !Arra
   ? Object.entries(value).flatMap(([key, item]) => leaves(item, [...path, key])) : [[path.join('.'), value]];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
 // Compare only the desired managed shape. Provider metadata and extra settings are
-// not ours. Empty maps/arrays are intentional clears and remain exact comparisons.
+// not ours. Empty picks are unmanaged; language_presets is an intentional clear.
 // These TTS defaults are also used when the API elides default-valued properties;
 // null, strings and missing security/identity fields are never defaulted.
 const OMITTED_DEFAULTS = Object.freeze({
@@ -37,7 +38,13 @@ const OMITTED_DEFAULTS = Object.freeze({
   'conversation_config.tts.similarity_boost': 0.8,
 });
 const plainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-function managedDrift(remote, desired, path = '') {
+export function managedDrift(remote, desired, path = '') {
+  if (plainObject(desired) && !Object.keys(desired).length && path !== 'conversation_config.language_presets') return [];
+  if (path === 'platform_settings.auth.allowlist') {
+    // The verified contract is one hostname; provider-added item properties are unmanaged.
+    const hosts = value => Array.isArray(value) ? value.map(item => item?.hostname) : value;
+    return isDeepStrictEqual(hosts(remote), hosts(desired)) ? [] : [path];
+  }
   if (remote === undefined && Object.hasOwn(OMITTED_DEFAULTS, path)) remote = OMITTED_DEFAULTS[path];
   if (path === 'platform_settings.overrides.conversation_config_override') {
     // Extra explicitly false override flags are equivalent to disabled defaults.
@@ -79,7 +86,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   if (typeof key !== 'string' || !key || typeof bearer !== 'string' || !bearer || /[\r\n]/u.test(key + bearer)) throw new AgentEnsureError('voice-secret-unavailable');
   const db = storage.db;
   db.exec(`CREATE TABLE IF NOT EXISTS host_agents (name TEXT PRIMARY KEY, agent_id TEXT NOT NULL UNIQUE);
-    CREATE TABLE IF NOT EXISTS host_voice_secrets (name TEXT PRIMARY KEY, secret_id TEXT NOT NULL UNIQUE);`);
+    CREATE TABLE IF NOT EXISTS host_voice_secrets (name TEXT PRIMARY KEY, secret_id TEXT NOT NULL UNIQUE);
+    CREATE TABLE IF NOT EXISTS host_voice_secret_hashes (name TEXT PRIMARY KEY, secret_id TEXT NOT NULL, value_hash TEXT NOT NULL);`);
   const request = async (path, method = 'GET', body) => {
     try {
       // Shutdown stops new work. Started writes and their ownership receipts finish
@@ -147,9 +155,16 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     throw new AgentEnsureError('secret-ownership-unproven');
   }
   let secretId = cachedSecret;
+  const secretHash = createHash('sha256').update(bearer).digest('hex');
+  const lastWritten = db.prepare('SELECT secret_id, value_hash FROM host_voice_secret_hashes WHERE name=?').get(facadeSecretName);
+  // Only successful writes advance the hash receipt. Legacy receipts get one PATCH.
+  // The raw bearer is sent only to the provider, never stored or logged.
   // UNVERIFIED API SHAPE: POST/PATCH secret bodies.
   if (secretId) {
-    await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: facadeSecretName, value: bearer });
+    if (lastWritten?.secret_id !== secretId || lastWritten?.value_hash !== secretHash) {
+      await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: facadeSecretName, value: bearer });
+      db.prepare('INSERT OR REPLACE INTO host_voice_secret_hashes VALUES (?,?,?)').run(facadeSecretName, secretId, secretHash);
+    }
   } else {
     const created = await request('/v1/convai/secrets', 'POST', { type: 'new', name: facadeSecretName, value: bearer });
     if (!id(created.secret_id)) {
@@ -158,6 +173,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     }
     secretId = created.secret_id;
     db.prepare('INSERT INTO host_voice_secrets VALUES (?,?)').run(facadeSecretName, secretId);
+    db.prepare('INSERT OR REPLACE INTO host_voice_secret_hashes VALUES (?,?,?)').run(facadeSecretName, secretId, secretHash);
   }
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
   // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_settings.auth/overrides.
@@ -244,11 +260,15 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     log({ name: agentName, id: agentId, fields });
     throw new AgentEnsureError('agent-readback-mismatch');
   }
-  // Read-back covers the whole managed shape, including TTS, prompt and tools.
+  // Only the strict checks above can disable voice. Historically unverified paths
+  // (prompt.prompt, prompt.tools, prompt.knowledge_base and other managed leaves)
+  // may trigger repair, but provider normalization is warn-only on read-back.
+  // built_in_tools.* and rag.knowledge_base_tool_info are not managed at all;
+  // nulls (or other provider shapes) there, plus metadata/workflow/access, are ignored.
+  // Allowlist item extras are ignored; its verified hostname/cardinality stay strict.
   const remaining = managedDrift(remote, body);
   if (remaining.length) {
-    log({ name: agentName, id: agentId, fields: remaining });
-    throw new AgentEnsureError('agent-readback-mismatch');
+    log({ name: agentName, id: agentId, level: 'warn', fields: remaining });
   }
   const message = !owned ? 'elevenlabs agent ensured: created' : drift.length
     ? `elevenlabs agent ensured: patched (fields: ${drift.join(', ')})` : 'elevenlabs agent ensured: unchanged';
