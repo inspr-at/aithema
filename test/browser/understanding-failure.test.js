@@ -321,6 +321,20 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  const capture = async (locale, width, state) => {
+    if (!evidence) return;
+    const stem = `ait212-two-failures-${locale}-${width}-light-${state}`;
+    await settle(page);
+    await page.screenshot({ path: join(evidence, `${stem}.png`), fullPage: false, captureBeyondViewport: false });
+    if (width === 390) {
+      const scrollY = await page.evaluate(() => window.scrollY);
+      await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
+      await settle(page);
+      await page.screenshot({ path: join(evidence, `${stem}-overview.png`), fullPage: false, captureBeyondViewport: false });
+      await page.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), scrollY);
+      await settle(page);
+    }
+  };
   for (const [locale, width] of [['de', 390], ['de', 1440], ['en', 1440]]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
@@ -348,7 +362,7 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
     const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
     const before = await boxes(page, targets);
     const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
-    if (evidence) await page.screenshot({ path: join(evidence, `ait212-two-failures-${locale}-${width}-light-before.png`), fullPage: false, captureBeyondViewport: false });
+    await capture(locale, width, 'before');
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')),
       shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
     assert.equal(response.status(), 202);
@@ -365,7 +379,7 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), true);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
     assert.deepEqual(await boxes(page, targets), before, 'both successful lanes settle in place at exactly 0 px');
-    if (evidence) await page.screenshot({ path: join(evidence, `ait212-two-failures-${locale}-${width}-light-after.png`), fullPage: false, captureBeyondViewport: false });
+    await capture(locale, width, 'after');
     passes.push({ head: evidenceCommit, locale, width, theme: 'light', retries: 1, lanes: ['reaction', 'understanding'], attemptsPerLane: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true });
     console.log(`AIT-212 TWO-FAILURES PASS ${locale} ${width} light: one Retry; reply then overview exactly once; both settled; 0 px`);
   }
