@@ -18,9 +18,9 @@ const assessment = {
 };
 function fixture(t) {
   const storage = new SQLiteStorage(), calls = [], logs = [];
-  const config = openRouterConfig({ OPENROUTER_MODEL: 'fixture/understanding', OPENROUTER_SPEECH_MODEL: 'fixture/reply',
-    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'fixture/understanding': { prompt: 1e-6, completion: 2e-6 },
-      'fixture/reply': { prompt: 1e-6, completion: 2e-6 } }) });
+  const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture-understanding', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture-reply',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/fixture-understanding': { prompt: 1e-6, completion: 2e-6 },
+      'anthropic/fixture-reply': { prompt: 1e-6, completion: 2e-6 } }) });
   const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
     async fetchImpl(_url, init) {
       const body = JSON.parse(init.body), call = { stream: body.stream, aborted: false, messages: body.messages };
