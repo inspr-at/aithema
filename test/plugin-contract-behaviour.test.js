@@ -299,16 +299,16 @@ rule('contract-reply-retry', async () => {
 }, 'second 4xx propagates');
 
 rule('contract-cost-reconciliation', async t => {
-  const host = await admittedHost(t, { reconcileCost: () => ({ chargedMicro: 1, generationId: 'wrong-generation' }) });
+  const host = await admittedHost(t, { reconcileCost: () => ({ chargedMicro: 1, generationId: 'gen-wrong' }) });
   const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
   const { attempt, report } = admitted.options;
-  await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ generationId: 'held-generation' });
+  await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ generationId: 'gen-held' });
   report({ attemptId: attempt.attemptId, outcome: 'uncertain' }); admitted.finish();
   await host.pluginRuntime.reconcileCosts();
   const row = host.pluginRuntime.budget.get(attempt.attemptId);
   assert.equal(row.settled_micro, host.binding.maxMicro);
   assert.equal(row.cost_reconciliation_json, null);
-  assert.equal(JSON.parse(row.provider_cost_json).generationId, 'held-generation');
+  assert.equal(JSON.parse(row.provider_cost_json).generationId, 'gen-held');
 }, 'mismatched generation retains hold');
 
 rule('contract-cost-reconciliation', async t => {
@@ -333,7 +333,7 @@ rule('contract-cost-reconciliation', async t => {
   const host = await admittedHost(t, { reconcileCost: () => null });
   const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
   const { attempt, report } = admitted.options;
-  await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ generationId: 'estimate-generation' });
+  await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ generationId: 'gen-estimate' });
   report({ attemptId: attempt.attemptId, outcome: 'uncertain' }); admitted.finish();
   let clock = Date.now() + 600000;
   const runtime = createPluginRuntime({ storage: host.storage, reasoning: host.plugin, registry: host.registry,
