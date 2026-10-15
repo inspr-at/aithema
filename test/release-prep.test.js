@@ -12,13 +12,13 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
   const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
   cpSync(new URL('.gitattributes', root), join(fixture, '.gitattributes'));
-  cpSync(new URL('release/archive-source.txt', root), join(fixture, 'release/archive-source.txt'));
+  writeFileSync(join(fixture, 'release/archive-source.txt'), '$Format:%H$\n$Format:%ct$\n');
   git('init'); git('add', '.'); git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture');
   const a = packRelease({ root: fixture, output: join(fixture, 'out-a'), dryRun: true });
   const b = packRelease({ root: fixture, output: join(fixture, 'out-b'), dryRun: true });
   assert.deepEqual(readFileSync(a.artifactPath), readFileSync(b.artifactPath)); assert.deepEqual(a.manifest, b.manifest);
   const archiveRoot = join(fixture, 'archive-source'); mkdirSync(archiveRoot);
-  execFileSync('tar', ['-x', '-C', archiveRoot], { input: execFileSync('git', ['archive', 'HEAD'], { cwd: fixture }) });
+  execFileSync('tar', ['-x', '-C', archiveRoot], { input: execFileSync('git', ['archive', 'HEAD'], { cwd: fixture, maxBuffer: 32 * 1024 * 1024 }) });
   const fromArchive = packRelease({ root: archiveRoot, output: join(fixture, 'out-archive'), dryRun: true });
   assert.deepEqual(fromArchive.manifest, a.manifest);
   for (const artifact of a.manifest.artifacts) assert.deepEqual(readFileSync(join(fromArchive.directory, artifact.path)), readFileSync(join(a.directory, artifact.path)));
@@ -82,7 +82,7 @@ test('packing evidence names its run accurately and references CI validation', (
   for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
   const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: 'pipe' }).toString().trim();
   cpSync(new URL('.gitattributes', root), join(fixture, '.gitattributes'));
-  cpSync(new URL('release/archive-source.txt', root), join(fixture, 'release/archive-source.txt'));
+  writeFileSync(join(fixture, 'release/archive-source.txt'), '$Format:%H$\n$Format:%ct$\n');
   git('init'); git('add', '.'); git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture');
   const packed = packRelease({ root: fixture, output: join(fixture, 'out'), dryRun: true });
   assert.equal(packed.manifest.packing?.run, process.env.GITHUB_RUN_ID ?? 'offline-test');
