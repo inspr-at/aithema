@@ -114,17 +114,20 @@ test('AIT-197: real ElevenLabs plus model scopes map voice, and partial removal 
   const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://fixture.test',
     apiBaseUrl: api.endpoint, fetchImpl: api.fetchImpl, resolveSecret: () => 'fixture-secret', values: {}, log() {} });
   t.after(async () => { await host.close(); storage.close(); });
+  const { normalizeElevenLabsDurationBinding } = await import('../../plugins/elevenlabs/src/config.js');
+  const { createDurationBinding } = await import('../../packages/server/src/voice-binding.js');
+  const binding = createDurationBinding(normalizeElevenLabsDurationBinding(host.binding));
   const voice = createVoiceProvider({ storage, staticFacade: true, resolveSecret: () => 'fixture-secret', fetchImpl: api.fetchImpl,
-    binding: { adapterConfig: host.binding.adapterConfig, secretRef: host.binding.secretRef, apiBaseUrl: host.binding.endpoint,
-      upstreamMicroPerMinute: host.binding.upstreamMicroPerMinute, visitorMicroPerMinute: host.binding.visitorMicroPerMinute,
-      reservationSeconds: host.binding.reservationSeconds } });
+    binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef, apiBaseUrl: binding.endpoint,
+      upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+      reservationSeconds: binding.reservationSeconds } });
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/gpt-4.1-mini',
     AITHEMA_OPENROUTER_PRICES: '{"openai/gpt-4.1-mini":{"prompt":0.000001,"completion":0.000002}}' });
   const reasoning = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices,
     resolveSecret: () => 'fixture-secret', fetchImpl: async () => assert.fail('mapping must not dispatch reasoning') });
-  const consent = createProcessingConsent({ storage, bindings: [configured.reaction, configured.understanding, host.binding], voiceConfigured: true });
+  const consent = createProcessingConsent({ storage, bindings: [configured.reaction, configured.understanding, binding], voiceConfigured: true });
   const presets = demoPresets({ provider: 'openrouter', reaction: configured.reaction, understanding: configured.understanding,
-    voicePlugin: voice, voiceBinding: host.binding, policy: { endpoints: [configured.reaction.endpoint, host.binding.endpoint] } });
+    voicePlugin: voice, voiceBinding: binding, policy: { endpoints: [configured.reaction.endpoint, binding.endpoint] } });
   const runtime = createPluginRuntime({ storage, reasoning, consent, presets, registry: new PluginRegistry().register(reasoning).register(voice) });
   const handlers = createHandlers({ storage, reasoning, consent, pluginRuntime: runtime }); t.after(() => handlers.close());
   const session = storage.create({ ownerToken: testToken, settings: { voice: 'elevenlabs', model: presets.best.choices.defaults.model } });

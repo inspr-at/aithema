@@ -69,11 +69,13 @@ async function scene(page, locale, theme, width, missing) {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
     const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+    const { inputRevision } = await import('/packages/core/src/session.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.consentSeed);
     session.locale = locale; session.seq = 100; session.consentRevision = 1;
     session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs'; session.conceptVisualKind = 'html';
     session.conceptCost = { maxMicro: 10000 }; session.featureMatrix = matrix;
     session.transcript = [{ id: 'c1-user', role: 'user', content: locale === 'de' ? 'Wir verlieren Zeit beim Schreiben von Angeboten.' : 'We lose time writing quotes.' }];
+    session.operations = { inputRevision: inputRevision(session), running: ['reaction', 'understanding'], lastFailure: null };
     c.configure({ copy, session, host: { library: true }, voicePresentation: manifest.presentation, voiceClient: { manifest } });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     globalThis.c1Nodes = [...c.shadowRoot.querySelectorAll('.concept-activity-text, .voice-state, .notice, textarea')];
@@ -139,7 +141,15 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     assert.deepEqual(primary, { label: locale === 'de' ? 'Einwilligung speichern' : 'Save consent', saves: true }, 'the fixed Settings primary action explicitly saves consent');
     const focused = await shadow(page, c => c.shadowRoot.activeElement.value);
     assert.equal(focused, item);
-    await record(t, page, label + '-settings', { focused, item });
+    const tint = await shadow(page, (c, item) => {
+      const rows = [...c.shadowRoot.querySelectorAll('.consent-item')], target = rows.find(n => n.querySelector('input').value === item);
+      const rects = () => rows.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; });
+      const before = rects(), tinted = rows.filter(n => getComputedStyle(n, '::before').content !== 'none').map(n => n.querySelector('input').value);
+      target.classList.remove('consent-item--target'); const after = rects(); target.classList.add('consent-item--target');
+      return { tinted, before, after };
+    }, item);
+    assert.deepEqual(tint.tinted, [item]); assert.deepEqual(tint.after, tint.before, 'target tint shifts 0 px');
+    await record(t, page, label + '-settings', { focused, item, tinted: tint.tinted, shiftPx: 0 });
     await page.keyboard.press('Space');
     await page.locator('aithema-session >>> .consent-save').click();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
@@ -155,6 +165,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     const copyEmpty = await page.evaluate(async locale => (await import(`/packages/ui/src/i18n/${locale}.js`))[locale].empty, locale);
     assert.equal(saved.overview, locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …', 'a person turn never shows the first-sentence placeholder');
     assert.notEqual(saved.overview, copyEmpty);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true, 'running analysis has no bare retry');
     await record(t, page, label + '-saved', { ...saved, shiftPx: 0 });
   }
 });
