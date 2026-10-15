@@ -8,7 +8,7 @@ export const questionCardStyles = `
 /* Tick L2: keep the same composer slot over the footer. The overview remains
    in the page below the bounded transcript; scrolling it never loses input. */
 @media(max-width:600px) {
-  :is(.understanding,.transcript-shell) :is(button,a,input,textarea,select,[tabindex]) {
+  .workspace :is(.understanding,.transcript-shell) :is(button,a,input,textarea,select,[tabindex]) {
     scroll-margin-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-phone-keyboard] .display-foot { display:none; }
   .workspace[data-stage="live"] { padding-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
