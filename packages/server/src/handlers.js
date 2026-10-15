@@ -81,7 +81,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     if (event.type === 'session.paused' && event.data.reason === 'purpose') voiceHandlers?.stopSession(id, 'purpose');
     // Voice Resume publishes the same durable pause event as text Resume.
     // Work that deferred while paused needs a wake-up even without a new turn.
-    if (event.type === 'session.paused' && event.data.paused === false) schedule(id);
+    if (event.type === 'session.paused' && event.data.paused === false) schedule(id, { wake: true });
   };
   const operations = session => {
     const revision = inputRevision(session), failure = failures.get(session.id);
@@ -235,21 +235,21 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     voiceHandlers?.stopSession(id, reason);
     await cancelled;
   }
-  function schedule(id) {
+  function schedule(id, { wake = false } = {}) {
     let requested;
     if (purposePolicy) {
       const session = storage.get(id), scoped = storage.safeguards(id, inputRevision(session));
       requested = scoped.assessed ? scoped.offTopic ? [] : ['understanding']
         : voiceHandlers?.active(id) && voiceHandlers.delegatesReply(id) ? [] : ['reaction'];
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
-    for (const lane of requested) scheduleLane(id, lane);
+    for (const lane of requested) scheduleLane(id, lane, { wake });
     status(id);
   }
-  function scheduleLane(id, lane) {
+  function scheduleLane(id, lane, { wake = false } = {}) {
     const key = `${id}:${lane}`;
     if (stop.signal.aborted) return;
     const running = jobs.get(key);
-    if (running) { running.reschedule = true; return; }
+    if (running) { if (wake) running.reschedule = true; return; }
     const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
     job.promise = Promise.resolve().then(async () => {

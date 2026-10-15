@@ -51,8 +51,9 @@ The lane now distinguishes provider lifetime from permission to publish:
 The full unit run at `715b527` additionally exposed a voice Resume wake-up
 race (3550/3551 passed). A background assessment that deferred during Pause
 was not scheduled by voice Resume. The shared resume event now wakes the
-appropriate lanes, and a scheduling request arriving while a job is finishing
-is retained for one rerun. The existing voice assertion is unchanged; a new
+appropriate lanes, and a Resume wake-up arriving while a job is finishing
+is retained for one rerun. Ordinary concurrent requests still join the pending
+job, without automatically retrying a paid provider failure. The existing voice assertion is unchanged; a new
 deterministic test holds admission until paused, verifies no charged attempt,
 then requires a current assessment after Resume.
 

@@ -109,3 +109,17 @@ test('AIT-198 unknown provider refusal remains conservative and logs its HTTP cl
   ]);
   assert.doesNotMatch(JSON.stringify(f.logs), /Private|Auftragsbearbeitung|fake-only/u);
 });
+
+
+test('AIT-198 a duplicate Retry joins a pending analysis without causing another paid retry after provider failure', async t => {
+  const f = fixture(t, { replyMs: 5, analysisMs: 100, analysisHttpError: true });
+  await f.send(project);
+  for (let i = 0; !f.rows().length && i < 100; i++) await delay(2);
+  assert.equal(f.rows()[0]?.state, 'dispatched');
+  assert.equal((await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/retry`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  }))).status, 202);
+  await f.handlers.idle();
+  assert.equal(f.rows().length, 1, 'a join does not authorize a fresh paid attempt after the pending failure');
+  assert.equal(f.calls.filter(call => !call.stream).length, 1);
+});
