@@ -7,7 +7,7 @@ import { voiceOverrides } from './options.js';
 export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
 
 // Detailed requirements need room for thinking pauses and spelled domains.
-// This owned-agent policy replaces START's eager settings, on every startup.
+// This owned-agent policy replaces START's eager settings when they drift.
 // https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow
 const TURN_POLICY = Object.freeze({ turn_eagerness: 'patient', turn_timeout: 12,
   spelling_patience: 'auto', turn_model: 'turn_v3', speculative_turn: false });
@@ -27,6 +27,30 @@ const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(
 const leaves = (value, path = []) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length
   ? Object.entries(value).flatMap(([key, item]) => leaves(item, [...path, key])) : [[path.join('.'), value]];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
+// Compare only the desired managed shape. Provider metadata and extra settings are
+// not ours. Empty maps/arrays are intentional clears and remain exact comparisons.
+// These TTS defaults are also used when the API elides default-valued properties;
+// null, strings and missing security/identity fields are never defaulted.
+const OMITTED_DEFAULTS = Object.freeze({
+  'conversation_config.tts.stability': 0.5,
+  'conversation_config.tts.speed': 1,
+  'conversation_config.tts.similarity_boost': 0.8,
+});
+const plainObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+function managedDrift(remote, desired, path = '') {
+  if (remote === undefined && Object.hasOwn(OMITTED_DEFAULTS, path)) remote = OMITTED_DEFAULTS[path];
+  if (path === 'platform_settings.overrides.conversation_config_override') {
+    // Extra explicitly false override flags are equivalent to disabled defaults.
+    // Keep malformed leaves and unknown enabled flags visible as drift.
+    const enabled = tree => leaves(tree).filter(([, value]) => value !== false).sort(([a], [b]) => a.localeCompare(b));
+    return isDeepStrictEqual(enabled(remote), enabled(desired)) ? [] : [path];
+  }
+  if (plainObject(desired) && Object.keys(desired).length) {
+    return Object.entries(desired).flatMap(([key, value]) => managedDrift(
+      plainObject(remote) ? remote[key] : undefined, value, path ? `${path}.${key}` : key));
+  }
+  return isDeepStrictEqual(remote, desired) ? [] : [path];
+}
 export class AgentEnsureError extends Error {
   constructor(reason, { transient = false } = {}) {
     super(reason);
@@ -104,8 +128,9 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // TTS/ASR/turn/language/custom_llm and platform_settings privacy/auth/overrides.
   // No request with a method other than GET ever targets templateAgentId.
   const template = await request(`/v1/convai/agents/${encodeURIComponent(templateAgentId)}`);
+  let remote;
   if (owned) {
-    const remote = await request(`/v1/convai/agents/${encodeURIComponent(owned)}`);
+    remote = await request(`/v1/convai/agents/${encodeURIComponent(owned)}`);
     if (remote.agent_id !== owned || remote.name !== agentName) throw new AgentEnsureError('agent-ownership-unproven');
   }
   const config = template.conversation_config;
@@ -164,15 +189,23 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     overrides: { custom_llm_extra_body: true, conversation_config_override: { agent: { first_message: true, language: true } } },
   } };
   let agentId = owned;
-  if (agentId) await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`, 'PATCH', body);
-  else {
+  const drift = owned ? managedDrift(remote, body) : [];
+  if (agentId && drift.length) {
+    // The documented PATCH accepts optional top-level configuration objects;
+    // nested replacement/merge semantics are not guaranteed. Send the full
+    // managed object for each changed top-level field, never unrelated objects.
+    // https://elevenlabs.io/docs/api-reference/agents/update
+    const changed = new Set(drift.map(field => field.split('.')[0]));
+    await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`, 'PATCH', pick(body, [...changed]));
+  } else if (!agentId) {
     const created = await request('/v1/convai/agents/create', 'POST', body);
     if (!id(created.agent_id) || created.agent_id === templateAgentId) throw new AgentEnsureError('agent-create-invalid');
     agentId = created.agent_id;
     db.prepare('INSERT INTO host_agents VALUES (?,?)').run(agentName, agentId);
   }
-  let remote;
-  try { remote = await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`); }
+  try {
+    if (!owned || drift.length) remote = await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`);
+  }
   catch (error) {
     log({ name: agentName, id: agentId, fields: ['agent-readback'] });
     throw error;
@@ -211,6 +244,14 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     log({ name: agentName, id: agentId, fields });
     throw new AgentEnsureError('agent-readback-mismatch');
   }
-  log({ name: agentName, id: agentId }); // Never log bodies, errors from fetch, secrets, or template data.
+  // Read-back covers the whole managed shape, including TTS, prompt and tools.
+  const remaining = managedDrift(remote, body);
+  if (remaining.length) {
+    log({ name: agentName, id: agentId, fields: remaining });
+    throw new AgentEnsureError('agent-readback-mismatch');
+  }
+  const message = !owned ? 'elevenlabs agent ensured: created' : drift.length
+    ? `elevenlabs agent ensured: patched (fields: ${drift.join(', ')})` : 'elevenlabs agent ensured: unchanged';
+  log({ name: agentName, id: agentId, message }); // Field names only; never provider values.
   return { agentId, apiBaseUrl: base.href.replace(/\/$/u, '') };
 }
