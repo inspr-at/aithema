@@ -1115,3 +1115,18 @@ test('AIT-136 withdrawal arriving during normal end reaches the already closing 
     assert.deepEqual(calls.map(options => options.reason), ['closed', 'turn-withdrawn']);
   } finally { held.resolve({ closureConfirmed: true }); await closing; }
 });
+
+test('AIT-186 F2: ledger and voice settlement paint exactly once, stale ledger identity is inert', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  rail.session.close = async () => { throw new Error('outage'); }; await rail.close();
+  const ended = rail.endedCall, render = t.mock.method(rail, 'render');
+  rail.settleLedger(ended);
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceEnded);
+  rail.settleLedger(ended);
+  rail.settlement({ ...ended, terminal: { closureConfirmed: true, usage: { costEstimated: false } } });
+  assert.equal(render.mock.callCount(), 1, 'one settlement repaint across ledger/voice duplicates');
+  await rail.start(); const paints = render.mock.callCount();
+  rail.settleLedger(ended);
+  assert.equal(render.mock.callCount(), paints, 'old ledger result cannot resurrect an ended rail');
+  assert.equal(root.dataset.call, 'active');
+});

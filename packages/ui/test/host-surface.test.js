@@ -1218,3 +1218,40 @@ for (const copy of [de, en]) test(`AIT-184: genuine denial stops polling but a l
   t.mock.timers.tick(60_000); await tick(8);
   assert.equal(reads(), recoveredReads, 'successful recovery also leaves polling stopped');
 });
+
+for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 F2: ledger-only settlement survives voice outage; newer call fenced (${copy === de ? 'de' : 'en'}, restart ${restart})`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const read = Promise.withResolvers(), started = Promise.withResolvers();
+  let reconciling = false, delay = false, callsStarted = 0;
+  const voiceClient = { async start({ callId }) {
+    callsStarted++; const events = voiceEvents();
+    return { callId, providerSessionId: `outage-${callsStarted}`, events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); throw new Error('voice terminal unavailable'); } };
+  } };
+  const { c, root } = setup(t, { copy, voiceClient, host: { credits: true },
+    session: { featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
+    routes: { 'GET /credits': async () => {
+      const value = reconciling;
+      if (delay) { started.resolve(); await read.promise; }
+      return Response.json({ balance, exhausted: false, reconciling: value });
+    } } });
+  t.after(() => read.resolve());
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  reconciling = true; root.querySelector('.voice-close').click(); await tick(8);
+  t.mock.timers.tick(15_001); await tick(8);
+  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
+  reconciling = false; delay = true; t.mock.timers.tick(15_001); await started.promise;
+  if (restart) { root.querySelector('.voice-start').click(); await tick(8); }
+  read.resolve(); await tick(12);
+  assert.equal(root.querySelector('.audio-rail').dataset.call, restart ? 'active' : 'none');
+  assert.equal(root.querySelector('.voice-state').textContent, restart ? copy.voiceStates.listening : copy.voiceEnded);
+  assert.equal(root.querySelector('.audio-rail').hasAttribute('data-call-reconciling'), false);
+  assert.equal(root.querySelector('textarea').disabled, false);
+  if (!restart) assert.equal(root.querySelector('.pause').disabled, false, 'settled idle session pause returns');
+  // Duplicate ledger reads and late uncertain voice closure cannot restore reconciliation.
+  t.mock.timers.tick(30_001); await tick(8);
+  assert.equal(root.querySelector('.voice-state').textContent, restart ? copy.voiceStates.listening : copy.voiceEnded);
+  assert.equal(callsStarted, restart ? 2 : 1);
+});
