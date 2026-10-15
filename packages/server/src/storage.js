@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
@@ -40,7 +41,9 @@ export class SQLiteStorage {
       catch { this.writer.close(); throw new Error('another-session-writer'); }
     }
     try {
+    this.activityOrigin = new AsyncLocalStorage();
     this.db = new DatabaseSync(path);
+    this.db.function('retention_activity', () => this.countsAsActivity() ? 1 : 0);
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -110,26 +113,34 @@ export class SQLiteStorage {
           FROM events WHERE session_id=sessions.id), CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))
         FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NULL;`);
       // The exclusive writer lock makes process-local leases safe to reset at boot.
-      this.db.exec(`UPDATE session_retention SET busy=0;
+      this.db.exec(`DROP TRIGGER IF EXISTS retention_event;
+        UPDATE session_retention SET busy=0;
         CREATE TRIGGER IF NOT EXISTS retention_create AFTER INSERT ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NULL BEGIN
           INSERT INTO session_retention(session_id,last_activity) VALUES (NEW.id,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)); END;
-        CREATE TRIGGER IF NOT EXISTS retention_event AFTER INSERT ON events BEGIN
+        CREATE TRIGGER retention_event AFTER INSERT ON events WHEN retention_activity()=1 BEGIN
           UPDATE session_retention SET last_activity=MAX(last_activity,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)) WHERE session_id=NEW.session_id; END;
         CREATE TRIGGER IF NOT EXISTS retention_erase AFTER UPDATE ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL BEGIN
           DELETE FROM session_retention WHERE session_id=NEW.id; END;`);
     });
   }
+  /** Activity rule: direct storage calls are host activity; system scopes never
+   * renew retention, including events and async work spawned inside that scope.
+   * AsyncLocalStorage keeps concurrent person/host requests independent. */
+  countsAsActivity() { return this.activityOrigin.getStore() !== 'system'; }
+  systemWork(fn) { return this.activityOrigin.run('system', fn); }
   touch(id) {
+    if (!this.countsAsActivity()) return;
     this.db.prepare('UPDATE session_retention SET last_activity=MAX(last_activity,?) WHERE session_id=?').run(Date.now(), id);
   }
   /** Leases exclude in-flight requests, open event streams and reasoning jobs. */
   hold(id) {
     this.db.prepare('UPDATE session_retention SET busy=busy+1 WHERE session_id=?').run(id);
+    const activity = this.countsAsActivity();
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1),last_activity=MAX(last_activity,?) WHERE session_id=?').run(Date.now(), id);
+      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1),last_activity=MAX(last_activity,?) WHERE session_id=?').run(activity ? Date.now() : 0, id);
     };
   }
   liveIds(after = '', limit = 100) {
@@ -794,7 +805,7 @@ export class SQLiteStorage {
       return this.#append(session, 'turn.withdrawn', { turnId, reason, at: new Date().toISOString() });
     });
   }
-  expire(id, turnId) { return this.withdraw(id, turnId, 'expiry'); }
+  expire(id, turnId) { return this.systemWork(() => this.withdraw(id, turnId, 'expiry')); }
   erase(id, guard = {}) {
     return this.#invalidationTransaction(() => {
       if (guard.retire) {

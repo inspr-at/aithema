@@ -127,16 +127,18 @@ pending with a durable attempt count and exponential backoff (1 second up to
 on the maintenance schedule even when `more` is false. Monitor `failed`;
 host failures can delay deletion beyond the intended retention window.
 
-Last activity is the latest **server timestamp** of session creation, a committed
-session event (including settings, consent, text, uploads and voice), or an
-authorized request to a session route or individual library item (including reads and export). Client turn
-timestamps cannot backdate it. Completing a protected request, stream or reasoning
-job also advances activity, so a long-lived connection starts its idle window
-when it disconnects. Failed ownership checks and read-only maintenance scans do
-not renew activity. Today `expire` writes withdrawal events and schedules jobs:
-those events and job completion **do renew activity**, including when invoked
-by maintenance. Running `expire` alongside idle retention can therefore extend
-the idle window; use whole-session `retire` alone for an idle-erasure policy. In-flight authorized requests, open SSE streams and running
+Last activity is the latest **server timestamp** of person- or host-initiated
+activity: session creation, turns and other committed session changes, authorized
+session and individual library requests (including reads and export), and the
+completion of protected requests, streams and work the person started. Client
+turn timestamps cannot backdate it. The rule lives in `SQLiteStorage.countsAsActivity`:
+direct storage calls are host activity; `storage.systemWork(fn)` marks system work
+and its asynchronous descendants as maintenance. System events, including
+`expire` withdrawal events and the rebuild jobs they schedule, never renew the
+idle clock. Hosts must wrap other system-originated work in `systemWork` too.
+Failed ownership checks and read-only maintenance scans do not renew activity.
+Expire and retire can use the same cutoff in either order without adding an
+extra retention window. In-flight authorized requests, open SSE streams and running
 text reasoning jobs exclude the session from retirement; active voice calls
 and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
 and the final idle check run under the exclusive SQLite writer, before any
@@ -151,8 +153,11 @@ deletes core rows in child-before-parent FK order, then the session. The owner
 hash is captured inside the tombstone transaction. No owner token is invented;
 the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
 The host hook runs after the tombstone commits and before the separate core
-purge transaction; it may open its own transaction. A failure keeps core rows
-pending for retry. Core purge and the final batch checkpoint truncate the WAL
+purge transaction; it may open its own transaction. The hook has a per-session deadline of 30 seconds (configure the positive integer
+`retiredHookTimeoutMs` in `createHandlers`). A timeout or failure keeps core rows
+pending for retry, counts as failed, and lets the batch continue. The timeout
+cannot cancel host code; hooks must tolerate a late completion overlapping a retry.
+Failures log only session ID and error class, never error content. Core purge and the final batch checkpoint truncate the WAL
 for sessions already purged even if another session's hook fails.
 
 | Data | After successful retirement |
@@ -178,7 +183,8 @@ week and restrict access to raw daily accounting. This does not erase independen
 Core removes only its own explicit table list. Hosts must clean their own SQLite
 and external session rows in the idempotent `retired` hook, including in-memory
 projections. Index host `session_id` columns to avoid a full scan per session.
-Host FKs to `sessions(id)` must be removed or detached before the hook returns;
+Host FKs to `sessions(id)` or core child tables such as `content`, `uploads`
+and `concept_artifacts` must be removed or detached before the hook returns;
 a remaining FK blocks core purge and causes a retry. Host tables are never
 automatically deleted merely because they have a `session_id` column. Hosts may
 retain legally required records such as consent proof: that is their decision,

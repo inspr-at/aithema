@@ -203,14 +203,16 @@ test('one failing hook does not block the batch, checkpoint or later batches', a
   const bad = storage.create(), good = storage.create();
   for (const s of [bad, good]) age(storage, s.id);
   let fail = true, checkpoints = 0;
+  const logs = [];
   const checkpoint = storage.checkpointErasure.bind(storage);
   storage.checkpointErasure = () => { checkpoints++; checkpoint(); };
-  const handlers = createHandlers({ storage, consent: mockConsent, host: { retired({ sessionId }) {
+  const handlers = createHandlers({ storage, consent: mockConsent, log: entry => logs.push(entry), host: { retired({ sessionId }) {
     if (sessionId === bad.id && fail) throw new Error('offline');
   } } });
   t.after(async () => { await handlers.close(); storage.close(); });
   assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 1, failed: 1, more: false });
   assert.ok(checkpoints >= 3);
+  assert.deepEqual(logs, [{ event: 'session.retirement.failed', sessionId: bad.id, error: 'Error' }]);
   assert.ok(storage.get(bad.id).tombstone);
   assert.throws(() => storage.get(good.id), /not found/i);
   const pending = storage.db.prepare('SELECT * FROM retirement_pending').get();
@@ -240,4 +242,68 @@ test('explicit core list covers initialized core session tables and respects chi
   for (const name of order) for (const fk of storage.db.prepare(`PRAGMA foreign_key_list("${name}")`).all()) {
     if (order.includes(fk.table)) assert.ok(order.indexOf(name) < order.indexOf(fk.table));
   }
+});
+
+for (const order of ['expire-first', 'retire-first']) {
+  test(`24h idle retention is not extended by expiry (${order})`, async t => {
+    const { storage, handlers } = fixture(t);
+    const day = 24 * 60 * 60 * 1000, now = Date.now(), lastTurn = now - day - 1;
+    const session = storage.create({ demo: true });
+    storage.append(session.id, 'turn.final', {
+      id: 'last-turn', role: 'user', content: 'input at T', at: new Date(lastTurn).toISOString(),
+    });
+    age(storage, session.id, lastTurn);
+    const cutoff = now - day; // sweeps at T + 24h + epsilon, both with a 24h cutoff
+    if (order === 'expire-first') {
+      await handlers.expire(cutoff);
+      assert.ok(storage.read(session.id).some(e => e.type === 'turn.withdrawn'));
+      assert.equal(storage.db.prepare('SELECT last_activity FROM session_retention WHERE session_id=?').get(session.id).last_activity,
+        lastTurn, 'expiry events and completed rebuild jobs must not renew activity');
+    }
+    assert.deepEqual(await handlers.retire({ before: cutoff }), { retired: 1, failed: 0, more: false });
+    if (order === 'retire-first') await handlers.expire(cutoff);
+    assert.throws(() => storage.get(session.id), /not found/i);
+  });
+}
+
+test('system events and async leases do not renew activity; independent host activity does', async t => {
+  const { storage } = fixture(t), session = storage.create();
+  age(storage, session.id);
+  let finish;
+  const pending = storage.systemWork(async () => {
+    const release = storage.hold(session.id);
+    await new Promise(resolve => { finish = resolve; });
+    storage.append(session.id, 'session.paused', { paused: true });
+    storage.touch(session.id);
+    release();
+  });
+  finish(); await pending;
+  assert.equal(storage.db.prepare('SELECT last_activity FROM session_retention WHERE session_id=?').get(session.id).last_activity, 1);
+  // The same event outside maintenance is an explicit host change.
+  storage.append(session.id, 'session.paused', { paused: false });
+  assert.ok(storage.db.prepare('SELECT last_activity FROM session_retention WHERE session_id=?').get(session.id).last_activity > 1);
+});
+
+test('a never-settling retired hook times out per session, backs off and checkpoints', { timeout: 2000 }, async t => {
+  const storage = new SQLiteStorage(), logs = [];
+  const hung = storage.create({ id: 'a-hung' }), good = storage.create({ id: 'z-good' });
+  for (const session of [hung, good]) age(storage, session.id);
+  let checkpoints = 0, calls = 0;
+  const checkpoint = storage.checkpointErasure.bind(storage);
+  storage.checkpointErasure = () => { checkpoints++; checkpoint(); };
+  const handlers = createHandlers({ storage, consent: mockConsent, retiredHookTimeoutMs: 20,
+    log: entry => logs.push(entry), host: { retired({ sessionId }) {
+      calls++;
+      if (sessionId === hung.id) return new Promise(() => {});
+    } },
+  });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 1, more: false });
+  assert.equal(calls, 2); assert.ok(checkpoints >= 3);
+  assert.ok(storage.get(hung.id).tombstone);
+  assert.throws(() => storage.get(good.id), /not found/i);
+  const pending = storage.db.prepare('SELECT attempts,retry_at FROM retirement_pending WHERE session_id=?').get(hung.id);
+  assert.equal(pending.attempts, 1); assert.ok(pending.retry_at > Date.now());
+  assert.deepEqual(logs, [{ event: 'session.retirement.failed', sessionId: hung.id, error: 'RetirementHookTimeoutError' }]);
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 0, more: false });
 });

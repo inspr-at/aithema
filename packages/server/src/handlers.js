@@ -14,6 +14,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
 });
 const encoder = new TextEncoder();
 const REQUEST_LIMIT = 32_768;
+class RetirementHookTimeoutError extends Error {}
 function sse(event) {
   return encoder.encode(`${event.seq ? `id: ${event.seq}\n` : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
@@ -57,8 +58,9 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
 }
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
-  deadlineMs = 30_000, hostPrompt = '', purposePolicy, pluginRuntime, consent = pluginRuntime?.consent,
+  deadlineMs = 30_000, retiredHookTimeoutMs = 30_000, hostPrompt = '', purposePolicy, pluginRuntime, consent = pluginRuntime?.consent,
   ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
+  if (!Number.isSafeInteger(retiredHookTimeoutMs) || retiredHookTimeoutMs < 1) throw new TypeError('Invalid retired hook timeout');
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   pluginRuntime.setLaneDiagnostic?.(log);
@@ -608,26 +610,30 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       return event;
     },
     async expire(before) {
-      let after = '';
-      while (true) {
-        const ids = storage.liveIds(after);
-        if (!ids.length) break;
-        for (const id of ids) {
-          after = id;
-          let session;
-          try { session = storage.get(id); } catch (error) { if (error instanceof NotFoundError) continue; throw error; }
-          if (session.tombstone) continue;
-          for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
-            const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
-            conceptHandlers.ended(id);
-          }
-          for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
-            const event = storage.withdrawUpload(id, upload.id);
-            await Promise.all([uploadHandlers.cancelUpload(id, upload.id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
-            schedule(id); conceptHandlers.ended(id);
+      return storage.systemWork(async () => {
+        let after = '';
+        while (true) {
+          const ids = storage.liveIds(after);
+          if (!ids.length) break;
+          for (const id of ids) {
+            after = id;
+            let session;
+            try { session = storage.get(id); } catch (error) { if (error instanceof NotFoundError) continue; throw error; }
+            if (session.tombstone) continue;
+            for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
+              const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
+              conceptHandlers.ended(id);
+            }
+            for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
+              const event = storage.withdrawUpload(id, upload.id);
+              await Promise.all([uploadHandlers.cancelUpload(id, upload.id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
+              schedule(id); conceptHandlers.ended(id);
+            }
+            // Finish maintenance rebuilds before the host's next retirement sweep.
+            await Promise.allSettled([...jobs.values()].filter(job => job.id === id).map(job => job.promise));
           }
         }
-      }
+      });
     },
     async retire({ before, limit = 100 } = {}) {
       if (!Number.isSafeInteger(before) || before < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new TypeError('Invalid retention request');
@@ -646,10 +652,21 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
           await consent?.withdraw?.({ sessionId: id });
-          await host?.retired?.({ sessionId: id, ownerHash: storage.retirementOwnerHash(id) });
+          if (host?.retired) {
+            let timer;
+            try {
+              await Promise.race([
+                Promise.resolve().then(() => host.retired({ sessionId: id, ownerHash: storage.retirementOwnerHash(id) })),
+                new Promise((_, reject) => { timer = setTimeout(() => {
+                  reject(new RetirementHookTimeoutError('Retirement hook deadline'));
+                }, retiredHookTimeoutMs); }),
+              ]);
+            } finally { clearTimeout(timer); }
+          }
           storage.purgeRetired(id); retired++;
         } catch (error) {
           // A durable tombstone is retried independently; other sessions keep moving.
+          log({ event: 'session.retirement.failed', sessionId: id, error: error instanceof Error ? error.constructor.name : 'UnknownError' });
           storage.failRetirement(id); failed++;
         } finally { retiring.delete(id); }
       }
@@ -665,15 +682,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     reconcileVoiceLater() { voiceHandlers?.reconcileLater(); },
     async resume() {
-      hostHandlers.resume();
-      pluginRuntime.budget.recover();
-      host?.recoverWallets?.();
-      await pluginRuntime.recoverCosts?.();
-      await pluginRuntime.reconcileCosts?.({ signal: stop.signal });
-      reconcileCostsLater();
-      uploadHandlers.resume();
-      await conceptHandlers.resume();
-      await voiceHandlers?.resume();
+      await storage.systemWork(async () => {
+        hostHandlers.resume();
+        pluginRuntime.budget.recover();
+        host?.recoverWallets?.();
+        await pluginRuntime.recoverCosts?.();
+        await pluginRuntime.reconcileCosts?.({ signal: stop.signal });
+        reconcileCostsLater();
+        uploadHandlers.resume();
+        await conceptHandlers.resume();
+        await voiceHandlers?.resume();
+      });
       // Recover one session (at most two reasoning lanes) at a time. Live visitor
       // work remains independent; idle/close also wait for this boot backlog.
       if (!recovery && !stop.signal.aborted) {
