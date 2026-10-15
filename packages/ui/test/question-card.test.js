@@ -156,3 +156,16 @@ test('AIT-132: card answers use active voice forwarding once, and speaking close
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'spoken', role: 'user', content: 'Both', callId, providerSessionId: 'qcard-voice' } });
   assert.equal(shown(c), false); assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.call, 'active');
 });
+
+
+test('AIT-225: the options scroll region has a translated accessible name and remains keyboard ordered while sending', () => {
+  for (const copy of [en, de]) {
+    const c = setup(copy); question(c);
+    const root = c.shadowRoot, region = root.querySelector('.qopts'), buttons = [...region.children];
+    assert.equal(region.getAttribute('role'), 'region');
+    assert.equal(root.querySelector(`#${region.getAttribute('aria-labelledby')}`).textContent, copy.questionCard.heading);
+    c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: ['understanding'] } });
+    assert.deepEqual([...region.children], buttons);
+    assert.ok(buttons.every(button => button.tabIndex === 0));
+  }
+});

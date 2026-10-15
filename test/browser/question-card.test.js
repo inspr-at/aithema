@@ -30,6 +30,7 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
     const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
     if (evidence) await mkdir(evidence, { recursive: true });
     // Snapshots model approved reply data; local acknowledgements let us inspect the exact request bytes.
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.setRequestInterception(true);
     page.on('request', request => {
       void (async () => {
@@ -44,6 +45,7 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
         }
         if (path.endsWith('/turns') && request.method() === 'POST') {
           const body = JSON.parse(request.postData());
+          if (globalThis.qcardAnswerHold) await globalThis.qcardAnswerHold.promise;
           const event = await shadow(page, (c, body) => {
             globalThis.qcardRequests.push(body);
             return { seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content,
@@ -58,13 +60,17 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
     await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
     await shadow(page, c => { globalThis.qcardSeed = c.session; });
 
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 393]) {
       await t.test(`${locale}/${theme}/${width}`, async () => {
         const label = `${locale}-${theme}-${width}`;
         const shot = async state => { if (evidence) {
-          const file = `ait-132-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
+          if (state !== 'bounded-options' || width === 1024 || width !== 390 && theme !== (locale === 'en' ? 'light' : 'dark')) return;
+          await page.mouse.move(-1, -1);
+          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+          await nextFrame(page);
+          const file = `ait-225-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
         } };
-        await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+        await page.setViewport({ width, height: width === 390 ? 844 : width === 393 ? 852 : 900 });
         await page.select('#theme', theme);
         await page.evaluate(async locale => {
           const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
@@ -103,10 +109,14 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
           globalThis.showQuestion = patch => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
             id: `question-${c.session.seq}`, role: 'assistant', inputRevision: inputRevision(c.session), ...globalThis.qcardReply, ...patch,
           } });
+          // Pin the existing Chrome baseline stack for every scene and capture.
+          document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+          c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
           document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
           c.shadowRoot.querySelector('.send').scrollIntoView({ block: 'end', behavior: 'instant' });
         }, locale);
         await page.mouse.move(0, 0); await nextFrame(page);
+        await page.evaluate(() => document.fonts.ready);
         const baseline = await boxes(page);
         await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
         assert.equal(await shown(page), false, 'a question without answers has no card'); still(baseline, await boxes(page), 'no options');
@@ -182,14 +192,67 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active');
         await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
-        checks.push({ locale, theme, width, geometry, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
+        // A long, overflowing transcript and option list exercise the actual phone limit.
+        await page.evaluate(() => {
+          const c = document.querySelector('aithema-session'), de = c.session.locale === 'de';
+          for (let index = 0; index < 14; index++) globalThis.showQuestion({ options: [],
+            content: de ? `Antwort ${index}: Motiv und Farbe können frei gewählt werden.` : `Reply ${index}: the design and colour can be chosen freely.` });
+          globalThis.showQuestion({ options: Array.from({ length: 7 }, (_, index) => ({
+            text: de ? `Auswahl ${index + 1}: Motiv, Farbe und Größe selbst zusammenstellen` : `Choice ${index + 1}: choose the design, colour and size yourself`, likely: index === 0,
+          })) });
+        });
+        await nextFrame(page);
+        const bounded = await shadow(page, c => {
+          const r = c.shadowRoot, card = r.querySelector('.qcard'), opts = r.querySelector('.qopts');
+          const bubble = [...r.querySelectorAll('.turn:not(.user)')].at(-1).getBoundingClientRect();
+          const shell = r.querySelector('.transcript-shell').getBoundingClientRect(), b = card.getBoundingClientRect();
+          return { height: b.height, viewport: innerHeight, top: b.top, bubbleBottom: bubble.bottom, shellBottom: shell.bottom,
+            overflow: opts.scrollHeight > opts.clientHeight, role: opts.getAttribute('role'),
+            name: r.querySelector(`#${opts.getAttribute('aria-labelledby')}`)?.textContent };
+        });
+        if (width <= 600) assert.ok(bounded.height <= .36 * bounded.viewport, `AIT-225: phone card ${bounded.height}px exceeds 36vh`);
+        assert.ok(bounded.bubbleBottom <= bounded.top, `AIT-225: latest assistant bubble ${bounded.bubbleBottom} ends behind card ${bounded.top}`);
+        assert.ok(bounded.shellBottom <= bounded.top, 'AIT-225: the transcript viewport ends above the card');
+        assert.equal(bounded.overflow, true, 'the options scroll inside the card');
+        assert.equal(bounded.role, 'region'); assert.ok(bounded.name, 'the options scroll region has an accessible name');
+        await shot('bounded-options');
+        const answerBoxes = await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']);
+        await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+        for (let index = 1; index < 7; index++) {
+          await page.keyboard.press('Tab'); await nextFrame(page);
+          const focus = await shadow(page, (c, index) => {
+            const r = c.shadowRoot, row = r.querySelectorAll('.qopt')[index], b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
+            return { correct: r.activeElement === row, visible: row.matches(':focus-visible'), inside: b.top >= v.top - 1 && b.bottom <= v.bottom + 1 };
+          }, index);
+          assert.deepEqual(focus, { correct: true, visible: true, inside: true }, 'Tab reaches each option in order and scrolls it into view');
+        }
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); c.shadowRoot.querySelector('.qopts').scrollTop = 0; }); await nextFrame(page);
+        const first = await shadow(page, c => { const b = c.shadowRoot.querySelector('.qopt').getBoundingClientRect(); return [b.x + 20, b.y + b.height / 2]; });
+        await page.mouse.move(...first); await nextFrame(page);
+        assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']), answerBoxes, 'hover never moves the card, options or composer');
+        globalThis.qcardAnswerHold = Promise.withResolvers();
+        await page.mouse.click(...first); await nextFrame(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qopt').getAttribute('aria-disabled')), 'true');
+        assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']), answerBoxes, 'answering never moves the other options or composer');
+        globalThis.qcardAnswerHold.resolve(); globalThis.qcardAnswerHold = null;
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qcard').hidden);
+        await nextFrame(page); still(baseline, await boxes(page), 'long answer disappearance');
+        const closed = await shadow(page, c => {
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+          return { gap: shell.scrollHeight - shell.clientHeight - shell.scrollTop,
+            bubble: [...r.querySelectorAll('.turn:not(.user)')].at(-1).getBoundingClientRect().bottom,
+            composer: r.querySelector('.composer').getBoundingClientRect().top };
+        });
+        assert.ok(Math.abs(closed.gap) <= 1, 'removing the card keeps the transcript following its latest turn');
+        assert.ok(closed.bubble <= closed.composer, 'the latest assistant reply remains above the composer after answering');
+        checks.push({ locale, theme, width, geometry, bounded, closed, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
       });
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
     if (evidence) {
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
-      await writeFile(join(evidence, 'ait-132-evidence.json'), JSON.stringify({ ticket: 'AIT-132', commit, files, checks }, null, 2));
-      await writeFile(join(evidence, 'ait-132-pass-lines.json'), JSON.stringify({ ticket: 'AIT-132', commit,
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks }, null, 2));
+      await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         passLines: checks.map(({ locale, theme, width, controlShiftPx }) => ({ locale, theme, width, pass: true,
           states: ['card-with-likely-and-others', 'hover', 'keyboard-focus', 'fold', 'question-without-options-no-card'],
           foldStrip: locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold',
