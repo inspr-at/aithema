@@ -19,8 +19,8 @@ document.addEventListener('change', event => {
   if (label) label.textContent = control.selectedOptions[0].textContent;
 });
 
-// A module can load successfully and still throw before mounting its header.
-// A bounded handshake covers both cases without painting fallback on the normal path.
+// Only an actual script failure exposes fallback. Network and session latency
+// are unbounded: elapsed time is never evidence that the host failed.
 function paintFallback() {
   const language = document.querySelector('#locale'), theme = document.querySelector('#theme');
   if (!language || !theme) return;
@@ -30,6 +30,13 @@ function paintFallback() {
   const labels = en ? { light: 'Light', dark: 'Dark', system: 'System' } : { light: 'Hell', dark: 'Dunkel', system: 'System' };
   for (const option of theme.options) option.textContent = labels[option.value];
   document.querySelector('#theme-value').textContent = labels[theme.value];
+  // Keep the native fallback independent of the module graph it replaces.
+  const glyphs = {
+    light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/>',
+    dark: '<path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z"/>',
+    system: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  };
+  document.querySelector('#theme-icon').innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${glyphs[theme.value]}</svg>`;
   document.querySelector('#language-label').textContent = en ? 'Language' : 'Sprache';
   document.querySelector('#theme-label').textContent = en ? 'Appearance' : 'Darstellung';
 }
@@ -50,7 +57,11 @@ function exposeFallback() {
 document.addEventListener('error', event => {
   if (event.target?.matches?.('script[src="/demo/host.js"]')) exposeFallback();
 }, true);
+window.addEventListener('error', event => {
+  // A successfully fetched module can throw before defining the component.
+  if (event.filename && new URL(event.filename, location.href).pathname === '/demo/host.js'
+      && !customElements.get('aithema-session')) exposeFallback();
+});
 document.addEventListener('DOMContentLoaded', () => {
-  document.defaultView?.setTimeout(exposeFallback, 4000);
   if (document.documentElement.hasAttribute('data-host-unavailable')) exposeFallback();
 }, { once: true });

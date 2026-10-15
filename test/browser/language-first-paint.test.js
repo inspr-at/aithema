@@ -177,11 +177,59 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
   }
   const browser = await browserForFile();
   try {
-    for (const failure of ['blocked', 'throws']) {
+    let normalBoxes;
+    for (const delay of [0, 6000]) {
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1440, height: 1000 });
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.evaluateOnNewDocument(() => {
+        localStorage.clear();
+        localStorage.setItem('aithema-demo-locale', 'de');
+        localStorage.setItem('aithema-theme', 'light');
+        window.hostFrames = [];
+        const sample = () => {
+          const component = document.querySelector('aithema-session');
+          const actions = [...document.querySelectorAll('.host-actions')];
+          if (actions.length) window.hostFrames.push({ unavailable: document.documentElement.hasAttribute('data-host-unavailable'),
+            count: actions.length, inside: actions.every(n => n.parentElement === component) });
+          window.hostFrameRequest = requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+      await page.setRequestInterception(true);
+      page.on('request', request => {
+        if (new URL(request.url()).pathname === '/demo/host.js' && delay) setTimeout(() => void request.continue(), delay);
+        else void request.continue();
+      });
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
+      await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+      const result = await page.evaluate(() => {
+        cancelAnimationFrame(window.hostFrameRequest);
+        const component = document.querySelector('aithema-session');
+        const nodes = [...document.querySelectorAll('.host-actions, .host-actions .utility, .host-actions .utility-value, .host-actions .utility-icon'), component.shadowRoot.querySelector('.settings-open')];
+        return { frames: window.hostFrames, unavailable: document.documentElement.hasAttribute('data-host-unavailable'),
+          inside: document.querySelector('.host-actions').parentElement === component,
+          boxes: nodes.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }) };
+      });
+      assert.equal(result.unavailable, false);
+      assert.equal(result.inside, true);
+      assert.ok(result.frames.length > 0);
+      assert.ok(result.frames.every(f => !f.unavailable && f.count === 1 && f.inside), 'every frame keeps exactly one utility group inside the component');
+      if (!delay) normalBoxes = result.boxes;
+      else {
+        assert.deepEqual(result.boxes, normalBoxes, '6 s delayed host ends at exactly normal boxes (0 px)');
+        if (evidence) await page.screenshot({ path: join(evidence, 'host-delayed-6000ms-de-light-1440.png'), fullPage: false, captureBeyondViewport: false });
+        const pass = `AIT-206 PASS head=${evidenceCommit} host delayed 6000ms: normal final boxes, 0 px displacement; controls inside component; no unavailable or duplicate utility frame (${result.frames.length} frames)`;
+        passes.push(pass); console.log(pass);
+      }
+      await page.close();
+    }
+    for (const failure of ['blocked', 'throws']) for (const locale of ['de', 'en']) for (const storedTheme of ['light', 'dark', 'system']) {
     const page = await browser.newPage();
     await page.setViewport({ width: 390, height: 844 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    await page.evaluateOnNewDocument(() => { localStorage.clear(); localStorage.setItem('aithema-demo-locale', 'en'); });
+    await page.evaluateOnNewDocument(({ locale, storedTheme }) => { localStorage.clear(); localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-theme', storedTheme); }, { locale, storedTheme });
     await page.setRequestInterception(true);
     page.on('request', request => {
       if (new URL(request.url()).pathname === '/demo/host.js') {
@@ -192,8 +240,15 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
     });
     await page.goto(demo.url, { waitUntil: 'networkidle0' });
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-unavailable'));
-    assert.equal(await page.$eval('#language-value', n => n.textContent), 'EN');
-    assert.equal(await page.$eval('#theme-value', n => n.textContent), 'System');
+    assert.equal(await page.$eval('#language-value', n => n.textContent), locale.toUpperCase());
+    const labels = { de: { light: 'Hell', dark: 'Dunkel', system: 'System' }, en: { light: 'Light', dark: 'Dark', system: 'System' } };
+    assert.equal(await page.$eval('#theme-value', n => n.textContent), labels[locale][storedTheme]);
+    const expectedIcon = await page.evaluate(markup => { const n = document.createElement('span'); n.innerHTML = markup; return n.innerHTML; }, icon({ light: 'sun', dark: 'moon', system: 'system' }[storedTheme]));
+    assert.equal(await page.$eval('#theme-icon', n => n.innerHTML), expectedIcon, 'fallback icon equals stored value');
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    if (evidence && failure === 'blocked' && locale === 'de') await page.screenshot({ path: join(evidence, `host-blocked-de-${storedTheme}-390.png`), fullPage: false, captureBeyondViewport: false });
+    const iconPass = `AIT-206 PASS host ${failure} ${locale} ${storedTheme}: icon=${{ light: 'sun', dark: 'moon', system: 'monitor' }[storedTheme]} label=${labels[locale][storedTheme]}`;
+    passes.push(iconPass); console.log(iconPass);
     for (const selector of ['#language-value', '#theme-value', '.utility-language', '.utility-theme', '#language-icon svg', '.utility-language .utility-chevron svg']) {
       assert.equal(await page.$eval(selector, n => {
         const r = n.getBoundingClientRect(), style = getComputedStyle(n);
