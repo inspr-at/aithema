@@ -181,11 +181,14 @@ export class ConceptView {
     if (!this.#session) return;
     const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
-    if (!this.#session.paused) this.#stageFeature = this.feature();
-    const words = conceptStateText({ copy: this.copy, status, feature: this.feature(), items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
+    const initial = this.#stageFeature === undefined;
+    if (!this.#session.paused || initial) this.#stageFeature = this.feature({ ignorePause: true });
+    const feature = this.#session.consentWithdrawn || this.#session.tombstone ? this.feature() : this.#stageFeature;
+    const words = conceptStateText({ copy: this.copy, status, feature, items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
     // Tick L1: pausing gates actions, but keeps the stage's pre-pause words.
+    // A reload has no previous words: initialize from the underlying feature verdict.
     // Consent withdrawal and erasure still clear dependent presentation normally.
-    if (!this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) {
+    if (initial || !this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) {
       if (text.textContent !== words) text.textContent = words;
     }
     if (status.phase === 'pending') {
