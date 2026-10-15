@@ -32,6 +32,12 @@ env files, make live provider calls, or run review gates.
 
 The two fixed 2-second turn waits now poll for an actual dispatched ledger row.
 Fake provider latency remains intentional in the original slow-provider tests.
+The first full unit pass exposed older tests conflating provider liability with
+visitor charges. Their exact provider amounts remain asserted in the session
+ledger, with additional zero visitor-charge assertions for failed or uncertain
+understanding. Their invocation fixture now reports its actual success/failure
+instead of unconditionally reporting failed during cleanup.
+
 No assertion tolerance was widened. `ca71ae6` passes all eight UI cases with
 exact 0 px geometry, including recovery through the inline retry. The overview
 content area and build-readiness row reserve their final size before results.
