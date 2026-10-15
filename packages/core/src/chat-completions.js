@@ -5,17 +5,17 @@ import { usdCostMicro, generationId } from './cost.js';
 
 // Only the portable strict-output subset crosses the wire. Limits, patterns,
 // numeric bounds and other validation rules stay in the original host schema.
-function providerReplySchema(schema) {
+function providerSchema(schema) {
   const safe = {};
   for (const key of ['type', 'enum', 'description', '$ref']) if (Object.hasOwn(schema, key)) safe[key] = schema[key];
   if (schema.properties) {
-    safe.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, shape]) => [key, providerReplySchema(shape)]));
+    safe.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, shape]) => [key, providerSchema(shape)]));
     safe.required = Object.keys(schema.properties);
     safe.additionalProperties = false;
   }
-  if (schema.items) safe.items = providerReplySchema(schema.items);
-  if (schema.anyOf) safe.anyOf = schema.anyOf.map(providerReplySchema);
-  if (schema.$defs) safe.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, shape]) => [key, providerReplySchema(shape)]));
+  if (schema.items) safe.items = providerSchema(schema.items);
+  if (schema.anyOf) safe.anyOf = schema.anyOf.map(providerSchema);
+  if (schema.$defs) safe.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, shape]) => [key, providerSchema(shape)]));
   return safe;
 }
 
@@ -50,12 +50,12 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   const payloadFor = (request, extra) => prepareBody({ model: binding.model,
     messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
     max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra });
-  const structuredExtra = request => ({ stream: false,
-    response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } });
+  const structuredExtra = request => ({ stream: false, ...(request.understandingSchemaConstrained === false ? {} : {
+    response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: providerSchema(request.schema) } } }) });
   // Opt in per adapter and guarded request; other hosts keep their wire contract.
   const streamExtra = request => {
     if (!streamSchema || !request.purposePolicy || !request.schema || request.replySchemaConstrained === false) return { stream: true };
-    const schema = providerReplySchema(request.schema);
+    const schema = providerSchema(request.schema);
     return { stream: true, response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema } } };
   };
   const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
@@ -135,7 +135,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       spend.httpError = true;
       const providerErrorClass = response.status >= 400 && response.status < 500 ? '4xx'
         : response.status >= 500 && response.status < 600 ? '5xx' : undefined;
-      const responseFormatUnsupported = extra.stream && Boolean(extra.response_format) && providerErrorClass === '4xx';
+      const responseFormatUnsupported = Boolean(extra.response_format) && providerErrorClass === '4xx';
       // A received HTTP error may still carry billed usage. Otherwise keep the hold.
       try {
         const value = JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,

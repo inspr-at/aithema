@@ -126,13 +126,13 @@ test('START bindings send lane-specific routing and reserve the configured reply
     '~anthropic/claude-haiku-latest': { prompt: 0.000003, completion: 0.000004 } };
   const messageBytes = new TextEncoder().encode(JSON.stringify([{ role: 'system', content: request.system }, ...request.messages])).byteLength;
   for (const [env, replyCap, analysisCap, only, ignore] of [
-    [{}, 1200, 8000, undefined, ['Azure']],
+    [{}, 1200, 8000, undefined, undefined],
     [{ OPENROUTER_MAX_TOKENS: '37', OPENROUTER_ANALYSIS_MAX_TOKENS: '63',
       OPENROUTER_PROVIDER_ONLY: ' Anthropic, ,OpenAI ', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: 'Azure, Microsoft' },
     37, 63, ['Anthropic', 'OpenAI'], ['Azure', 'Microsoft']],
     [{ OPENROUTER_PROVIDER_ONLY: ',', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ',' }, 1200, 8000, undefined, undefined],
     [{ OPENROUTER_MODEL: '~anthropic/claude-opus-latest', OPENROUTER_SPEECH_MODEL: '~anthropic/claude-haiku-latest',
-      OPENROUTER_ANALYSIS_EFFORT: 'low', OPENROUTER_PROVIDER_ONLY: 'Anthropic' }, 1200, 8000, ['Anthropic'], ['Azure']],
+      OPENROUTER_ANALYSIS_EFFORT: 'low', OPENROUTER_PROVIDER_ONLY: 'Anthropic' }, 1200, 8000, ['Anthropic'], undefined],
   ]) {
     const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture',
       AITHEMA_OPENROUTER_PRICES: JSON.stringify(prices), ...env });

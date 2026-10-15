@@ -94,13 +94,28 @@ export class SessionLanes {
           if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, binding, revision, options), scope.signal)) return 'blocked';
           if (!current()) return 'stale';
           const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt, { purposePolicy: this.purposePolicy }), schema: understandingSchema(session.preset) };
-          const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request, options });
-          flight.admitted = Boolean(admitted);
           diagnostic('started');
-          let raw, failed = false;
-          try { raw = await untilCancelled((admitted?.plugin ?? binding).structured(request, admitted?.options ?? options), scope.signal); }
-          catch (error) { failed = true; throw error; }
-          finally { await admitted?.finish({ failed }); }
+          let raw, admitted;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const input = attempt ? { ...request, understandingSchemaConstrained: false,
+              system: `${request.system}\nReturn only JSON matching this schema: ${JSON.stringify(request.schema)}` } : request;
+            // Compatibility consumes one attempt and needs fresh admission,
+            // current consent, price checks and its own terminal settlement.
+            admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request: input, options });
+            flight.admitted = Boolean(admitted);
+            let failed = false, retry = false;
+            try {
+              raw = await untilCancelled((admitted?.plugin ?? binding).structured(input, admitted?.options ?? options), scope.signal);
+              if (!matchesSchema(raw, request.schema)) throw new TypeError('Invalid understanding output');
+            } catch (error) {
+              failed = true;
+              if (attempt === 0 && error.responseFormatUnsupported === true && !scope.signal.aborted && current()) retry = true;
+              else throw error;
+            } finally { await admitted?.finish({ failed }); }
+            if (!retry) break;
+            scope.signal.throwIfAborted();
+            if (!current()) return 'stale';
+          }
           // An already admitted project assessment may outlive off-topic redirects.
           // Wait for their classification before accepting its original input.
           if (this.settleUnderstanding) await untilCancelled(this.settleUnderstanding(session, options), scope.signal);

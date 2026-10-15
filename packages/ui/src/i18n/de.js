@@ -280,6 +280,7 @@ export const de = {
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
   export: 'Gesprächsdaten herunterladen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
   reconnecting: 'Verbindung wird wiederhergestellt …', sending: 'Wird gespeichert …', saved: 'Gespeichert', failed: 'Nicht gespeichert. Senden Sie die Nachricht erneut.',
+  understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',
   reasoningFailed: 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.',
   draft: 'Erste Fassung. Die gründliche Auswertung läuft noch.', stale: 'Neue Angaben erkannt. Die Auswertung wird aktualisiert …',
   final: 'Aktuelle Einschätzung', notAssessed: 'Noch nicht bewertet', talk: 'Gespräch', build: 'Umsetzung',

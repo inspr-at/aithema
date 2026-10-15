@@ -102,11 +102,14 @@ test('AIT-198 slow provider: superseding project input never aborts already disp
 test('AIT-198 unknown provider refusal remains conservative and logs its HTTP class without values', async t => {
   const f = fixture(t, { replyMs: 5, analysisMs: 5, analysisHttpError: true });
   await f.send(project); await f.handlers.idle();
-  const [row] = f.rows();
+  const [row, retry] = f.rows();
+  assert.equal(f.rows().length, 2);
+  assert.equal(retry.outcome, 'uncertain'); assert.equal(retry.settled_micro, retry.max_micro); assert.equal(retry.usage, null);
   assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, row.max_micro);
   assert.equal(row.usage, null, 'a provider error without a receipt gives no evidence of zero spend');
   assert.deepEqual(f.logs, [
     { event: 'understanding.started', count: 1, lane: 'understanding' },
+    { event: 'understanding.uncertain', count: 1, lane: 'understanding', reason: 'provider-cost-unknown' },
     { event: 'understanding.uncertain', count: 1, lane: 'understanding', reason: 'provider-cost-unknown' },
     { event: 'understanding.failed', count: 1, lane: 'understanding', reason: 'provider-4xx' },
   ]);
@@ -123,8 +126,9 @@ test('AIT-198 a duplicate Retry joins a pending analysis without causing another
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
   }))).status, 202);
   await f.handlers.idle();
-  assert.equal(f.rows().length, 1, 'a join does not authorize a fresh paid attempt after the pending failure');
-  assert.equal(f.calls.filter(call => !call.stream).length, 1);
+  assert.equal(f.rows().length, 2, 'a join adds no attempt beyond the single admitted compatibility retry');
+  assert.equal(f.calls.filter(call => !call.stream).length, 2);
+  assert.equal(f.calls.filter(call => !call.stream && !call.body.response_format).length, 1);
 });
 
 async function dispatched(f) {

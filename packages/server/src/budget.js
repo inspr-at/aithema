@@ -25,7 +25,7 @@ export class SQLiteBudgetLedger {
       this.db.exec('ALTER TABLE budget_attempts ADD COLUMN overrun INTEGER NOT NULL DEFAULT 0 CHECK(overrun IN (0,1))');
     }
     const columns = this.db.prepare('PRAGMA table_info(budget_attempts)').all();
-    for (const name of ['max_visitor_micro', 'settled_visitor_micro', 'voice_exposure_micro', 'voice_visitor_exposure_micro', 'voice_closing']) {
+    for (const name of ['max_visitor_micro', 'settled_visitor_micro', 'voice_exposure_micro', 'voice_visitor_exposure_micro', 'voice_closing', 'visitor_credit_released']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK(${name} >= 0)`);
     }
     if (!columns.some(c => c.name === 'voice_estimate_json')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN voice_estimate_json TEXT');
@@ -52,7 +52,7 @@ export class SQLiteBudgetLedger {
       WHERE state='settled' AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=1
         AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL;`);
   }
-  breakdown(sessionId, { visitor = false, ownerHash } = {}) {
+  breakdown(sessionId, { visitor = false, ownerHash, visitorCredits = false } = {}) {
     const settled = visitor ? 'settled_visitor_micro' : 'settled_micro', maximum = visitor ? 'max_visitor_micro' : 'max_micro';
     const filter = ownerHash === undefined ? 'session_id=?' : 'owner_hash=?';
     return this.db.prepare(`SELECT
@@ -60,7 +60,7 @@ export class SQLiteBudgetLedger {
       COALESCE(SUM(CASE WHEN ${confirmed} THEN ${settled} ELSE 0 END),0) AS confirmedSpendMicro,
       COALESCE(SUM(CASE WHEN state!='settled' AND voice_closing=1 THEN ${maximum}
         WHEN state='settled' AND NOT (${confirmed}) THEN ${settled} ELSE 0 END),0) AS uncertainSpendMicro
-      FROM budget_attempts WHERE ${filter} ${visitor ? "AND lane='voice'" : ''}`).get(ownerHash ?? sessionId);
+      FROM budget_attempts WHERE ${filter} ${visitor ? "AND lane='voice'" : ''} ${visitorCredits ? 'AND visitor_credit_released=0' : ''}`).get(ownerHash ?? sessionId);
   }
   // Visitor presentation only. Admission, uncertainty and charging continue to
   // use breakdown()/used() and their full maxima. Reading never settles a row.
@@ -69,6 +69,7 @@ export class SQLiteBudgetLedger {
     const rows = this.db.prepare(`SELECT *, (${confirmed}) AS confirmed FROM budget_attempts WHERE ${filter}`).all(ownerHash ?? sessionId);
     const costs = { reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0, pendingHoldMicro: 0, reconciling: false };
     for (const row of rows) {
+      if (row.visitor_credit_released) continue;
       if (row.confirmed) { costs.confirmedSpendMicro += row.settled_micro; continue; }
       const frozenVoice = row.lane === 'voice' && row.voice_estimate_json && row.state === 'settled' && row.outcome === 'uncertain' && !row.voice_reconciliation_json;
       // An uncertain call keeps its frozen estimate even if it never reconciles.
@@ -299,8 +300,13 @@ export class SQLiteBudgetLedger {
       this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=? WHERE claim_id=?")
         .run(!dispatched ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome, usage ? JSON.stringify(usage) : null,
           uncertain ? row.max_micro : actual, bytes, actual > row.max_micro ? 1 : 0, claimId);
+      if (row.lane === 'understanding' && terminal.outcome !== 'completed') this.releaseUnderstandingCredits(row.attempt_id);
       return this.get(row.attempt_id);
     });
+  }
+  // Visitor refunds do not alter provider spend, receipts or account caps.
+  releaseUnderstandingCredits(attemptId) {
+    this.db.prepare("UPDATE budget_attempts SET visitor_credit_released=1 WHERE attempt_id=? AND lane='understanding' AND state='settled'").run(attemptId);
   }
   settleVoice(claimId, terminal) {
     const known = terminal?.closureConfirmed === true && ['completed', 'cancelled'].includes(terminal.outcome) &&

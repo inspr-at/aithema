@@ -937,6 +937,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             throw new PluginError('invalid-output', 'Plugin omitted its terminal report');
           }
         } catch (error) { if (!failed) throw error; }
+        finally { if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId); }
       } };
     },
   };
