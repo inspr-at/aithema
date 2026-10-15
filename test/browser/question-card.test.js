@@ -297,7 +297,14 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'other-answer', role: 'user', content: c.session.locale === 'de' ? 'Beides' : 'Both' } }));
         await nextFrame(page);
         assert.deepEqual(await readingBox(), readingBefore, 'card disappearance preserves the older reply under the pointer');
+        // The next scroll must release any held card space without moving
+        // the visible reading anchor. It has ample content below it here.
+        const releaseBefore = await readingBox();
         await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
+        await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').dispatchEvent(new Event('scroll')));
+        await nextFrame(page);
+        assert.deepEqual(await readingBox(), releaseBefore, 'releasing held card space keeps the reading anchor at exactly the same box');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the obsolete reservation is actually released');
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
         if (width <= 600) {
           await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
@@ -308,6 +315,66 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           }));
           assert.ok(longQuestion.height <= .36 * longQuestion.viewport && longQuestion.options >= 44,
             'a long question still leaves a reachable answer inside the phone cap');
+        }
+        if (width === 390) {
+          // Emulate a keyboard that changes only visualViewport. The layout
+          // viewport stays 390×844, so window.resize cannot drive this check.
+          await page.evaluate(() => {
+            globalThis.qcardNativeViewport = visualViewport;
+            const viewport = new EventTarget(); Object.assign(viewport, { height: 844, offsetTop: 0, scale: 1 });
+            Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+            const c = document.querySelector('aithema-session'), parent = c.parentNode;
+            c.remove(); parent.append(c);
+            c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+          });
+          try {
+            for (const height of [420, 320]) {
+              await shadow(page, (c, height) => {
+                c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+                visualViewport.height = height; visualViewport.dispatchEvent(new Event('resize'));
+              }, height);
+              await nextFrame(page); await nextFrame(page);
+              const keyboard = await shadow(page, c => {
+                const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+                const card = r.querySelector('.qcard').getBoundingClientRect(), opts = r.querySelector('.qopts').getBoundingClientRect();
+                const row = r.querySelector('.qopt').getBoundingClientRect(), composer = r.querySelector('.composer').getBoundingClientRect();
+                const bubble = [...r.querySelectorAll('.turn:not(.user)')].at(-1).getBoundingClientRect();
+                const band = r.querySelector('.band').getBoundingClientRect();
+                return { layoutHeight: innerHeight, viewport: visualViewport.height, compact: r.querySelector('.qcard').hasAttribute('data-compact'),
+                  rowHeight: row.height, rowTop: row.top, rowBottom: row.bottom, optionsTop: opts.top, optionsBottom: opts.bottom,
+                  cardTop: card.top, bubbleBottom: bubble.bottom, shellBottom: shell.getBoundingClientRect().bottom,
+                  composerBottom: composer.bottom, bandBottom: band.bottom };
+              });
+              assert.equal(keyboard.layoutHeight, 844, 'only the visual viewport shrinks');
+              assert.ok(keyboard.rowHeight >= 44 && keyboard.rowTop >= keyboard.optionsTop - 1 && keyboard.rowBottom <= keyboard.optionsBottom + 1,
+                `390×${height}: a full answer stays visible: ${JSON.stringify(keyboard)}`);
+              assert.ok(keyboard.rowTop >= Math.max(0, keyboard.bandBottom) && keyboard.rowBottom <= height,
+                `390×${height}: the answer is on screen below the band: ${JSON.stringify(keyboard)}`);
+              assert.ok(keyboard.bubbleBottom <= keyboard.cardTop && keyboard.shellBottom <= keyboard.cardTop,
+                `390×${height}: the latest reply ends above the card: ${JSON.stringify(keyboard)}`);
+              assert.ok(keyboard.composerBottom <= height && height - keyboard.composerBottom <= 14, 'the composer stays docked to the visible viewport');
+              // Shift+Tab from the composer reaches the final answer through
+              // the browser's native order and scrolls the chip into view.
+              await page.keyboard.press('Shift+Tab'); await nextFrame(page);
+              assert.equal(await shadow(page, c => {
+                const r = c.shadowRoot, row = [...r.querySelectorAll('.qopt')].at(-1), b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
+                return r.activeElement === row && b.height >= 44 && b.top >= v.top - 1 && b.bottom <= v.bottom + 1 && b.left >= v.left - 1 && b.right <= v.right + 1;
+              }), true, 'Tab reaches an answer and brings its whole target into view');
+              if (evidence) {
+                await page.mouse.move(-1, -1);
+                await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+                await nextFrame(page); await nextFrame(page);
+                await page.screenshot({ path: join(evidence, `ait-225-${label}-keyboard-${height}.png`), fullPage: false });
+              }
+            }
+          } finally {
+            await page.evaluate(() => {
+              const c = document.querySelector('aithema-session'), parent = c.parentNode; c.remove();
+              Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.qcardNativeViewport });
+              parent.append(c);
+            });
+            await nextFrame(page);
+          }
         }
         checks.push({ locale, theme, width, geometry, bounded, closed, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
       });
