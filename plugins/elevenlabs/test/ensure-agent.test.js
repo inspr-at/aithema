@@ -439,7 +439,7 @@ for (const mode of ['create', 'PATCH']) {
         t.after(() => host.close?.());
         assert.ok(host.binding);
         assert.ok(fake.requests.some(r => ['POST', 'PATCH'].includes(r.method) && r.path.startsWith('/v1/convai/agents/')));
-        if (['prompt', 'tools', 'knowledge_base'].includes(field.split('.').at(-1)) && !['', '[]'].includes(JSON.stringify(value))) {
+        if (['prompt', 'tools', 'knowledge_base'].includes(field.split('.').at(-1)) && !['""', '[]'].includes(JSON.stringify(value))) {
           assert.ok(logs.some(entry => entry.level === 'warn' && entry.fields.includes(field)));
         }
         assert.ok(!JSON.stringify(logs).includes('provider-value'));
@@ -451,7 +451,8 @@ for (const mode of ['create', 'PATCH']) {
 test('AIT-224: allowlist item metadata is ignored but hostname and cardinality remain strict', async t => {
   const { fake, storage } = await existingAgent(t);
   fake.agents[0].platform_settings.auth.allowlist[0].provider_default = true;
-  const host = await createVoiceHost(options(storage, fake)); t.after(() => host.close?.());
+  const host = await createVoiceHost({ ...options(storage, fake), spokenOpeners: { de: aiNoticeText('de'), en: aiNoticeText('en') } });
+  t.after(() => host.close?.());
   assert.ok(host.binding);
   assert.deepEqual(writes(fake).filter(r => r.path.includes('/agents/')), []);
 });
