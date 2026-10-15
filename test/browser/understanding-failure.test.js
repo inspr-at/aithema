@@ -240,7 +240,8 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
       footerHidden: c.shadowRoot.querySelector('.retry').hidden, footerDisabled: c.shadowRoot.querySelector('.retry').disabled }));
     assert.equal(failed.replyNotice, failed.expected, `${kind} ${locale}/${width}: recorded reaction failure notice`);
     assert.equal(failed.occurrences, 1, 'reply failure sentence appears exactly once across the UI');
-    assert.notEqual(failed.notice, failed.expected, 'overview retains its own state');
+    assert.equal(pending.notice, locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …', 'normal pending overview copy');
+    assert.equal(failed.notice, locale === 'de' ? 'Der Überblick folgt, sobald die Antwort da ist.' : 'The overview follows once the reply is in.', 'overview waits behind the failed reply');
     assert.equal(failed.retries, 1, 'exactly one Retry');
     assert.equal(failed.inlineHidden, true, `${kind} ${locale}/${width}: reaction failure uses footer Retry`);
     assert.equal(failed.footerHidden, false, `${kind} ${locale}/${width}: recorded reaction failure keeps footer Retry`);
@@ -412,4 +413,69 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
     console.log(`AIT-212 TWO-FAILURES PASS ${locale} ${width} light: one Retry; reply then overview exactly once; both settled; 0 px`);
   }
   if (evidence) await writeFile(join(evidence, 'ait212-two-failures-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+});
+
+test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-reply-pending-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'session.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage(), passes = [];
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    const configure = off => shadow(page, async (c, locale, off) => {
+      const session = await (await fetch(`/reply-failure?locale=${locale}&off=${Number(off)}`)).json();
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ session, copy });
+    }, locale, off);
+    await configure(true); await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Noch keine Angaben zu Ihrem Vorhaben.' : 'No details about your project yet.', 'off-topic input retains no-details text');
+    await configure(false); await settle(page);
+    const expected = locale === 'de' ? 'Der Überblick folgt, sobald die Antwort da ist.' : 'The overview follows once the reply is in.';
+    const state = await shadow(page, (c, expected) => {
+      const r = c.shadowRoot, notice = r.querySelector('.notice');
+      const probe = document.createElement('span'); probe.style.color = 'var(--aithema-muted)'; notice.after(probe);
+      const quietInk = getComputedStyle(probe).color; probe.remove();
+      return { notice: notice.textContent, occurrences: r.textContent.split(expected).length - 1,
+        actions: notice.querySelectorAll('a, button:not([hidden])').length, color: getComputedStyle(notice).color, quietInk,
+        retries: [...r.querySelectorAll('.retry, .overview-retry')].filter(n => !n.hidden).length,
+        reply: r.querySelector('.reaction-failure').textContent, footerHidden: r.querySelector('.retry').hidden };
+    }, expected);
+    assert.equal(state.notice, expected); assert.equal(state.occurrences, 1); assert.equal(state.actions, 0);
+    assert.equal(state.color, state.quietInk); assert.equal(state.retries, 1); assert.equal(state.footerHidden, false);
+    assert.equal(state.reply, locale === 'de' ? 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.' : 'Reasoning is unavailable. Your messages are saved.');
+    const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const before = await boxes(page, targets);
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { ...c.session.operations } }));
+    await settle(page);
+    assert.deepEqual(await boxes(page, targets), before, 'pending line re-render shifts 0 px');
+    if (evidence && locale === 'de') {
+      await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' }));
+      await settle(page);
+      await page.screenshot({ path: join(evidence, `ait212-r5-de-${width}-reply-pending-light.png`), fullPage: false, captureBeyondViewport: false });
+      await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await settle(page);
+    }
+    const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);
+    assert.equal(response.status(), 202);
+    const preparing = locale === 'de' ? 'Ihr Überblick wird erstellt …' : 'Preparing your overview …';
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === text, preparing);
+    await settle(page);
+    assert.deepEqual(await boxes(page, targets), before, 'preparing after successful reply shifts 0 px');
+    await page.evaluate(() => fetch('/settle?verdict=success'));
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
+    await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment', 'normal overview copy after assessment');
+    assert.deepEqual(await boxes(page, targets), before, 'assessment shifts 0 px');
+    const pass = { head: evidenceCommit, locale, width, theme: 'light', notice: expected, occurrences: 1, retries: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true };
+    passes.push(pass);
+    console.log(`AIT-212 R5 PASS ${locale} ${width} light: pending once, quiet ink, no link, one reply Retry, no-details off-topic, preparing then current assessment, 0 px`);
+  }
+  if (evidence) await writeFile(join(evidence, 'ait212-r5-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });

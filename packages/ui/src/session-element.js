@@ -1032,6 +1032,7 @@ export class AithemaSession extends HTMLElement {
       : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ' · '}`
       : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
+      : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply
       : !u.readinessAssessed ? copy.noProjectDetails
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');

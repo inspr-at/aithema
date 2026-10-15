@@ -15,14 +15,15 @@ let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture', OPENROUTER_ANALYSIS_EFFORT: 'low',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
-let release, success = false, current, analysisEntered, enterAnalysis;
+let release, holdAssessment = false, success = false, current, analysisEntered, enterAnalysis;
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
   async fetchImpl(url, init) {
     const result = kit.fetchImpl(url, init), call = await kit.next();
     if (call.body.stream) call.resolve({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] }, { costUSD: 0.1 });
-    else if (success) call.resolve(assessment, { costUSD: 0.1 });
+    else if (success && !holdAssessment) call.resolve(assessment, { costUSD: 0.1 });
     else { release = verdict => {
-      if (['400', '408', '499'].includes(verdict)) call.httpError(Number(verdict));
+      if (verdict === 'success') call.resolve(assessment, { costUSD: 0.1 });
+      else if (['400', '408', '499'].includes(verdict)) call.httpError(Number(verdict));
       else if (verdict === 'uncertain') call.httpError(503);
       else call.resolve({}, { finishReason: 'length', costUSD: 0.1 });
     }; enterAnalysis?.(); }
@@ -41,7 +42,17 @@ const call = (action, data) => handlers.handle(new Request(`http://fixture/api/s
 const root = new URL('../../', import.meta.url);
 const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
+  if (path === '/reply-failure') {
+    success = true; holdAssessment = true;
+    current = storage.create({ demo: true, ownerToken: owner, locale: u.searchParams.get('locale') ?? 'de' });
+    const off = u.searchParams.get('off') === '1';
+    storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: off ? 'Give me a soup recipe.' : 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
+    if (off) storage.appendPurposeReply(current.id, { id: crypto.randomUUID(), role: 'assistant', content: 'What should the project improve?', inputRevision: inputRevision(storage.get(current.id)) }, inputRevision(storage.get(current.id)), true, 3);
+    storage.setLaneFailure(current.id, { inputRevision: inputRevision(storage.get(current.id)), lane: 'reaction' });
+    return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
+  }
   if (path === '/two-failures') {
+    holdAssessment = false;
     success = true;
     current = storage.create({ demo: true, ownerToken: owner, locale: u.searchParams.get('locale') ?? 'de' });
     storage.append(current.id, 'turn.final', { id: crypto.randomUUID(), role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });

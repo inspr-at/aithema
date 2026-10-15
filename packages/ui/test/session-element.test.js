@@ -1074,7 +1074,7 @@ test('AIT-197 R5 DE/EN copy has identical recursive key sets', () => {
     return entry && typeof entry === 'object' ? keys(entry, `${path}.`) : [path];
   });
   assert.deepEqual(keys(de).sort(), keys(en).sort());
-  for (const copy of [de, en]) for (const key of ['noProjectDetails', 'preparingOverview', 'understandingFailed', 'understandingRetry']) {
+  for (const copy of [de, en]) for (const key of ['noProjectDetails', 'overviewPendingReply', 'preparingOverview', 'understandingFailed', 'understandingRetry']) {
     assert.equal(typeof copy[key], 'string');
     assert.ok(copy[key].length > 0);
   }
