@@ -1256,3 +1256,21 @@ for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 
   assert.equal(root.querySelector('.voice-state').textContent, restart ? copy.voiceStates.listening : copy.voiceEnded);
   assert.equal(callsStarted, restart ? 2 : 1);
 });
+
+for (const copy of [de, en]) for (const assessed of [false, true]) test(`AIT-186 F6: session pause appears once and preserves overview and connection (${copy === de ? 'de' : 'en'}, assessed ${assessed})`, async t => {
+  const { c, root } = setup(t, { copy, host: {} }); await tick(8); userTurn(c);
+  if (assessed) c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
+    { summary: copy === de ? 'Eine Vorbestell-App' : 'A preorder app', signals: ['Orders'], openQuestions: ['When?'], readinessAssessed: true },
+    { transcript: c.session.transcript, inputRevision: inputRevision(c.session) }) });
+  const before = { notice: root.querySelector('.notice').textContent, summary: root.querySelector('.summary-text').textContent,
+    sections: [...root.querySelectorAll('.analysis-content section')].map(n => n.hidden), connection: root.querySelector('.status__label').textContent };
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy.paused);
+  assert.equal(root.querySelector('.notice').textContent, before.notice);
+  assert.equal(root.querySelector('.summary-text').textContent, before.summary);
+  assert.deepEqual([...root.querySelectorAll('.analysis-content section')].map(n => n.hidden), before.sections);
+  assert.equal(root.querySelector('.status__label').textContent, before.connection);
+  assert.equal(root.querySelector('.status').hasAttribute('data-message'), false);
+  assert.equal(root.querySelector('.pause').title, copy.resume);
+  assert.equal(root.querySelector('.pause').disabled, false);
+});
