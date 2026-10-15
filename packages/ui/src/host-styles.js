@@ -200,10 +200,13 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .host-credits__limit { display:block; }
 .host-credits[data-pinned]:not([data-dismissed]) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
 /* Calm exhausted rail: same cells, no warning color or active controls. */
-.audio-rail:is([data-used-up],[data-credit-ending]) .voice-close { color:var(--aithema-ink); visibility:visible; }
+.audio-rail[data-credit-ending] .voice-close { color:var(--aithema-ink); visibility:visible; }
+.audio-rail[data-used-up] :is(.pause,.voice-pause,.voice-input,.voice-close,.voice-retry,.voice-playback),
+.audio-rail[data-used-up] :is(.pause,.voice-pause) .voice-icon { visibility:hidden; }
+.audio-rail[data-used-up] :is(.voice-start,.voice-output,.voice-wave) { visibility:visible; }
 .audio-rail[data-used-up] :is(.pause,.voice-pause) { color:var(--aithema-ink); background:transparent; border-color:var(--aithema-line); }
 .audio-rail[data-used-up] .voice-state { color:var(--aithema-ink); }
-.audio-rail[data-credit-ending] .voice-wave,.audio-rail[data-used-up] .voice-wave { transform:scaleY(.07); transition:transform .6s; }
+.audio-rail[data-credit-ending] .voice-wave { transform:scaleY(.07); transition:transform .6s; }
 .audio-rail[data-credit-ending] button:disabled { opacity:1; }
 .audio-rail:is([data-used-up],[data-credit-ending]) button { transition:opacity .3s, background-color .3s, color .3s; }
 /* AIT-135 C: all address states share one grid cell. Inactive controls are also inert. */

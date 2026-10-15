@@ -190,7 +190,7 @@ export class AudioRail {
     this.button('output').setAttribute('aria-pressed', String(this.output));
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
     for (const [name, cellName] of [['input', 'mic'], ['output', 'output']]) {
-      const cell = this.root.querySelector(`.voice-cell--${cellName}`), help = cell.querySelector('.voice-waiting-help'), waiting = state === 'waiting';
+      const cell = this.root.querySelector(`.voice-cell--${cellName}`), help = cell.querySelector('.voice-waiting-help'), waiting = state === 'waiting' && !usedUp;
       const resumeFirst = this.moved ? c.voiceResumeHereFirst : c.voiceResumeFirst;
       help.textContent = resumeFirst; help.hidden = !waiting;
       if (waiting) {
