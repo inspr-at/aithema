@@ -157,7 +157,7 @@ export const en = {
   },
   gauges: {
     operations: { generate: 'generate', edit: 'edit' },
-    labels: { 'Mock reasoning — deterministic demo': 'Mock reasoning — deterministic demo', quality: 'AI quality', speed: 'Speed', cost: 'Cost', privacy: 'Privacy', voice: 'Voice', images: 'Images' },
+    labels: { quality: 'AI quality', speed: 'Speed', cost: 'Cost', privacy: 'Privacy', voice: 'Voice', images: 'Images' },
     values: { rated: '{score}%', index: '{index}/5', unverified: 'Unverified', qualified: 'Qualified', none: 'n/a', local: 'Local',
       free: 'None', reviewed: 'Reviewed', off: 'Off', device: 'Device', eu: 'EU', restricted: 'Restricted', declared: 'Declared' },
     // One-line captions under each glass; the help line shows the full detail on hover or focus.
@@ -567,7 +567,8 @@ export const en = {
     outbox: { open: 'Fake mail (demo only)', title: 'Demo only: fake mail outbox', note: 'Confirmation mail stays on this computer. Opening a link here confirms the address, as a real inbox would.',
       to: 'To {address}', confirm: 'Open confirmation link', used: 'Link already used', empty: 'No fake mail yet. Send a confirmation link first.',
       confirmed: 'Link opened. The email address is confirmed.', failed: 'The fake mail could not be loaded.', close: 'Close' },
-    labels: { 'Fake HTML — local deterministic click-dummy, no provider network': 'Test drafts (local click-dummy)',
+    labels: { 'Mock reasoning — deterministic demo': 'Mock reasoning — deterministic demo',
+      'Fake HTML — local deterministic click-dummy, no provider network': 'Test drafts (local click-dummy)',
       'Fake images — local deterministic PNG, no provider network': 'Test images (local PNG)' },
     theme: 'Appearance', themes: { light: 'Light', dark: 'Dark', system: 'System' },
     conversationFailed: 'Could not open the conversation. Reload to retry.',
