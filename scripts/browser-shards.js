@@ -7,6 +7,14 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Each browser test owns its sibling .weight.json measurement (AIT-216).
 // Keep slowest observations and round up to 10s plus 10s margin (AIT-191).
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
+  const tests = new Set(files);
+  for (const entry of readdirSync(resolve(root, 'test/browser'), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.weight.json')) continue;
+    const file = `test/browser/${entry.name.replace(/\.weight\.json$/u, '.test.js')}`;
+    if (!tests.has(file)) {
+      throw new Error(`Stale browser test weight: test/browser/${entry.name}; no matching test: ${file}`);
+    }
+  }
   const weights = {};
   for (const file of files) {
     const weightPath = file.replace(/\.test\.js$/u, '.weight.json');

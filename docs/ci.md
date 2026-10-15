@@ -75,6 +75,7 @@ Sibling files keep additions and refreshes independent of a shared manifest and
 avoid changing executable tests just to refresh timings. Discovery reads each
 sibling; missing files, malformed JSON, nonpositive seconds or empty evidence
 fail the shard guard with the offending path. No shared list needs editing.
+Orphaned `.weight.json` files also fail the guard; remove or rename the sibling measurement when removing or renaming a test.
 
 For a new file, measure it on the designated remote test machine or CI and
 record the run/attempt and observed seconds. Sum top-level test durations only;
@@ -86,8 +87,7 @@ because a newer run is faster. Preserve the historical floor and measurement
 provenance in `evidence`. Estimates exclude setup, process overhead and evidence
 upload; validate whole-job wall time against the 450s budget separately.
 
-`test/browser-shards.test.js` checks weight parsing and missing-weight failures.
+`test/browser-shards.test.js` checks weight parsing, missing weights and stale measurements.
 Its frozen AIT-216 fixture records the legacy weights and exact shard layout at
-`8d52ace2`, proving the migration changed neither. It exercises the production parser against frozen migrated measurements, so
-future additions and refreshes do not edit this shared fixture. The fixture is
+`8d52ace2`, proving the migration changed neither. It compares the committed sibling weights 1:1 with the legacy weights and checks their computed shard layout against the old literal. The fixture is
 test evidence only and never feeds the sharder.

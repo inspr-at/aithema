@@ -134,6 +134,19 @@ test('AIT-216 preserves every legacy weight and the exact four-shard layout', t 
   const migrated = readBrowserTestWeights(files, root);
   assert.deepEqual(migrated, legacy.weights);
   assert.deepEqual(packBrowserTests(files, migrated), { shards: legacy.shards, totals: legacy.totals });
+  assert.deepEqual(browserTestWeights, legacy.weights);
+  assert.deepEqual(packBrowserTests(discoverBrowserTests(), browserTestWeights), packBrowserTests(files, legacy.weights));
+});
+
+test('per-file weights reject stale measurements after a test is removed or renamed', t => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-weights-stale-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  const measurement = JSON.stringify({ seconds: 90, evidence: 'CI measurement' });
+  writeFileSync(join(root, 'test/browser/old.weight.json'), measurement);
+  assert.throws(() => readBrowserTestWeights([], root), /Stale browser test weight: test\/browser\/old\.weight\.json; no matching test: test\/browser\/old\.test\.js/u);
+  writeFileSync(join(root, 'test/browser/new.weight.json'), measurement);
+  assert.throws(() => readBrowserTestWeights(['test/browser/new.test.js'], root), /Stale browser test weight: test\/browser\/old\.weight\.json/u);
 });
 
 test('per-file weights require readable JSON, positive seconds and measurement evidence', t => {
