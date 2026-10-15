@@ -245,7 +245,23 @@
     },
     "browser": {
       "runner": "mbp2606",
-      "status": "running at same source commit"
+      "run": "cd81126b3a-91329",
+      "status": "optional full-width run stopped to release the lane; no pass claimed",
+      "reason": "UI changes are package metadata only; packed component mounts passed, while all four browser shards run as required PR CI checks",
+      "exit_code": 143,
+      "screenshots_retained": "dist/ait105-browser; 621 files",
+      "ci_reference": "https://github.com/inspr-at/aithema/pull/173/checks"
     }
+  },
+  "delivery": {
+    "draft_pr": "https://github.com/inspr-at/aithema/pull/173",
+    "registry_recommendation": "public npm under @inspr; owner choice remains open",
+    "release_notes": "release/notes.md",
+    "inventory_pending": [
+      "presentation pin review"
+    ],
+    "tag_created": false,
+    "github_release_created": false,
+    "registry_published": false
   }
 }
