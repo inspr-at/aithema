@@ -83,7 +83,8 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   await tick(8); root.querySelector('.verify-lock .verify-resend').click(); await tick(8);
   assert.ok(calls.some(call => call.path === '/identity/resend'));
   c.remove();
-  const before = intervals.mock.callCount(), polls = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
+  const before = intervals.mock.callCount(), initialClocks = intervals.mock.calls.filter(call => call.arguments[1] === 1000).length;
+  const polls = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
   serverIdentity = pending({ pollVerification: true });
   reply.resolve(Response.json({ identity: serverIdentity })); await tick(8);
   assert.equal(intervals.mock.callCount(), before, `late response leaves countdown stopped\n${intervals.mock.calls.slice(before).map(call => call.stack.stack).join('\n')}`);
@@ -91,9 +92,9 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   document.body.append(c); await tick(8);
   const liveClocks = () => intervals.mock.calls.slice(before).filter(call => call.arguments[1] === 1000 &&
     !clears.mock.calls.some(clear => clear.arguments[0] === call.result));
-  assert.equal(liveClocks().length, 2, `reconnect keeps exactly one verification and one connection clock running\n${liveClocks().map(call => `timer=${call.result}\n${call.stack.stack}`).join('\n')}\ncleared=${clears.mock.calls.map(call => call.arguments[0]).join(',')}`);
+  assert.equal(liveClocks().length, initialClocks + 1, 'reconnect resumes the original clocks plus exactly one verification countdown');
   c.remove();
-  assert.equal(liveClocks().length, 0, 'both clocks stop again on the next disconnect');
+  assert.equal(liveClocks().length, 0, 'every clock stops again on the next disconnect');
 });
 
 for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
