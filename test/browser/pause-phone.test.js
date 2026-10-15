@@ -149,12 +149,23 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     // Reconfigure an unpaused scene, focus by pointer, then shrink the visible
     // viewport as a phone keyboard does. No real OS keyboard is claimed here.
     await voiceScene(page, locale, theme, width);
+    const trace = [];
+    const traceConsole = message => { if (message.text().startsWith('focus-trace ')) trace.push(message.text()); };
+    page.on('console', traceConsole);
+    await shadow(page, c => {
+      for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click', 'focusin', 'focusout']) c.shadowRoot.addEventListener(type, event => {
+        console.log('focus-trace ' + JSON.stringify({ type, target: event.target.id || event.target.className, active: c.shadowRoot.activeElement?.id, x: event.clientX, y: event.clientY, height: innerHeight }));
+      }, true);
+    });
+    assert.equal(page.viewport().hasTouch, page.phoneTouch, 'touch emulation is already configured before focus');
     await page.click('aithema-session >>> textarea');
+    assert.equal((await metrics(page)).focused, 'message', `pointer focuses composer before resize: ${JSON.stringify(trace)}`);
     await setViewport(page, { width, hasTouch: page.phoneTouch !== false, height: 480 }); await frame(page);
+    page.off('console', traceConsole);
     await page.keyboard.type(locale === 'de' ? 'Mein Vorhaben' : 'My project');
     const keyboard = await metrics(page);
     assert.equal(keyboard.inViewport, true, `${locale}/${theme}/${width}: keyboard does not cover input ${JSON.stringify(keyboard)}`);
-    assert.equal(keyboard.focused, 'message');
+    assert.equal(keyboard.focused, 'message', `resize retains focus: ${JSON.stringify(trace)}`);
     await page.keyboard.press('Tab');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'attach');
     await record(t, 'L2', page, `${locale}-${theme}-${width}-keyboard`, keyboard);
