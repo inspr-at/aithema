@@ -116,7 +116,7 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
     await mainPage.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(mainPage, () => document.querySelector('aithema-session')?.session);
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-    for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
+    for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0, 'mail-reservation')) {
       const label = `${locale}-${theme}-${width}`;
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       await fixture(page, locale, false); const save = await geometry(page); saves[label] = save.boxes; await record(page, label, 'save-none', save, 0);
@@ -196,7 +196,7 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
     const page = await browser.newPage();
     await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
     await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
-    for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 1)) {
+    for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 1, 'mail-latch')) {
       const label = `${locale}-${theme}-${width}`;
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       await fixture(page, locale, true, false); const saveHeight = (await geometry(page)).stackHeight;

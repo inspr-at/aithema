@@ -386,7 +386,7 @@ export async function displayMatrix(t, section) {
     });
     } else {
     coverageGroup = 'integrated-flow';
-    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0, 'integrated-flow')) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.select('#theme', theme);
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
@@ -542,7 +542,7 @@ export async function displayMatrix(t, section) {
     }
     assertMatrixCaseCount('integrated-flow', caseCounts['integrated-flow']);
     coverageGroup = 'integrated-narrow';
-    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([320, 600, 680, 768, 900, 1000], theme, 1)) {
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([320, 600, 680, 768, 900, 1000], theme, 1, 'integrated-narrow')) {
       await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
       const row = await shadow(page, c => {
         const r = c.shadowRoot, items = ['.ai-notice', '.host-credits', '.footer-right'].map(s => {

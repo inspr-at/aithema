@@ -140,7 +140,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
     // Full evidence replays every width; CI rotates widths at fixture boundaries.
     // Both theme screenshots and assertions are
     // taken from each resulting state instead of replaying every interaction.
-    for (let width of matrixWidths([390, 1024, 1440], 'light')) {
+    for (let width of matrixWidths([390, 1024, 1440], 'light', 0, 'email-ask')) {
       await page.setViewport({ width, height: 1000 });
       const setTheme = async theme => {
         await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
@@ -153,7 +153,9 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       let targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
       let baseline, stateGroup = 0;
       const begin = async (options = {}, widths = [390, 1024, 1440]) => {
-        stateGroup++; // Each floor width replays every fixture, as in full evidence.
+        const group = stateGroup === 10 ? 'email-ask-folded' : 'email-ask';
+        const selected = matrixWidths(widths, 'light', stateGroup++, group);
+        if (!fullMatrix) width = selected[0];
         await page.setViewport({ width, height: 1000 });
         label = `${locale}-${width}`;
         targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));

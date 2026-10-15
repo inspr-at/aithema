@@ -9,7 +9,7 @@ function selection(env) {
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
     import { fullMatrix, matrixWidths } from ${JSON.stringify(moduleUrl)};
     console.log(JSON.stringify({ fullMatrix, groups: [0, 1, 2].map(group =>
-      ['light', 'dark'].map(theme => matrixWidths([390, 1024, 1440], theme, group))) }));
+      ['light', 'dark'].map(theme => matrixWidths([390, 1024, 1440], theme, group, 'email-ask'))) }));
   `], { env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
@@ -19,7 +19,7 @@ test('CI artifacts keep deterministic width rotation; full evidence retains ever
   const base = { ...process.env }; delete base.CI; delete base.AITHEMA_EVIDENCE_DIR;
   const ci = selection({ ...base, CI: 'true', AITHEMA_EVIDENCE_DIR: '/tmp/evidence' });
   assert.deepEqual(ci, { fullMatrix: false, groups: [
-    ...Array.from({ length: 3 }, () => [[390, 1440, 1024], [390, 1440, 1024]]),
+    [[390], [1024]], [[1024], [1440]], [[1440], [390]],
   ] });
   assert.deepEqual(selection(base), ci);
   assert.deepEqual(selection({ ...base, AITHEMA_EVIDENCE_DIR: '/tmp/evidence' }), {
@@ -74,5 +74,22 @@ test('every rotated group has a live executed-count assertion', async () => {
   assert.equal(Object.keys(matrixCaseTotals).length, 17);
   for (const group of Object.keys(matrixCaseTotals)) {
     assert.ok(source.includes(`assertMatrixCaseCount('${group}',`), `${group}: executable guard required`);
+  }
+});
+
+test('deleting an original call-site width fails before rotation in CI and nightly', () => {
+  const base = { ...process.env }; delete base.CI; delete base.AITHEMA_EVIDENCE_DIR;
+  for (const env of [{ ...base, CI: 'true' }, { ...base, AITHEMA_EVIDENCE_DIR: '/tmp/evidence' }]) {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      import { matrixWidths, matrixGroupWidths } from ${JSON.stringify(moduleUrl)};
+      for (const [group, widths] of Object.entries(matrixGroupWidths)) {
+        assert.doesNotThrow(() => matrixWidths(widths, 'light', 0, group));
+        for (let i = 0; i < widths.length; i++) {
+          assert.throws(() => matrixWidths(widths.filter((_, index) => index !== i), 'light', 0, group), /width coverage/);
+        }
+      }
+    `], { env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
   }
 });

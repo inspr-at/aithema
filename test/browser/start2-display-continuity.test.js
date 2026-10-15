@@ -24,7 +24,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === expected, expected);
   const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 0)) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 0, 'continuity')) {
     let complete = false;
     await t.test(`${width} ${theme} ${locale}`, async st => {
       const runBrowser = await browserForFile();

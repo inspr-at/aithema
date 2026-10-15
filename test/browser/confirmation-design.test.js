@@ -106,7 +106,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
     pass.push(`PASS head=${head} mail ${locale}: ${assertConfirmationMail(f.mail(locale), { locale, link, privacyUrl })}`);
     for (const theme of ['light', 'dark']) {
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-      for (const width of matrixWidths([600, 375], theme, 0)) {
+      for (const width of matrixWidths([600, 375], theme, 0, 'confirmation-mail')) {
         await page.setViewport({ width, height: 1100 });
         await page.goto(f.url + '/mail?lang=' + locale, { waitUntil: 'networkidle0' });
         const dimensions = await page.evaluate(() => ({ viewport: innerWidth, scroll: document.documentElement.scrollWidth,
@@ -119,7 +119,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
       await page.setViewport({ width: 320, height: 1100 });
       await page.evaluate(() => document.querySelector('style').remove());
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
-      for (const width of matrixWidths([390, 1440], theme, 1)) {
+      for (const width of matrixWidths([390, 1440], theme, 1, 'confirmation-landing')) {
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         const ready = await f.prepare('ready', locale);
         await page.goto(ready.url, { waitUntil: 'networkidle0' });

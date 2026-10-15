@@ -6,34 +6,61 @@ export const fullMatrix = Boolean(process.env.AITHEMA_EVIDENCE_DIR) && !process.
 // transitions whose geometry must be compared at the same width. Group offsets
 // rotate widths across states; both locales use the same width so cross-locale
 // geometry comparisons remain meaningful. Full evidence retains the old product.
-export function matrixWidths(widths, theme, stateGroup = 0) {
+export function matrixWidths(widths, theme, stateGroup = 0, group) {
+  const original = matrixGroupWidths[group];
+  if (!original || JSON.stringify(widths) !== JSON.stringify(original)) {
+    throw new Error(`${group} width coverage: expected ${JSON.stringify(original)}, received ${JSON.stringify(widths)}`);
+  }
   if (fullMatrix) return widths;
-  // Tick's PR floor: endpoints stay; only the intermediate widths rotate.
-  const middle = widths.filter(width => width !== 390 && width !== 1440);
-  return [...new Set([390, 1440, ...(middle.length ? [middle[(stateGroup + Number(theme === 'dark')) % middle.length]] : [])])];
+  // AIT-192 round 2: the measured endpoint floor exceeds Tick's 30s/job
+  // allowance. Width-specific F1/L2/zero-shift DOM sweeps never use rotation.
+  return [widths[(stateGroup + Number(theme === 'dark')) % widths.length]];
 }
+
+// Validate the original call-site width list even when PR rotation would
+// select the same number of widths after a deletion.
+export const matrixGroupWidths = Object.freeze({
+  'display-band': [390, 1024, 1440],
+  'display-account': [1440, 390, 320],
+  'display-settings-footer': [1440, 390],
+  'display-settings-email': [1440, 390],
+  'display-canvas': [390, 1024, 1440],
+  'display-orb': [390, 1024, 1440],
+  'display-held': [1440, 390, 1024],
+  'display-notices': [1440, 1024, 390],
+  'integrated-flow': [390, 1024, 1440],
+  'integrated-narrow': [320, 600, 680, 768, 900, 1000],
+  'continuity': [1440, 1024, 390],
+  'confirmation-mail': [600, 375],
+  'confirmation-landing': [390, 1440],
+  'mail-reservation': [390, 1024, 1440],
+  'mail-latch': [390, 1024, 1440],
+  'email-ask': [390, 1024, 1440],
+  'email-ask-folded': [1024, 1440],
+  'visitor-credit': [1440, 1024, 390],
+});
 
 // Fixed contracts count observed cases AFTER their assertions. Do not derive
 // these expectations from the loops/state lists they protect. Both PR and
 // nightly execute these guards, including when screenshots are disabled.
 export const matrixCaseTotals = Object.freeze({
-  'display-band': { full: 24, ci: 24 },
-  'display-account': { full: 24, ci: 24 },
-  'display-settings-footer': { full: 32, ci: 32 },
-  'display-settings-email': { full: 24, ci: 24 },
-  'display-canvas': { full: 48, ci: 48 },
-  'display-orb': { full: 12, ci: 12 },
-  'display-held': { full: 36, ci: 36 },
-  'display-notices': { full: 108, ci: 108 },
-  'integrated-flow': { full: 272, ci: 272 },
-  'integrated-narrow': { full: 120, ci: 60 },
-  'continuity': { full: 72, ci: 72 },
-  'confirmation-mail': { full: 8, ci: 12 },
-  'confirmation-landing': { full: 72, ci: 72 },
-  'mail-reservation': { full: 156, ci: 156 },
-  'mail-latch': { full: 60, ci: 60 },
-  'email-ask': { full: 296, ci: 296 },
-  'visitor-credit': { full: 444, ci: 444 },
+  'display-band': { full: 24, ci: 8 },
+  'display-account': { full: 24, ci: 8 },
+  'display-settings-footer': { full: 32, ci: 16 },
+  'display-settings-email': { full: 24, ci: 12 },
+  'display-canvas': { full: 48, ci: 16 },
+  'display-orb': { full: 12, ci: 4 },
+  'display-held': { full: 36, ci: 12 },
+  'display-notices': { full: 108, ci: 36 },
+  'integrated-flow': { full: 272, ci: 90 },
+  'integrated-narrow': { full: 120, ci: 20 },
+  'continuity': { full: 72, ci: 24 },
+  'confirmation-mail': { full: 8, ci: 4 },
+  'confirmation-landing': { full: 72, ci: 36 },
+  'mail-reservation': { full: 156, ci: 52 },
+  'mail-latch': { full: 60, ci: 20 },
+  'email-ask': { full: 296, ci: 100 },
+  'visitor-credit': { full: 444, ci: 148 },
 });
 
 export function assertMatrixCaseCount(group, actual, mode = fullMatrix ? 'full' : 'ci') {

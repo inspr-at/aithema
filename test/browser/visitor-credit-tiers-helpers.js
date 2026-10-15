@@ -121,7 +121,7 @@ export async function visitorCreditMatrix(t, locales) {
     await page.select('#locale', locale);
     await page.waitForFunction(locale => document.querySelector('aithema-session')?.session.locale === locale
       && document.documentElement.lang === locale && document.querySelector('#language-value').textContent === locale.toUpperCase(), { timeout: 20_000 }, locale);
-    for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 2)) {
+    for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 2, 'visitor-credit')) {
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
@@ -467,5 +467,5 @@ export async function visitorCreditMatrix(t, locales) {
   for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog'].includes(row.state))) {
     t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state}${row.displacementPx === 0 ? ' 0 px layout shift' : ''} ${JSON.stringify(row)}`);
   }
-  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${locales.length * 2 * matrixWidths([1440, 1024, 390], 'light', 2).length} viewport/theme/language combinations`);
+  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${new Set(states.map(row => `${row.locale}/${row.theme}/${row.width}`)).size} viewport/theme/language combinations`);
 }

@@ -24,6 +24,7 @@ test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page 
   await first.setCookie({ name: 'fixture-only', value: 'first', domain: 'example.test', path: '/' });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => { localStorage.setItem('fixture-only', 'first'); sessionStorage.setItem('fixture-only', 'first'); });
+  await page.goto('about:blank'); // The origin must survive navigation in the reset ledger.
   await first.close();
   const second = await browserForFile(); t.after(() => second.close());
   assert.equal(second.browser().process().pid, pid, 'reuse the same Chrome process');
@@ -31,6 +32,18 @@ test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page 
   const next = await second.newPage(); await next.goto(demo.url, { waitUntil: 'domcontentloaded' });
   assert.deepEqual(await next.evaluate(() => [localStorage.getItem('fixture-only'), sessionStorage.getItem('fixture-only')]),
     [null, null], 'the next fixture has independent local and session storage');
+});
+
+test('AIT-192: a disconnected cached Chrome is relaunched for the next fixture', async t => {
+  const first = await browserForFile();
+  const pid = first.browser().process().pid;
+  await first.browser().close();
+  await first.close();
+  const second = await browserForFile(); t.after(() => second.close());
+  assert.equal(second.browser().connected, true);
+  assert.notEqual(second.browser().process().pid, pid);
+  const page = await second.newPage();
+  assert.equal(await page.evaluate(() => 2 + 2), 4);
 });
 
 test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout shift, DE/EN light/dark 390/1024/1440', { timeout: 180_000 }, async t => {
@@ -54,7 +67,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
     return file;
   };
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0)) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0, 'display-band')) {
     const label = `${locale}-${theme}-${width}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
     await page.evaluate(async locale => {
@@ -158,7 +171,7 @@ test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewpor
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id && !document.querySelector('#demo-account').hidden);
   await shadow(page, c => { globalThis.accountSeed = c.session; });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 320], theme, 1)) for (const folded of [false, true]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 320], theme, 1, 'display-account')) for (const folded of [false, true]) {
     const height = width < 600 ? 844 : 900;
     await page.setViewport({ width, height }); await page.select('#theme', theme);
     await page.evaluate(async ({ locale, folded }) => {
@@ -257,7 +270,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
     en: 'General · Start a new conversation, review consent and your defaults.',
   };
   const controls = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.footer-links', '.save-state', '.done'];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 2)) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 2, 'display-settings-footer')) {
     let baseline;
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
     for (const state of ['off', 'unverified', 'pending', 'verified']) await t.test(`${locale}/${theme}/${width}/verification-${state}`, async () => {
@@ -330,7 +343,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
   await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.emailSeed = c.session; });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 3)) for (const state of ['unverified', 'pending', 'verified']) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 3, 'display-settings-email')) for (const state of ['unverified', 'pending', 'verified']) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
     await page.evaluate(async ({ locale, state }) => {
       const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
@@ -445,7 +458,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe'))), false);
   });
   await t.test('populated canvas and every modal frame are redacted on consent or source withdrawal', async () => {
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 4)) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 4, 'display-canvas')) {
       for (const cause of ['consent', 'source']) for (const folded of [true, false]) {
         await scene(locale, theme, width);
         await shot('folded-populated-canvas', locale, theme, width);
@@ -465,7 +478,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   });
   assertMatrixCaseCount('display-canvas', checks.filter(check => 'cause' in check).length);
   await t.test('the reveal orb has a 44px hit area around its 40px visual', async () => {
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 5)) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 5, 'display-orb')) {
       await scene(locale, theme, width);
       const visual = (await boxes(page, ['.band-orb .orb__body']))[0];
       const target = await shadow(page, c => {
@@ -562,7 +575,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     const n = c.shadowRoot.querySelector(selector), style = getComputedStyle(n);
     return { selector, disabled: n.disabled, tooltip: n.title, opacity: style.opacity, cursor: style.cursor };
   }));
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 1024], theme, 7)) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 1024], theme, 7, 'display-held')) {
     const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -652,7 +665,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
     await settle();
   };
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 8)) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 8, 'display-notices')) {
     await t.test(`${width} ${theme} ${locale}`, async () => {
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
       const wording = {

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { browserPath } from './start2-display-helpers.js';
 
-let launch, directory, resetPage;
+let launch, directory, resetPage, crashed = false;
 const fixtures = [];
 after(async () => {
   // Finish every fixture reset before closing the file-owned protocol connection.
@@ -20,6 +20,15 @@ after(async () => {
 });
 
 export async function browserForFile() {
+  if (launch) {
+    const previous = await launch.catch(() => null);
+    if (!previous?.connected || crashed) {
+      if (previous?.connected) await previous.close();
+      launch = undefined; resetPage = undefined; crashed = false;
+      if (directory) await rm(directory, { recursive: true, force: true });
+      directory = undefined;
+    }
+  }
   launch ??= (async () => {
     directory = await mkdtemp(join(tmpdir(), 'aithema-shared-chrome-'));
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
@@ -33,20 +42,30 @@ export async function browserForFile() {
   // mbp2606 Chrome 155 SIGSEGVs when a second incognito context is created.
   // Reuse the default context, resetting cookies and every visited frame origin
   // between fixtures. Each former launch owns fresh pages; tests stay serial.
+  const cleanupPage = resetPage, origins = new Set();
   let closing;
   const fixture = {
     browser: () => browser,
     cookies: () => context.cookies(),
     setCookie: (...cookies) => context.setCookie(...cookies),
-    async newPage() { const page = await context.newPage(); pages.push(page); return page; },
+    async newPage() {
+      const page = await context.newPage(); pages.push(page);
+      page.on('error', () => { crashed = true; });
+      page.on('framenavigated', frame => {
+        if (/^https?:/u.test(frame.url())) origins.add(new URL(frame.url()).origin);
+      });
+      return page;
+    },
     close: () => closing ??= (async () => {
       try {
         if (!browser.connected) return;
-        const origins = new Set(pages.flatMap(page => page.frames().map(frame => frame.url()))
-          .filter(url => /^https?:/u.test(url)).map(url => new URL(url).origin));
+        // Keep historical origins even after a frame navigates away or closes.
+        for (const page of pages.filter(page => !page.isClosed())) for (const frame of page.frames()) {
+          if (/^https?:/u.test(frame.url())) origins.add(new URL(frame.url()).origin);
+        }
         // Close pages first so an unload handler cannot write storage after reset.
         await Promise.all(pages.filter(page => !page.isClosed()).map(page => page.close()));
-        const session = await resetPage.createCDPSession();
+        const session = await cleanupPage.createCDPSession();
         try {
           for (const origin of origins) await session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' });
         } finally { await session.detach(); }
