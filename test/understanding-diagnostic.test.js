@@ -21,7 +21,9 @@ function stub({ capped = false, rejection = null } = {}) {
       const rejection = ${JSON.stringify(rejection)};
       if (!body.stream && rejection) return new Response(rejection.body, { status: rejection.status, headers: { 'content-type': 'application/json' } });
       if (${capped} && body.response_format) return Response.json({ error: { code: 400, message: 'Private unsupported schema' }, usage: { cost: 0 } }, { status: 400 });
-      if (!body.stream) await new Promise(resolve => { finishAnalysis = resolve; });
+      // Only the happy-path fixture gates analysis on a later reply. The cap
+      // fixture must settle independently when admission refuses that reply.
+      if (!body.stream && !${capped}) await new Promise(resolve => { finishAnalysis = resolve; });
       const usage = { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 };
       if (!body.stream) return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(${JSON.stringify(assessment)}) } }] });
       const content = JSON.stringify({ content: 'Welches Vorhaben möchten Sie klären?', scope: body.messages.at(-1).content.includes('Gemüsesuppe') ? 'off' : 'in', question_short: null, options: [] });
