@@ -11,7 +11,7 @@ test('OPS-341 classification requires SIGTERM and the exact browser PID and run'
   const input = { signal: 'SIGTERM', pid: 123, run: 'aithema-runs/abcdef1234-42', lines: line };
   assert.equal(memoryGuardEvent(input), line);
   for (const change of [{ signal: 'SIGKILL' }, { signal: null }, { pid: 12 }, { pid: 1234 },
-    { run: 'aithema-runs/abcdef1234-43' }, { run: undefined }, { lines: '' },
+    { run: 'aithema-runs/abcdef1234-43' }, { run: 'abcdef1234-42' }, { run: undefined }, { lines: '' },
     { lines: line.replace('KILL free=9%', 'beat free=9%') }]) {
     assert.equal(memoryGuardEvent({ ...input, ...change }), null);
   }

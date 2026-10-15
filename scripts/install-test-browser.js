@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { computeExecutablePath, install } from '@puppeteer/browsers';
+import { installOnce } from './browser-install-lock.js';
 
 // Match puppeteer-core 25.13.0's supported revision. Never resolve a moving tag.
 export const browserBuild = '155.0.8059.39';
@@ -33,12 +34,8 @@ export async function browserPath() {
   }
   if (/mbp2607/iu.test(hostname())) throw new Error('Test browser setup is forbidden on mbp2607');
   const executable = computeExecutablePath(browserInstall);
-  try { await access(executable, constants.X_OK); }
-  catch {
-    installation ??= installPinnedBrowser();
-    await installation;
-    await access(executable, constants.X_OK);
-  }
+  installation ??= installOnce({ executable, lockPath: join(browserCache, `.headless-shell-${browserBuild}.lock`), install: installPinnedBrowser });
+  await installation;
   return executable;
 }
 

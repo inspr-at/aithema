@@ -15,6 +15,10 @@ export default {
     });
     const child = browser.process();
     const run = /\/ci\.noindex\/(aithema-runs\/[^/ ]+)/u.exec(options.userDataDir ?? process.cwd())?.[1];
+    if (run && !child.spawnargs.some(arg => arg.startsWith('--user-data-dir=') && arg.includes(`/ci.noindex/${run}/`))) {
+      await browser.close();
+      throw new Error('Browser profile must be inside the OPS memory guard run path');
+    }
     watch(child, run);
     return browser;
   },

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
@@ -181,7 +181,35 @@ test('AIT-129: live host has no developer chrome; contract consent stays stable 
       assert.equal(await page.$$eval('[data-demo-only]', nodes => nodes.length), 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
       assert.equal(await page.$eval('aithema-session', c => c.getBoundingClientRect().width), width);
-      if (evidence) await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: false });
+      if (evidence) {
+        const state = () => page.evaluate(() => {
+          const root = document.querySelector('aithema-session').shadowRoot;
+          return { fonts: document.fonts.status, animations: [...document.getAnimations(), ...root.getAnimations()].map(a => ({
+            name: a.animationName ?? a.transitionProperty, time: a.currentTime, state: a.playState,
+            duration: a.effect.getComputedTiming().duration, target: a.effect.target?.className,
+          })), text: root.innerText };
+        });
+        const before = await state();
+        const diagnostic = join(evidence, '..', 'diagnostics', evidence.split('/').at(-1));
+        await mkdir(diagnostic, { recursive: true });
+        await page.screenshot({ path: join(diagnostic, `ait-129-root-${device}-${theme}-unsettled.png`), fullPage: false });
+        // Wait for real finite transitions, including theme/entry paint. Pin only
+        // repeating decorative animation to its initial frame for both engines.
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          const root = document.querySelector('aithema-session').shadowRoot;
+          for (let pass = 0; pass < 3; pass++) {
+            const animations = [...document.getAnimations(), ...root.getAnimations()];
+            await Promise.all(animations.map(a => {
+              if (a.effect.getComputedTiming().iterations === Infinity) { a.pause(); a.currentTime = 0; return; }
+              return a.finished.catch(() => {});
+            }));
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          }
+        });
+        await writeFile(join(diagnostic, `ait-129-root-${device}-${theme}.json`), JSON.stringify({ before, after: await state() }, null, 2));
+        await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: false });
+      }
       await visitConsent(page, demo.url);
       assert.equal(await page.$$eval('.consent-item', rows => rows.length), CONSENT_ITEMS.length);
       const before = await rect(page, '[data-grant]'), last = await rect(page, '.consent-actions--bottom');
