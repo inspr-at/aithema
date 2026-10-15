@@ -57,7 +57,7 @@ function exposeFallback() {
 document.addEventListener('error', event => {
   if (event.target?.matches?.('script[src="/demo/host.js"]')) exposeFallback();
 }, true);
-window.addEventListener('error', event => {
+document.defaultView?.addEventListener('error', event => {
   // A successfully fetched module can throw before defining the component.
   if (event.filename && new URL(event.filename, location.href).pathname === '/demo/host.js'
       && !customElements.get('aithema-session')) exposeFallback();
