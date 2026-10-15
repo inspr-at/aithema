@@ -90,6 +90,20 @@ async function scene(page, locale, theme, width, missing) {
   page.state.snapshot = await shadow(page, c => structuredClone(c.session));
   await frame(page);
 }
+async function pauseHeader(page, locale) {
+  const header = await page.evaluate(() => {
+    const control = document.querySelector('aithema-session').shadowRoot.querySelector('.conversations-toggle');
+    return { screen: document.documentElement.lang, label: document.querySelector('#language-value').textContent,
+      selected: document.querySelector('#locale').value, conversations: control?.textContent.trim(),
+      conversationsVisible: Boolean(control?.checkVisibility()) };
+  });
+  assert.equal(header.screen, locale);
+  assert.equal(header.label, header.screen.toUpperCase(), 'language control label matches the screen');
+  assert.equal(header.selected, header.screen, 'language control selection matches the screen');
+  assert.equal(header.conversations, locale === 'de' ? 'Gespräche' : 'Conversations');
+  assert.equal(header.conversationsVisible, true, 'Conversations control is present on the host');
+  return header;
+}
 const geometry = ['.band', '.concept-bar', '.understanding', '.notice', '.composer'];
 for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, focused Settings and in-place save, 390/1440 L/D`, { timeout: 120_000 }, async t => {
   const page = await fixture(t);
@@ -366,6 +380,7 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
         const node = document.querySelector(selector); if (node) node.textContent = text;
       }
     }, { locale, project });
+    const header = await pauseHeader(page, locale);
     await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
     const before = await boxes(page, geometry);
     let posts = 0, retries = 0;
@@ -389,7 +404,8 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
     const stats = await page.evaluate(() => fetch('/fixture/stats').then(r => r.json()));
     assert.deepEqual(stats, { reaction: 0, understanding: project ? 1 : 0 });
     assert.equal(await shadow(page, c => c.session.pauseReason), 'purpose');
-    await record(t, page, `r3-${locale}-${theme}-${width}-${project ? 'project-preparing' : 'off-no-details'}`, { notice, stats, retries, shiftPx: 0 });
+    assert.deepEqual(await pauseHeader(page, locale), header, 'consent save preserves true header controls');
+    await record(t, page, `r4-${locale}-${theme}-${width}-${project ? 'project-preparing' : 'off-no-details'}`, { notice, stats, retries, header, shiftPx: 0 });
     await page.evaluate(() => fetch('/fixture/release'));
     if (project) {
       await until(page, () => document.querySelector('aithema-session').session.understanding.readinessAssessed && !document.querySelector('aithema-session').session.operations.running.length);

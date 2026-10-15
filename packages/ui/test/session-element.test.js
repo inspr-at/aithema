@@ -385,7 +385,7 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
   const session = c.session;
-  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'current processing consent required' } };
+  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'not configured' } };
   c.configure({ copy: en, session });
   c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu',
     settings: { ...session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
@@ -394,8 +394,8 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(root.querySelector('textarea').disabled, true);
   assert.equal(root.querySelector('.send').disabled, true);
   assert.match(root.querySelector('.composer').textContent, /Not configured/);
-  assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), false, 'the consent action stays interactive');
-  assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent · Give consent…');
+  assert.equal(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
+  assert.equal(root.querySelector('.notice').textContent, en.reasons['not configured']);
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
   assert.equal(root.querySelector('.retry').hidden, true);
@@ -925,4 +925,29 @@ for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpos
   assert.doesNotMatch(root.querySelector('.status__label').textContent, /pausiert|paused/iu);
   assert.equal(root.querySelector('.notice').textContent, notice);
   assert.equal(root.querySelector('.summary-text').textContent, summary);
+});
+
+for (const copy of [de, en]) for (const draft of [false, true]) test(`AIT-197 R4 ${copy.display.locale}: running analysis preserves ${draft ? 'draft' : 'stale'} assessment`, () => {
+  const c = setup(); turn(c, 'first', 'We need a website.');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  turn(c, 'second', 'For our customers.');
+  if (draft) c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c, true) });
+  const session = c.session;
+  session.operations = { inputRevision: inputRevision(session), running: ['understanding'], lastFailure: null };
+  c.configure({ session, copy });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.notice').textContent, draft ? copy.draft : copy.stale);
+  assert.notEqual(root.querySelector('.notice').textContent, copy.preparingOverview);
+  assert.equal(root.querySelector('.summary-text').textContent, '<script>untrusted</script>');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => !n.hidden));
+});
+for (const copy of [de, en]) for (const reason of ['not configured', 'budget denied', 'verification required', 'current processing consent required']) test(`AIT-197 R4 ${copy.display.locale}: no assessment preserves reason ${reason}`, () => {
+  const c = setup(); turn(c, 'first', 'We need a website.');
+  const session = c.session;
+  session.featureMatrix.best.analysis = { available: false, reason };
+  c.configure({ session, copy });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.notice').textContent, reason === 'current processing consent required'
+    ? `${copy.featureConsent.analysis} · ${copy.featureConsent.action}` : copy.reasons[reason]);
+  assert.equal(root.querySelector('.notice button') !== null, reason === 'current processing consent required');
 });

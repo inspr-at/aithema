@@ -509,8 +509,15 @@ for (const offCount of [1, 3]) for (const project of [false, true]) test(`AIT-19
   if (project) {
     await f.assessmentStarted;
     const snapshot = await f.handlers.handle(req(id)).then(r => r.json());
-    assert.ok(snapshot.operations.running.includes('understanding'));
-    assert.equal(snapshot.operations.running.filter(lane => lane === 'understanding').length, 1);
+    if (offCount === 3) {
+      // A purpose pause suppresses reaction; only the held project assessment runs.
+      assert.deepEqual(snapshot.operations.running, ['understanding']);
+    } else {
+      // Consent can reclassify the current off-topic turn before the pause threshold;
+      // reaction may still be settling when the held assessment starts.
+      assert.ok(snapshot.operations.running.includes('understanding'));
+      assert.equal(snapshot.operations.running.filter(lane => lane === 'understanding').length, 1);
+    }
     assert.equal(f.assessments.length, 1); assert.doesNotMatch(JSON.stringify(f.assessments), /soup/);
   }
   gate.resolve(); await f.handlers.idle();
@@ -525,4 +532,38 @@ for (const offCount of [1, 3]) for (const project of [false, true]) test(`AIT-19
   const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
   assert.equal(attempts.length, Number(project));
   assert.ok(attempts.every(attempt => attempt.state === 'settled'), 'normal admission leaves no open analysis claim');
+});
+
+test('AIT-197 R4: an older assessment cannot block a later unassessed project turn', { timeout: 5000 }, async t => {
+  const f = fixture(t, { outputs: () => envelope('What should improve?', 'in'), consent: { ...mockConsent, grant: () => true } });
+  await f.send('We need a website.', 'assessed-project');
+  assert.equal(f.assessments.length, 1);
+  const old = f.storage.get(f.session.id).understanding;
+  assert.equal(old.readinessAssessed, true);
+  const gate = Promise.withResolvers(); t.after(gate.resolve);
+  const structured = f.plugin.structured;
+  f.plugin.structured = async (...args) => { const result = await structured(...args); await gate.promise; return result; };
+  const id = f.session.id;
+  for (const [index, content] of ['Customers must book appointments.', ...Array(3).fill('Give me a soup recipe.')].entries()) {
+    f.storage.postTurn(id, `r4-${index}`, Buffer.from(content), content);
+    const revision = inputRevision(f.storage.get(id));
+    f.storage.appendPurposeReply(id, { id: `r4-reply-${index}`, role: 'assistant', content: 'What should improve?', inputRevision: revision }, revision, index > 0, 3);
+  }
+  assert.equal(f.storage.get(id).understanding.inputRevision, old.inputRevision);
+  assert.ok(f.storage.purposeAssessmentInput(f.storage.get(id)), 'later in-scope input still needs an assessment');
+  assert.equal((await f.handlers.handle(req(id, 'consent', { granted: true }))).status, 200);
+  await waitForPurpose(() => f.assessments.length === 2);
+  assert.deepEqual((await f.handlers.handle(req(id)).then(r => r.json())).operations.running, ['understanding']);
+  assert.match(JSON.stringify(f.assessments[1]), /book appointments/);
+  assert.doesNotMatch(JSON.stringify(f.assessments[1]), /soup/);
+  gate.resolve(); await f.handlers.idle();
+  assert.equal(f.storage.get(id).understanding.inputRevision, inputRevision(f.storage.get(id)));
+  assert.equal(f.storage.get(id).understanding.readinessAssessed, true);
+  assert.equal(f.storage.get(id).paused, true);
+  assert.equal(f.storage.purposeAssessmentInput(f.storage.get(id)), null, 'settled project input is no longer recoverable');
+  await f.handlers.handle(req(id, 'retry', {})); await f.handlers.idle();
+  assert.equal(f.assessments.length, 2, 'exactly one additional analysis');
+  assert.equal(f.storage.read(id).filter(event => event.type === 'understanding.updated').length, 2);
+  const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='understanding'").all();
+  assert.equal(attempts.length, 2); assert.ok(attempts.every(attempt => attempt.state === 'settled'));
 });
