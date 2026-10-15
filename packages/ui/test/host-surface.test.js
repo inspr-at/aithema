@@ -54,6 +54,40 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
 
+test('AIT-193: disconnect clears the verification countdown; reconnect starts one countdown', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const clears = t.mock.method(globalThis, 'clearInterval');
+  const { c } = setup(t, { host: { verification: true }, session: { identity: pending() } });
+  await tick(8);
+  const countdown = intervals.mock.calls.find(call => call.arguments[1] === 1000)?.result;
+  assert.notEqual(countdown, undefined, 'the connected pending identity has a countdown');
+  c.remove();
+  assert.ok(clears.mock.calls.some(call => call.arguments[0] === countdown), 'disconnect clears that countdown');
+  const before = intervals.mock.callCount();
+  document.body.append(c); await tick(8);
+  assert.equal(intervals.mock.callCount(), before + 1, 'reconnect starts exactly one countdown');
+});
+
+test('AIT-193: an identity response after disconnect cannot restart countdown or verification polling', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const intervals = t.mock.method(globalThis, 'setInterval');
+  const timeouts = t.mock.method(globalThis, 'setTimeout');
+  const reply = Promise.withResolvers();
+  const { c, root, calls } = setup(t, { host: { verification: true }, session: { identity: pending({ resendAfterMs: 0 }) },
+    routes: { 'POST /identity/resend': () => reply.promise } });
+  t.after(() => reply.resolve(Response.json({ identity: pending() })));
+  await tick(8); root.querySelector('.verify-lock .verify-resend').click(); await tick(8);
+  assert.ok(calls.some(call => call.path === '/identity/resend'));
+  c.remove();
+  const before = intervals.mock.callCount(), polls = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
+  reply.resolve(Response.json({ identity: pending({ pollVerification: true }) })); await tick(8);
+  assert.equal(intervals.mock.callCount(), before, 'late response leaves countdown stopped');
+  assert.equal(timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length, polls, 'late response leaves polling stopped');
+  document.body.append(c); await tick(8);
+  assert.equal(intervals.mock.callCount(), before + 1, 'reconnect resumes the updated countdown once');
+});
+
 for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
   const { voiceEvents } = await import('../../core/src/live-voice.js');
   const events = voiceEvents(); let ended = false, settled = false;
