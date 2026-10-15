@@ -59,15 +59,16 @@ for (const role of ['stt', 'tts']) {
     const opts = options([]); opts.attempt.consume = () => { throw new Error('Refused'); };
     await assert.rejects(run(role, setup(role, { resolveSecret: spy, connect: spy }), opts)); assert.equal(calls, 0);
   });
-  for (const status of [400, 401, 403, 422, 429, 500]) {
+  for (const status of [400, 401, 403, 408, 422, 429, 499, 500]) {
     test(`AIT-198: ${role} transport-observed ${status} without usage settles once`, async () => {
       const reports = [], opts = options(reports), budget = createQualificationBudget();
       const claim = budget.reserve({ attemptId: opts.attempt.attemptId, maxMicro: 1000 });
       opts.attempt = claim; opts.report = terminal => { reports.push(terminal); claim.report(terminal); };
       await assert.rejects(run(role, setup(role, { connect: () => { throw Object.assign(new Error('private detail'), { status }); } }), opts),
         { code: [401, 403].includes(status) ? 'auth' : status === 429 ? 'rate-limit' : 'provider', message: [401, 403].includes(status) ? 'auth' : status === 429 ? 'rate-limit' : 'provider' });
-      assert.equal(reports.length, 1); assert.equal(budget.snapshot().exposureMicro, status < 500 ? 0 : 1000);
-      assert.equal(reports[0].outcome, status < 500 ? 'cancelled' : 'uncertain');
+      const rejectedWithoutUsage = status < 500 && ![408, 499].includes(status);
+      assert.equal(reports.length, 1); assert.equal(budget.snapshot().exposureMicro, rejectedWithoutUsage ? 0 : 1000);
+      assert.equal(reports[0].outcome, rejectedWithoutUsage ? 'cancelled' : 'uncertain');
     });
   }
   test(`AIT-160: ${role} abort closes synchronously, stalls cannot defer once-only uncertain settlement`, async () => {
