@@ -10,7 +10,13 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 const window = new Window({ url: 'http://localhost/' });
 // Dispose pending DOM tasks after all component assertions, as in session-element.test.js.
-test.after(async () => window.happyDOM.close());
+const { dumpHandles } = await import('../../../scripts/unit-handles.js');
+test.after(async () => {
+  dumpHandles('before happyDOM.close');
+  await window.happyDOM.close();
+  dumpHandles('after happyDOM.close');
+  setImmediate(() => dumpHandles('after teardown microtasks'));
+});
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
