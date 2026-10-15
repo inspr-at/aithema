@@ -66,8 +66,9 @@ The cache is `~/.cache/aithema-browsers`; test launch also installs that exact b
 if it is missing. All browser suites and the voice soak use the same selection
 and disable Breakpad/Crashpad reporting. Full Chrome has no suite exceptions;
 the AIT-199 measurement batch uses it only as the old comparison baseline.
-On macOS the shell enables GPU compositing so masked transcript panes paint on
-their first capture, matching full Chrome; Linux keeps its existing compositor.
+On macOS the shell enables GPU compositing for parity with full Chrome; Linux
+keeps its existing compositor. Display evidence verifies actual transcript glyph
+paint and records any scroll-origin repaint attempts before accepting a PNG.
 An explicit `CHROME_PATH`, including a refusing stub, remains authoritative.
 On OPS workers, an exact new PID/run match in `~/ci.noindex/mem-guard.log` labels
 a SIGTERM exit `infra: memory guard` and fails the run.
