@@ -27,7 +27,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     t.after(() => browser.close());
-    const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+    const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], keyboardChecks = [];
     if (evidence) await mkdir(evidence, { recursive: true });
     // Snapshots model approved reply data; local acknowledgements let us inspect the exact request bytes.
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -342,7 +342,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 const band = r.querySelector('.band').getBoundingClientRect();
                 return { layoutHeight: innerHeight, viewport: visualViewport.height, compact: r.querySelector('.qcard').hasAttribute('data-compact'),
                   rowHeight: row.height, rowTop: row.top, rowBottom: row.bottom, optionsTop: opts.top, optionsBottom: opts.bottom,
-                  cardTop: card.top, bubbleBottom: bubble.bottom, shellBottom: shell.getBoundingClientRect().bottom,
+                  cardTop: card.top, bubbleBottom: bubble.bottom, shellTop: shell.getBoundingClientRect().top, shellBottom: shell.getBoundingClientRect().bottom,
                   composerBottom: composer.bottom, bandBottom: band.bottom };
               });
               assert.equal(keyboard.layoutHeight, 844, 'only the visual viewport shrinks');
@@ -355,16 +355,20 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               assert.ok(keyboard.composerBottom <= height && height - keyboard.composerBottom <= 14, 'the composer stays docked to the visible viewport');
               // Shift+Tab from the composer reaches the final answer through
               // the browser's native order and scrolls the chip into view.
-              await page.keyboard.press('Shift+Tab'); await nextFrame(page);
+              await page.keyboard.down('Shift');
+              try { await page.keyboard.press('Tab'); } finally { await page.keyboard.up('Shift'); }
+              await nextFrame(page);
               assert.equal(await shadow(page, c => {
                 const r = c.shadowRoot, row = [...r.querySelectorAll('.qopt')].at(-1), b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
                 return r.activeElement === row && b.height >= 44 && b.top >= v.top - 1 && b.bottom <= v.bottom + 1 && b.left >= v.left - 1 && b.right <= v.right + 1;
               }), true, 'Tab reaches an answer and brings its whole target into view');
+              keyboardChecks.push({ locale, theme, width, height, ...keyboard, reachableByTab: true });
               if (evidence) {
                 await page.mouse.move(-1, -1);
                 await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
                 await nextFrame(page); await nextFrame(page);
-                await page.screenshot({ path: join(evidence, `ait-225-${label}-keyboard-${height}.png`), fullPage: false });
+                const file = `ait-225-${label}-keyboard-${height}.png`;
+                await page.screenshot({ path: join(evidence, file), fullPage: false, clip: { x: 0, y: 0, width, height }, captureBeyondViewport: false }); files.push(file);
               }
             }
           } finally {
@@ -381,15 +385,18 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
     if (evidence) {
-      assert.equal(files.length, 8, 'six phone and two desktop viewport captures are required');
+      assert.equal(files.length, 16, 'eight baseline and eight keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
-      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks }, null, 2));
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
+        keyboardPassLines: keyboardChecks.map(({ locale, theme, height, rowHeight, cardTop, bubbleBottom, shellBottom }) => ({
+          locale, theme, viewport: `390×${height}`, pass: true, answerHeightPx: rowHeight, reachableByTab: true,
+          latestReplyClearancePx: cardTop - bubbleBottom, transcriptClearancePx: cardTop - shellBottom })),
         passLines: checks.map(({ locale, theme, width, controlShiftPx, bounded }) => ({ locale, theme, width, pass: true,
           states: ['card-with-likely-and-others', 'hover', 'keyboard-focus', 'fold', 'question-without-options-no-card'],
           foldStrip: locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold',
           composerControlShiftPx: controlShiftPx, cardAndComposerShiftPx: 0, dockGapPx: 0, pendingAnswerOptionShiftPx: 0,
-          readingAnchorShiftPx: 0, cardVh: 100 * bounded.height / bounded.viewport,
+          readingAnchorShiftPx: 0, readingAnchorReleaseShiftPx: 0, cardVh: 100 * bounded.height / bounded.viewport,
           latestReplyClearancePx: bounded.top - bounded.bubbleBottom, transcriptClearancePx: bounded.top - bounded.shellBottom })) }, null, 2));
     }
   });
