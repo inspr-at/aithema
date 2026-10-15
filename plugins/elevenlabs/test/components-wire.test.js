@@ -133,3 +133,21 @@ for (const role of ['stt', 'tts']) test(`AIT-160: ${role} late connection after 
   release.resolve(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(closed, 1); assert.equal(sends, 0); assert.equal(reports.length, 1);
 });
+
+for (const role of ['stt', 'tts']) {
+  test(`AIT-198: ${role} 4xx carrying usage cannot release reservation as zero`, async () => {
+    const reports = [];
+    const adapter = setup(role, { connect: () => { throw { status: 429, usage: { unverified: true } }; } });
+    await assert.rejects(run(role, adapter, options(reports)), { code: 'rate-limit' });
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+  });
+  test(`AIT-160: ${role} exact consent scope rejects expired, withdrawn and mismatched grants`, async () => {
+    let calls = 0;
+    for (const mutation of [{ expiresAt: 0 }, { withdrawn: true }, { itemVersion: 2 }, { scope: {} }, { consentRevision: 0 }]) {
+      const consent = fixtureConsent(fixtureBinding(role)), original = consent.port.coverage;
+      consent.port.coverage = async request => ({ ...await original(request), ...mutation });
+      await assert.rejects(run(role, setup(role, { consent, connect: () => { calls++; } }), options([])), { code: 'not-admitted' });
+    }
+    assert.equal(calls, 0);
+  });
+}

@@ -55,7 +55,7 @@ export function fixtureSocket({ role, text = 'Grüß Gott', beforeFinal = async 
 
 export function fixtureBinding(role) {
   return { plugin: 'elevenlabs', model: role === 'stt' ? 'scribe_v2_realtime' : 'eleven_flash_v2_5',
-    endpoint: 'https://api.elevenlabs.io', accountRef: 'fixture-account', routing: {},
+    endpoint: 'https://api.elevenlabs.io', accountRef: 'fixture-account', secretRef: 'synthetic-only', routing: {},
     legal: { purpose: 'voice-elevenlabs', consentVersion: 1, recipient: 'ElevenLabs, Inc.', processors: [],
       dataCategories: ['speech-input', 'transcription', 'spoken-answers'] } };
 }

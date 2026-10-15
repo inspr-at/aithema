@@ -44,6 +44,7 @@ function failure(status) { return new PluginError(status === 401 || status === 4
 async function coverage(consent, model, config, operation, options) {
   const binding = consent?.binding;
   if (!binding || binding.plugin !== 'elevenlabs' || binding.model !== model || binding.endpoint !== config.endpoint ||
+    binding.secretRef !== config.secretRef || typeof binding.accountRef !== 'string' || !binding.accountRef ||
     binding.legal?.purpose !== 'voice-elevenlabs' || binding.legal.consentVersion !== 1 ||
     !consent.session || !await voiceOperation(options, opts => consentCoverage(consent.port, consent.session,
       processingScope(binding, operation), opts))) throw new PluginError('not-admitted', 'Current voice-elevenlabs consent required');
@@ -111,7 +112,7 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
       // Recheck coverage after asynchronous secret resolution, immediately before dispatch.
       await coverage(consent, STT_MODEL, config, 'stream', opts); invocation.dispatch();
       try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
-      catch (error) { invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
+      catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
       stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
       for await (const wire of boundedEvents(socket.events, opts)) {
         const event = decode(wire);
@@ -181,7 +182,7 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
         url.search = new URLSearchParams({ model_id: TTS_MODEL, output_format: 'pcm_24000' }).toString();
         await coverage(consent, TTS_MODEL, config, 'speak', opts); invocation.dispatch();
         try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
-        catch (error) { invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
+        catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
         stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
         for (const message of [{ text: ' ' }, { text: wireText, flush: true }, { text: '' }]) {
           await voiceOperation(opts, () => socket.send(JSON.stringify(message)));
