@@ -187,7 +187,11 @@ test('AIT-129: live host has no developer chrome; contract consent stays stable 
           return { fonts: document.fonts.status, animations: [...document.getAnimations(), ...root.getAnimations()].map(a => ({
             name: a.animationName ?? a.transitionProperty, time: a.currentTime, state: a.playState,
             duration: a.effect.getComputedTiming().duration, target: a.effect.target?.className,
-          })), text: root.innerText };
+          })), text: root.innerText, cards: [...root.querySelectorAll('.chooser-option')].map(el => {
+            const s = getComputedStyle(el), r = el.getBoundingClientRect();
+            return { text: el.innerText, x: r.x, y: r.y, width: r.width, height: r.height,
+              font: s.font, backdropFilter: s.backdropFilter, background: s.background, boxShadow: s.boxShadow };
+          }) };
         });
         const before = await state();
         const diagnostic = join(evidence, '..', 'diagnostics', evidence.split('/').at(-1));
@@ -209,6 +213,14 @@ test('AIT-129: live host has no developer chrome; contract consent stays stable 
         });
         await writeFile(join(diagnostic, `ait-129-root-${device}-${theme}.json`), JSON.stringify({ before, after: await state() }, null, 2));
         await page.screenshot({ path: join(evidence, `ait-129-root-${device}-${theme}.png`), fullPage: false });
+        // Diagnostic ablation only: the actual sample above keeps its blur.
+        await page.evaluate(() => {
+          const style = document.createElement('style'); style.id = 'ait199-no-backdrop';
+          style.textContent = '* { backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }';
+          document.querySelector('aithema-session').shadowRoot.append(style);
+        });
+        await page.screenshot({ path: join(diagnostic, `ait-129-root-${device}-${theme}-no-backdrop.png`), fullPage: false });
+        await page.evaluate(() => document.querySelector('aithema-session').shadowRoot.querySelector('#ait199-no-backdrop').remove());
       }
       await visitConsent(page, demo.url);
       assert.equal(await page.$$eval('.consent-item', rows => rows.length), CONSENT_ITEMS.length);
