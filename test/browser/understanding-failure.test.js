@@ -174,7 +174,7 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
     const before = await boxes(page, targets);
     await shadow(page, (c, kind) => {
       window.captureGap('paint before lane.status');
-      c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: [], lastFailure: null } });
+      c.receive({ type: 'lane.status', data: { inputRevision: window.gapRevision, running: kind === 'typed' ? ['reaction'] : [], lastFailure: null } });
       window.captureGap('lane.status');
       c.receive({ type: 'turn.partial', data: { id: 'reply', inputRevision: window.gapRevision, delta: 'Welche Arbeit?' } });
       window.captureGap('assistant partial');
