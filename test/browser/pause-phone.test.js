@@ -75,7 +75,7 @@ async function voiceScene(page, locale, theme, width) {
     session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true }]));
     session.transcript = [{ id: 'tick-user', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
     c.configure({ copy, session, host: { library: true }, voicePresentation: manifest.presentation,
-      voiceClient: { manifest, async start({ callId }) {
+      voiceClient: globalThis.tickVoiceClient = { manifest, async start({ callId }) {
         const events = voiceEvents();
         return { callId, providerSessionId: 'tick-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {},
           async close() { events.end(); return { closureConfirmed: false, reconciliationPending: true }; } };
@@ -383,7 +383,9 @@ test('AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390
     await shadow(page, c => {
       const session = structuredClone(c.session), text = session.transcript[0].content;
       session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `ordinary-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
-      c.configure({ copy: globalThis.pauseCopy, session });
+      // This replay owns a newer cursor than the empty fixture server.
+      session.seq++;
+      c.configure({ copy: globalThis.pauseCopy, session, voiceClient: globalThis.tickVoiceClient });
     });
     await frame(page);
     assert.equal(await page.evaluate(() => navigator.maxTouchPoints > 0 && matchMedia('(pointer:coarse)').matches), true);
