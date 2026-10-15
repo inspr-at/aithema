@@ -58,10 +58,12 @@ document.addEventListener('error', event => {
   if (event.target?.matches?.('script[src="/demo/host.js"]')) exposeFallback();
 }, true);
 document.defaultView?.addEventListener('error', event => {
-  // A successfully fetched module can throw before defining the component.
-  if (event.filename && new URL(event.filename, location.href).pathname === '/demo/host.js'
-      && !customElements.get('aithema-session')) exposeFallback();
+  // Dependencies can fail before upgrade, or the host can fail after upgrade.
+  if (event.filename && /^\/(demo|packages|plugins)\//.test(new URL(event.filename, location.href).pathname)) exposeFallback();
 });
+// Rejections need not carry a filename (including top-level module await).
+// Only the startup window matters; exposeFallback ignores failures after ready.
+document.defaultView?.addEventListener('unhandledrejection', exposeFallback);
 document.addEventListener('DOMContentLoaded', () => {
   if (document.documentElement.hasAttribute('data-host-unavailable')) exposeFallback();
 }, { once: true });

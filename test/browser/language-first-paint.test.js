@@ -225,21 +225,27 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
       }
       await page.close();
     }
-    for (const failure of ['blocked', 'throws']) for (const locale of ['de', 'en']) for (const storedTheme of ['light', 'dark', 'system']) {
+    for (const failure of ['blocked', 'throws', 'dependency-throws', 'host-after-import-throws', 'dependency-rejects']) for (const locale of ['de', 'en']) for (const storedTheme of ['light', 'dark', 'system']) {
     const page = await browser.newPage();
     await page.setViewport({ width: 390, height: 844 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.evaluateOnNewDocument(({ locale, storedTheme }) => { localStorage.clear(); localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-theme', storedTheme); }, { locale, storedTheme });
     await page.setRequestInterception(true);
     page.on('request', request => {
-      if (new URL(request.url()).pathname === '/demo/host.js') {
+      const path = new URL(request.url()).pathname;
+      if (path === '/packages/ui/src/session-element.js' && failure.startsWith('dependency-')) {
+        void request.respond({ status: 200, contentType: 'application/javascript', body: failure === 'dependency-rejects'
+          ? 'await Promise.reject(new Error("AIT-206 injected dependency rejection"));'
+          : 'throw new Error("AIT-206 injected dependency failure");' });
+      } else if (path === '/demo/host.js' && !failure.startsWith('dependency-')) {
         if (failure === 'blocked') void request.abort('failed');
-        else void request.respond({ status: 200, contentType: 'application/javascript', body: 'throw new Error("AIT-206 injected runtime failure");' });
+        else void request.respond({ status: 200, contentType: 'application/javascript', body: (failure === 'host-after-import-throws' ? "import '../packages/ui/src/session-element.js';\n" : '') + 'throw new Error("AIT-206 injected runtime failure");' });
       }
       else void request.continue();
     });
-    await page.goto(demo.url, { waitUntil: 'networkidle0' });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-unavailable'));
+    assert.equal(await page.evaluate(() => Boolean(customElements.get('aithema-session'))), failure === 'host-after-import-throws', 'failure exercises the intended component-definition boundary');
     assert.equal(await page.$eval('#language-value', n => n.textContent), locale.toUpperCase());
     const labels = { de: { light: 'Hell', dark: 'Dunkel', system: 'System' }, en: { light: 'Light', dark: 'Dark', system: 'System' } };
     assert.equal(await page.$eval('#theme-value', n => n.textContent), labels[locale][storedTheme]);

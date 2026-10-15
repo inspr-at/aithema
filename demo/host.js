@@ -22,7 +22,6 @@ function paintPage() {
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
   document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
   paintUtilities(copy);
-  document.documentElement.dataset.hostReady = '';
   const privacyLink = document.querySelector('[data-aithema-privacy]');
   if (privacyLink) paintPrivacyLink(privacyLink, privacyLink.closest('nav'), document.documentElement.lang);
   for (const [selector, value] of [['#title', h.title], ['#new', h.newConversation], ['#resume-hint', h.resumeHint], ['#source', h.slots.source],
@@ -39,6 +38,11 @@ function paintPage() {
   }
   paintVisuals();
   text('#language-note', localeChoice === component.session?.locale ? '' : h.languageNext.replace('{language}', h.languages[localeChoice]));
+  // A startup failure may have exposed native controls while this paint awaited.
+  const actions = document.querySelector('.host-actions');
+  if (actions && actions.parentElement !== component) component.append(actions);
+  delete document.documentElement.dataset.hostUnavailable;
+  document.documentElement.dataset.hostReady = '';
 }
 // The header and the mock consent name the visual kind this conversation uses (AIT-118): the
 // server's selected visuals and kind pick the HTML or image binding; visuals off name none.
