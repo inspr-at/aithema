@@ -13,11 +13,12 @@ const config = { PATH: process.env.PATH, OPENROUTER_API_KEY: 'fixture-not-a-key'
   OPENROUTER_MODEL: 'anthropic/fixture', AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":1e-6,"completion":2e-6}}' };
 function stub({ offScope = 'off' } = {}) {
   return `
-    let calls = 0;
+    let calls = 0, finishAnalysis;
     globalThis.fetch = async (_, init) => {
       if (++calls > 3) throw new Error('Uncapped network call');
       const body = JSON.parse(init.body);
-      await new Promise(resolve => setTimeout(resolve, body.stream ? 20 : 500));
+      if (!body.stream) await new Promise(resolve => { finishAnalysis = resolve; });
+      else if (body.messages.at(-1).content.includes('Gemüsesuppe')) finishAnalysis?.();
       const usage = { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 };
       if (!body.stream) return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(${JSON.stringify(assessment)}) } }] });
       const content = JSON.stringify({ content: 'Welches Vorhaben möchten Sie klären?', scope: body.messages.at(-1).content.includes('Gemüsesuppe') ? '${offScope}' : 'in', question_short: null, options: [] });

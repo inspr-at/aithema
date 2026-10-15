@@ -45,17 +45,21 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     await settle(page);
     const failed = await shadow(page, c => {
       const r = c.shadowRoot, n = r.querySelector('.notice'), s = getComputedStyle(n);
-      return { amount: r.querySelector('.host-credits__amount').textContent, color: s.color, muted: getComputedStyle(r.querySelector('.understanding')).getPropertyValue('--aithema-muted').trim(),
+      const probe = document.createElement('span'); probe.style.cssText = 'position:absolute;color:var(--aithema-muted)'; r.querySelector('.understanding').append(probe);
+      const quietInk = getComputedStyle(probe).color; probe.remove();
+      return { amount: r.querySelector('.host-credits__amount').textContent, color: s.color, quietInk,
         background: s.backgroundColor, alerts: r.querySelectorAll('.understanding [role="alert"]').length, reload: c === window.fixtureComponent };
     });
     assert.notEqual(failed.amount, held, 'same settlement releases the held visitor credits');
     const balance = await page.evaluate(async () => (await (await fetch(`/api/sessions/${document.querySelector('aithema-session').session.id}/credits`)).json()).balance.owner);
     assert.equal(balance.confirmedSpendMicro, (passes.length + 1) * 100_000 + passes.length * 100_000, 'only successful replies and previous successful analyses charge the visitor');
-    assert.equal(balance.uncertainSpendMicro, 0); assert.equal(balance.pendingHoldMicro, 0);
+    assert.equal(balance.uncertainSpendMicro, 0); assert.equal(balance.reservedMicro, 0);
+    assert.equal(failed.color, failed.quietInk);
     assert.equal(failed.alerts, 0); assert.equal(failed.background, 'rgba(0, 0, 0, 0)'); assert.equal(failed.reload, true);
     assert.deepEqual(await boxes(page, targets), before, 'failed overview causes 0 px surrounding displacement');
     if (evidence) await page.screenshot({ path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
     await page.evaluate(() => fetch('/success'));
+    await shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.summary-text').textContent === 'Ein Überblick. An overview.');
     await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');

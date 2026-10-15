@@ -52,7 +52,7 @@ const { server, url } = await listen(async request => {
     return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
   }
   if (path === '/settle') { release(u.searchParams.get('verdict')); await handlers.idle(); return Response.json({ ok: true }); }
-  if (path === '/success') { success = true; await call('retry', {}); await handlers.idle(); return Response.json({ ok: true }); }
+  if (path === '/success') { success = true; return Response.json({ ok: true }); }
   if (path.startsWith('/api/')) return handlers.handle(new Request(request, { headers: { ...Object.fromEntries(request.headers), 'x-aithema-session-token': owner } }));
   if (path === '/') return new Response('<!doctype html><html><meta charset="utf-8"><style>body{margin:0}aithema-session{display:block;min-height:100vh}</style><aithema-session></aithema-session><script type="module" src="/packages/ui/src/session-element.js"></script></html>', { headers: { 'content-type': 'text/html' } });
   if (!/^\/packages\/(ui|core)\/src\/[a-z0-9/-]+\.(?:js|json)$/u.test(path)) return new Response(null, { status: 404 });
