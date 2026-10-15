@@ -74,19 +74,26 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
   const intervals = t.mock.method(globalThis, 'setInterval');
   const timeouts = t.mock.method(globalThis, 'setTimeout');
+  const clears = t.mock.method(globalThis, 'clearInterval');
   const reply = Promise.withResolvers();
+  let serverIdentity = pending({ resendAfterMs: 0 });
   const { c, root, calls } = setup(t, { host: { verification: true }, session: { identity: pending({ resendAfterMs: 0 }) },
-    routes: { 'POST /identity/resend': () => reply.promise } });
+    routes: { 'GET /identity': () => Response.json({ identity: serverIdentity }), 'POST /identity/resend': () => reply.promise } });
   t.after(() => reply.resolve(Response.json({ identity: pending() })));
   await tick(8); root.querySelector('.verify-lock .verify-resend').click(); await tick(8);
   assert.ok(calls.some(call => call.path === '/identity/resend'));
   c.remove();
   const before = intervals.mock.callCount(), polls = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
-  reply.resolve(Response.json({ identity: pending({ pollVerification: true }) })); await tick(8);
+  serverIdentity = pending({ pollVerification: true });
+  reply.resolve(Response.json({ identity: serverIdentity })); await tick(8);
   assert.equal(intervals.mock.callCount(), before, `late response leaves countdown stopped\n${intervals.mock.calls.slice(before).map(call => call.stack.stack).join('\n')}`);
   assert.equal(timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length, polls, 'late response leaves polling stopped');
   document.body.append(c); await tick(8);
-  assert.equal(intervals.mock.callCount(), before + 2, 'reconnect resumes the verification and connection clocks exactly once each');
+  const liveClocks = () => intervals.mock.calls.slice(before).filter(call => call.arguments[1] === 1000 &&
+    !clears.mock.calls.some(clear => clear.arguments[0] === call.result));
+  assert.equal(liveClocks().length, 2, 'reconnect keeps exactly one verification and one connection clock running');
+  c.remove();
+  assert.equal(liveClocks().length, 0, 'both clocks stop again on the next disconnect');
 });
 
 for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
