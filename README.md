@@ -3225,6 +3225,10 @@ lane name. Delegated voice reasoning has its own `voice-facade` bucket rather
 than counting twice as a typed reply. Starts mean **admitted attempts**, so cache
 hits, joined flights and scheduling skips create no count. Each compatibility
 retry and each draft/refinement admission owns another start and terminal.
+`completed` means a valid provider attempt completed; the lane independently
+fences publication, so a paid completion kept as history or superseded before
+publication still counts as a completed attempt. Known cancelled attempts are
+classified by their supersession, pause or abort fence.
 `started = completed + superseded + deferred + aborted + uncertain + failed + inFlight`.
 Unknown dispatched billing takes precedence over cancellation/supersession;
 confirmed receipts allow the precise lifecycle outcome. Pre-dispatch pause,

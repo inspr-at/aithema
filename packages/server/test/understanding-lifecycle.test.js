@@ -101,7 +101,10 @@ test('AIT-198 slow provider: superseding project input never aborts already disp
   await f.send('Unsere neue Anforderung ist eine Schnittstelle zur Buchhaltung.');
   await f.handlers.idle();
   assertPaidWorkCompleted(f, 2);
-  assert.equal(f.logs.filter(event => event.event === 'understanding.superseded').length, 1);
+  // AIT-201 counts admitted provider attempts. Both valid paid completions
+  // settle successfully; the separate publication assertion still rejects stale output.
+  assert.equal(f.logs.filter(event => event.event === 'understanding.completed').length, 2);
+  assert.equal(f.logs.filter(event => event.event === 'understanding.superseded').length, 0);
   assert.equal(f.logs.filter(event => event.event === 'understanding.aborted' || event.event === 'understanding.uncertain').length, 0);
   const updates = f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated');
   assert.equal(updates.length, 1, 'only the current project revision may publish');

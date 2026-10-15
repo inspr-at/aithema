@@ -162,7 +162,11 @@ for (const lane of ['reaction', 'understanding']) test(`AIT-201 ${lane}: ignored
   const published = h.storage.read(h.id).filter(e => ['understanding.updated', 'turn.final'].includes(e.type));
   const receipt = Promise.withResolvers(), observe = h.runtime.budget.observeCost.bind(h.runtime.budget);
   h.runtime.budget.observeCost = (id, evidence) => { const result = observe(id, evidence); if (evidence.chargedMicro === 110) receipt.resolve(); return result; };
-  h.resolve(obsolete); await receipt.promise;
+  // A late stream rejection is JSON and may carry an authoritative receipt;
+  // a late successful structured response carries the same evidence directly.
+  if (lane === 'reaction') obsolete.httpError(499, { usage: { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 } });
+  else h.resolve(obsolete);
+  await receipt.promise;
   assert.deepEqual(h.storage.read(h.id).filter(e => ['understanding.updated', 'turn.final'].includes(e.type)), published, 'old result never publishes after replacement');
   assert.deepEqual(h.storage.db.prepare('SELECT settled_micro n FROM budget_attempts ORDER BY rowid').all().map(r => r.n), [110, 110], 'late authoritative receipt repairs the uncertain hold');
   balanced(h);
