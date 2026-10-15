@@ -1,20 +1,13 @@
 // AIT-132: deterministic contract fixtures, real component, keyboard and voice client. Remote runner only.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { join } from 'node:path';
+import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 
-async function browserPath() {
-  const paths = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name)))];
-  for (const path of paths) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
-  throw new Error('No browser available on the remote test runner');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const controls = ['textarea', '.attach', '.send', '.composer'];
 const boxes = (page, selectors = controls) => shadow(page, (c, selectors) => selectors.map(selector => {

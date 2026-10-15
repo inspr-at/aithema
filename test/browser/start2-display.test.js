@@ -2,6 +2,7 @@
 // No provider calls, microphone, wallet writes or voice lifecycle work. Run only on the remote browser runner.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { once } from 'node:events';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,7 +38,9 @@ test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page 
 test('AIT-192: a disconnected cached Chrome is relaunched for the next fixture', async t => {
   const first = await browserForFile();
   const pid = first.browser().process().pid;
-  await first.browser().close();
+  const disconnected = once(first.browser(), 'disconnected');
+  first.browser().process().kill('SIGKILL');
+  await disconnected;
   await first.close();
   const second = await browserForFile(); t.after(() => second.close());
   assert.equal(second.browser().connected, true);

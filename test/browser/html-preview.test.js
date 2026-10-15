@@ -1,25 +1,17 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { test } from 'node:test';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { HTML_PREVIEW_HOST_CSP, inspectHTML } from '@inspr/aithema-core';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
 // Set AITHEMA_EVIDENCE_DIR to keep screenshots of the sample click-dummy (wide light/dark, phone).
 const root = new URL('../../', import.meta.url).pathname;
 const dummy = await readFile(join(root, 'test/fixtures/click-dummy.html'), 'utf8');
-async function browserPath() {
-  for (const path of [process.env.CHROME_PATH, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'), '/opt/google/chrome/chrome',
-    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].filter(Boolean)) {
-    try { await access(path, constants.X_OK); return path; } catch { /* Try the next installed browser. */ }
-  }
-  throw new Error('No Chrome or Chromium found. Set CHROME_PATH to its executable.');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 const declaration = `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_HOST_CSP}">`;
 const host = `<!doctype html><html><head><meta charset="utf-8"><title>Host</title>
 ${declaration}

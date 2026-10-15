@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { listen } from '../../packages/server/src/http.js';
 import { adminFixture } from '../fixtures/admin-host.js';
 import { ADMIN_LAUNCH_TIMEOUT, ADMIN_STEP_TIMEOUT, adminSteps } from './admin-steps.js';

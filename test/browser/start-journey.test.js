@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { access, mkdir, mkdtemp } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import { join } from 'node:path';
+import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 
-async function browserPath() {
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'chromium', 'chromium-browser'].map(name => join(dir, name))) ];
-  for (const path of candidates) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
-  throw new Error('No browser available on the remote test runner');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 async function setup(t, settings = {}, server = '../../demo/server.js') {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-journey-'));
   const demo = await startChild(new URL(server, import.meta.url), join(directory, 'session.sqlite'), settings);

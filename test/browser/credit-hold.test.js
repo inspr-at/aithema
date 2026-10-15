@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
