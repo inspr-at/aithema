@@ -7,30 +7,17 @@ import { mockConsent } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import puppeteer from 'puppeteer-core';
+import puppeteer from './launch.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { AI_NOTICE } from '../../packages/core/src/ai-notice.js';
 
 const waitTimeout = 45_000;
-async function browserPath() {
-  const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'), '/opt/google/chrome/chrome',
-    ...(process.env.PATH ?? '').split(delimiter).flatMap(dir => ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].map(name => join(dir, name)))
-      .filter(path => path !== '/snap/bin/chromium'),
-    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium',
-  ];
-  for (const path of new Set(candidates)) {
-    try { await access(path, constants.X_OK); return path; } catch { /* Try the next installed browser. */ }
-  }
-  throw new Error('No Chrome or Chromium found. Install a system browser or set CHROME_PATH to its executable.');
-}
+import { browserPath } from '../../scripts/install-test-browser.js';
 // The default demo (no AITHEMA_PROVIDER): mock reasoning with the labelled demo host ports.
 async function startDemo(directory, env = {}) {
   const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
