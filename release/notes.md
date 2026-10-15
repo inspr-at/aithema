@@ -30,7 +30,10 @@ All packages use the version in the title. The publishable set is
 `@inspr/aithema-plugin-{openrouter,mistral,device,elevenlabs,openai-images,claude-html,codex-imagegen,extract-text,extract-pdf,extract-ooxml,mail-smtp,zitadel-oidc}`.
 The root workspace stays private; fake voice fixtures and parked
 composed-voice/Voxtral sources have no publishable package and are retained only
-in the source/workspace archive. No provider credentials are bundled.
+in the source/workspace archive. The unexported ElevenLabs composed STT/TTS
+proof (`components.js`) shares that source-only boundary because it imports
+the unpublished composed helper; the existing ElevenLabs voice exports remain
+the package API. No provider credentials are bundled.
 
 OpenRouter and Mistral implement server text reasoning; device implements the
 browser text route. ElevenLabs supplies server and browser voice adapters behind

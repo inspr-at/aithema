@@ -8,6 +8,9 @@ export function moduleFiles(files, pkg) {
     if (!path.startsWith(prefix)) continue;
     const local = path.slice(prefix.length);
     if (folder === 'packages/server' && ['src/local-voice.js', 'src/composed-voice.js'].includes(local)) continue;
+    // Composed STT/TTS is a source-only proof, like the server coordinator above.
+    // Its unexported ElevenLabs adapter depends on the unpublished composed helper.
+    if (folder === 'plugins/elevenlabs' && local === 'src/components.js') continue;
     let content = bytes;
     if (/\.(?:js|ts)$/u.test(local)) {
       content = Buffer.from(bytes.toString().replace(/(\b(?:from\s*|import\(\s*))(['"])(\.{1,2}\/[^'"\n]+)\2/gu, (match, introducer, quote, specifier) => {
