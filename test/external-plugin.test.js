@@ -70,7 +70,10 @@ test('returning a reply stream early reports cancelled billable usage, not a fal
 
 for (const reportCost of [true, false]) test(`host configuration uses external reasoning in both lanes and settles ${reportCost ? 'actual' : 'uncertain'} costs`, async t => {
   const host = createExternalHost({ reportCost }); t.after(() => host.close());
-  const session = host.storage.create({ locale: 'en', ownerToken: testToken });
+  const created = await host.handlers.handle(ownedRequest('http://localhost/api/sessions', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale: 'en' }) }));
+  assert.equal(created.status, 201);
+  const session = await created.json();
   const request = (action = '', body) => host.handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}${action ? '/' + action : ''}`,
     body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {}));
   const initial = await request().then(r => r.json());
