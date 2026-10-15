@@ -76,7 +76,8 @@ single archive packer and does not yet contain `release/lib/modules.mjs`.
 occurrence count and reason. `scripts/check-ci-env.mjs` parses every test/helper
 under packages, plugins, test and demo/test. New variables, new occurrences,
 computed reads, process aliases, and whole-environment forwarding require an
-explicit declaration; removed reads must remove stale declarations. The rendered
+explicit declaration; computed reads also pin the containing statement so a changed
+forwarding key list fails. Removed reads must remove stale declarations. The rendered
 inventory below is also compared by the unit test. Declarations describe intent,
 not environment values. Tests must not silently change coverage because an
 undeclared CI variable happens to exist.
@@ -117,6 +118,6 @@ they are not test coverage switches.
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/live/soak.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/release-prep.test.js` | `GITHUB_RUN_ID` ×1 | Evidence/source provenance; release test matches the run identifier |
-| `test/soak/unit-worker.test.js` | `process.env[key]` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
-| `test/soak/uploads.test.js` | `process.env[key]` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
+| `test/soak/unit-worker.test.js` | `process.env[key]` ×2 | Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned |
+| `test/soak/uploads.test.js` | `process.env[key]` ×2 | Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned |
 | `test/unit-timeout.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |

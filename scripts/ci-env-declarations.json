@@ -174,14 +174,22 @@
       "process.env[key]",
       "process.env[key]"
     ],
-    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+    "reason": "Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned",
+    "computedContexts": [
+      "childEnv = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR', 'npm_config_cache', 'NPM_CONFIG_CACHE'] .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))",
+      "childEnv = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR', 'npm_config_cache', 'NPM_CONFIG_CACHE'] .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))"
+    ]
   },
   "test/soak/uploads.test.js": {
     "reads": [
       "process.env[key]",
       "process.env[key]"
     ],
-    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+    "reason": "Intentional soak child-process forwarding of CI; containing key-list declaration and occurrence count pinned",
+    "computedContexts": [
+      "env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR'] .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))",
+      "env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR'] .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))"
+    ]
   },
   "test/unit-timeout.test.js": {
     "reads": [

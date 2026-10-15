@@ -59,6 +59,21 @@ export function ciEnvReads(ast) {
   }
   visit(ast); return reads.sort();
 }
+// Pin the containing statement for computed reads: changing a forwarding key list
+// must not slip through merely because process.env[key] still appears twice.
+export function computedCiEnvContexts(ast) {
+  const contexts = [];
+  function visit(node) {
+    if (ts.isElementAccessExpression(node) && property(node) === undefined && access(node.expression) &&
+      property(node.expression) === 'env' && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'process') {
+      let context = node;
+      while (context.parent && !ts.isVariableDeclaration(context) && !ts.isStatement(context)) context = context.parent;
+      contexts.push(context.getText(ast).replace(/\s+/gu, ' '));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast); return contexts.sort();
+}
 export function renderCiEnvTable(declarations) {
   return ['| Test or helper | Ambient reads / forwarding (occurrences) | Deliberate purpose |', '| --- | --- | --- |',
     ...Object.entries(declarations).sort(([a], [b]) => a.localeCompare(b)).map(([path, { reads, reason }]) => {
@@ -72,11 +87,13 @@ export function checkCiEnv(root, declarations) {
   const files = sourceFiles(root, ['packages', 'plugins', 'test', 'demo/test']).filter(path => /(?:^|\/)(?:test|tests)(?:\/|$)/u.test(path));
   for (const file of files) {
     const path = relative(root, file).split(sep).join('/');
-    const reads = ciEnvReads(parseSource(path, readFileSync(file, 'utf8')));
+    const ast = parseSource(path, readFileSync(file, 'utf8'));
+    const reads = ciEnvReads(ast), computedContexts = computedCiEnvContexts(ast);
     if (reads.length || declarations[path]) {
       seen.add(path);
       const declaration = declarations[path];
-      if (!declaration?.reason || JSON.stringify(reads) !== JSON.stringify([...declaration.reads].sort())) errors.push(`${path}: undeclared or changed ambient CI reads: ${JSON.stringify(reads)}`);
+      if (!declaration?.reason || JSON.stringify(reads) !== JSON.stringify([...declaration.reads].sort()) ||
+        JSON.stringify(computedContexts) !== JSON.stringify([...(declaration.computedContexts ?? [])].sort())) errors.push(`${path}: undeclared or changed ambient CI reads: ${JSON.stringify(reads)}`);
     }
   }
   for (const path of Object.keys(declarations)) if (!seen.has(path)) errors.push(`${path}: stale CI environment declaration`);

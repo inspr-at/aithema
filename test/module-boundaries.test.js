@@ -45,6 +45,12 @@ test('CI declarations reject new variables, added reads, indirect aliases and st
     // Equivalent direct global access still needs only the declared CI entry.
     assert.equal(checkCiEnv(dir, declared).length, source.startsWith('globalThis') ? 0 : 1, source);
   }
+  const computed = { 'test/fixture.js': { reads: ['process.env[key]'], reason: 'Explicit forwarding',
+    computedContexts: ["child = ['CI'].map(key => process.env[key])"] } };
+  writeFileSync(file, "const child = ['CI'].map(key => process.env[key]);");
+  assert.deepEqual(checkCiEnv(dir, computed), []);
+  writeFileSync(file, "const child = ['CI', 'GITHUB_ACTIONS'].map(key => process.env[key]);");
+  assert.equal(checkCiEnv(dir, computed).length, 1, 'changing the computed key list needs a declaration');
   writeFileSync(file, '');
   assert.equal(checkCiEnv(dir, declared).length, 1);
   assert.equal(checkCiEnv(dir, { 'test/removed.js': { reads: ['CI'], reason: 'Removed fixture' } }).length, 1);
