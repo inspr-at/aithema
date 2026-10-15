@@ -73,8 +73,9 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       if (paintAttempts) {
         // Chromium can return a stale masked pane after resize/entry even when
         // DOM geometry is ready. Repaint the fixture's scroll origin explicitly.
-        await shadow(page, c => { const pane = c.shadowRoot.querySelector('.transcript-shell');
-          pane.scrollTop = 1; pane.scrollTop = 0; });
+        await shadow(page, async c => { const pane = c.shadowRoot.querySelector('.transcript-shell');
+          const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          pane.scrollTop = 1; await frame(); pane.scrollTop = 0; await frame(); });
         await settle();
       }
       png = Buffer.from(await page.screenshot({ fullPage: false })); paintAttempts++;
