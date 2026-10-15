@@ -339,7 +339,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
-.export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; }
+.export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 
 /* Neutral scrollbars only during interaction. A stable gutter prevents hover from changing line wraps. */
 :is(.transcript-shell,.analysis-content):is(:hover,:focus-within,[data-scrolling]) { scrollbar-color:var(--aithema-line-strong) transparent; }
