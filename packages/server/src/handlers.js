@@ -496,7 +496,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
-        if (body.granted && body.processing && consent.describe) {
+        // The editor names withdrawal explicitly; existing host ledger updates keep their cascade.
+        if (body.intent === 'settings-save' && body.granted && body.processing && consent.describe) {
           const document = await consentDocument(authorized);
           if (document.contract === body.processing.contract && Array.isArray(body.processing.items) &&
             consentSaveEndsConversation(document, body.processing.items)) return json({ error: 'withdrawal-required' }, 409);

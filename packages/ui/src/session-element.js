@@ -710,7 +710,7 @@ export class AithemaSession extends HTMLElement {
   }
   async #saveConsent(body) {
     const sessionId = this.#session.id;
-    const response = await postJson(`${this.#base}/api/sessions/${sessionId}/consent`, body, { sessionToken: this.#sessionToken });
+    const response = await postJson(`${this.#base}/api/sessions/${sessionId}/consent`, { ...body, intent: 'settings-save' }, { sessionToken: this.#sessionToken });
     if (!response.ok) throw new Error('Consent save failed');
     const ack = await response.json();
     if (sessionId !== this.#session.id || ack.granted !== body.granted) throw new Error('Consent acknowledgement missing');

@@ -144,7 +144,7 @@ test('AIT-197: real ElevenLabs plus model scopes map voice, and partial removal 
   assert.equal(matrix.best.voice.available, false); assert.equal(matrix.best.text.available, true);
   grant(['models-international', 'voice-elevenlabs']);
   const hiddenWithdrawal = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, { method: 'POST',
-    body: JSON.stringify({ granted: true, processing: { contract: doc.contract, items: ['voice-elevenlabs'] } }) }));
+    body: JSON.stringify({ granted: true, intent: 'settings-save', processing: { contract: doc.contract, items: ['voice-elevenlabs'] } }) }));
   assert.equal(hiddenWithdrawal.status, 409, 'the same server predicate requires explicit withdrawal when model consent is removed');
   assert.equal(storage.get(session.id).consentWithdrawn, false, 'the refused save has no side effects');
 });
