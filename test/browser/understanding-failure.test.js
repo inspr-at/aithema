@@ -195,3 +195,45 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
     }
   }
 });
+
+for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${kind}: recorded reaction failure keeps footer Retry, DE/EN 390/1440`, { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-reaction-retry-'));
+  const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await fixture.kill(); await rm(dir, { recursive: true, force: true }); });
+  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    await shadow(page, async (c, locale, kind) => {
+      const { createSession, inputRevision } = await import('/packages/core/src/index.js');
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = createSession({ demo: true, locale });
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
+      if (kind.endsWith('voice')) session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1,
+        state: kind === 'waiting voice' ? 'waiting' : 'active' };
+      session.transcript.push({ id: 'person', role: 'user', content: 'Wir vereinfachen die Auftragsbearbeitung.',
+        ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
+          kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) });
+      session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
+      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      window.reactionFailureCopy = copy.reasoningFailed;
+    }, locale, kind);
+    await settle(page);
+    const pending = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
+      inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden, footerHidden: c.shadowRoot.querySelector('.retry').hidden }));
+    assert.equal(pending.inlineHidden, true, `${kind} ${locale}/${width}: no false inline Retry while waiting`);
+    assert.equal(pending.footerHidden, true, `${kind} ${locale}/${width}: no footer Retry without a failure`);
+    assert.doesNotMatch(pending.notice, /couldn't be built|konnte gerade nicht erstellt/iu, `${kind}: no false failure while waiting`);
+    await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision,
+      running: [], lastFailure: { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } } }));
+    await settle(page);
+    const failed = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
+      expected: window.reactionFailureCopy, inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden,
+      footerHidden: c.shadowRoot.querySelector('.retry').hidden, footerDisabled: c.shadowRoot.querySelector('.retry').disabled }));
+    assert.equal(failed.notice, failed.expected, `${kind} ${locale}/${width}: recorded reaction failure notice`);
+    assert.equal(failed.inlineHidden, true, `${kind} ${locale}/${width}: reaction failure uses footer Retry`);
+    assert.equal(failed.footerHidden, false, `${kind} ${locale}/${width}: recorded reaction failure keeps footer Retry`);
+    assert.equal(failed.footerDisabled, false, `${kind} ${locale}/${width}: footer Retry is enabled`);
+  }
+});
