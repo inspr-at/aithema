@@ -1219,7 +1219,7 @@ for (const copy of [de, en]) test(`AIT-184: genuine denial stops polling but a l
   assert.equal(reads(), recoveredReads, 'successful recovery also leaves polling stopped');
 });
 
-for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 F2: ledger-only settlement survives voice outage; newer call fenced (${copy === de ? 'de' : 'en'}, restart ${restart})`, async t => {
+for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 F2: ledger-only settlement survives voice outage; newer call fenced (${copy === de ? 'de' : 'en'}, restart ${restart})`, { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const { voiceEvents } = await import('../../core/src/live-voice.js');
   const read = Promise.withResolvers(), started = Promise.withResolvers();
@@ -1239,7 +1239,8 @@ for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 
     } } });
   t.after(() => read.resolve());
   await tick(8); root.querySelector('.voice-start').click(); await tick(8);
-  reconciling = true; root.querySelector('.voice-close').click(); await tick(8);
+  reconciling = true; t.mock.timers.tick(15_001); await tick(8);
+  root.querySelector('.voice-close').click(); await tick(8);
   t.mock.timers.tick(15_001); await tick(8);
   assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
   reconciling = false; delay = true; t.mock.timers.tick(15_001); await started.promise;
