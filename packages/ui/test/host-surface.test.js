@@ -10,11 +10,7 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 const window = new Window({ url: 'http://localhost/' });
 // Dispose pending DOM tasks after all component assertions, as in session-element.test.js.
-test.after(async () => {
-  console.error('AIT-192 host-surface before DOM close', process.getActiveResourcesInfo());
-  await window.happyDOM.close();
-  console.error('AIT-192 host-surface after DOM close', process.getActiveResourcesInfo());
-});
+test.after(async () => window.happyDOM.close());
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
@@ -37,7 +33,8 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     const path = String(url).replace(`/api/sessions/${c.session.id}`, '').replace(/^\/api/u, ''), method = options.method ?? 'GET';
     const body = options.body ? JSON.parse(options.body) : undefined;
-    if (path === '/events') return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    if (path === '/events') return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
+      else options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     calls.push({ method, path, body });
     const key = `${method} ${path.split('?')[0]}`;
     if (routes[key]) return routes[key](body, path);
@@ -47,7 +44,13 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
     if (key === 'GET /library') return Response.json({ items: [], total: 0, offset: 0, limit: 100 });
     return Response.json(c.session);
   });
-  c.configure({ copy, session, host, voiceClient }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, session, host, voiceClient }); document.body.append(c);
+  t.after(async () => {
+    c.remove();
+    // Disconnect starts async voice/host cleanup. Drain those continuations while
+    // this test's fetch/timer mocks still own them, before the next fixture starts.
+    await tick(12);
+  });
   return { c, root: c.shadowRoot, calls };
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
@@ -374,7 +377,8 @@ test('library: New and Reset hand the conversation to the host; without a handle
   assert.equal(calls.find(call => call.method === 'POST' && call.path === '/library').body.locale, 'en');
   // Reset asks first, with its own wording, then posts for the current conversation.
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
-    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { if (options.signal?.aborted) controller.close();
+      else options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     if (String(url) === `/api/library/${created.id}/reset`) return Response.json({ ...entry(replacement.id, '', '2026-10-10T11:00:00Z'), session: replacement }, { status: 201 });
     if (String(url).startsWith('/api/library')) return Response.json({ items: [], total: 0 });
     return Response.json({ balance, limitSlot: null, handover: null, offer: null });
