@@ -19,11 +19,11 @@ export const manifest = deepFreeze({ ...base, entrypoints: { server: './index.js
 export function createExternalReasoning({ binding, reportCost = true, available = true } = {}) {
   binding = createBinding(binding);
   if (binding.plugin !== manifest.id || binding.model !== manifest.models[0].id) throw new TypeError('Unsupported external model binding');
-  async function run(request, options, output) {
+  async function run(options, output) {
     const scope = operationScope(options); let invocation, completed = false;
     try {
-      scope.signal.throwIfAborted();
       invocation = await beginInvocation({ ...options, signal: scope.signal }, { authoritativeCost: true });
+      scope.signal.throwIfAborted();
       invocation.dispatch();
       // Only answer content is returned. Provider thinking never becomes a reply.
       const result = output();
@@ -41,11 +41,20 @@ export function createExternalReasoning({ binding, reportCost = true, available 
       finally { scope.dispose(); }
     },
     async *stream(request, options) {
-      yield await run(request, options, () => request.schema
-        ? JSON.stringify({ content: reply, question_short: null, options: [], ...(request.purposePolicy ? { scope: 'in' } : {}) }) : reply);
+      const scope = operationScope(options); let invocation, completed = false;
+      try {
+        invocation = await beginInvocation({ ...options, signal: scope.signal }, { authoritativeCost: true });
+        scope.signal.throwIfAborted(); invocation.dispatch();
+        invocation.usage(usage); if (reportCost) invocation.cost(chargedMicro);
+        invocation.servedModel(binding.model);
+        yield request.schema ? JSON.stringify({ content: reply, question_short: null, options: [],
+          ...(request.purposePolicy ? { scope: 'in' } : {}) }) : reply;
+        scope.signal.throwIfAborted(); completed = true;
+      } catch (error) { throw normalizedError(error, scope.signal); }
+      finally { scope.dispose(); await invocation?.finish(completed); }
     },
     async structured(request, options) {
-      return run(request, options, () => {
+      return run(options, () => {
         const result = { summary, signals: [], openQuestions: ['What outcome matters most?'],
           constraints: Object.fromEntries(Object.keys(request.schema.properties.constraints.properties).map(slot => [slot, null])),
           progress: { talk: { value: 0.25, reasoning: 'External fixture assessment' },

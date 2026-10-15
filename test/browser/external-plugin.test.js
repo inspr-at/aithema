@@ -17,13 +17,12 @@ async function browserPath() {
 }
 test('AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration', { timeout: 90_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-external-browser-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  let browser;
   const host = await startChild(new URL('../fixtures/external-plugin-server.js', import.meta.url), join(directory, 'session.sqlite'));
-  t.after(() => host.kill());
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+  t.after(async () => { try { await browser?.close(); } finally { await host.kill(); await rm(directory, { recursive: true, force: true }); } });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(() => browser.close());
   const page = await browser.newPage(), problems = [], externalRequests = [];
   page.setDefaultTimeout(30_000); await page.setViewport({ width: 1440, height: 1100 });
   page.on('pageerror', e => problems.push(e.message));
