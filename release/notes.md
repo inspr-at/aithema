@@ -23,6 +23,25 @@ byte. Candidate install, locked reinstall and retained-digest rollback are
 exercised outside the workspace. Tag-only attestation is wired for a later
 authorized tag; the local candidate has digest evidence, not a Sigstore signature.
 
+## Overnight changes included in this freeze
+
+- **AIT-218 (security):** simulator identity is private and bound to frozen
+  implementations. Copied or mutated providers cannot use mock consent to
+  dispatch real processing.
+- **AIT-212:** reconnect and restart preserve paid-lane failure state without
+  silently rerunning work. Explicit Retry handles both failed lanes in order;
+  the remaining failure stays visible, with distinct reply-pending and overview
+  states in German and English.
+- **AIT-201:** shipped server diagnostics count admitted lane starts and terminal
+  outcomes from the existing budget ledger. The lane-race kit qualifies these
+  paths in repository tests; it is not an installable runtime feature.
+- **AIT-209 (qualification only):** the repository browser launcher has a bounded
+  launch timeout and one launch-only retry. The test launcher is excluded from
+  module and workspace tarballs; this does not change consumer runtime behavior.
+
+Round 6 also rejects packed imports of source-only siblings and preserves START2
+host defaults when options are explicitly null or undefined.
+
 ## Modules, host ports and presets
 
 All packages use the version in the title. The publishable set is

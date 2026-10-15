@@ -42,7 +42,8 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
       const source = readFileSync(join(unpacked, path), 'utf8');
       for (const [, , specifier] of source.matchAll(/\b(?:from\s*|import\s*(?:\(\s*)?)(['"`])(\.{1,2}\/[^'"`\n]+)\1/gu)) {
         const target = posix.normalize(posix.join(posix.dirname(path), specifier));
-        assert.ok(members.has(target), `${artifact.name}: ${path} imports absent ${target}`);
+        const declaration = path.endsWith('.d.ts') && members.has(target.replace(/\.js$/u, '.d.ts'));
+        assert.ok(members.has(target) || declaration, `${artifact.name}: ${path} imports absent ${target}`);
       }
       assert.doesNotMatch(source, /@inspr\/aithema-plugin-elevenlabs\/(?:src\/)?components(?:\.js)?/u);
     }
@@ -118,7 +119,6 @@ test('server release metadata imports with only its own package present', () => 
     "import { releaseInfo } from './src/release-info.js'; console.log(JSON.stringify(releaseInfo));"], { cwd: fixture, encoding: 'utf8', stdio: 'pipe' });
   assert.equal(JSON.parse(output).version, JSON.parse(readFileSync(join(fixture, 'package.json'))).version);
 });
-
 
 test('module packer refuses same-package imports of every excluded source file', () => {
   for (const [folder, excluded] of [
