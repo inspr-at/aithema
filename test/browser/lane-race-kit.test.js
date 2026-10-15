@@ -37,7 +37,7 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
     const state = await shadow(page, c => {
       const r = c.shadowRoot;
       return { retries: [...r.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
-        notice: r.querySelector('.notice').textContent, summary: r.querySelector('.summary-text').textContent };
+        notice: r.querySelector('.notice').textContent, summary: r.querySelector('.summary-text').textContent, renderedSession: c.session };
     });
     const failureLane = result.session.operations.lastFailure?.lane;
     if (['reaction', 'understanding'].includes(failureLane)) {
