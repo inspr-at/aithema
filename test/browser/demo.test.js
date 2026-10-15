@@ -1568,10 +1568,22 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     sameRow(phonePending, await rowBoxes(page, phoneNew), 'pending → accepted at 400 px');
     await page.mouse.move(0, 0); await shot(page, 'de-light-400-accepted');
     // Withdrawing the accepted file at 400 px, pointer resting on the button and the keyboard pressing it.
+    await inShadow(page, (c, selector) => {
+      const root = c.shadowRoot, shell = root.querySelector('.transcript-shell'), row = root.querySelector(selector);
+      window.ait188Trace = [];
+      const capture = label => window.ait188Trace.push({ label, top:row.getBoundingClientRect().top,
+        scroll:shell.scrollTop, page:scrollY, hit:window.ait188Pointer && root.elementFromPoint(...window.ait188Pointer)?.className,
+        active:root.activeElement?.className, notice:root.querySelector('.voice-notices').getBoundingClientRect().height });
+      document.addEventListener('pointermove', event => { window.ait188Pointer = [event.clientX,event.clientY]; }, { capture:true });
+      const scroll = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+      Object.defineProperty(shell, 'scrollTop', { get() { return scroll.get.call(this); }, set(value) { capture(`scrollTop=${value} ${new Error().stack}`); scroll.set.call(this,value); } });
+      const receive = c.receive.bind(c); c.receive = event => { capture(`before ${event.type}`); const result = receive(event); capture(`after ${event.type}`); return result; };
+    }, phoneNew);
     const phoneAccepted = await restOnRow(page, phoneNew, '.upload-withdraw');
     await inShadow(page, (c, selector) => c.shadowRoot.querySelector(`${selector} .upload-withdraw`).focus({ preventScroll: true }), phoneNew);
     await page.keyboard.press('Enter');
     await until(page, selector => document.querySelector('aithema-session').shadowRoot.querySelector(selector).dataset.state === 'withdrawn', phoneNew);
+    t.diagnostic(JSON.stringify(await page.evaluate(() => window.ait188Trace)));
     sameRow(phoneAccepted, await rowBoxes(page, phoneNew), 'accepted → withdrawn at 400 px');
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.dataset.state), 'withdrawn', 'accepted → withdrawn at 400 px: focus stays on the row');
     // The longest German state wraps at 400 px; pending → unreadable → withdrawn under the pointer keeps the row's height.
