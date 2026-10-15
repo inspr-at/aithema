@@ -9,7 +9,7 @@ import { pausedOverview } from '../fixtures/pause-overview.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
-async function fixture(t) {
+async function fixture(t, touch = true) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-tick-followups-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -18,6 +18,8 @@ async function fixture(t) {
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage();
+  page.phoneTouch = touch;
+  await page.setViewport({ width: 800, height: 600, hasTouch: touch });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -423,7 +425,7 @@ test('AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390
 });
 
 test('AIT-188 r3 keyboard: fine-pointer desktop resize keeps footer', async t => {
-  const page = await fixture(t); page.phoneTouch = false;
+  const page = await fixture(t, false);
   await voiceScene(page, 'en', 'light', 500);
   assert.equal(await page.evaluate(() => matchMedia('(pointer:fine)').matches && navigator.maxTouchPoints === 0), true);
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
