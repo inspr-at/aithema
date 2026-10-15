@@ -42,7 +42,9 @@ registry and confirming scope ownership. This fits the existing public package
 names, public AGPL source and ordinary npm consumers such as START, and supports
 npm's provenance/trusted publishing path. GitHub Packages remains an alternative
 if the owner prefers repository-scoped distribution; it adds consumer registry
-configuration/authentication and requires confirming scope/name compatibility.
+configuration/authentication. Its scope must match the package owner: distribution
+from `inspr-at` would require `@inspr-at` names (or an owner arrangement for
+`@inspr`), so it cannot silently substitute for the proposed npm namespace.
 No registry URL is hardwired into `publishConfig`, and no publishing command or
 credential is added to the workflow.
 
