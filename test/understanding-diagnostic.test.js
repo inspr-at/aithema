@@ -10,6 +10,7 @@ const assessment = { summary: 'Private model assessment', signals: [], openQuest
   progress: { talk: { value: 0.2, reasoning: 'Private reason' }, build: { value: 0, reasoning: 'Private reason' } },
   actor: null, engagement: null, conceptIntent: null };
 const config = { PATH: process.env.PATH, OPENROUTER_API_KEY: 'fixture-not-a-key',
+  OPENROUTER_ANALYSIS_EFFORT: 'low',
   OPENROUTER_MODEL: 'anthropic/fixture', AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":1e-6,"completion":2e-6}}' };
 function stub({ capped = false, rejection = null } = {}) {
   return `
