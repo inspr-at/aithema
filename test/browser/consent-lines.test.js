@@ -371,15 +371,18 @@ for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AI
   for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     const page = await fixture(t, true, true);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
-    await shadow(page, async (c, { locale, project }) => {
-      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const session = await fetch('/fixture/pause', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: c.session.id, locale, project }) }).then(r => r.json());
-      c.configure({ session, copy, host: { library: true } }); document.documentElement.lang = locale;
-      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
-      for (const [selector, text] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) {
-        const node = document.querySelector(selector); if (node) node.textContent = text;
-      }
+    await page.evaluate(async ({ locale, project }) => {
+      const { localeKey } = await import('/demo/page-preferences.js');
+      // Reload the real host with a different next-conversation preference:
+      // a paused conversation keeps its own screen language and host controls.
+      localStorage.setItem(localeKey, locale === 'de' ? 'en' : 'de');
+      const response = await fetch('/fixture/pause', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: document.querySelector('aithema-session').session.id, locale, project }) });
+      if (!response.ok) throw new Error('Pause fixture failed');
     }, { locale, project });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await until(page, locale => document.querySelector('aithema-session')?.session?.pauseReason === 'purpose'
+      && document.documentElement.lang === locale, locale);
     const header = await pauseHeader(page, locale);
     await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
     const before = await boxes(page, geometry);
