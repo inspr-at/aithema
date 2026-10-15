@@ -36,7 +36,7 @@ export const questionCardStyles = `
   box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 28%,transparent); }
 .qcard:not([hidden]) + .composer, .qcard:not([hidden]) + .composer-shell, .qcard:not([hidden]) + .composer-shell :is(.composer,.composer-out) { border-radius:0 0 18px 18px; }
 .qtext { margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
-.qopts { display:grid; align-content:start; min-height:0; gap:2px; margin-top:2px; overflow-y:auto; overscroll-behavior:contain;
+.qopts { display:grid; grid-auto-rows:max-content; align-content:start; min-height:0; gap:2px; margin-top:2px; overflow-y:auto; overscroll-behavior:contain;
   scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent; }
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }

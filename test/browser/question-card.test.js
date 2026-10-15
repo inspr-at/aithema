@@ -225,6 +225,10 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
           const shell = r.querySelector('.transcript-shell').getBoundingClientRect(), b = card.getBoundingClientRect();
           return { height: b.height, viewport: innerHeight, top: b.top, bubbleBottom: bubble.bottom, shellBottom: shell.bottom, shellTop: shell.top,
             scrollTop: r.querySelector('.transcript-shell').scrollTop, scrollHeight: r.querySelector('.transcript-shell').scrollHeight, clientHeight: r.querySelector('.transcript-shell').clientHeight,
+            textContained: [...opts.children].every(row => {
+              const b = row.getBoundingClientRect(), text = row.querySelector('.t').getBoundingClientRect();
+              return b.height >= 44 && text.top >= b.top - 1 && text.bottom <= b.bottom + 1;
+            }),
             overflow: opts.scrollHeight > opts.clientHeight, role: opts.getAttribute('role'),
             name: r.querySelector(`#${opts.getAttribute('aria-labelledby')}`)?.textContent };
         });
@@ -233,6 +237,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         assert.ok(bounded.shellBottom <= bounded.top, 'AIT-225: the transcript viewport ends above the card');
         assert.ok(bounded.bubbleBottom > bounded.shellTop + 26, 'AIT-225: the latest reply is visible inside the transcript viewport');
         if (width <= 600) assert.equal(bounded.overflow, true, `the options scroll inside the capped phone card: ${JSON.stringify(bounded)}`);
+        assert.equal(bounded.textContained, true, 'long answer text stays inside its own 44px-or-taller row');
         assert.equal(bounded.role, 'region'); assert.ok(bounded.name, 'the options scroll region has an accessible name');
         await shot('bounded-options');
         const answerBoxes = await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']);
