@@ -109,6 +109,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           globalThis.showQuestion = patch => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
             id: `question-${c.session.seq}`, role: 'assistant', inputRevision: inputRevision(c.session), ...globalThis.qcardReply, ...patch,
           } });
+          // configure() seeds the component directly; notify the real host too
+          // so slotted account/legal copy uses this scene's language.
+          c.dispatchEvent(new CustomEvent('aithema-locale'));
           // Pin the existing Chrome baseline stack for every scene and capture.
           document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
           c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
@@ -117,6 +120,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         }, locale);
         await page.mouse.move(0, 0); await nextFrame(page);
         await page.evaluate(() => document.fonts.ready);
+        assert.equal(await page.$eval('#demo-account-label', n => n.textContent), locale === 'de' ? 'Konto (Demo)' : 'Account (demo)', 'the host slots use the conversation language');
         const baseline = await boxes(page);
         await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
         assert.equal(await shown(page), false, 'a question without answers has no card'); still(baseline, await boxes(page), 'no options');
