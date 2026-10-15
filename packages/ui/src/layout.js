@@ -158,7 +158,7 @@ export class PhoneComposerViewport {
       const editing = root.activeElement?.matches('textarea,input,[contenteditable="true"]');
       workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && editing && this.fullHeight - height >= 150));
       const values = {
-        '--phone-height': height,
+        '--phone-height': height + (viewport?.offsetTop ?? 0),
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
         '--phone-band': root.querySelector('.band').getBoundingClientRect().height,
         '--phone-footer': root.querySelector('.display-foot').getBoundingClientRect().height,
