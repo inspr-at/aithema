@@ -17,6 +17,9 @@ const age = (storage, id, at = 1) => storage.db.prepare('UPDATE session_retentio
 
 test('retire erases whole sessions, calls the host, bounds batches and is idempotent', async t => {
   const { storage, handlers, erased } = fixture(t);
+  // AIT-212 schema, also exercised before its mainline merge lands.
+  storage.db.exec(`CREATE TABLE IF NOT EXISTS lane_failures (session_id TEXT NOT NULL REFERENCES sessions(id),
+    lane TEXT NOT NULL CHECK(lane IN ('reaction','understanding')), failure TEXT NOT NULL, PRIMARY KEY(session_id,lane))`);
   const ids = Array.from({ length: 3 }, () => storage.create({ ownerToken: testToken }).id);
   for (const id of ids) {
     storage.postTurn(id, 'one', Buffer.from('one'), 'private input');
@@ -27,6 +30,7 @@ test('retire erases whole sessions, calls the host, bounds batches and is idempo
     storage.db.prepare('INSERT INTO voice_calls VALUES (?,?,?,?)').run(`voice-${id}`, 'call', id, '{}');
     storage.db.prepare('INSERT INTO voice_lifecycle_calls VALUES (?,?,?)').run(id, 'call', '{}');
     storage.db.prepare('INSERT INTO voice_turn_operations VALUES (?,?,?,?,?)').run(`op-${id}`, id, 'call', 'provider', '{}');
+    storage.db.prepare('INSERT INTO lane_failures(session_id,lane,failure) VALUES (?,?,?)').run(id, 'reaction', '{}');
     age(storage, id);
   }
   assert.deepEqual(await handlers.retire({ before: 2, limit: 2 }), { retired: 2, failed: 0, more: true });
@@ -37,6 +41,7 @@ test('retire erases whole sessions, calls the host, bounds batches and is idempo
       assert.equal(storage.db.prepare(`SELECT COUNT(*) AS n FROM "${name}"`).get().n, 0, name);
     }
   }
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM lane_failures').get().n, 0, 'lane_failures rows are gone after retirement');
   assert.deepEqual(storage.list(), []);
   assert.equal(erased.length, 3);
   assert.ok(erased.every(info => info.ownerToken === undefined && /^[a-f0-9]{64}$/.test(info.ownerHash) && ids.includes(info.sessionId)));
