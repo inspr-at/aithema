@@ -153,8 +153,8 @@ export class PhoneComposerViewport {
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
       const touch = view?.matchMedia('(pointer:coarse)').matches || view?.navigator.maxTouchPoints > 0;
-      const editing = root.activeElement?.matches('textarea,input,[contenteditable="true"]') ||
-        root.activeElement?.closest('.composer');
+      const active = root.ownerDocument.activeElement === root.host ? root.activeElement : null;
+      const editing = active?.matches('textarea,input,[contenteditable="true"]') || active?.closest('.composer');
       const width = view?.innerWidth, orientation = view?.screen.orientation?.angle;
       if (width !== this.viewportWidth || orientation !== this.viewportOrientation || !editing) {
         this.fullHeight = Math.max(view?.innerHeight ?? height, height);
@@ -176,10 +176,11 @@ export class PhoneComposerViewport {
       }
     };
     // focusout fires before activeElement changes; settle it in this frame.
-    this.focusOut = () => queueMicrotask(this.paint);
+    this.focusOut = () => queueMicrotask(() => { if (this.connected) this.paint(); });
     this.connect();
   }
   connect() {
+    this.connected = true;
     this.root.addEventListener('focusin', this.paint);
     this.root.addEventListener('focusout', this.focusOut);
     this.view?.addEventListener('resize', this.paint);
@@ -229,6 +230,7 @@ export class PhoneComposerViewport {
     this.paint();
   }
   destroy() {
+    this.connected = false;
     this.root.removeEventListener('focusin', this.paint);
     this.root.removeEventListener('focusout', this.focusOut);
     this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
