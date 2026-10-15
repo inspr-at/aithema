@@ -1021,7 +1021,7 @@ export class AithemaSession extends HTMLElement {
     const overviewFailed = failures.some(f => f.lane === 'understanding');
     let replyNotice = root.querySelector('.reaction-failure');
     if (!replyNotice) {
-      replyNotice = node('p', 'notice reaction-failure'); replyNotice.setAttribute('role', 'status');
+      replyNotice = node('p', 'reaction-failure'); replyNotice.setAttribute('role', 'status');
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
     replyNotice.hidden = !replyFailed; setText(replyNotice, replyFailed ? copy.reasoningFailed : '');
