@@ -83,7 +83,7 @@ test('AIT-193: an identity response after disconnect cannot restart countdown or
   c.remove();
   const before = intervals.mock.callCount(), polls = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
   reply.resolve(Response.json({ identity: pending({ pollVerification: true }) })); await tick(8);
-  assert.equal(intervals.mock.callCount(), before, 'late response leaves countdown stopped');
+  assert.equal(intervals.mock.callCount(), before, `late response leaves countdown stopped\n${intervals.mock.calls.slice(before).map(call => call.stack.stack).join('\n')}`);
   assert.equal(timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length, polls, 'late response leaves polling stopped');
   document.body.append(c); await tick(8);
   assert.equal(intervals.mock.callCount(), before + 1, 'reconnect resumes the updated countdown once');
