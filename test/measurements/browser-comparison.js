@@ -118,4 +118,9 @@ export async function compareBrowsers(t, files = batch) {
   for (const pattern of families) {
     assert.ok(comparisons.some(row => pattern.test(row.file)), `comparison sample includes ${pattern}`);
   }
+  // A missing masked transcript is a rendering failure, not gradient dithering.
+  // Keep the raw metrics and fail the measured comparison for that regression.
+  for (const row of comparisons.filter(row => row.file.startsWith('ait155-band-'))) {
+    assert.ok(row.sameSize && row.above8Pct < 1, `${row.file}: ${row.above8Pct}% of pixels differ by >8`);
+  }
 }

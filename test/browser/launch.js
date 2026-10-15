@@ -9,7 +9,9 @@ export default {
     const watch = watchMemoryGuard();
     const browser = await puppeteer.launch({ ...options,
       executablePath: options.executablePath ?? await browserPath(),
-      args: [...(options.args ?? []), ...crashReportingArgs],
+      // The macOS shell's software compositor can omit masked scroll-pane
+      // paint until a scroll. Match full Chrome's GPU compositing there.
+      args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
     });
     const child = browser.process();
     const run = /\/ci\.noindex\/(aithema-runs\/[^/ ]+)/u.exec(options.userDataDir ?? process.cwd())?.[1];
