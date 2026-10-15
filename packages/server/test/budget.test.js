@@ -1,10 +1,48 @@
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
+import { SQLiteStorage, SQLiteBudgetLedger, createSpendCap } from '../src/index.js';
+import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { temporaryDb } from '../../../test/helpers.js';
 const admit = (ledger, sessionId, extra = {}) => ledger.admit({ sessionId, lane: 'reaction', maxMicro: 40,
   requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
+
+for (const stream of [false, true]) for (const [name, status, payload, expected] of [
+  ['JSON rejection', 400, { error: { type: 'invalid_request_error' } }, 0],
+  ['text rejection', 422, 'Unprocessable request', 0],
+  ['server error', 503, { error: { type: 'overloaded_error' } }, 40],
+  ['unpriced usage on rejection', 400, { usage: { prompt_tokens: 1, completion_tokens: 1 } }, 40],
+  ['billed rejection', 400, { usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.000007 } }, 7],
+]) test(`AIT-198 ${stream ? 'stream' : 'structured'} ${name} settles provider ledger and account cap at ${expected}`, async t => {
+  const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const cap = createSpendCap({ storage, account: 'rejection-fixture', capMicro: 1_000_000 });
+  const attempt = admit(ledger, session.id), claim = ledger.claim(attempt.attemptId);
+  let terminal;
+  const plugin = createOpenRouterReasoning({ model: 'anthropic/fixture', prices: { 'anthropic/fixture': { prompt: 1e-6, completion: 2e-6 } },
+    spendCap: cap, resolveSecret: () => 'fake-only', fetchImpl: async () => typeof payload === 'string'
+      ? new Response(payload, { status }) : Response.json(payload, { status }) });
+  const request = { system: '', messages: [{ role: 'user', content: 'Analyze' }], schema: { type: 'object' } };
+  const options = { deadlineAt: Date.now() + 5000, attempt: claim,
+    report(value) { terminal = value; ledger.settle(claim.claimId, value); } };
+  await assert.rejects(async () => {
+    if (stream) for await (const _ of plugin.stream(request, options)) { /* consume */ }
+    else await plugin.structured(request, options);
+  });
+  const row = ledger.get(attempt.attemptId);
+  assert.equal(row.settled_micro, expected);
+  assert.equal(row.outcome, expected === 40 ? 'uncertain' : 'cancelled');
+  assert.equal(ledger.breakdown(session.id, { visitorCredits: true }).confirmedSpendMicro, expected === 40 ? 0 : expected);
+  const account = cap.snapshot();
+  assert.equal(account.reservedMicro, 0);
+  assert.equal(account.spentMicro, expected === 40 ? 0 : expected);
+  assert.equal(account.uncertainMicro > 0, expected === 40);
+  if (expected === 0) {
+    assert.deepEqual(terminal.usage, { inputTokens: 0, outputTokens: 0 });
+    assert.equal(terminal.chargedMicro, 0);
+    assert.equal(ledger.used(session.id), 0);
+  }
+});
 
 test('AIT-163 fix1: the pending receipt query uses its partial index and includes legacy rows', t => {
   const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);

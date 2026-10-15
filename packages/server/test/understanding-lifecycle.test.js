@@ -17,19 +17,26 @@ const assessment = {
   progress: { talk: { value: 0.2, reasoning: 'Erste Angaben' }, build: { value: 0, reasoning: 'Offene Details' } },
   actor: null, engagement: null, conceptIntent: null,
 };
-function fixture(t, { replyMs = 1000, analysisMs = 6000, analysisHttpError = false, analysisStatus = 400, rejectBounds = false, rejectConstrained = false, invalidAssessment = false, visitorCredits = false } = {}) {
+function fixture(t, { replyMs = 1000, analysisMs = 6000, analysisHttpError = false, analysisStatus = 400, rejectBounds = false, rejectConstrained = false, rejectAssistantFinal = false, invalidRequest = false, invalidAssessment = false, visitorCredits = false } = {}) {
   const storage = new SQLiteStorage(), calls = [], logs = [];
   const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture-understanding', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture-reply',
+    OPENROUTER_ANALYSIS_EFFORT: 'low', OPENROUTER_ANALYSIS_MAX_TOKENS: '8000',
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/fixture-understanding': { prompt: 1e-6, completion: 2e-6 },
       'anthropic/fixture-reply': { prompt: 1e-6, completion: 2e-6 } }) });
   const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
     async fetchImpl(_url, init) {
       const body = JSON.parse(init.body), call = { stream: body.stream, aborted: false, messages: body.messages, body };
       calls.push(call);
+      if (!body.stream) call.replyPublished = storage.read(session.id).some(event => event.type === 'turn.final' && event.data.role === 'assistant');
       // Keep the actual adapter invocation dispatched and unsettled for the
       // whole provider latency. Settling an instant mock before a gate hides this race.
       try { await delay(body.stream ? replyMs : analysisMs, undefined, { signal: init.signal }); }
       catch (error) { call.aborted = true; throw error; }
+      if (!body.stream && (invalidRequest || rejectAssistantFinal && body.reasoning?.effort && body.messages.at(-1).role === 'assistant')) {
+        return Response.json({ error: { code: 400, metadata: { raw: JSON.stringify({ type: 'error', error: {
+          type: 'invalid_request_error', message: 'Assistant prefill is not supported when thinking is enabled',
+        } }) } } }, { status: 400 });
+      }
       if (!body.stream && (rejectBounds && /"(?:minimum|maximum)":/u.test(JSON.stringify(body.response_format)) || rejectConstrained && body.response_format)) return Response.json({ error: { message: 'Invalid schema: minimum/maximum unsupported' } }, { status: 400 });
       if (!body.stream && analysisHttpError) return new Response('Private provider refusal', { status: analysisStatus });
       const usage = { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 };
@@ -99,17 +106,17 @@ test('AIT-198 slow provider: superseding project input never aborts already disp
 });
 
 
-test('AIT-198 unknown provider refusal remains conservative and logs its HTTP class without values', async t => {
-  const f = fixture(t, { replyMs: 5, analysisMs: 5, analysisHttpError: true });
+test('AIT-198 unknown provider 5xx remains conservative and logs its HTTP class without values', async t => {
+  const f = fixture(t, { replyMs: 5, analysisMs: 5, analysisHttpError: true, analysisStatus: 503 });
   await f.send(project); await f.handlers.idle();
   const [row] = f.rows();
-  assert.equal(f.rows().length, 1, 'a generic 400 is not a schema compatibility rejection');
+  assert.equal(f.rows().length, 1, 'a 5xx is not a schema compatibility rejection');
   assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, row.max_micro);
   assert.equal(row.usage, null, 'a provider error without a receipt gives no evidence of zero spend');
   assert.deepEqual(f.logs, [
     { event: 'understanding.started', count: 1, lane: 'understanding' },
     { event: 'understanding.uncertain', count: 1, lane: 'understanding', reason: 'provider-cost-unknown' },
-    { event: 'understanding.failed', count: 1, lane: 'understanding', reason: 'provider-4xx' },
+    { event: 'understanding.failed', count: 1, lane: 'understanding', reason: 'provider-5xx' },
   ]);
   assert.doesNotMatch(JSON.stringify(f.logs), /Private|Auftragsbearbeitung|fake-only/u);
 });
@@ -152,7 +159,8 @@ test('AIT-198 constrained understanding 400 gets exactly one freshly admitted pr
   const attempts = f.rows(), calls = f.calls.filter(c => !c.stream);
   assert.equal(attempts.length, 2);
   assert.notEqual(attempts[0].attempt_id, attempts[1].attempt_id);
-  assert.equal(attempts[0].outcome, 'uncertain', 'unknown provider spend remains conservative');
+  assert.equal(attempts[0].outcome, 'cancelled', 'the schema rejection is unbilled');
+  assert.equal(attempts[0].settled_micro, 0);
   assert.equal(attempts[1].outcome, 'completed'); assert.equal(attempts[1].settled_micro, 110);
   assert.ok(calls[0].body.response_format); assert.equal(calls[1].body.response_format, undefined);
   assert.match(calls[1].body.messages[0].content, /schema/iu);
@@ -160,7 +168,7 @@ test('AIT-198 constrained understanding 400 gets exactly one freshly admitted pr
 });
 
 for (const invalid of [false, true]) test(`AIT-198 failed understanding releases visitor credits with ${invalid ? 'actual provider spend' : 'unknown provider spend'}`, async t => {
-  const f = fixture(t, { replyMs: 1, analysisMs: 100, analysisHttpError: !invalid, invalidAssessment: invalid, visitorCredits: true });
+  const f = fixture(t, { replyMs: 1, analysisMs: 100, analysisHttpError: !invalid, analysisStatus: 503, invalidAssessment: invalid, visitorCredits: true });
   await f.send(project); await dispatched(f);
   const held = f.host.wallet(testToken).balance();
   assert.ok(held.reservedMicro > 0);
@@ -173,12 +181,39 @@ for (const invalid of [false, true]) test(`AIT-198 failed understanding releases
   assert.equal(shown.confirmedSpendMicro, 110); assert.equal(shown.uncertainSpendMicro, 0); assert.equal(shown.pendingHoldMicro, 0);
 });
 
-for (const status of [401, 402, 429]) test(`AIT-198 HTTP ${status} takes the error path without a prompt-only retry`, async t => {
-  const f = fixture(t, { replyMs: 0, analysisMs: 0, analysisHttpError: true, analysisStatus: status });
+for (const status of [400, 401, 402, 403, 422, 429]) test(`AIT-198 HTTP ${status} without usage releases the budget and takes the failed path without retry`, async t => {
+  const f = fixture(t, { replyMs: 0, analysisMs: 0, analysisHttpError: true, analysisStatus: status, visitorCredits: true });
   await f.send(project); await f.handlers.idle();
   assert.equal(f.rows().length, 1, 'auth, payment and rate-limit errors get one admission only');
   assert.equal(f.calls.filter(c => !c.stream).length, 1);
   assert.ok(f.calls.find(c => !c.stream).body.response_format);
   assert.equal(f.storage.read(f.session.id).filter(e => e.type === 'understanding.updated').length, 0);
   assert.equal(f.logs.filter(e => e.event === 'understanding.failed').length, 1);
+  assert.equal(f.rows()[0].settled_micro, 0, 'rejected requests cost neither the operator nor the visitor');
+  assert.equal(f.rows()[0].outcome, 'cancelled');
+  assert.equal(f.host.wallet(testToken).balance().committedMicro, 110, 'only the successful reply is charged');
+});
+
+test('AIT-198 unseeded reply-before-understanding succeeds with an assistant-prefill-rejecting thinking provider', async t => {
+  const f = fixture(t, { replyMs: 0, analysisMs: 0, rejectAssistantFinal: true });
+  await f.send(project); await f.handlers.idle();
+  const analysis = f.calls.filter(call => !call.stream);
+  assert.equal(analysis.length, 1);
+  assert.equal(analysis[0].replyPublished, true, 'the real purpose gate publishes the reply before dispatching understanding');
+  assert.deepEqual(analysis[0].body.reasoning, { effort: 'low' });
+  assert.equal(analysis[0].body.max_tokens, 8000);
+  assertPaidWorkCompleted(f, 1);
+  assert.equal(analysis[0].messages.at(-1).role, 'user');
+  assert.ok(analysis[0].messages.some(message => message.role === 'assistant'), 'retain the published reply as transcript evidence');
+  assert.equal(f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated').length, 1);
+  assert.equal(f.logs.filter(event => event.event === 'understanding.failed' || event.event === 'understanding.uncertain').length, 0);
+});
+
+test('AIT-198 non-schema invalid_request_error fails once without a compatibility retry', async t => {
+  const f = fixture(t, { replyMs: 0, analysisMs: 0, invalidRequest: true });
+  await f.send(project); await f.handlers.idle();
+  assert.equal(f.calls.filter(call => !call.stream).length, 1);
+  assert.equal(f.rows().length, 1);
+  assert.equal(f.storage.read(f.session.id).filter(event => event.type === 'understanding.updated').length, 0);
+  assert.ok(f.logs.some(event => event.event === 'understanding.failed' && event.reason === 'provider-4xx'));
 });

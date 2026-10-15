@@ -17,6 +17,9 @@ function stub({ capped = false, rejection = null } = {}) {
     globalThis.fetch = async (_, init) => {
       if (++calls > 5) throw new Error('Uncapped network call');
       const body = JSON.parse(init.body);
+      if (!body.stream && body.reasoning?.effort && body.messages.at(-1).role === 'assistant') return Response.json({ error: {
+        type: 'invalid_request_error', message: 'Assistant prefill is not supported when thinking is enabled',
+      } }, { status: 400 });
       if (body.stream && body.messages.at(-1).content.includes('Gemüsesuppe')) finishAnalysis?.();
       const rejection = ${JSON.stringify(rejection)};
       if (!body.stream && rejection) return new Response(rejection.body, { status: rejection.status, headers: { 'content-type': 'application/json' } });
@@ -42,6 +45,8 @@ test('AIT-198 OPS command covers both cases through real handlers within three s
   assert.deepEqual(wire.map(row => row.lane), ['reply', 'understanding', 'reply']);
   assert.ok(wire.every(row => row.http_status === 200 && row.http_status_class === '2xx' && row.usage_present && row.usage_cost_present));
   assert.ok(wire.every(row => row.request_shape.model === 'anthropic/fixture' && row.finish_reason === 'stop'));
+  assert.ok(wire.filter(row => row.lane === 'understanding').every(row => row.request_shape.roles.at(-1) === 'user' &&
+    row.request_shape.reasoning_present && row.request_shape.effort_present));
   assert.ok(wire.filter(row => row.lane === 'reply').every(row => row.stream_end.done_seen && row.stream_end.terminal_event_seen));
   assert.deepEqual(reports.map(row => row.case), ['live-sequence-de', 'in-then-off-de']);
   assert.deepEqual(reports.map(row => row.calls), [3, 3]);
@@ -71,7 +76,7 @@ for (const rejection of [
   { name: 'Anthropic rejection', status: 529, body: JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Private overloaded body' } }), code: null, type: 'overloaded_error' },
   { name: 'empty 200', status: 200, body: '', code: null, type: null },
   { name: 'valid usage without cost', status: 200, body: JSON.stringify({ usage: { prompt_tokens: 30, completion_tokens: 40 }, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }] }), code: null, type: null, usage: true },
-]) test(`AIT-198 offline ${rejection.name} maps to provider-cost-unknown through real handlers`, async () => {
+]) test(`AIT-198 offline ${rejection.name} ${rejection.status === 400 ? 'releases rejected requests' : 'keeps unknown provider cost conservative'} through real handlers`, async () => {
   await assert.rejects(promisify(execFile)(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(stub({ rejection }))}`, command, '--allow-live'],
     { timeout: 15_000, env: config }), error => {
     const rows = error.stdout.trim().split('\n').map(line => JSON.parse(line));
@@ -81,9 +86,14 @@ for (const rejection of [
       row.provider_error_type === rejection.type && row.usage_present === Boolean(rejection.usage) && !row.usage_cost_present));
     const report = rows.at(-1);
     assert.equal(report.passed, false);
-    assert.ok(report.uncertain > 0);
-    assert.equal(report.max_charged_uncertain, report.uncertain);
-    assert.ok(report.failures.some(row => row.event === 'understanding.uncertain' && row.reason === 'provider-cost-unknown'));
+    if (rejection.status === 400) {
+      assert.equal(report.uncertain, 0);
+      assert.ok(report.failures.some(row => row.event === 'understanding.failed' && row.reason === 'provider-4xx'));
+    } else {
+      assert.ok(report.uncertain > 0);
+      assert.equal(report.max_charged_uncertain, report.uncertain);
+      assert.ok(report.failures.some(row => row.event === 'understanding.uncertain' && row.reason === 'provider-cost-unknown'));
+    }
     assert.doesNotMatch(error.stdout + error.stderr, /Private|fixture-not-a-key|Auftragsbearbeitung|Gemüsesuppe/u);
     return true;
   });
