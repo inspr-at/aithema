@@ -1607,7 +1607,8 @@ export class AithemaSession extends HTMLElement {
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
-  receive(event) {
+  receive(event) { this.#anchored(() => this.#receive(event)); }
+  #receive(event) {
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.seq) {
       if (event.seq <= this.#cursor) return;
