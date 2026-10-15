@@ -39,7 +39,6 @@ export function providerRuleViolation(body, profile = 'openrouter') {
   }
   if (anthropic) {
     if (messages.some(m => !['user', 'assistant'].includes(m.role))) return 'Messages use user/assistant; system belongs outside messages';
-    if (!messages.length || messages[0].role !== 'user') return 'Conversation must start with user';
     const thinking = body.thinking?.type === 'enabled' || body.thinking?.type === 'adaptive' ||
       body.reasoning?.enabled === true || body.reasoning?.effort && body.reasoning.effort !== 'none';
     if (messages.some((m, index) => {
@@ -66,7 +65,9 @@ export function createFakeProviderKit({ profile = 'openrouter', honorAbort = tru
     let settled = false;
     const finish = (method, value) => {
       if (settled) throw new Error('Fake call already released');
-      settled = true; call.released = true; init.signal?.removeEventListener('abort', onAbort); gate[method](value);
+      settled = true; call.released = true;
+      if (method === 'resolve' && violation) call.response = value.clone();
+      init.signal?.removeEventListener('abort', onAbort); gate[method](value);
     };
     const call = { body, signal: init.signal, violation, claimed: false, released: false,
       resolve(value = body.stream ? reply : assessment, { usage = true, cost = true, costUSD = 0.00011, finishReason = 'stop' } = {}) {

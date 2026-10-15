@@ -38,7 +38,9 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
       return { retries: [...r.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
         notice: r.querySelector('.notice').textContent, summary: r.querySelector('.summary-text').textContent };
     });
-    assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
+    if (failed && ['reaction', 'understanding'].includes(order[0]))
+      assert.equal(state.retries, 1, JSON.stringify({ pair, order, failed, state }));
+    else assert.ok(state.retries <= 1, JSON.stringify({ pair, order, failed, state }));
     if (pair.includes('understanding') && !(failed && order[0] === 'understanding')) assert.equal(state.summary, 'Ein Überblick. An overview.');
     assert.doesNotMatch(state.notice, /wird erstellt|wird aktualisiert|building|updating/iu, 'no overview stays busy after work settled');
   }

@@ -66,6 +66,14 @@ test('AIT-198 reply published before analysis dispatch remains user-final under 
   const analysis = h.run('understanding'), call = await h.next('understanding');
   assert.equal(call.body.reasoning.effort, 'low');
   h.resolve(call);
+  if (call.violation !== null) {
+    assert.equal(call.violation, 'Assistant prefill is not supported when thinking is enabled');
+    assert.equal(call.response.status, 400);
+    const response = await call.response.json();
+    assert.equal(response.error.type, 'invalid_request_error');
+    assert.equal(Object.hasOwn(response, 'usage'), false, 'provider refusal has no usage');
+    console.log(`AIT-198 verified refusal: ${call.violation}; 400 invalid_request_error; no usage`);
+  }
   assert.equal(await analysis, 'completed', 'provider must accept reply-before-analysis request');
   assert.equal(call.violation, null); assert.equal(call.body.messages.at(-1).role, 'user');
   assert.equal(h.runtime.budget.outcomeCounters().understanding.completed, 1); balanced(h);
@@ -94,6 +102,7 @@ for (const lane of laneNames) for (const failure of ['400', '401', '422', '408',
 test('AIT-201 provider rules accept coalesced roles and reject only documented text request violations', async () => {
   const base = { model: 'anthropic/race', reasoning: { effort: 'low' }, messages: [{ role: 'system', content: 'System' }, { role: 'user', content: 'A' }, { role: 'user', content: 'B' }] };
   assert.equal(providerRuleViolation(base), null);
+  assert.equal(providerRuleViolation({ ...base, reasoning: { enabled: false }, messages: [{ role: 'assistant', content: 'History' }, { role: 'user', content: 'Next' }] }), null, 'no uncited first-user constraint');
   assert.equal(providerRuleViolation({ ...base, messages: [...base.messages, { role: 'assistant', content: 'Prefill' }] }), 'Assistant prefill is not supported when thinking is enabled');
   assert.equal(providerRuleViolation({ ...base, reasoning: { enabled: false }, messages: [...base.messages, { role: 'assistant', content: 'A' }, { role: 'assistant', content: 'B' }] }), null);
   for (const messages of [[], [{ role: 'wat', content: 'A' }], [{ role: 'user', content: '' }], [{ role: 'user', content: 'A' }, { role: 'system', content: 'Misplaced' }]]) {
@@ -194,3 +203,20 @@ test('AIT-201 real start2 scheduler gates thinking behind reply and clears rejec
   assert.equal(recovered.understanding.summary, 'Ein Überblick. An overview.');
   balanced(h);
 });
+
+for (const failure of ['diagnostic sink', 'counter sink']) for (const failed of [false, true]) {
+  test(`AIT-201 throwing ${failure} cannot change finish (failed=${failed})`, async t => {
+    const h = await createLaneRaceHarness(); t.after(() => h.close());
+    const admission = await h.runtime.admit({ session: h.storage.get(h.id), lane: 'understanding', operation: 'structured',
+      request: { system: 'Fixture', messages: [{ role: 'user', content: 'Fixture' }] }, options: {} });
+    await admission.options.attempt.consume();
+    admission.options.report({ attemptId: admission.options.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 } });
+    let calls = 0;
+    const throwing = () => { calls++; throw new Error('Controlled diagnostic failure'); };
+    if (failure === 'diagnostic sink') h.runtime.setLaneDiagnostic(throwing);
+    else h.runtime.budget.finishOutcome = throwing;
+    assert.doesNotThrow(() => admission.finish({ failed }));
+    assert.equal(calls, 1);
+    assert.equal(h.storage.db.prepare('SELECT state FROM budget_attempts').get().state, 'settled');
+  });
+}

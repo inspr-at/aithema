@@ -3228,7 +3228,9 @@ retry and each draft/refinement admission owns another start and terminal.
 `completed` means a valid provider attempt completed; the lane independently
 fences publication, so a paid completion kept as history or superseded before
 publication still counts as a completed attempt. Known cancelled attempts are
-classified by their supersession, pause or abort fence.
+classified by their supersession, pause or abort fence. `understanding.superseded`
+therefore counts admitted attempts cancelled by a supersession fence, rather than
+stale lane publications; the former lane-level understanding emitter is removed.
 `started = completed + superseded + deferred + aborted + uncertain + failed + inFlight`.
 Unknown dispatched billing takes precedence over cancellation/supersession;
 confirmed receipts allow the precise lifecycle outcome. Pre-dispatch pause,

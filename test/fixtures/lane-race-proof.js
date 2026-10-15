@@ -19,8 +19,8 @@ test('AIT-198 role-order mutation red → restored green', { timeout: 30_000 }, 
     await writeFile(prompt, original.slice(0, before) + original.slice(end));
     red = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, env: childEnv });
   } finally { await writeFile(prompt, original); }
-  assert.notEqual(red.status, 0); assert.match(red.stdout + red.stderr, /provider must accept|OpenRouter request failed/);
-  console.log('AIT-198 RED: user-final instruction removed; real lane rejected (400 invalid_request_error, no usage).');
+  assert.notEqual(red.status, 0); assert.match(red.stdout + red.stderr, /AIT-198 verified refusal: Assistant prefill is not supported when thinking is enabled; 400 invalid_request_error; no usage/);
+  console.log('AIT-198 RED: user-final instruction removed; Assistant prefill is not supported when thinking is enabled (400 invalid_request_error, asserted no usage).');
   const green = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, env: childEnv });
   assert.equal(green.status, 0, green.stdout + green.stderr);
   assert.equal(await readFile(prompt, 'utf8'), original);
