@@ -67,8 +67,36 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
   const shot = async (label, state) => {
     const file = `ait155-band-${label}-${state}.png`;
-    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
-    return file;
+    let png, paintAttempts = 0, firstLineInkPixels;
+    const started = Date.now();
+    do {
+      if (paintAttempts) {
+        // Chromium can return a stale masked pane after resize/entry even when
+        // DOM geometry is ready. Repaint the fixture's scroll origin explicitly.
+        await shadow(page, c => { const pane = c.shadowRoot.querySelector('.transcript-shell');
+          pane.scrollTop = 1; pane.scrollTop = 0; });
+        await settle();
+      }
+      png = Buffer.from(await page.screenshot({ fullPage: false })); paintAttempts++;
+      if (state !== 'not-scrolled') break;
+      const target = await shadow(page, c => {
+        const text = c.shadowRoot.querySelector('.turn-text'), range = document.createRange(); range.selectNodeContents(text);
+        const r = range.getClientRects()[0];
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+          ink: getComputedStyle(text).color.match(/\d+/gu).slice(0, 3).map(Number) };
+      });
+      const paint = pixels(png); firstLineInkPixels = 0;
+      for (let y = Math.max(0, Math.ceil(target.top)); y < Math.min(paint.height, target.bottom); y++) {
+        for (let x = Math.max(0, Math.ceil(target.left)); x < Math.min(paint.width, target.right); x++) {
+          const offset = (y * paint.width + x) * paint.channels;
+          if (target.ink.every((value, channel) => Math.abs(paint.result[offset + channel] - value) <= 24)) firstLineInkPixels++;
+        }
+      }
+    } while (firstLineInkPixels < 20 && Date.now() - started < 3000);
+    if (evidence) await writeFile(join(evidence, file), png);
+    if (state === 'not-scrolled') assert.ok(firstLineInkPixels >= 20, `${label}: captured actual transcript glyphs (${firstLineInkPixels})`);
+    t.diagnostic(`display paint ${label}/${state}: ${paintAttempts} capture(s), first-line ink pixels=${firstLineInkPixels ?? 'covered by band'}`);
+    return { file, paintAttempts, firstLineInkPixels };
   };
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([390, 1024, 1440], theme, 0, 'display-band')) {
     const label = `${locale}-${theme}-${width}`;
@@ -101,7 +129,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     assert.equal(samePaint(originalPaint, Buffer.from(await page.screenshot({ clip }))), true, `${label}: scroll-zero matches main's AIT-131 gradient`);
     assert.deepEqual(await boxes(page, selectors), baseline, `${label}: approved scroll-zero geometry`);
     await shadow(page, c => c.shadowRoot.querySelector('.band').style.removeProperty('background'));
-    passLines.push({ head: evidenceCommit, locale, theme, width, state: 'not-scrolled', displacementPx: 0, pass: true, file: await shot(label, 'not-scrolled') });
+    passLines.push({ head: evidenceCommit, locale, theme, width, state: 'not-scrolled', displacementPx: 0, pass: true, ...await shot(label, 'not-scrolled') });
     await shadow(page, c => {
       const root = c.shadowRoot, band = root.querySelector('.band');
       root.querySelector('.transcript-shell').scrollTop = 0;
@@ -148,7 +176,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       }
     }
     assert.ok(textPixels >= 20, `${label}: sampled actual bubble glyphs under the band (${textPixels})`);
-    passLines.push({ head: evidenceCommit, locale, theme, width, state: 'scrolled', displacementPx: 0, pass: true, textPixels, expected, ...metrics, file: await shot(label, 'scrolled') });
+    passLines.push({ head: evidenceCommit, locale, theme, width, state: 'scrolled', displacementPx: 0, pass: true, textPixels, expected, ...metrics, ...await shot(label, 'scrolled') });
     await page.evaluate(() => scrollTo(0, 0));
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.band').hasAttribute('data-scrolled'));
     assert.deepEqual(await boxes(page, selectors), baseline, `${label}: scrolling back restores every box`);
