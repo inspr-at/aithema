@@ -166,6 +166,16 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
     c.configure({ session, copy });
   });
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…');
+  await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
+  const before = await boxes(page, geometry);
+  await page.locator('aithema-session >>> .notice button').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'models-international');
+  await page.keyboard.press('Space'); await page.locator('aithema-session >>> .consent-save').click();
+  await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
+  assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Nach dem ersten Satz entsteht hier Ihr Überblick.', 'granted analysis consent clears the old line even during a purpose pause');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…', 'drafts keep their separate refusal');
+  assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
 
 test('AIT-197 C1: the local host consent editor saves through the real endpoint without navigating', async t => {

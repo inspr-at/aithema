@@ -987,7 +987,7 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp && (isConsentReason(analysis.rawReason) || this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) paintConsentLine(root.querySelector('.notice'), {
+    if (!this.#host?.usedUp && (isConsentReason(analysis.rawReason) || root.querySelector('.notice').dataset.consentFeature || this.#session.pauseReason !== 'purpose' || u.readinessAssessed)) paintConsentLine(root.querySelector('.notice'), {
       copy, feature: 'analysis', verdict: analysis, text: !analysis.available && !reconciling && (!this.#session.paused || this.#rail?.moved) ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure && !reconciling ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final,
       open: opener => this.#dialog.openConsent('analysis', opener),
