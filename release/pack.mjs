@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,10 +59,22 @@ function packageVersions(files, source) {
 }
 export function packRelease({ root = fileURLToPath(new URL('../', import.meta.url)), output, dryRun = false, ref, sourceRef = 'HEAD' } = {}) {
   root = resolve(root); if (!output) throw new Error('New output directory required');
-  const commit = resolveCommit(root, sourceRef);
-  const entries = listTreeEntries(root, commit).filter(entry => admittedPath(entry.path));
-  if (entries.some(entry => entry.type !== 'blob' || !['100644', '100755'].includes(entry.mode))) throw new Error('Release requires regular Git blobs');
-  const files = new Map(entries.map(entry => [entry.path, readBlob(root, commit, entry.path)]));
+  const archived = !existsSync(join(root, '.git'));
+  let commit, epoch, files;
+  if (archived) {
+    // git archive expands this tracked export-subst marker. Only admitted regular
+    // files are read, so env contents remain outside the release closure.
+    const marker = readFileSync(join(root, 'release/archive-source.txt'), 'utf8').trim().split('\n');
+    [commit] = marker; epoch = Number(marker[1]);
+    if (marker.length !== 2 || !/^[a-f0-9]{40}$/u.test(commit) || !Number.isSafeInteger(epoch) || epoch <= 0 ||
+      !['HEAD', commit].includes(sourceRef)) throw new Error('Archive requires expanded source commit/epoch metadata');
+    files = new Map(releasePaths(root).map(path => [path, readFileSync(join(root, path))]));
+  } else {
+    commit = resolveCommit(root, sourceRef); epoch = commitEpochSeconds(root, commit);
+    const entries = listTreeEntries(root, commit).filter(entry => admittedPath(entry.path));
+    if (entries.some(entry => entry.type !== 'blob' || !['100644', '100755'].includes(entry.mode))) throw new Error('Release requires regular Git blobs');
+    files = new Map(entries.map(entry => [entry.path, readBlob(root, commit, entry.path)]));
+  }
   const declared = JSON.parse(files.get('release/version.json'));
   parseVersion(declared);
   if (!dryRun) {
@@ -72,7 +84,7 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   const mode = dryRun ? 'dry-run' : ref ? 'release' : 'candidate';
   const source = dryRun ? { ...declared, version_scheme: 'inspr-calver-3', version: declared.status === 'reserved' ? declared.version : declared.dry_run_version,
     release_sequence: declared.release_sequence ?? declared.migration.first_calendar_sequence } : declared;
-  parseVersion(source); verifyPresentation(root);
+  parseVersion(source); verifyPresentation(root, { requireTracked: !archived });
   assertCanonicalReleaseToolchain();
   const sourceTree = treeDigest(files), lockDigest = digest(files.get('package-lock.json'));
   const packages = packageVersions(files, source);
@@ -82,7 +94,6 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
       files.set(path, Buffer.from(bytes.toString().replace(/\bversion:\s*(['"])0\.0\.0\1/gu, `version: '${source.version}'`)));
     }
   }
-  const epoch = commitEpochSeconds(root, commit);
   const runtime = Buffer.from(json({ ...source, mode, source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, date: new Date(epoch * 1000).toISOString() }));
   files.set('release/runtime.json', runtime);
   files.set('packages/server/src/release-runtime.json', runtime);

@@ -4,7 +4,10 @@ The sole version authority is `release/version.json`; package manifests and the
 lockfile mirror its exact coordinate. An owner-authorized candidate reservation
 does not authorize a tag or publication. All commands below run on mbp2606 or CI,
 never on mbp2607. Commit first: the packer reads committed Git blobs only and
-excludes env files without opening them.
+excludes env files without opening them. The remote lane transfers `git archive`;
+its tracked `export-subst` marker carries the original commit and epoch, and
+archive packing is checked against Git packing byte for byte. Only use archives
+from the trusted Git transport; the marker is source metadata, not a signature.
 
 ```sh
 npm run release:candidate -- /retained/ait105
