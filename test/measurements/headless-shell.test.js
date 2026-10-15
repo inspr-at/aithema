@@ -39,7 +39,8 @@ async function measure(output, variant, executable) {
     let log = ''; child.stdout.on('data', chunk => { log += chunk; }); child.stderr.on('data', chunk => { log += chunk; });
     const sample = () => {
       try {
-        const rows = run('ps', ['-axo', 'pid=,ppid=,rss=,command=']).trim().split('\n').map(line => {
+        // mbp2606's Nix ps cannot query RSS without an entitlement; native ps can.
+        const rows = run('/bin/ps', ['-axo', 'pid=,ppid=,rss=,command=']).trim().split('\n').map(line => {
           const [, pid, parent, rss, command] = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/u.exec(line);
           return { pid: +pid, parent: +parent, rss: +rss, command };
         });
