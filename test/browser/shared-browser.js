@@ -1,6 +1,5 @@
-// One Chrome process per test file; each former launch gets a fresh context.
-// The profile outlives individual fixtures, including fixtures that remove their
-// own directories. Context isolation preserves cookies/storage and tab ownership.
+// One Chrome process per test file, with fixture-owned pages and storage reset.
+// Run only through remote-browser.sh or CI.
 import { after } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -21,14 +20,28 @@ export async function browserForFile() {
       userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
       args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
   })();
-  const context = await (await launch).createBrowserContext();
-  // mbp2606 Chrome 155 SIGSEGVs on createBrowserContext after disposing a context.
-  // Close every fixture page now (including its connections/timers); release the
-  // empty, isolated contexts together when the file-owned Chrome process closes.
-  // Cleanup is idempotent because nested tests may register the same fixture.
+  const browser = await launch, context = browser.defaultBrowserContext(), pages = [];
+  // mbp2606 Chrome 155 SIGSEGVs when a second incognito context is created.
+  // Reuse the default context, resetting cookies and every visited frame origin
+  // between fixtures. Each former launch owns fresh pages; tests stay serial.
   let closing;
-  context.close = () => closing ??= (async () => {
-    await Promise.all((await context.pages()).map(page => page.close()));
-  })();
-  return context;
+  return {
+    browser: () => browser,
+    cookies: () => context.cookies(),
+    setCookie: (...cookies) => context.setCookie(...cookies),
+    async newPage() { const page = await context.newPage(); pages.push(page); return page; },
+    close: () => closing ??= (async () => {
+      const origins = new Set(pages.flatMap(page => page.frames().map(frame => frame.url()))
+        .filter(url => /^https?:/u.test(url)).map(url => new URL(url).origin));
+      // Close pages first so an unload handler cannot write storage after reset.
+      await Promise.all(pages.filter(page => !page.isClosed()).map(page => page.close()));
+      const session = await browser.target().createCDPSession();
+      try {
+        for (const origin of origins) await session.send('Storage.clearDataForOrigin', { origin, storageTypes: 'all' });
+      } finally { await session.detach(); }
+      const cookies = await context.cookies();
+      if (cookies.length) await context.deleteCookie(...cookies);
+      await context.clearPermissionOverrides();
+    })(),
+  };
 }
