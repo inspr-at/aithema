@@ -275,7 +275,11 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     await shadow(page, c => { c.remove(); document.body.append(c); });
     await connected;
     const after = await page.evaluate(async () => (await fetch('/stats')).json());
-    assert.deepEqual(after, before, 'reconnect makes zero provider calls, admissions or settlements');
+    // Boot recovery may annotate existing receipt reconciliation metadata.
+    // Compare every admission/settlement field and call count independently of it.
+    const billing = stats => ({ providerCalls: stats.providerCalls,
+      attempts: stats.attempts.map(({ provider_cost_json, cost_reconciliation_json, ...attempt }) => attempt) });
+    assert.deepEqual(billing(after), billing(before), 'restart/reconnect makes zero provider calls, admissions or settlements');
     const creditsAfterReconnect = await credits();
     assert.deepEqual(creditsAfterReconnect, creditsAfterFailure, 'restart/reconnect never charges credits');
     await settle(page);
