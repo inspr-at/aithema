@@ -181,7 +181,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
-    ...voice, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
+    ...voice, onScopeRecorded: status, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         host?.touchVisitor?.(storage.get(id));
