@@ -1064,3 +1064,16 @@ test('AIT-198 an ended facade call can expose a genuinely stuck missing reply', 
   c.receive({ type: 'voice.state', data: { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'ended' } });
   assertInlineRetry(c, 'authoritative call end releases the pending facade reply');
 });
+
+// The merged consent and failure vocabulary must stay available in both locales.
+test('AIT-197 R5 DE/EN copy has identical recursive key sets', () => {
+  const keys = (value, prefix = '') => Object.entries(value).flatMap(([key, entry]) => {
+    const path = `${prefix}${key}`;
+    return entry && typeof entry === 'object' ? keys(entry, `${path}.`) : [path];
+  });
+  assert.deepEqual(keys(de).sort(), keys(en).sort());
+  for (const copy of [de, en]) for (const key of ['noProjectDetails', 'preparingOverview', 'understandingFailed', 'understandingRetry']) {
+    assert.equal(typeof copy[key], 'string');
+    assert.ok(copy[key].length > 0);
+  }
+});
