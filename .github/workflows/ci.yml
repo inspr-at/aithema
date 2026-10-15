@@ -8,48 +8,109 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.changes.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect docs-only PR
+        id: changes
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import subprocess
+
+          docs_only = False
+          if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
+              # Disable rename detection: moving code into docs must run full CI.
+              changed = subprocess.check_output([
+                  'git', 'diff', '--no-renames', '--name-only', '-z',
+                  os.environ['PR_BASE'] + '...' + os.environ['PR_HEAD'], '--',
+              ]).decode('utf-8').split('\0')[:-1]
+              # Pure prose only: no test, script, or release-pack input.
+              light_paths = ["docs/ci.md"]
+              docs_only = bool(changed) and all(path in light_paths for path in changed)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('docs-only=' + str(docs_only).lower() + '\n')
+          PYTHON
+
   test:
+    needs: changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Docs-only success
+        if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
+        run: echo "Docs-only PR; heavy checks skipped."
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
-      - run: npm run test:browser-shards
-      - name: Pack twice and verify without upload
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm ci
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm run test:browser-shards
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        name: Pack twice and verify without upload
         run: node release/dry-run.mjs
         env:
           AITHEMA_CANONICAL_RELEASE: '1'
-      - run: npm test
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm test
 
   browser:
+    needs: changes
+    if: ${{ !cancelled() }}
     name: browser (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
+      max-parallel: ${{ github.event_name == 'pull_request' && 2 || 4 }}
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Docs-only success
+        if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
+        run: echo "Docs-only PR; heavy checks skipped."
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
-      - run: npm run setup:browser
-      - run: npm run test:browser -- --shard ${{ matrix.shard }}/4
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm ci
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm run setup:browser
+      - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
+        run: npm run test:browser -- --shard ${{ matrix.shard }}/4
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       # Screenshots the browser suites write, for visual review of UI changes.
-      - if: always()
+      - if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: browser-evidence-${{ matrix.shard }}-of-4
