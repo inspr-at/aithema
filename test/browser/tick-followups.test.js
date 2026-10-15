@@ -141,10 +141,12 @@ test('AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic', 
     const view = await shadow(page, c => {
       const root = c.shadowRoot, n = root.querySelector('.voice-state'), range = document.createRange(); range.selectNodeContents(n);
       const rects = [...range.getClientRects()], mic = root.querySelector('.voice-cell--mic').getBoundingClientRect(), band = root.querySelector('.band').getBoundingClientRect();
-      return { lines: new Set(rects.map(r => r.y)).size, textRight: Math.max(...rects.map(r => r.right)), micLeft: mic.left,
+      return { labelWidth: n.getBoundingClientRect().width, signalWidth: root.querySelector('.voice-signal').getBoundingClientRect().width,
+        lines: new Set(rects.map(r => r.y)).size, textRight: Math.max(...rects.map(r => r.right)), micLeft: mic.left,
         textBottom: Math.max(...rects.map(r => r.bottom)), bandBottom: band.bottom, railText: n.textContent };
     });
     const label = `${locale}-${theme}-${width}-reconciling`;
+    if (width === 390) assert.ok(view.labelWidth >= view.signalWidth + 44, `${label}: label can use the empty pause reservation: ${JSON.stringify(view)}`);
     assert.ok(view.lines <= 2, `${label}: at most two lines: ${JSON.stringify(view)}`);
     assert.ok(view.textRight <= view.micLeft, `${label}: label never covers mic`);
     assert.ok(view.textBottom < view.bandBottom, `${label}: label clears hairline`);
