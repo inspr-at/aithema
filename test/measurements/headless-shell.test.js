@@ -28,7 +28,8 @@ async function measure(output, variant, executable) {
     freeBeforePct: free(), minFreePct: 100, freeAfterPct: null, samples: [], files: [] };
   for (const [file, pattern] of batch) {
     const started = performance.now();
-    const child = spawn(process.execPath, ['--test', '--test-concurrency=1', `--test-name-pattern=${pattern}`, file], {
+    const baseline = variant === 'old-full-chrome' ? ['--import', './test/measurements/full-chrome-baseline.js'] : [];
+    const child = spawn(process.execPath, [...baseline, '--test', '--test-concurrency=1', `--test-name-pattern=${pattern}`, file], {
       env: { ...process.env, CI: '1', CHROME_PATH: executable, AITHEMA_EVIDENCE_DIR: dir }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let log = ''; child.stdout.on('data', chunk => { log += chunk; }); child.stderr.on('data', chunk => { log += chunk; });
