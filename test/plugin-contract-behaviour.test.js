@@ -13,8 +13,8 @@ import { manifest, consentItem } from './fixtures/external-plugin/index.js';
 import { ownedRequest, testToken } from './helpers.js';
 
 const guide = readFileSync(new URL('../docs/plugins.md', import.meta.url), 'utf8');
-function rule(anchor, body) {
-  test(`docs/plugins.md#${anchor}`, async t => {
+function rule(anchor, body, behaviour = '') {
+  test(`docs/plugins.md#${anchor}${behaviour ? `: ${behaviour}` : ''}`, async t => {
     assert.ok(guide.includes(`<a id="${anchor}"></a>`), `restore docs/plugins.md#${anchor}`);
     await body(t);
   });
@@ -288,3 +288,67 @@ rule('contract-cost-reconciliation', async t => {
   assert.deepEqual(usageCalls, [[{ inputTokens: 1, outputTokens: 1 }, host.binding.model]]);
   assert.equal(host.pluginRuntime.budget.get(attempt.attemptId).settled_micro, 3);
 });
+
+rule('contract-reply-retry', async () => {
+  const error = Object.assign(new PluginError('provider'), { providerErrorClass: '4xx' });
+  let calls = 0;
+  await assert.rejects(collectPurposeReply(request(), async function* () {
+    if (++calls === 1) yield 'invalid JSON'; else throw error;
+  }), caught => caught === error);
+  assert.equal(calls, 2);
+}, 'second 4xx propagates');
+
+rule('contract-cost-reconciliation', async t => {
+  const host = await admittedHost(t, { reconcileCost: () => ({ chargedMicro: 1, generationId: 'wrong-generation' }) });
+  const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
+  const { attempt, report } = admitted.options;
+  await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ generationId: 'held-generation' });
+  report({ attemptId: attempt.attemptId, outcome: 'uncertain' }); admitted.finish();
+  await host.pluginRuntime.reconcileCosts();
+  const row = host.pluginRuntime.budget.get(attempt.attemptId);
+  assert.equal(row.settled_micro, host.binding.maxMicro);
+  assert.equal(row.cost_reconciliation_json, null);
+  assert.equal(JSON.parse(row.provider_cost_json).generationId, 'held-generation');
+}, 'mismatched generation retains hold');
+
+rule('contract-cost-reconciliation', async t => {
+  const usage = { inputTokens: 11, outputTokens: 7 };
+  const tokenFloor = value => value.inputTokens * 2 + value.outputTokens * 3;
+  const host = await admittedHost(t, { uncertainEstimateMicro: 5, reconcileCost: () => null,
+    usageCost(value, model) { assert.equal(model, host.binding.model); return tokenFloor(value); } });
+  const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
+  const { attempt, report } = admitted.options;
+  await attempt.consume(); attempt.dispatchCost();
+  report({ attemptId: attempt.attemptId, outcome: 'uncertain', usage }); admitted.finish();
+  const runtime = createPluginRuntime({ storage: host.storage, reasoning: host.plugin, registry: host.registry,
+    budget: host.pluginRuntime.budget, now: () => Date.now() + 600000 });
+  await runtime.reconcileCosts();
+  const row = runtime.budget.get(attempt.attemptId);
+  assert.equal(row.settled_micro, tokenFloor(usage));
+  assert.equal(JSON.parse(row.cost_reconciliation_json).observedCostMicro, tokenFloor(usage));
+  assert.equal(JSON.parse(row.cost_reconciliation_json).estimated, true);
+}, 'usage token floor determines settlement');
+
+rule('contract-cost-reconciliation', async t => {
+  const host = await admittedHost(t, { reconcileCost: () => null });
+  const admitted = await host.pluginRuntime.admit({ session: host.session, lane: 'reaction', operation: 'stream', request: request() });
+  const { attempt, report } = admitted.options;
+  await attempt.consume(); attempt.dispatchCost(); attempt.observeCost({ generationId: 'estimate-generation' });
+  report({ attemptId: attempt.attemptId, outcome: 'uncertain' }); admitted.finish();
+  let clock = Date.now() + 600000;
+  const runtime = createPluginRuntime({ storage: host.storage, reasoning: host.plugin, registry: host.registry,
+    budget: host.pluginRuntime.budget, now: () => clock });
+  host.plugin.uncertainEstimateMicro = 70;
+  await runtime.reconcileCosts();
+  assert.equal(runtime.budget.get(attempt.attemptId).settled_micro, 70);
+  host.plugin.uncertainEstimateMicro = 20;
+  clock += 600000;
+  // The candidate floor itself must remain 70, even before the ledger's own
+  // immutable-estimate check could reject an incorrectly lowered candidate.
+  const preview = await runtime.reconcileCosts({ dryRun: true });
+  assert.equal(preview.afterMicro, 70);
+  await runtime.reconcileCosts();
+  const row = runtime.budget.get(attempt.attemptId);
+  assert.equal(row.settled_micro, 70);
+  assert.equal(JSON.parse(row.cost_reconciliation_json).chargedMicro, 70);
+}, 'later lower estimate preserves floor');
