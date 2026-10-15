@@ -352,7 +352,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           if (closed) return;
           if (controller.desiredSize < -256 || ++count > 10_000) { cleanup(); controller.close(); return; }
           controller.enqueue(sse(event));
-          if (event.type === 'session.erased') { cleanup(); controller.close(); }
+          // Preserve the synchronous voice-closing notification that follows
+          // erasure in invalidate(), then close the revoked subscription.
+          if (event.type === 'session.erased') queueMicrotask(() => { if (!closed) { cleanup(); controller.close(); } });
         };
         const set = listeners.get(id) ?? new Set();
         listeners.set(id, set);
