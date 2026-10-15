@@ -61,9 +61,19 @@ document.defaultView?.addEventListener('error', event => {
   // Dependencies can fail before upgrade, or the host can fail after upgrade.
   if (event.filename && /^\/(demo|packages|plugins)\//.test(new URL(event.filename, location.href).pathname)) exposeFallback();
 });
-// Rejections need not carry a filename (including top-level module await).
-// Only the startup window matters; exposeFallback ignores failures after ready.
-document.defaultView?.addEventListener('unhandledrejection', exposeFallback);
+// Only failures attributed to this origin's host module graph count. Unrelated
+// scripts and extensions can reject during startup without breaking the host.
+function isHostModule(source) {
+  try {
+    const url = new URL(source, location.href);
+    return url.origin === location.origin && /^\/(demo|packages|plugins)\//.test(url.pathname);
+  } catch { return false; }
+}
+document.defaultView?.addEventListener('unhandledrejection', event => {
+  const reason = event.reason;
+  if (isHostModule(reason?.fileName) || (typeof reason?.stack === 'string'
+    && (reason.stack.match(/https?:\/\/[^\s)]+/g) ?? []).some(isHostModule))) exposeFallback();
+});
 document.addEventListener('DOMContentLoaded', () => {
   if (document.documentElement.hasAttribute('data-host-unavailable')) exposeFallback();
 }, { once: true });

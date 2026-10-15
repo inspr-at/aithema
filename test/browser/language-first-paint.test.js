@@ -178,7 +178,8 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
   const browser = await browserForFile();
   try {
     let normalBoxes;
-    for (const delay of [0, 6000]) {
+    for (const scenario of ['normal', 'delayed', 'unrelated-error', 'unrelated-rejection']) {
+      const delay = scenario === 'normal' ? 0 : 6000;
       const page = await browser.newPage();
       await page.setViewport({ width: 1440, height: 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -196,9 +197,26 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
         };
         requestAnimationFrame(sample);
       });
+      if (scenario.startsWith('unrelated-')) await page.evaluateOnNewDocument(scenario => {
+        window.unrelatedEvents = 0;
+        window.addEventListener(scenario === 'unrelated-error' ? 'error' : 'unhandledrejection', () => {
+          window.unrelatedEvents++;
+          window.unrelatedBeforeReady = !document.documentElement.hasAttribute('data-host-ready');
+        });
+        document.addEventListener('readystatechange', () => {
+          if (document.readyState !== 'interactive') return;
+          const script = document.createElement('script');
+          script.src = '/unrelated-startup.js';
+          document.head.append(script);
+        });
+      }, scenario);
       await page.setRequestInterception(true);
       page.on('request', request => {
-        if (new URL(request.url()).pathname === '/demo/host.js' && delay) setTimeout(() => void request.continue(), delay);
+        if (new URL(request.url()).pathname === '/unrelated-startup.js') {
+          void request.respond({ status: 200, contentType: 'application/javascript', body: scenario === 'unrelated-error'
+            ? 'throw new Error("AIT-206 unrelated script error");'
+            : 'Promise.reject(new Error("AIT-206 unrelated script rejection"));' });
+        } else if (new URL(request.url()).pathname === '/demo/host.js' && delay) setTimeout(() => void request.continue(), delay);
         else void request.continue();
       });
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -212,15 +230,18 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
           inside: document.querySelector('.host-actions').parentElement === component,
           boxes: nodes.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }) };
       });
+      if (scenario.startsWith('unrelated-')) {
+        assert.deepEqual(await page.evaluate(() => [window.unrelatedEvents, window.unrelatedBeforeReady]), [1, true], 'real unrelated failure fired before host ready');
+      }
       assert.equal(result.unavailable, false);
       assert.equal(result.inside, true);
       assert.ok(result.frames.length > 0);
       assert.ok(result.frames.every(f => !f.unavailable && f.count === 1 && f.inside), 'every frame keeps exactly one utility group inside the component');
       if (!delay) normalBoxes = result.boxes;
       else {
-        assert.deepEqual(result.boxes, normalBoxes, '6 s delayed host ends at exactly normal boxes (0 px)');
-        if (evidence) await page.screenshot({ path: join(evidence, 'host-delayed-6000ms-de-light-1440.png'), fullPage: false, captureBeyondViewport: false });
-        const pass = `AIT-206 PASS head=${evidenceCommit} host delayed 6000ms: normal final boxes, 0 px displacement; controls inside component; no unavailable or duplicate utility frame (${result.frames.length} frames)`;
+        assert.deepEqual(result.boxes, normalBoxes, `${scenario} host ends at exactly normal boxes (0 px)`);
+        if (evidence) await page.screenshot({ path: join(evidence, `host-${scenario}-6000ms-de-light-1440.png`), fullPage: false, captureBeyondViewport: false });
+        const pass = `AIT-206 PASS head=${evidenceCommit} host ${scenario} 6000ms: normal final boxes, 0 px displacement; controls inside component; no unavailable or duplicate utility frame (${result.frames.length} frames)`;
         passes.push(pass); console.log(pass);
       }
       await page.close();
