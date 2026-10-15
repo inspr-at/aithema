@@ -48,6 +48,9 @@ async function fixture(t, touch = true) {
   await page.setRequestInterception(true);
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
+    if (page.holdSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.snapshotId}`) {
+      page.holdSnapshot.resolve(request); return;
+    }
     if (page.reloadSession && request.method() === 'GET' && path === `/api/sessions/${page.reloadSession.id}`) {
       return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(page.reloadSession) });
     }
@@ -136,6 +139,25 @@ async function record(t, finding, page, label, values) {
     await appendFile(join(process.env.AITHEMA_EVIDENCE_DIR, finding, 'pass-lines.txt'), line + '\n');
   }
 }
+async function clickComposer(t, page, label) {
+  try {
+      await page.locator('aithema-session >>> textarea').click();
+  } catch (error) {
+      const click = await shadow(page, c => {
+        const r = c.shadowRoot, input = r.querySelector('#message'), b = input.getBoundingClientRect();
+        const point = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        const describe = n => n ? { tag: n.localName, id: n.id, className: n.className } : null;
+        return { point, hit: describe(r.elementFromPoint(point.x, point.y)), documentHit: describe(document.elementFromPoint(point.x, point.y)),
+          input: { ...describe(input), disabled: input.disabled, inert: Boolean(input.closest('[inert]')), visibility: getComputedStyle(input).visibility,
+            rect: { x: b.x, y: b.y, width: b.width, height: b.height } },
+          session: { id: c.session.id, seq: c.session.seq, paused: c.session.paused, featureMatrix: c.session.featureMatrix }, viewport: { width: innerWidth, height: innerHeight },
+          animations: r.getAnimations().map(a => ({ state: a.playState, timing: a.effect.getComputedTiming() })) };
+      });
+      t.diagnostic(`FAIL L2 click ${label}: ${JSON.stringify(click)}`);
+    throw error;
+  }
+}
+
 test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/both pauses DE/EN L/D', { timeout: 120_000 }, async t => {
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393]) {
@@ -167,7 +189,7 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
       input.addEventListener('blur', () => { globalThis.keyboardFocusProbe.blurs++; });
     });
     // The scene was rebuilt: click only after its input is enabled and stable.
-    await page.locator('aithema-session >>> textarea').click();
+    await clickComposer(t, page, `${locale}/${theme}/${width}`);
     assert.equal((await metrics(page)).focused, 'message', 'pointer focuses the composer before keyboard resize');
     await setViewport(page, { width, height: 480 }); await frame(page);
     const continuity = await shadow(page, c => ({
@@ -199,6 +221,27 @@ test('AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/bo
     await record(t, 'L2', page, `${locale}-${theme}-${width}-overlay-keyboard`, overlay);
     await page.evaluate(() => { Object.defineProperty(window, 'visualViewport', { configurable: true, value: globalThis.nativeViewport }); dispatchEvent(new Event('resize')); });
   }
+});
+
+// Hold the pause-triggered snapshot until the next replay scene is mounted.
+// This models the late no-provider response observed under CI scheduling.
+test('AIT-194: delayed pause snapshot must not disable the next replay composer', async t => {
+  const page = await fixture(t);
+  await voiceScene(page, 'de', 'dark', 393);
+  page.snapshotId = await shadow(page, c => c.session.id);
+  page.holdSnapshot = Promise.withResolvers();
+  await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }));
+  const request = await page.holdSnapshot.promise;
+  page.holdSnapshot = null;
+  await voiceScene(page, 'de', 'dark', 393);
+  await page.evaluate(() => {
+    globalThis.pauseSnapshotApplied = new Promise(resolve => document.querySelector('aithema-session')
+      .addEventListener('aithema-features', resolve, { once: true }));
+  });
+  await request.continue();
+  await page.evaluate(() => globalThis.pauseSnapshotApplied.then(() => true));
+  await clickComposer(t, page, 'delayed-pause-snapshot');
+  assert.equal((await metrics(page)).focused, 'message', 'a real pointer focuses the next replay composer');
 });
 
 test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause said once, DE/EN L/D phone/desktop', { timeout: 120_000 }, async t => {
