@@ -39,7 +39,7 @@ async function fixture(t, real = false) {
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-    if (page.forceAnalysisBlocked && path.endsWith('/features')) return json({ featureMatrix: { best: { analysis: { available: false, reason: 'current processing consent required' } } } });
+    if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     if (page.state && path.endsWith('/consent')) {
       if (request.method() === 'GET') return json({ contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
       const body = JSON.parse(request.postData()); page.posts.push(body);
@@ -293,14 +293,15 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
   const page = await fixture(t, true);
   for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-    page.forceAnalysisBlocked = true;
-    await shadow(page, async (c, locale) => {
+    const session = await shadow(page, async c => {
       await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
       const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
       session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
       session.transcript = [{ id: 'withdraw-person', role: 'user', content: 'Wir brauchen eine Website.' }];
-      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); c.configure({ session, copy });
-    }, locale);
+      return session;
+    });
+    page.forceSnapshot = session;
+    await shadow(page, async (c, { session, locale }) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); session.locale = locale; c.configure({ session, copy }); }, { session, locale });
     await page.locator('aithema-session >>> .notice button').click();
     try { await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing'); }
     catch (error) { t.diagnostic(JSON.stringify(await shadow(page, c => ({ active: c.shadowRoot.activeElement?.outerHTML, editor: c.shadowRoot.querySelector('.consent-editor').outerHTML, open: c.shadowRoot.querySelector('dialog.settings').open })))); throw error; }
@@ -310,6 +311,7 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none', 'withdraw has no check icon');
     assert.deepEqual(await boxes(page, ['.done', '.settings__footer', '.settings__body']), before, 'label swap shifts 0 px');
     await record(t, page, `${locale}-${width}-withdraw-label`, { shiftPx: 0 });
+    page.forceSnapshot = null;
     await page.locator('aithema-session >>> .consent-save').click();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
     assert.equal(await shadow(page, c => c.session.consentWithdrawn), true, 'the real server ends the conversation');
