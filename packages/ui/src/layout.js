@@ -156,7 +156,7 @@ export class PhoneComposerViewport {
       // Set the attribute before measuring: footer and transcript change together.
       if (phone) this.fullHeight = Math.max(this.fullHeight ?? 0, view.innerHeight, height);
       const editing = root.activeElement?.matches('textarea,input,[contenteditable="true"]');
-      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && editing && this.fullHeight - height >= 150));
+      workspace.toggleAttribute('data-phone-keyboard', Boolean(phone && (editing || workspace.hasAttribute('data-phone-keyboard')) && this.fullHeight - height >= 150));
       const values = {
         '--phone-height': height + (viewport?.offsetTop ?? 0),
         '--phone-bottom': Math.max(0, (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0)),
