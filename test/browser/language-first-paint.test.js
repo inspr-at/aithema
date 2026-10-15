@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
+import { evidenceCommit } from './start2-display-helpers.js';
 
 // The production font stack is deliberately unchanged. Evidence uses reduced
 // motion and viewport captures, including the network-delayed first paint.
@@ -81,7 +82,7 @@ test('AIT-206: fresh EN/DE browsers and stored choices never paint the wrong lan
           assert.deepEqual(frame.boxes, result.frames.at(-1).boxes, 'visible header controls move exactly 0 px from their first frame');
         }
         if (evidence) await page.screenshot({ path: join(evidence, `${name}-loaded.png`), fullPage: false, captureBeyondViewport: false });
-        const pass = `AIT-206 PASS ${name}: first paint blank/reserved; loaded ${result.label}=${result.session}; header displacement 0 px`;
+        const pass = `AIT-206 PASS head=${evidenceCommit} ${name}: first paint blank/reserved; loaded ${result.label}=${result.session}; header utility row displacement 0 px`;
         passes.push(pass); console.log(pass);
         await page.close();
       }
