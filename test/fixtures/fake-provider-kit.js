@@ -8,7 +8,7 @@
  * | Thinking forbids assistant-final prefill | openrouter providerOptions(reasoning) | https://platform.claude.com/docs/en/build-with-claude/thinking |
  * | Consecutive equal roles COMBINE into a turn; do not reject them | chat-completions payloadFor, prompts reasoningRequest | https://platform.claude.com/docs/en/api/messages/create |
  * | Anthropic messages use user/assistant; system is top-level | claude-html prompt/buildMessages; OpenRouter translates leading system messages | https://platform.claude.com/docs/en/api/messages/create |
- * | Text blocks must be non-empty (Anthropic subset only) | reasoning/HTML text messages | https://platform.claude.com/docs/en/api/messages#textblockparam |
+ * | Non-empty message content except optional final assistant prefill | reasoning/HTML text messages | https://platform.claude.com/docs/en/api/messages/create ; provider error reproduction: https://github.com/anthropics/anthropic-sdk-go/issues/242 |
  * | Chat messages require role/content; system is a message, user content is string or parts | core/chat-completions payloadFor | https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion |
  * | 400 invalid_request_error envelope, no invented usage | core/chat-completions dispatch/observeResponse | https://platform.claude.com/docs/en/api/errors |
  *
@@ -40,15 +40,19 @@ export function providerRuleViolation(body, profile = 'openrouter') {
   if (anthropic) {
     if (messages.some(m => !['user', 'assistant'].includes(m.role))) return 'Messages use user/assistant; system belongs outside messages';
     if (!messages.length || messages[0].role !== 'user') return 'Conversation must start with user';
-    if (messages.some(m => typeof m.content === 'string' ? m.content.length === 0 :
-      !Array.isArray(m.content) || !m.content.length || m.content.some(b => b.type !== 'text' || typeof b.text !== 'string' || !b.text.length))) return 'Text content must be non-empty';
     const thinking = body.thinking?.type === 'enabled' || body.thinking?.type === 'adaptive' ||
       body.reasoning?.enabled === true || body.reasoning?.effort && body.reasoning.effort !== 'none';
+    if (messages.some((m, index) => {
+      if (!thinking && m.role === 'assistant' && index === messages.length - 1 &&
+        (m.content === '' || Array.isArray(m.content) && !m.content.length)) return false;
+      return typeof m.content === 'string' ? m.content.length === 0 :
+        !Array.isArray(m.content) || !m.content.length || m.content.some(b => b.type !== 'text' || typeof b.text !== 'string' || !b.text.length);
+    })) return 'Text content must be non-empty';
     if (thinking && messages.at(-1)?.role === 'assistant') return 'Assistant prefill is not supported when thinking is enabled';
   }
   return null;
 }
-export function createFakeProviderKit({ profile = 'openrouter' } = {}) {
+export function createFakeProviderKit({ profile = 'openrouter', honorAbort = true } = {}) {
   const calls = [], waiters = [];
   const notify = () => {
     for (const waiter of [...waiters]) {
@@ -72,14 +76,26 @@ export function createFakeProviderKit({ profile = 'openrouter' } = {}) {
         finish('resolve', body.stream ? new Response(`data: ${JSON.stringify({ ...receipt, choices: [{ delta: { content }, finish_reason: finishReason }] })}\n\ndata: [DONE]\n\n`)
           : Response.json({ ...receipt, choices: [{ finish_reason: finishReason, message: { content } }] }));
       },
+      openStream() {
+        if (!body.stream) throw new TypeError('Streaming request required');
+        if (violation) { finish('resolve', Response.json(invalid(violation), { status: 400 })); return null; }
+        const stream = new TransformStream(), writer = stream.writable.getWriter(), encoder = new TextEncoder();
+        finish('resolve', new Response(stream.readable));
+        return {
+          frame: value => writer.write(encoder.encode(`data: ${JSON.stringify(value)}\n\n`)),
+          async end() { await writer.write(encoder.encode('data: [DONE]\n\n')); await writer.close(); },
+          fail: error => writer.abort(error),
+        };
+      },
       httpError(status, { usage, message = 'Controlled provider failure' } = {}) {
-        finish('resolve', Response.json({ ...invalid(message), ...(usage ? { usage } : {}) }, { status }));
+        const type = status >= 500 ? 'api_error' : status === 429 ? 'rate_limit_error' : status === 401 ? 'authentication_error' : 'invalid_request_error';
+        finish('resolve', Response.json({ error: { type, message }, ...(usage ? { usage } : {}) }, { status }));
       },
       reject(error = new TypeError('Controlled transport failure')) { finish('reject', error); },
       timeout() { finish('reject', new DOMException('Controlled provider timeout', 'TimeoutError')); },
       abort() { finish('reject', new DOMException('Controlled provider abort', 'AbortError')); },
     };
-    const onAbort = () => { if (!settled) finish('reject', init.signal.reason); };
+    const onAbort = () => { if (honorAbort && !settled) finish('reject', init.signal.reason); };
     calls.push(call); notify();
     if (init.signal?.aborted) onAbort(); else init.signal?.addEventListener('abort', onAbort, { once: true });
     return gate.promise;

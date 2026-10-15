@@ -16,8 +16,8 @@ export const lanePairs = laneNames.flatMap((a, i) => laneNames.slice(i + 1).map(
 export const wireLane = call => call.body.model === 'anthropic/claude-race' ? 'concept'
   : call.body.messages[0].content.includes('Facade race reply') ? 'voice-facade'
   : call.body.stream ? 'reaction' : 'understanding';
-export async function createLaneRaceHarness() {
-  const dir = await mkdtemp(join(tmpdir(), 'aithema-lane-race-')), kit = createFakeProviderKit();
+export async function createLaneRaceHarness({ honorAbort = true, purposePolicy } = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-lane-race-')), kit = createFakeProviderKit({ honorAbort });
   const values = { OPENROUTER_MODEL: 'anthropic/race', OPENROUTER_ANALYSIS_EFFORT: 'low',
     AITHEMA_HTML_MODE: 'claude', AITHEMA_HTML_MODEL: 'anthropic/claude-race',
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/race': { prompt: 1e-6, completion: 2e-6 }, 'anthropic/claude-race': { prompt: 1e-6, completion: 2e-6 } }) };
@@ -29,7 +29,11 @@ export async function createLaneRaceHarness() {
   const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(reasoning).register(visuals),
     presets: { best: { plugins: ['openrouter', 'claude-html'], bindings: { reaction: config.reaction, understanding: config.understanding, html: html.binding, visuals: 'html' },
       policy: { endpoints: [config.reaction.endpoint, html.binding.endpoint] } } } });
-  const logs = [], handlers = createHandlers({ storage, pluginRuntime: runtime, consent, log: event => logs.push(event), concepts: { policy: { thresholds: [0, 50, 80] } } });
+  const settlements = [], settle = runtime.budget.settle.bind(runtime.budget);
+  runtime.budget.settle = (claim, terminal, rates) => {
+    settlements.push(terminal.attemptId); return settle(claim, terminal, rates);
+  };
+  const logs = [], handlers = createHandlers({ storage, pluginRuntime: runtime, consent, purposePolicy, log: event => logs.push(event), concepts: { policy: { thresholds: [0, 50, 80] } } });
   const owner = 'lane-race-owner', session = storage.create({ demo: true, locale: 'de', ownerToken: owner });
   const id = session.id, controller = new AbortController(), callController = new AbortController();
   let ordinal = 0;
@@ -69,7 +73,7 @@ export async function createLaneRaceHarness() {
     // A test may intentionally await the other lane before this rejection.
     promise.catch(() => {}); return promise;
   };
-  return { id, kit, storage, runtime, handlers, logs, turn, run, route, controller, callController,
+  return { id, kit, storage, runtime, handlers, logs, settlements, turn, run, route, controller, callController,
     next: lane => kit.next(c => wireLane(c) === lane),
     resolve(call, options) { call.resolve(wireLane(call) === 'concept' ? draftHTML : call.body.stream ? reply : assessment, options); },
     async close() { controller.abort(); callController.abort(); kit.close(); await turns.idle(); await handlers.close(); storage.close(); await rm(dir, { recursive: true, force: true }); },

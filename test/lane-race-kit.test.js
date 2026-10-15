@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLaneRaceHarness, lanePairs, laneNames } from './fixtures/lane-race-harness.js';
+import { start2PurposePolicy } from '../demo/safeguards.js';
 import { createFakeProviderKit, providerRuleViolation } from './fixtures/fake-provider-kit.js';
 
 function balanced(h, { idle = true } = {}) {
@@ -15,7 +16,10 @@ function balanced(h, { idle = true } = {}) {
   }
   const rows = h.storage.db.prepare('SELECT * FROM budget_attempts').all();
   for (const row of rows) {
-    if (idle) { assert.equal(row.state, 'settled'); assert.ok(row.terminal_json); }
+    if (idle) {
+      assert.equal(row.state, 'settled'); assert.ok(row.terminal_json);
+      assert.equal(h.settlements.filter(id => id === row.attempt_id).length, 1, 'one terminal settlement per admitted attempt');
+    }
     if (row.state === 'settled' && row.settled_micro === row.max_micro) assert.equal(row.outcome, 'uncertain', 'only genuinely unknown costs retain the maximum');
   }
   return counts;
@@ -97,6 +101,7 @@ test('AIT-201 provider rules accept coalesced roles and reject only documented t
     const call = await kit.next(); assert.ok(call.violation); call.resolve();
     const response = await pending, value = await response.json(); assert.equal(response.status, 400); assert.equal(value.error.type, 'invalid_request_error'); assert.equal(value.usage, undefined);
   }
+  assert.equal(providerRuleViolation({ ...base, reasoning: { enabled: false }, messages: [...base.messages, { role: 'assistant', content: '' }] }), null, 'optional final assistant prefill is permitted without thinking');
   assert.equal(providerRuleViolation({ messages: [{ role: 'system', content: 'Wrong place' }] }, 'anthropic'), 'Messages use user/assistant; system belongs outside messages');
   assert.equal(providerRuleViolation({ model: 'openai/race', messages: [{ role: 'system', content: '' }, { role: 'user', content: '' }] }), null);
 });
@@ -125,4 +130,55 @@ test('AIT-201 schema compatibility retry owns two distinct balanced attempts', {
   assert.equal(await pending, 'completed');
   const c = balanced(h).understanding; assert.equal(c.started, 2); assert.equal(c.completed, 1); assert.equal(c.failed, 1);
   assert.deepEqual(h.storage.db.prepare('SELECT settled_micro n FROM budget_attempts ORDER BY rowid').all().map(r => r.n), [0, 110]);
+});
+
+for (const lane of ['reaction', 'voice-facade']) test(`AIT-201 ${lane}: receipt before mid-stream abort never retains the maximum`, { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness(); t.after(() => h.close());
+  const observed = Promise.withResolvers(), observe = h.runtime.budget.observeCost.bind(h.runtime.budget);
+  h.runtime.budget.observeCost = (id, evidence) => { const result = observe(id, evidence); if (evidence.chargedMicro === 110) observed.resolve(); return result; };
+  const pending = h.run(lane), call = await h.next(lane), stream = call.openStream();
+  await stream.frame({ usage: { prompt_tokens: 30, completion_tokens: 40, cost: 0.00011 }, choices: [{ delta: { content: 'A partial clause, ' } }] });
+  await observed.promise;
+  h.controller.abort(); h.callController.abort();
+  await Promise.allSettled([pending]);
+  const c = balanced(h)[lane]; assert.equal(c.aborted, 1); assert.equal(c.uncertain, 0);
+  assert.equal(h.storage.db.prepare('SELECT settled_micro n FROM budget_attempts').get().n, 110);
+});
+
+for (const lane of ['reaction', 'understanding']) test(`AIT-201 ${lane}: ignored abort and late receipt cannot overwrite a replacement`, { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ honorAbort: false }); t.after(() => h.close());
+  const old = h.run(lane), obsolete = await h.next(lane);
+  h.turn('New person input supersedes the old provider request.');
+  await Promise.allSettled([old]);
+  const replacement = h.run(lane), current = await h.next(lane); h.resolve(current); await replacement;
+  const published = h.storage.read(h.id).filter(e => ['understanding.updated', 'turn.final'].includes(e.type));
+  const receipt = Promise.withResolvers(), observe = h.runtime.budget.observeCost.bind(h.runtime.budget);
+  h.runtime.budget.observeCost = (id, evidence) => { const result = observe(id, evidence); if (evidence.chargedMicro === 110) receipt.resolve(); return result; };
+  h.resolve(obsolete); await receipt.promise;
+  assert.deepEqual(h.storage.read(h.id).filter(e => ['understanding.updated', 'turn.final'].includes(e.type)), published, 'old result never publishes after replacement');
+  assert.deepEqual(h.storage.db.prepare('SELECT settled_micro n FROM budget_attempts ORDER BY rowid').all().map(r => r.n), [110, 110], 'late authoritative receipt repairs the uncertain hold');
+  balanced(h);
+});
+
+
+test('AIT-201 real start2 scheduler gates thinking behind reply and clears rejected overview work', { timeout: 10_000 }, async t => {
+  const h = await createLaneRaceHarness({ purposePolicy: start2PurposePolicy }); t.after(() => h.close());
+  assert.equal((await h.route('retry', {})).status, 202);
+  const reaction = await h.next('reaction');
+  assert.equal(h.kit.calls.length, 1, 'analysis cannot start before reply classifies scope');
+  h.resolve(reaction);
+  const analysis = await h.next('understanding');
+  assert.equal(analysis.body.messages.at(-1).role, 'user'); assert.equal(analysis.violation, null);
+  analysis.httpError(400); await h.handlers.idle();
+  const snapshot = await (await h.route()).json();
+  assert.deepEqual(snapshot.operations.running, []);
+  assert.equal(snapshot.operations.lastFailure.lane, 'understanding');
+  assert.equal(snapshot.operations.lastFailure.retryable, true);
+  assert.equal(balanced(h).understanding.failed, 1);
+  assert.equal((await h.route('retry', {})).status, 202);
+  const retry = await h.next('understanding'); h.resolve(retry); await h.handlers.idle();
+  const recovered = await (await h.route()).json();
+  assert.deepEqual(recovered.operations.running, []); assert.equal(recovered.operations.lastFailure, null);
+  assert.equal(recovered.understanding.summary, 'Ein Überblick. An overview.');
+  balanced(h);
 });
