@@ -13,7 +13,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   let browser;
   t.after(async () => { await browser?.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: ['--use-fake-device-for-media-stream',
       '--autoplay-policy=no-user-gesture-required', ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])] });
   const context = browser.defaultBrowserContext(); await context.overridePermissions(fixture.url, ['microphone']);
   const page = await browser.newPage(), problems = [], external = [];
@@ -90,7 +90,7 @@ test('AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical playe
   await context.overridePermissions(fixture.url, []);
   const permission = await page.evaluate(async () => {
     const { createPCMCapture } = await import('/plugins/composed-voice/src/browser-audio.js');
-    try { await createPCMCapture()({ onAudio() {} }); return 'unexpected-grant'; } catch (error) { return error.name; }
+    try { const unexpected = await createPCMCapture()({ onAudio() {} }); unexpected.stop(); return 'unexpected-grant'; } catch (error) { return error.name; }
   });
   assert.equal(permission, 'NotAllowedError'); assert.deepEqual(external, []); assert.deepEqual(problems, []);
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
