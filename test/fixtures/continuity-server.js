@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets } from '../../packages/server/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
 import { createMockReasoning, PluginRegistry, MOCK_PROCESSING_SCOPE } from '../../packages/core/src/index.js';
-import { createLocalVoiceProvider, localVoiceBinding } from '../../packages/server/src/local-voice.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../../packages/server/dev/local-voice.js';
 import { demoPresets } from '../../demo/choices.js';
 import { createOwnership } from '../../demo/session-lifecycle.js';
 import { createDemoHost } from '../../demo/host-ports.js';

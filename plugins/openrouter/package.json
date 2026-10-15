@@ -2,7 +2,11 @@
   "name": "@inspr/aithema-plugin-openrouter",
   "private": true,
   "type": "module",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./pricing": "./src/pricing.js",
+    "./reconcile": "./src/reconcile.js"
+  },
   "dependencies": {
     "@inspr/aithema-core": "*"
   },

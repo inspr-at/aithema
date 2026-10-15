@@ -4,7 +4,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.js",
-    "./http": "./src/http.js"
+    "./http": "./src/http.js",
+    "./composed-voice": "./src/composed-voice.js",
+    "./dev-voice-identity": "./src/dev-voice-identity.js"
   },
   "bin": {
     "aithema-server": "./bin/server.js"

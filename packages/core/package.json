@@ -9,7 +9,27 @@
     "./live-voice": "./src/live-voice.js",
     "./extractor": "./src/extractor.js",
     "./extractor-process": "./src/extractor-process.js",
-    "./extractor-zip": "./src/extractor-zip.js"
+    "./extractor-zip": "./src/extractor-zip.js",
+    "./ai-notice": "./src/ai-notice.js",
+    "./chat-completions": "./src/chat-completions.js",
+    "./cost": "./src/cost.js",
+    "./document-context": "./src/document-context.js",
+    "./invocation": "./src/invocation.js",
+    "./plugins": "./src/plugins.js",
+    "./presets": "./src/presets.js",
+    "./prompts": "./src/prompts.js",
+    "./reasoning": "./src/reasoning.js",
+    "./reply-opener": "./src/reply-opener.js",
+    "./reply-replay": "./src/reply-replay.js",
+    "./reply": "./src/reply.js",
+    "./safeguards": "./src/safeguards.js",
+    "./session": "./src/session.js",
+    "./settings": "./src/settings.js",
+    "./text-origin": "./src/text-origin.js",
+    "./ui-html": "./src/ui-html.js",
+    "./voice-components": "./src/voice-components.js",
+    "./voice-lifecycle-controller": "./src/voice-lifecycle-controller.js",
+    "./voice-lifecycle": "./src/voice-lifecycle.js"
   },
   "engines": {
     "node": ">=24"

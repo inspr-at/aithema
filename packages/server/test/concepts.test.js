@@ -7,7 +7,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, create
   createMemoryConsentLedger, createImageBinding, SQLiteBudgetLedger, createFacadeSecrets } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding, beginInvocation } from '@inspr/aithema-core';
 import { ownedRequest, testToken, temporaryDb, unzip } from '../../../test/helpers.js';
-import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../dev/local-voice.js';
 import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
 import { png, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));

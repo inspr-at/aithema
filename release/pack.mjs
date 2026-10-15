@@ -14,7 +14,7 @@ const digest = bytes => `sha256:${sha256(bytes)}`;
 const forbidden = path => path.split('/').some(part => /^(?:\.env|env\.)/u.test(part) || /(?:\.example|\.age)$/u.test(part));
 export function admittedPath(path) {
   return !forbidden(path) && (['package.json', 'package-lock.json', 'LICENSE', 'README.md', 'docs/embedding.md', 'packages/server/elevenlabs-compat.js'].includes(path) ||
-    /^(?:packages|plugins)\/[^/]+\/(?:package\.json|src\/.+|bin\/.+)$/u.test(path) ||
+    /^(?:packages|plugins)\/[^/]+\/(?:package\.json|src\/.+|bin\/.+|dev\/.+)$/u.test(path) ||
     /^demo\/(?!test\/)[^/]+\.(?:js|css|html)$/u.test(path) || /^release\/(?:[^/]+\.(?:json|mjs)|lib\/[^/]+\.mjs)$/u.test(path));
 }
 // Tree listing does not read disallowed file contents. Release builds read admitted Git blobs only.

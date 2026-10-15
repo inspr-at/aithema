@@ -5,7 +5,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
-import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/dev/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';

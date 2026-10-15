@@ -5,7 +5,7 @@ import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCanc
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
-import { isLocalVoice } from './local-voice.js';
+import { isLocalVoice } from './dev-voice-identity.js';
 import { createImageBinding, imagePluginBinding } from './image-binding.js';
 import { isLocalImages } from './local-images.js';
 import { isLocalHTML } from './local-html.js';

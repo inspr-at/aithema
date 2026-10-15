@@ -1,0 +1,192 @@
+{
+  "test/browser-matrix-coverage.test.js": {
+    "reads": [
+      "process.env",
+      "process.env"
+    ],
+    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+  },
+  "test/browser/admin-pages.test.js": {
+    "reads": [
+      "CI",
+      "CI",
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
+  },
+  "test/browser/audio-replay.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/confirmation-design.test.js": {
+    "reads": [
+      "GITHUB_SHA"
+    ],
+    "reason": "Evidence/source provenance; release test matches the run identifier"
+  },
+  "test/browser/consent-lines.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/credit-hold.test.js": {
+    "reads": [
+      "CI",
+      "CI",
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
+  },
+  "test/browser/demo.test.js": {
+    "reads": [
+      "CI",
+      "CI",
+      "CI",
+      "CI",
+      "CI",
+      "CI",
+      "CI",
+      "CI",
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/footer-width-sweep.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/host-surface.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/html-preview.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/matrix-coverage.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI"
+  },
+  "test/browser/operator-login.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/orb-reveal.test.js": {
+    "reads": [
+      "CI",
+      "CI",
+      "CI",
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/pause-phone.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/question-card.test.js": {
+    "reads": [
+      "CI",
+      "GITHUB_SHA"
+    ],
+    "reason": "Linux headless Chrome sandbox selection; Evidence/source provenance; release test matches the run identifier"
+  },
+  "test/browser/safeguards.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/start-journey.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/start-look.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/start2-display-helpers.js": {
+    "reads": [
+      "GITHUB_SHA"
+    ],
+    "reason": "Evidence/source provenance; release test matches the run identifier"
+  },
+  "test/browser/tick-followups.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/browser/visitor-credit-tiers-helpers.js": {
+    "reads": [
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH",
+      "GITHUB_SHA"
+    ],
+    "reason": "Evidence/source provenance; release test matches the run identifier"
+  },
+  "test/browser/voice-presentation.test.js": {
+    "reads": [
+      "CI",
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
+  "test/ci-slot-sharing.test.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+  },
+  "test/live/soak.js": {
+    "reads": [
+      "GITHUB_SHA"
+    ],
+    "reason": "Evidence/source provenance; release test matches the run identifier"
+  },
+  "test/release-prep.test.js": {
+    "reads": [
+      "GITHUB_RUN_ID"
+    ],
+    "reason": "Evidence/source provenance; release test matches the run identifier"
+  },
+  "test/soak/unit-worker.test.js": {
+    "reads": [
+      "process.env[key]",
+      "process.env[key]"
+    ],
+    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+  },
+  "test/soak/uploads.test.js": {
+    "reads": [
+      "process.env[key]",
+      "process.env[key]"
+    ],
+    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+  },
+  "test/unit-timeout.test.js": {
+    "reads": [
+      "process.env"
+    ],
+    "reason": "Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count"
+  }
+}
