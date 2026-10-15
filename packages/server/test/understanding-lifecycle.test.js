@@ -36,7 +36,7 @@ function fixture(t) {
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }], usage })}\n\ndata: [DONE]\n\n`);
     } });
   const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(plugin),
-    consent: { coverage: ({ scope, consentRevision }) => ({ covered: true, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) },
+    consent: { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) },
     presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction, understanding: config.understanding },
       policy: { endpoints: [config.reaction.endpoint] } } } });
   const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: start2PurposePolicy, log: event => logs.push(event) });
