@@ -21,7 +21,8 @@ export const questionCardStyles = `
   .transcript-shell > .voice-notices { height:auto; margin-top:8px; }
   .workspace[data-stage="live"] .phone-dock-backdrop { display:block; position:fixed; z-index:8;
     left:0; right:0; bottom:var(--phone-bottom,0px);
-    height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper); }
+    height:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); background:var(--aithema-paper);
+    mask-image:linear-gradient(to bottom,transparent,#000 12px); }
   .workspace[data-stage="live"] .composer-dock { position:fixed; z-index:9;
     left:var(--aithema-gutter); right:var(--aithema-gutter);
     bottom:calc(var(--phone-bottom,0px) + var(--phone-footer,57px) + 12px); }
