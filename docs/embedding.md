@@ -112,6 +112,87 @@ ownership. `POST /api/sessions` takes JSON and returns the public session.
 the provenance-preserving ZIP. See the root README's route tables for commands,
 settings, uploads, withdrawal, concepts, and host routes.
 
+## Host retention contract
+
+Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
+sessions**, without possessing visitor tokens. `before` is a nonnegative Unix
+millisecond timestamp; eligibility is strictly `lastActivity < before`. `limit`
+is an integer from 1 to 1000 (default 100). The result is `{ retired, more }`:
+`retired` counts completed full erasures; `more` means another eligible or
+pending batch exists. Repeated and overlapping calls are safe. An interrupted
+retirement is durably queued and retried, including the host cleanup hook.
+Hooks must therefore be idempotent; failures reject the call rather than
+acknowledging incomplete deletion.
+
+Last activity is the latest **server timestamp** of session creation, a committed
+session event (including settings, consent, text, uploads and voice), or an
+authorized request to a session route or individual library item (including reads and export). Client turn
+timestamps cannot backdate it. Failed ownership checks and maintenance scans do
+not renew activity. In-flight authorized requests, open SSE streams and running
+text reasoning jobs exclude the session from retirement; active voice calls
+and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
+and the final idle check run under the exclusive SQLite writer, before any
+asynchronous cancellation or hook, so newly active sessions cannot be erased
+from a stale candidate list. On migration, the latest stored event timestamp
+initializes activity (unknown timestamps conservatively start at migration).
+
+Retirement uses the erase route's `session.erased` invalidation: it broadcasts
+and closes live streams, cancels lanes, concepts, uploads and voice, and invokes
+`host.erased({ sessionId })`. No owner token is invented for maintenance. It then
+withdraws consent and physically deletes the session and its dependent rows.
+
+| Data | After successful retirement |
+| --- | --- |
+| Session, settings, consent revision, owner hash | Deleted |
+| Value-free event journal, receipts and content hashes | Deleted |
+| Text, understanding, actor, focused question, identity and library projections | Deleted |
+| Upload bytes, extracted text, concept blobs and feedback | Deleted |
+| Host state, safeguards, voice calls, lifecycle and operation records | Deleted |
+| Processing consent grants and history in the composed demo | Deleted |
+| Per-session budget attempts, corrections, render claims, duration reservations | Deleted |
+| Deployment spend, render and voice totals | Only value-free totals per account or UTC day remain; no session, owner, attempt or provider generation identifiers |
+| Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
+
+SQLite uses `secure_delete` and truncates its WAL before acknowledging the
+full erase. Unreconciled deployment holds remain conservatively charged in
+aggregate; their deleted receipts can no longer be reconciled. This does not erase independent backups or remote provider copies.
+The host must use its idempotent `erased` hook to remove external session data,
+including in-memory projections; the demo removes its session mail outbox.
+SQLite extension tables using `session_id` are included in deletion; extensions
+with other keys must clean those in the hook. Visitor identity, visitor credit
+accounts and deployment abuse controls are separate host records, governed by
+the host's visitor-retention policy. Shared owner credit guards are removed
+when they refer to the retired session. Do not promise provider-side deletion
+from this API.
+
+For a 24-hour idle policy, run at startup and on the host's existing maintenance
+schedule. Drain batches with a short yield between calls; serialize the loop:
+
+```js
+let retaining = false;
+async function retainIdleSessions() {
+  if (retaining) return;
+  retaining = true;
+  const before = Date.now() - 24 * 60 * 60 * 1000;
+  try {
+    while ((await handlers.retire({ before, limit: 100 })).more) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  } finally { retaining = false; }
+}
+await retainIdleSessions();
+const retentionTimer = setInterval(() => void retainIdleSessions().catch(reportRetentionFailure), 15 * 60_000);
+// Shutdown: clearInterval(retentionTimer), await any running maintenance, then close handlers/storage.
+```
+
+A 15-minute schedule normally deletes after 24 hours of inactivity **plus up to
+15 minutes and backlog/maintenance delays**. Privacy copy must reflect that
+window and distinguish idle retention from a fixed lifetime. The demo keeps its
+existing one-minute schedule and 365-day cutoff, retiring at most 100 sessions
+per tick. The older `expire(before)` only withdraws old turns/uploads; it is not
+a full-erasure contract. Both sweeps query an indexed live-session set, excluding
+tombstones and retired sessions without scanning historical session rows.
+
 ## Web components
 
 A browser build needs an import map or bundler resolving workspace package

@@ -36,13 +36,15 @@ export function createSpendCap({ storage, account, capMicro } = {}) {
       COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state!='uncertain' THEN reserved_micro ELSE 0 END),0) AS reservedMicro,
       COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state='uncertain' THEN reserved_micro ELSE 0 END),0) AS uncertainMicro
       FROM spend_reservations WHERE account=?`).get(account);
+    const retired = db.prepare('SELECT * FROM retired_spend WHERE account=?').get(account);
+    if (retired) { row.spentMicro += retired.spent_micro; row.reservedMicro += retired.reserved_micro; row.uncertainMicro += retired.uncertain_micro; }
     if (!Object.values(row).every(amount)) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
     return row;
   };
   const policy = createSpendCapSettings({ storage, account, configuredCapMicro: capMicro, totals });
   const snapshot = ({ includeBreachReason = false } = {}) => {
     const row = totals(), capMicro = policy.capMicro();
-    const overrun = db.prepare('SELECT 1 FROM spend_reservations WHERE account=? AND actual_micro > COALESCE(ceiling_micro,reserved_micro) LIMIT 1').get(account);
+    const overrun = db.prepare('SELECT 1 FROM spend_reservations WHERE account=? AND actual_micro > COALESCE(ceiling_micro,reserved_micro) LIMIT 1').get(account) || db.prepare('SELECT 1 FROM retired_spend WHERE account=? AND breached=1').get(account);
     return { ...row, capMicro, breached: Boolean(overrun) || row.spentMicro > capMicro,
       ...(includeBreachReason ? { breachReason: overrun ? 'overrun' : row.spentMicro > capMicro ? 'over-cap' : null } : {}) };
   };

@@ -226,12 +226,18 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     async eraseConversation(id, ownerToken) {
       storage.authorize(id, ownerToken);
-      const event = storage.erase(id, { ownerToken }); await invalidate(id, event, 'session-erased');
-      await host?.erased?.({ sessionId: id, ownerToken });
+      await eraseConversation(id, { ownerToken }, ownerToken);
       return { id, erased: true };
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
+  async function eraseConversation(id, guard, ownerToken) {
+    const event = storage.erase(id, guard);
+    if (!event) return null;
+    await invalidate(id, event, 'session-erased');
+    await host?.erased?.({ sessionId: id, ownerToken });
+    return event;
+  }
   async function consentDocument(session) {
     const document = await consent.describe(session.id);
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
@@ -263,6 +269,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     if (running) { if (wake) running.reschedule = true; return; }
     const job = { id, lane, promise: null, reschedule: false };
     jobs.set(key, job);
+    const release = storage.hold(id);
     job.promise = Promise.resolve().then(async () => {
       try {
         while (!stop.signal.aborted) {
@@ -290,6 +297,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           }
         }
       } finally {
+        release();
         if (jobs.get(key) === job) { jobs.delete(key); status(id); }
       }
     });
@@ -338,11 +346,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     let cleanup;
     const stream = new ReadableStream({
       start(controller) {
+        const release = storage.hold(id);
         let closed = false, count = 0;
         const send = event => {
           if (closed) return;
           if (controller.desiredSize < -256 || ++count > 10_000) { cleanup(); controller.close(); return; }
           controller.enqueue(sse(event));
+          if (event.type === 'session.erased') { cleanup(); controller.close(); }
         };
         const set = listeners.get(id) ?? new Set();
         listeners.set(id, set);
@@ -350,7 +360,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const abort = () => { cleanup(); try { controller.close(); } catch {} };
         cleanup = () => {
           if (closed) return;
-          closed = true; clearInterval(heartbeat); set.delete(send);
+          closed = true; release(); clearInterval(heartbeat); set.delete(send);
           if (!set.size) listeners.delete(id);
           request.signal.removeEventListener('abort', abort); stop.signal.removeEventListener('abort', abort);
         };
@@ -543,8 +553,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         return json(await consentDocument(authorized));
       }
       if (action === 'erase' && request.method === 'POST') {
-        const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
-        await host?.erased?.({ sessionId: id, ownerToken });
+        const event = await eraseConversation(id, guard, ownerToken);
         return json({ erased: true, event, providerDeletion: 'not-confirmed' });
       }
       if (action === 'export' && request.method === 'GET') {
@@ -585,25 +594,66 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       return json({ error: 'server-error' }, 500);
     }
   }
-  return { handle, lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
+  const retiring = new Set();
+  async function retainedHandle(request, context) {
+    const match = /^\/api\/(?:sessions|library)\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
+    let release;
+    if (match) {
+      try { storage.authorize(match[1], ownership.token(request)); storage.touch(match[1]); release = storage.hold(match[1]); }
+      catch (error) { if (!(error instanceof NotFoundError)) throw error; }
+    }
+    try { return await handle(request, context); } finally { release?.(); }
+  }
+  return { handle: retainedHandle, lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
     async withdrawConsent(id) {
       const event = storage.reviseConsent(id, false); await invalidate(id, event, 'consent-withdrawn');
       return event;
     },
     async expire(before) {
-      for (const id of storage.list()) {
-        const session = storage.get(id);
-        if (session.tombstone) continue;
-        for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
-          const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
-          conceptHandlers.ended(id);
-        }
-        for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
-          const event = storage.withdrawUpload(id, upload.id);
-          await Promise.all([uploadHandlers.cancelUpload(id, upload.id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
-          schedule(id); conceptHandlers.ended(id);
+      let after = '';
+      while (true) {
+        const ids = storage.liveIds(after);
+        if (!ids.length) break;
+        for (const id of ids) {
+          after = id;
+          let session;
+          try { session = storage.get(id); } catch (error) { if (error instanceof NotFoundError) continue; throw error; }
+          if (session.tombstone) continue;
+          for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
+            const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
+            conceptHandlers.ended(id);
+          }
+          for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
+            const event = storage.withdrawUpload(id, upload.id);
+            await Promise.all([uploadHandlers.cancelUpload(id, upload.id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
+            schedule(id); conceptHandlers.ended(id);
+          }
         }
       }
+    },
+    async retire({ before, limit = 100 } = {}) {
+      if (!Number.isSafeInteger(before) || before < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new TypeError('Invalid retention request');
+      const pending = storage.pendingRetirements(limit);
+      const candidates = [...pending, ...storage.retirementCandidates(before, limit - pending.length)];
+      let retired = 0;
+      for (const id of candidates) {
+        if (retiring.has(id)) continue;
+        retiring.add(id);
+        try {
+          if (pending.includes(id)) {
+            const event = storage.read(id).findLast(event => event.type === 'session.erased');
+            await invalidate(id, event, 'session-erased');
+            await host?.erased?.({ sessionId: id });
+          } else {
+            if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
+            if (!await eraseConversation(id, { retire: true, before })) continue;
+          }
+          await consent?.withdraw?.({ sessionId: id });
+          storage.purgeRetired(id); retired++;
+        } finally { retiring.delete(id); }
+      }
+      storage.checkpointErasure();
+      return { retired, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 };
     },
     async reconcileUncertain({ apply = false, limit = 10 } = {}) {
       if (typeof apply !== 'boolean' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair request');

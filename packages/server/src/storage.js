@@ -67,12 +67,109 @@ export class SQLiteStorage {
     }
     this.#migrate();
     this.voiceTurnStore = createVoiceOperationStore(this);
+    this.#retention();
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
   }
   transaction(fn) {
     this.db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  #retention() {
+    this.transaction(() => {
+      const exists = this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='session_retention'").get();
+      this.db.exec(`CREATE TABLE IF NOT EXISTS session_retention (
+        session_id TEXT PRIMARY KEY REFERENCES sessions(id), last_activity INTEGER NOT NULL, busy INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS retention_idle ON session_retention(last_activity,session_id) WHERE busy=0;
+        CREATE TABLE IF NOT EXISTS retirement_pending (session_id TEXT PRIMARY KEY REFERENCES sessions(id));
+        CREATE TABLE IF NOT EXISTS retired_ui_renders (day TEXT PRIMARY KEY, count INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS retired_voice_usage (day TEXT PRIMARY KEY, spent_ms INTEGER NOT NULL, reserved_ms INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS retired_spend (account TEXT PRIMARY KEY, spent_micro INTEGER NOT NULL,
+          reserved_micro INTEGER NOT NULL, uncertain_micro INTEGER NOT NULL, breached INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS credit_guard_session ON owner_credit_guards(json_extract(record,'$.sessionId'));
+        CREATE INDEX IF NOT EXISTS content_session ON content(session_id);
+        CREATE INDEX IF NOT EXISTS lifecycle_session ON voice_lifecycle_calls(session_id);`);
+      // Only the migration visits historical snapshots. Sweeps never read tombstones.
+      if (!exists) this.db.exec(`INSERT INTO session_retention(session_id,last_activity)
+        SELECT id, COALESCE((SELECT MAX(CAST((julianday(json_extract(event,'$.at'))-2440587.5)*86400000 AS INTEGER))
+          FROM events WHERE session_id=sessions.id), CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))
+        FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NULL;`);
+      // The exclusive writer lock makes process-local leases safe to reset at boot.
+      this.db.exec(`UPDATE session_retention SET busy=0;
+        CREATE TRIGGER IF NOT EXISTS retention_create AFTER INSERT ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NULL BEGIN
+          INSERT INTO session_retention(session_id,last_activity) VALUES (NEW.id,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)); END;
+        CREATE TRIGGER IF NOT EXISTS retention_event AFTER INSERT ON events BEGIN
+          UPDATE session_retention SET last_activity=MAX(last_activity,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)) WHERE session_id=NEW.session_id; END;
+        CREATE TRIGGER IF NOT EXISTS retention_erase AFTER UPDATE ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL BEGIN
+          DELETE FROM session_retention WHERE session_id=NEW.id; END;`);
+    });
+  }
+  touch(id) {
+    this.db.prepare('UPDATE session_retention SET last_activity=MAX(last_activity,?) WHERE session_id=?').run(Date.now(), id);
+  }
+  /** Leases exclude in-flight requests, open event streams and reasoning jobs. */
+  hold(id) {
+    this.db.prepare('UPDATE session_retention SET busy=busy+1 WHERE session_id=?').run(id);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.db.prepare('UPDATE session_retention SET busy=MAX(0,busy-1) WHERE session_id=?').run(id);
+    };
+  }
+  liveIds(after = '', limit = 100) {
+    return this.db.prepare('SELECT session_id FROM session_retention WHERE session_id>? ORDER BY session_id LIMIT ?')
+      .all(after, limit).map(row => row.session_id);
+  }
+  retirementCandidates(before, limit) {
+    return this.db.prepare('SELECT session_id FROM session_retention WHERE busy=0 AND last_activity<? ORDER BY last_activity,session_id LIMIT ?')
+      .all(before, limit).map(row => row.session_id);
+  }
+  pendingRetirements(limit) {
+    return this.db.prepare('SELECT session_id FROM retirement_pending ORDER BY session_id LIMIT ?').all(limit).map(row => row.session_id);
+  }
+  /** Only a tombstone claimed by retire can lose its append-only journal. */
+  purgeRetired(id) {
+    this.#invalidationTransaction(() => {
+      if (!this.get(id).tombstone || !this.db.prepare('SELECT 1 FROM retirement_pending WHERE session_id=?').get(id)) throw new ConflictError('Retirement not claimed');
+      const tables = new Set(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
+      const has = name => tables.has(name);
+      if (has('ui_render_claims')) this.db.prepare(`INSERT INTO retired_ui_renders
+        SELECT day,COUNT(*) FROM ui_render_claims WHERE session_id=? GROUP BY day
+        ON CONFLICT(day) DO UPDATE SET count=count+excluded.count`).run(id);
+      if (has('voice_cap_reservations')) this.db.prepare(`INSERT INTO retired_voice_usage
+        SELECT day,COALESCE(SUM(actual_ms),0),COALESCE(SUM(CASE WHEN actual_ms IS NULL THEN reserved_ms ELSE 0 END),0)
+        FROM voice_cap_reservations WHERE session_id=? GROUP BY day ON CONFLICT(day) DO UPDATE SET
+        spent_ms=spent_ms+excluded.spent_ms,reserved_ms=reserved_ms+excluded.reserved_ms`).run(id);
+      if (has('budget_attempts')) {
+        if (has('budget_corrections')) this.db.prepare('DELETE FROM budget_corrections WHERE attempt_id IN (SELECT attempt_id FROM budget_attempts WHERE session_id=?)').run(id);
+        if (has('owner_wallet_reservations')) this.db.prepare('DELETE FROM owner_wallet_reservations WHERE attempt_id IN (SELECT attempt_id FROM budget_attempts WHERE session_id=?)').run(id);
+        if (has('spend_reservations')) {
+          this.db.prepare(`INSERT INTO retired_spend
+            SELECT account,COALESCE(SUM(actual_micro),0),
+              COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state!='uncertain' THEN reserved_micro ELSE 0 END),0),
+              COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state='uncertain' THEN reserved_micro ELSE 0 END),0),
+              MAX(CASE WHEN actual_micro > COALESCE(ceiling_micro,reserved_micro) THEN 1 ELSE 0 END)
+            FROM spend_reservations WHERE attempt_id IN (SELECT attempt_id FROM budget_attempts WHERE session_id=?) GROUP BY account
+            ON CONFLICT(account) DO UPDATE SET spent_micro=spent_micro+excluded.spent_micro,
+              reserved_micro=reserved_micro+excluded.reserved_micro,uncertain_micro=uncertain_micro+excluded.uncertain_micro,
+              breached=MAX(breached,excluded.breached)`).run(id);
+          this.db.prepare('DELETE FROM spend_reservations WHERE attempt_id IN (SELECT attempt_id FROM budget_attempts WHERE session_id=?)').run(id);
+        }
+      }
+      // Host SQLite extensions follow the session_id convention as well. Foreign
+      // keys fail closed if a host extension needs its own erased hook first.
+      const quote = name => '"' + name.replaceAll('"', '""') + '"';
+      this.db.exec('DROP TRIGGER events_no_delete');
+      for (const name of tables) {
+        if (this.db.prepare(`PRAGMA table_info(${quote(name)})`).all().some(column => column.name === 'session_id')) {
+          this.db.prepare(`DELETE FROM ${quote(name)} WHERE session_id=?`).run(id);
+        }
+      }
+      this.db.exec("CREATE TRIGGER events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;");
+      this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
+      this.db.prepare("DELETE FROM owner_credit_guards WHERE json_extract(record,'$.sessionId')=?").run(id);
+    });
   }
   create(options = {}) {
     return this.transaction(() => {
@@ -666,6 +763,11 @@ export class SQLiteStorage {
   expire(id, turnId) { return this.withdraw(id, turnId, 'expiry'); }
   erase(id, guard = {}) {
     return this.#invalidationTransaction(() => {
+      if (guard.retire) {
+        const eligible = this.db.prepare('SELECT 1 FROM session_retention WHERE session_id=? AND busy=0 AND last_activity<?').get(id, guard.before);
+        if (!eligible) return null;
+        this.db.prepare('INSERT INTO retirement_pending VALUES (?)').run(id);
+      }
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
