@@ -275,8 +275,20 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     await shadow(page, c => { c.remove(); document.body.append(c); });
     await connected;
     const after = await page.evaluate(async () => (await fetch('/stats')).json());
-    const billing = stats => ({ providerCalls: stats.providerCalls, attempts: stats.attempts });
-    assert.deepEqual(billing(after), billing(before), 'restart/reconnect makes zero provider calls, admissions or settlements');
+    // Boot imports already embedded receipts and acknowledges them locally. This
+    // legitimately adds reconciliation metadata without another provider call or
+    // changing the settlement. Compare both JSON fields, allowing exactly that.
+    const billing = (stats, boot = false) => ({ providerCalls: stats.providerCalls,
+      attempts: stats.attempts.map(attempt => {
+        let provider = JSON.parse(attempt.provider_cost_json), cost = JSON.parse(attempt.cost_reconciliation_json);
+        if (boot && provider && !provider.reconciled && (provider.chargedMicro !== undefined || attempt.outcome !== 'uncertain')) {
+          cost = { chargedMicro: provider.chargedMicro ?? attempt.settled_micro,
+            ...(provider.generationId ? { generationId: provider.generationId } : {}) };
+          provider = { ...provider, reconciled: 1, retryAt: null, retryAttempts: provider.retryAttempts ?? 0 };
+        }
+        return { ...attempt, provider_cost_json: provider, cost_reconciliation_json: cost };
+      }) });
+    assert.deepEqual(billing(after), billing(before, true), 'restart/reconnect only acknowledges existing receipts; zero provider calls, admissions or settlements');
     const creditsAfterReconnect = await credits();
     assert.deepEqual(creditsAfterReconnect, creditsAfterFailure, 'restart/reconnect never charges credits');
     await settle(page);
