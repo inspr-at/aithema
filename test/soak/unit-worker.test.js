@@ -19,7 +19,7 @@ for (const [label, count, args] of [
     const start = performance.now();
     let output = '';
     // A nested node --test must not inherit the outer runner's worker IPC mode.
-    const childEnv = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR']
+    const childEnv = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR', 'npm_config_cache', 'NPM_CONFIG_CACHE']
       .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
     childEnv.AITHEMA_UNIT_HANDLES = '1';
     const child = spawn(label === 'host surface' ? process.execPath : 'npm', args, { env: childEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
