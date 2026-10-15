@@ -1,6 +1,5 @@
 // Real handlers, visitor wallet and ledger; the only provider is a controlled fake.
 import { readFile } from 'node:fs/promises';
-import { setImmediate as nextTurn } from 'node:timers/promises';
 import { SQLiteStorage, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
 import { PluginRegistry } from '../../packages/core/src/index.js';
 import { listen } from '../../packages/server/src/http.js';
@@ -8,32 +7,26 @@ import { createOpenRouterReasoning } from '../../plugins/openrouter/src/index.js
 import { createDemoHost } from '../../demo/host-ports.js';
 import { openRouterConfig } from '../../demo/openrouter-config.js';
 import { start2PurposePolicy } from '../../demo/safeguards.js';
+import { createFakeProviderKit, assessment } from './fake-provider-kit.js';
+const kit = createFakeProviderKit();
 const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
 
 let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
-const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
+const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture', OPENROUTER_ANALYSIS_EFFORT: 'low',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
-let release, success = false, current, providerCalls = 0;
-const assessment = { summary: 'Ein Überblick. An overview.', signals: [], openQuestions: [],
-  constraints: { operations: null, data: null, systems: null, reach: null, requirements: null },
-  progress: { talk: { value: 0.2, reasoning: 'First details' }, build: { value: 0, reasoning: 'Pending' } },
-  actor: null, engagement: null, conceptIntent: null };
+let release, success = false, current, analysisEntered, enterAnalysis;
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
-  async fetchImpl(_url, init) {
-    providerCalls++;
-    const body = JSON.parse(init.body), usage = { prompt_tokens: 30, completion_tokens: 40, cost: 0.1 };
-    if (body.stream) {
-      const content = JSON.stringify({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] });
-      return new Response(`data: ${JSON.stringify({ usage, choices: [{ delta: { content }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
-    }
-    if (!success) {
-      const verdict = await new Promise(resolve => { release = resolve; });
-      if (['400', '408', '499'].includes(verdict)) return Response.json({ error: { message: 'fixture rejection' } }, { status: Number(verdict) });
-      if (verdict === 'uncertain') return new Response(null, { status: 503 });
-      return Response.json({ usage, choices: [{ finish_reason: 'length', message: { content: '{}' } }] });
-    }
-    return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }] });
+  async fetchImpl(url, init) {
+    const result = kit.fetchImpl(url, init), call = await kit.next();
+    if (call.body.stream) call.resolve({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] }, { costUSD: 0.1 });
+    else if (success) call.resolve(assessment, { costUSD: 0.1 });
+    else { release = verdict => {
+      if (['400', '408', '499'].includes(verdict)) call.httpError(Number(verdict));
+      else if (verdict === 'uncertain') call.httpError(503);
+      else call.resolve({}, { finishReason: 'length', costUSD: 0.1 });
+    }; enterAnalysis?.(); }
+    return result;
   } });
 const makeHandlers = () => {
   const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(plugin),
@@ -50,11 +43,11 @@ const { server, url } = await listen(async request => {
   const u = new URL(request.url), path = u.pathname;
   if (path === '/fixture') {
     success = false; release = undefined;
+    analysisEntered = new Promise(resolve => { enterAnalysis = resolve; });
     current = storage.create({ demo: true, ownerToken: owner, locale: u.searchParams.get('locale') ?? 'de' });
     await call('turns', { content: 'Wir möchten die Auftragsbearbeitung vereinfachen.', clientEventId: crypto.randomUUID() });
-    const deadline = Date.now() + 5000;
-    while (!release && Date.now() < deadline) await nextTurn();
-    if (!release) throw new Error('Analysis never dispatched');
+    // The provider call is the rendezvous, not elapsed wall time.
+    await analysisEntered;
     return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
   }
   if (path === '/settle') { release(u.searchParams.get('verdict')); await handlers.idle(); return Response.json({ ok: true }); }
@@ -66,7 +59,7 @@ const { server, url } = await listen(async request => {
   }
   if (path === '/stats') {
     await handlers.idle();
-    return Response.json({ providerCalls, attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });
+    return Response.json({ providerCalls: kit.calls.length, attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });
   }
   if (path === '/success') { success = true; return Response.json({ ok: true }); }
   if (path.startsWith('/api/')) return handlers.handle(new Request(request, { headers: { ...Object.fromEntries(request.headers), 'x-aithema-session-token': owner } }));

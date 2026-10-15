@@ -112,7 +112,7 @@ for (const action of ['reconnect', 'retry', 'restart']) test(`AIT-212 failed pai
     await handlers.idle();
     assert.equal(admissions.length, before.admissions + 1, 'explicit Retry admits exactly one new attempt');
     assert.equal(settlements.length, before.settlements + 1, 'explicit Retry settles exactly once');
-    assert.deepEqual(settlements.at(-1), { lane: 'understanding', failed: false });
+    assert.deepEqual(settlements.at(-1), { lane: 'understanding', failed: false, error: undefined });
     assert.equal(calls, 2);
     assert.equal(storage.get(s.id).understanding.inputRevision, inputRevision(snapshot));
     assert.equal(storage.get(s.id).understanding.draft, false);

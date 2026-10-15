@@ -61,6 +61,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
   purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
+  pluginRuntime.setLaneDiagnostic?.(log);
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
     throw new TypeError('Admission and revocation require the same consent port');
@@ -165,11 +166,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     onOpenerStripped() {
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
-    },
-    onUnderstandingDiagnostic({ outcome, reason }) {
-      try { Promise.resolve(log({ event: `understanding.${outcome}`, count: 1, lane: 'understanding',
-        ...(reason ? { reason } : {}) })).catch(() => {}); }
-      catch { /* Diagnostics cannot interrupt an assessment. */ }
     },
     onReplyDiagnostic({ lane, kind, reason, attemptCount }) {
       const event = { fallback: 'reply.fallback', 'schema-retry': 'reply.schema-retry', 'missing-scope': 'reply.scope-missing' }[kind];

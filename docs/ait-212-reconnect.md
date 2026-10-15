@@ -68,8 +68,15 @@ recovers each failed lane exactly once.
 
 ## Round 2 / AIT-213 evidence
 
-The signed main merge was conflict-free (no manual merge hunks); both the AIT-212
-changes and main's package exports/release tooling are retained.
+The initial signed main merge (`211179a6`, release candidate #173) was conflict-free;
+both the AIT-212 changes and main's package exports/release tooling are retained.
+A follow-up signed merge of `c9591f14` retains AIT-201's shared provider kit,
+analysis rendezvous and low analysis effort, plus AIT-209's bounded browser launch.
+Its only conflict was in `test/fixtures/understanding-failure.js`: the provider setup
+keeps the shared kit and all five failure kinds; storage and the `/restart` endpoint
+keep the disk-backed lifecycle; `/stats` counts kit calls. `handlers.js` and shard
+weights merged automatically, retaining durable failure handling and both weights.
+The understanding settlement assertion also accepts AIT-201's optional `error` field.
 
 Red commit `b794b8f6b6`, mbp2606 run `b794b8f6b6-85441`: 17/19 handler tests
 passed. The disk-backed restart regression and remaining-lane visibility regression
