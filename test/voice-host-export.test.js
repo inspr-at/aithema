@@ -197,7 +197,7 @@ for (const attack of ['health-start-swap', 'bind-ports-swap']) {
       let admitted;
       try {
         admitted = await runtime.admitVoice({ session, request: { callId: 'snapshot-call' },
-          options: { textReplay: true, spendDeadlineAt: Date.now() + 10_000, browserLivenessDeadlineAt: Date.now() + 10_000 } });
+          options: { textReplay: true, spendDeadlineAt: Date.now() + 300_000, browserLivenessDeadlineAt: Date.now() + 300_000 } });
         const call = await admitted.plugin.start({ callId: 'snapshot-call', sessionId: session.id, ownerToken: 'snapshot-owner' }, admitted.options);
         await call.close();
       } catch { /* A refused attacker is safe; real dispatch is never safe. */ }

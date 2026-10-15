@@ -568,8 +568,8 @@ for (const [kind, create, binding, recognizes] of [
     const previous = await local.generate(spec, '', { attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {} });
     let admitted, edited;
     try {
-      admitted = await runtime.admit({ session, lane: 'concept', operation: 'edit', request: { ...spec, previousArtifact: previous } });
-      edited = await admitted.plugin.edit(previous, spec, '', admitted.options);
+      admitted = await runtime.admit({ session, lane: 'concept', operation: 'edit', request: { ...spec, feedback: 'Increase contrast', previousArtifact: previous } });
+      edited = await admitted.plugin.edit(previous, spec, 'Increase contrast', admitted.options);
     } catch { /* Refusal is safe; the dispatch count below proves the boundary. */ }
     finally { admitted?.finish({ failed: !edited }); }
     assert.equal(dispatched, 0, 'real edit must never dispatch under mock consent');
