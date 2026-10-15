@@ -569,7 +569,26 @@ async function rest(page, selector) {
         const animating = node.getAnimations().some(animation => animation.pending || animation.playState !== 'finished');
         // Require exact equality on two consecutive frames after the animation ends.
         if (!animating && previous && Object.keys(current).every(key => current[key] === previous[key])) {
-          clearTimeout(timer); resolve(current); return;
+          let point = { x: rect.x + Math.min(rect.width / 2, 40), y: rect.y + Math.min(rect.height / 2, 10) };
+          const shell = node.closest('.transcript-shell');
+          if (shell) {
+            // A sticky latest-message button can cover a row's name, and the
+            // top mask can hide it after a phone resize. Rest on the actual
+            // target, so the strict geometry checks exercise its anchor.
+            const viewport = shell.getBoundingClientRect();
+            const left = Math.max(rect.left, viewport.left, 0) + 1, right = Math.min(rect.right, viewport.right, innerWidth) - 1;
+            const top = Math.max(rect.top, viewport.top + 26, 0) + 1, bottom = Math.min(rect.bottom, viewport.bottom, innerHeight) - 1;
+            point = null;
+            if (left < right && top < bottom) for (const x of [.1, .5, .9]) for (const y of [.1, .5, .9]) {
+              const candidate = { x: left + (right - left) * x, y: top + (bottom - top) * y };
+              if (!point && node.contains(c.shadowRoot.elementFromPoint(candidate.x, candidate.y))) point = candidate;
+            }
+            if (!point) {
+              node.scrollIntoView({ block: 'center' }); previous = null;
+              frame = requestAnimationFrame(measure); return;
+            }
+          }
+          clearTimeout(timer); resolve({ box: current, point }); return;
         }
         previous = animating ? null : current;
         frame = requestAnimationFrame(measure);
@@ -577,8 +596,12 @@ async function rest(page, selector) {
       frame = requestAnimationFrame(measure);
     });
   }, selector, waitTimeout);
-  await page.mouse.move(target.x + Math.min(target.width / 2, 40), target.y + Math.min(target.height / 2, 10));
-  return target;
+  await page.mouse.move(target.point.x, target.point.y);
+  assert.equal(await inShadow(page, (c, selector, point) => {
+    const node = c.shadowRoot.querySelector(selector);
+    return !node.closest('.transcript-shell') || node.contains(c.shadowRoot.elementFromPoint(point.x, point.y));
+  }, selector, target.point), true, `the resting pointer hits ${selector}`);
+  return target.box;
 }
 // The changing upload row's own boxes: the row, its name, its action slot and (while it exists) the button.
 const rowBoxes = (page, selector) => inShadow(page, (c, selector) => {
@@ -1561,41 +1584,16 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await shot(page, 'de-light-400');
     // At 400 px a chip under the pointer also stays put while another file arrives, and the arriving
     // row keeps its geometry from pending to accepted under the pointer.
-    await inShadow(page, async c => {
-      const { PhoneComposerViewport } = await import('/packages/ui/src/layout.js');
-      const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
-      window.uploadAnchorTrace = [];
-      const trace = label => {
-        const actions = r.querySelector('.voice-reply-actions'), notices = r.querySelector('.voice-notices');
-        const viewport = window.uploadViewport;
-        window.uploadAnchorTrace.push({ label, top: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight,
-          viewportTop: shell.getBoundingClientRect().top, pageTop: scrollY,
-          actionsParent: actions.parentElement.className, actionHeight: actions.getBoundingClientRect().height,
-          noticeHeight: notices.getBoundingClientRect().height, reservation: notices.style.minHeight,
-          measured: viewport?.noticeHeight, savedTop: viewport?.noticeScrollTop,
-          hit: window.uploadPoint && r.elementFromPoint(window.uploadPoint.x, window.uploadPoint.y)?.className,
-          slack: shell.style.cssText });
-        if (window.uploadAnchorTrace.length > 40) window.uploadAnchorTrace.shift();
-      };
-      const record = PhoneComposerViewport.prototype.recordTranscriptAnchor;
-      PhoneComposerViewport.prototype.recordTranscriptAnchor = function () { window.uploadViewport = this; record.call(this); trace('anchor'); };
-      shell.addEventListener('pointermove', event => { window.uploadPoint = { x: event.clientX, y: event.clientY }; trace('pointer'); });
-      shell.addEventListener('scroll', () => trace('scroll'));
-      new MutationObserver(() => trace('mutation')).observe(shell, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'style'] });
-      trace('start');
-    });
     await hold(page, true);
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const lastChip = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phoneChip = await rest(page, lastChip);
     const phoneChooser = await uploadChooser(page);
     await phoneChooser.accept([paths.text]);
     await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].some(r => r.dataset.state === 'pending'));
-    t.diagnostic(`upload arrival trace: ${JSON.stringify(await page.evaluate(() => window.uploadAnchorTrace))}`);
     sameBox(phoneChip, await box(page, lastChip), 'hovered chip at 400 px');
     const phoneNew = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phonePending = await restOnRow(page, phoneNew);
     await hold(page, false);
     await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].filter(r => r.dataset.state === 'accepted').length === 3);
-    t.diagnostic(`upload acceptance trace: ${JSON.stringify(await page.evaluate(() => window.uploadAnchorTrace))}`);
     sameRow(phonePending, await rowBoxes(page, phoneNew), 'pending → accepted at 400 px');
     await page.mouse.move(0, 0); await shot(page, 'de-light-400-accepted');
     // Withdrawing the accepted file at 400 px, pointer resting on the button and the keyboard pressing it.
