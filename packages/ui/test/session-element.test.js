@@ -385,7 +385,7 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
   const session = c.session;
-  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
+  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'current processing consent required' } };
   c.configure({ copy: en, session });
   c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu',
     settings: { ...session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
@@ -394,8 +394,8 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(root.querySelector('textarea').disabled, true);
   assert.equal(root.querySelector('.send').disabled, true);
   assert.match(root.querySelector('.composer').textContent, /Not configured/);
-  assert.equal(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
-  assert.equal(root.querySelector('.notice').textContent, 'consent required');
+  assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), false, 'the consent action stays interactive');
+  assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent · Give consent…');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
   assert.equal(root.querySelector('.retry').hidden, true);
@@ -684,6 +684,7 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
 
 test('a reconnect re-reads feature verdicts, so a host restart that dropped consent shows it (D6)', async () => {
   const c = setup(), originalFetch = globalThis.fetch; let streams = 0, refreshed = 0;
+  turn(c, 'reconnect-project', 'We need a website.');
   const session = c.session;
   globalThis.fetch = async (url, options = {}) => {
     if (url.endsWith('/events')) {
