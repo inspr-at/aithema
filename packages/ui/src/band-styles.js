@@ -39,8 +39,8 @@ export const bandStyles = `
 .voice-state { max-width:50%; text-wrap:balance; }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; } }
-.audio-rail[data-message] .voice-state { max-width:100%; }
-.audio-rail[data-message] .voice-state { left:0; }
+.audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
+  left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
 .band-utilities { display:flex; align-items:center; }

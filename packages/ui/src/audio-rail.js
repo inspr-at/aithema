@@ -105,6 +105,13 @@ export class AudioRail {
   }
   measureLabel() {
     const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    if (this.root.hasAttribute('data-message')) {
+      const signal = this.root.querySelector('.voice-signal').getBoundingClientRect();
+      const viewport = this.root.ownerDocument.documentElement.clientWidth;
+      const width = Math.min(280, viewport - 32);
+      const left = Math.max(16, Math.min(signal.left, viewport - 16 - width));
+      this.root.style.setProperty('--voice-message-left', `${left - signal.left}px`);
+    }
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
     const range = this.root.ownerDocument.createRange();
     range.selectNodeContents(label);
