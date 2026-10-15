@@ -9,12 +9,13 @@ export async function componentInvocation(options, { role, unit, model }) {
     throw new PluginError('not-admitted', 'A separately admitted component claim is required');
   }
   const scope = operationScope(options);
-  let dispatched = false, terminal, usage;
+  let dispatched = false, terminal, usage, rejected = false;
   const finish = completed => {
     if (terminal) return terminal;
     const zero = { attemptId: options.attempt.attemptId, role, unit, quantity: 0, upstreamMicro: 0,
       source: 'undispatched', estimated: false };
     const report = !dispatched ? { outcome: 'cancelled', usage: zero, chargedMicro: 0 }
+      : rejected ? { outcome: 'cancelled', usage: { ...zero, source: 'provider-4xx-no-usage' }, chargedMicro: 0 }
       : completed && usage ? { outcome: 'completed', usage, chargedMicro: usage.upstreamMicro }
         : { outcome: 'uncertain' };
     scope.signal.removeEventListener('abort', abort);
@@ -39,6 +40,10 @@ export async function componentInvocation(options, { role, unit, model }) {
     usage(quantity, upstreamMicro, source, estimated = true) {
       usage = assertComponentUsage({ attemptId: options.attempt.attemptId, role, unit, quantity, upstreamMicro, source, estimated });
       if (usage.upstreamMicro > options.attempt.maxMicro) throw new PluginError('limit', 'Component exceeded its admitted ceiling');
+    },
+    // Only a transport-observed 4xx rejection without usage may release dispatch.
+    rejectWithoutUsage(status) {
+      if (!terminal && dispatched && !usage && Number.isInteger(status) && status >= 400 && status < 500) rejected = true;
     },
     finish,
   };
