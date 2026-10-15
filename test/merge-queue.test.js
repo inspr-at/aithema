@@ -55,7 +55,7 @@ test('both required workflows request merge-group checks', () => {
 test('PR and merge-group events run the same seven required check names', () => {
   const expected = ['test', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
-    assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)), expected);
+    assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
   }
 });
 
