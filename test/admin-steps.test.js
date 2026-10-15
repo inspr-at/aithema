@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adminSteps } from './browser/admin-steps.js';
+import { ADMIN_LAUNCH_TIMEOUT, ADMIN_STEP_TIMEOUT, adminSteps } from './browser/admin-steps.js';
 
 test('admin protocol deadlines identify the original matrix cell and operation', async () => {
   const { at, run } = adminSteps();
@@ -42,17 +42,44 @@ test('an already cancelled test never starts another protocol operation', async 
   assert.equal(called, false);
 });
 
-test('a launch deadline aborts the underlying operation instead of abandoning its child', async () => {
+test('a launch deadline aborts the underlying operation instead of abandoning its child', async t => {
+  assert.equal(ADMIN_LAUNCH_TIMEOUT, 30_000);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const { at, run } = adminSteps();
   at('launch', { locale: 'en' });
   let operationSignal, stopped = false;
-  await assert.rejects(run('puppeteer.launch', signal => {
+  const pending = run('puppeteer.launch', signal => {
     operationSignal = signal;
     return new Promise((_, reject) => signal.addEventListener('abort', () => {
       stopped = true;
       reject(signal.reason);
     }, { once: true }));
-  }, { timeout: 1 }), /state=launch locale=en theme=light width=390: puppeteer.launch: deadline exceeded/u);
+  }, { timeout: ADMIN_LAUNCH_TIMEOUT });
+  const rejected = assert.rejects(pending, /state=launch locale=en theme=light width=390: puppeteer.launch: deadline exceeded \(30000 ms\)/u);
+  await Promise.resolve();
+  t.mock.timers.tick(ADMIN_LAUNCH_TIMEOUT - 1);
+  assert.equal(operationSignal.aborted, false);
+  assert.equal(stopped, false);
+  t.mock.timers.tick(1);
+  await rejected;
   assert.equal(operationSignal.aborted, true);
   assert.equal(stopped, true);
+});
+
+test('page steps retain their 15 s default deadline', async t => {
+  assert.equal(ADMIN_STEP_TIMEOUT, 15_000);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { run } = adminSteps();
+  let operationSignal;
+  const pending = run('page.evaluate', signal => {
+    operationSignal = signal;
+    return new Promise(() => {});
+  });
+  const rejected = assert.rejects(pending, /page.evaluate: deadline exceeded \(15000 ms\)/u);
+  await Promise.resolve();
+  t.mock.timers.tick(ADMIN_STEP_TIMEOUT - 1);
+  assert.equal(operationSignal.aborted, false);
+  t.mock.timers.tick(1);
+  await rejected;
+  assert.equal(operationSignal.aborted, true);
 });
