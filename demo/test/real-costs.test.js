@@ -442,5 +442,5 @@ for (const failLookup of [false, true]) test(`AIT-163 fix2: unresolved generatio
   assert.equal(h.balance().session.confirmedSpendMicro, 53); assert.equal(h.cap.snapshot().uncertainMicro, 0);
   assert.equal(h.runtime.budget.get(id).terminal_json, original);
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(id).n, 2);
-  assert.equal(h.balance().owner.committedMicro, 0);
+  assert.equal(h.balance().owner.committedMicro, 53, 'the successful analysis remains billable after its late receipt');
 });

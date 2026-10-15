@@ -1233,6 +1233,8 @@ for (const copy of [de, en]) test(`AIT-173 round 5: blocked overview keeps conte
       analysis: { available: !blocked, reason: blocked ? 'budget reconciling' : null } } } }),
   } });
   userTurn(c);
+  // Normal overview preservation includes a reply; missing reply + idle lanes is AIT-198's stuck state.
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'overview-reply', role: 'assistant', content: 'Which orders?', inputRevision: inputRevision(c.session) } });
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
     { summary: 'A preorder app', signals: ['Orders'], openQuestions: ['When?'], readinessAssessed: true },
     { transcript: c.session.transcript, inputRevision: inputRevision(c.session) }) });
@@ -1359,6 +1361,8 @@ for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 
 
 for (const copy of [de, en]) for (const assessed of [false, true]) test(`AIT-186 F6: session pause appears once and preserves overview and connection (${copy === de ? 'de' : 'en'}, assessed ${assessed})`, async t => {
   const { c, root } = setup(t, { copy, host: {} }); await tick(8); userTurn(c);
+  // Normal overview preservation includes a reply; missing reply + idle lanes is AIT-198's stuck state.
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'overview-reply', role: 'assistant', content: 'Which orders?', inputRevision: inputRevision(c.session) } });
   if (assessed) c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
     { summary: copy === de ? 'Eine Vorbestell-App' : 'A preorder app', signals: ['Orders'], openQuestions: ['When?'], readinessAssessed: true },
     { transcript: c.session.transcript, inputRevision: inputRevision(c.session) }) });

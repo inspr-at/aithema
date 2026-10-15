@@ -91,7 +91,7 @@ test('speech defaults to the required understanding model with START token caps 
   assert.equal(Object.hasOwn(configured.reaction.routing, 'only'), false);
   assert.equal(Object.hasOwn(configured.understanding.routing, 'only'), false);
   assert.equal(Object.hasOwn(configured.reaction.routing, 'ignore'), false);
-  assert.equal(Object.hasOwn(configured.understanding.routing, 'ignore'), false);
+  assert.deepEqual(configured.understanding.routing.ignore, ['Azure']);
   for (const binding of [configured.reaction, configured.understanding]) {
     assert.equal(binding.effort, 'none');
     assert.deepEqual(binding.legal.evidence.routing, binding.routing);
@@ -113,7 +113,7 @@ test('START routing parsing trims CSV entries and matching quotes, defaults blan
     OPENROUTER_PROVIDER_ONLY: '', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ' ' });
   assert.equal(blank.reaction.maxTokens, 1200); assert.equal(blank.understanding.maxTokens, 8000);
   assert.equal(Object.hasOwn(blank.reaction.routing, 'only'), false);
-  assert.equal(Object.hasOwn(blank.understanding.routing, 'ignore'), false);
+  assert.deepEqual(blank.understanding.routing.ignore, ['Azure']);
   const empty = openRouterConfig({ ...values, OPENROUTER_PROVIDER_ONLY: ' , ', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ' , ' });
   assert.equal(Object.hasOwn(empty.reaction.routing, 'only'), false);
   assert.equal(Object.hasOwn(empty.understanding.routing, 'ignore'), false);

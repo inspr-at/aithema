@@ -7,6 +7,23 @@ the production ledger shape: `uncertain`, no usage, settled=max=18,314 micro.
 The shared portable schema fixes that reproduction. OPS must still run the live
 diagnostic to establish whether this is the cause of the production incident.
 
+## Round 3 delta evidence
+
+Tests-only commit `e5588dc` reproduces all round-3 findings on mbp2606.
+The focused routing, published-analysis/unknown-cost and stuck-state unit run is
+0/3; the browser focus and stuck-overview run is 0/2. The HTTP regressions also
+show two attempts for non-compatibility 4xx where exactly one is required.
+
+Round 3 restores Azure's default exclusion and requires an explicit schema
+compatibility rejection on HTTP 400/422 for the prompt-only retry. Visitor
+release now belongs to the failed lane, independently of provider cost certainty.
+The inline Retry node stays mounted. Missing reply with idle lanes and no failure
+uses that same quiet failure line, with no visible footer Retry. The browser
+matrix covers DE/EN at 390/1440, viewport evidence, focus retention and exact
+zero displacement; the original failed/uncertain settlement and recovery matrix
+remains in place. No layout tolerance was widened. Normal-overview preservation
+fixtures include an assistant reply so they do not represent the new stuck state.
+
 ## Red and green evidence
 
 All execution uses mbp2606 through remote-browser.sh. The builder does not open
