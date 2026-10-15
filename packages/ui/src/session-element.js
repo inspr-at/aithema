@@ -1009,7 +1009,8 @@ export class AithemaSession extends HTMLElement {
     // Real pending work owns the slot before failure; an existing assessment
     // keeps its draft/stale copy while its replacement runs.
     const analysisRunning = operations?.inputRevision === revision && operations.running.includes('understanding');
-    const preparing = !u.readinessAssessed && (analysisRunning || (analysis.available || cached) && waiting && !this.#failure);
+    const scheduledAnalysis = this.#deferredAnalysis === revision || this.#analysisRecovery === revision || missingReply && waiting;
+    const preparing = !u.readinessAssessed && (analysisRunning || (analysis.available || cached) && scheduledAnalysis && !this.#failure);
     const consentMissing = hasPersonTurn && isConsentReason(analysis.rawReason);
     const stuck = missingReply && !running && !waiting && !this.#failure && (analysis.available || this.#session.paused);
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
