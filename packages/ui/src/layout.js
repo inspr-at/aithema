@@ -185,10 +185,14 @@ export class PhoneComposerViewport {
     this.noticesObserver?.disconnect();
     const Mutation = this.view?.MutationObserver;
     if (Mutation) {
-      this.noticesObserver = new Mutation(() => {
-        if (this.view.matchMedia('(max-width:600px)').matches) this.onNoticesChange();
+      this.noticesObserver = new Mutation(records => {
+        // Reflected hidden assignments also report idempotent renders. They
+        // are not new notices and must not move a row under the pointer.
+        const changed = records.some(record => record.type !== 'attributes' ||
+          record.oldValue !== record.target.getAttribute(record.attributeName));
+        if (changed && this.view.matchMedia('(max-width:600px)').matches) this.onNoticesChange();
       });
-      this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'] });
+      this.noticesObserver.observe(this.root.querySelector('.voice-notices'), { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] });
     }
     this.paint();
   }
