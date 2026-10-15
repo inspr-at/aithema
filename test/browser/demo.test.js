@@ -1561,16 +1561,41 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await shot(page, 'de-light-400');
     // At 400 px a chip under the pointer also stays put while another file arrives, and the arriving
     // row keeps its geometry from pending to accepted under the pointer.
+    await inShadow(page, async c => {
+      const { PhoneComposerViewport } = await import('/packages/ui/src/layout.js');
+      const r = c.shadowRoot, shell = r.querySelector('.transcript-shell');
+      window.uploadAnchorTrace = [];
+      const trace = label => {
+        const actions = r.querySelector('.voice-reply-actions'), notices = r.querySelector('.voice-notices');
+        const viewport = window.uploadViewport;
+        window.uploadAnchorTrace.push({ label, top: shell.scrollTop, max: shell.scrollHeight - shell.clientHeight,
+          viewportTop: shell.getBoundingClientRect().top, pageTop: scrollY,
+          actionsParent: actions.parentElement.className, actionHeight: actions.getBoundingClientRect().height,
+          noticeHeight: notices.getBoundingClientRect().height, reservation: notices.style.minHeight,
+          measured: viewport?.noticeHeight, savedTop: viewport?.noticeScrollTop,
+          hit: window.uploadPoint && r.elementFromPoint(window.uploadPoint.x, window.uploadPoint.y)?.className,
+          slack: shell.style.cssText });
+        if (window.uploadAnchorTrace.length > 40) window.uploadAnchorTrace.shift();
+      };
+      const record = PhoneComposerViewport.prototype.recordTranscriptAnchor;
+      PhoneComposerViewport.prototype.recordTranscriptAnchor = function () { window.uploadViewport = this; record.call(this); trace('anchor'); };
+      shell.addEventListener('pointermove', event => { window.uploadPoint = { x: event.clientX, y: event.clientY }; trace('pointer'); });
+      shell.addEventListener('scroll', () => trace('scroll'));
+      new MutationObserver(() => trace('mutation')).observe(shell, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'style'] });
+      trace('start');
+    });
     await hold(page, true);
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const lastChip = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phoneChip = await rest(page, lastChip);
     const phoneChooser = await uploadChooser(page);
     await phoneChooser.accept([paths.text]);
     await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].some(r => r.dataset.state === 'pending'));
+    t.diagnostic(`upload arrival trace: ${JSON.stringify(await page.evaluate(() => window.uploadAnchorTrace))}`);
     sameBox(phoneChip, await box(page, lastChip), 'hovered chip at 400 px');
     const phoneNew = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phonePending = await restOnRow(page, phoneNew);
     await hold(page, false);
     await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].filter(r => r.dataset.state === 'accepted').length === 3);
+    t.diagnostic(`upload acceptance trace: ${JSON.stringify(await page.evaluate(() => window.uploadAnchorTrace))}`);
     sameRow(phonePending, await rowBoxes(page, phoneNew), 'pending → accepted at 400 px');
     await page.mouse.move(0, 0); await shot(page, 'de-light-400-accepted');
     // Withdrawing the accepted file at 400 px, pointer resting on the button and the keyboard pressing it.
