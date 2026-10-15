@@ -1,4 +1,44 @@
-# AIT-198 round 3: understanding requests and failure recovery
+# AIT-198 round 4: user-final analysis requests and unbilled rejections
+
+OPS confirmed the production cause with the extended diagnostic on `9707a75`:
+the reply succeeds, then understanding sends roles `[system,user,user,assistant]`
+with thinking and effort enabled. Anthropic rejects that assistant prefill with
+HTTP 400 `invalid_request_error`, without usage or cost. The purpose policy
+publishes the reply before starting understanding; the former seeded sequence
+hid this order. The round-3 schema hypothesis was separate and did not explain
+this confirmed incident.
+
+The round-4 regressions use a fake provider that rejects assistant-final thinking
+requests, with the real purpose gate, handlers, adapter, admissions and SQLite
+ledger. They retain the unseeded reply-before-understanding order, the published
+assistant transcript, configured low effort, 8000 output tokens, actual usage
+settlement and exactly one `understanding.updated` event. Draft and final prompt
+coverage checks both user-final and assistant-final transcripts.
+
+A fully received provider 4xx rejection without usage is authoritative evidence
+of an unbilled request. It settles as cancelled, with zero tokens and zero cost,
+releasing both the session hold and the provider account reservation. This rule
+also covers the separate concept HTML provider path. Explicit billed usage/cost
+is retained. A usage-bearing rejection without an authoritative price stays
+uncertain. A 5xx without cost stays conservative: no applicable no-billing
+contract has been established, and generation may already have started. Network
+failure, timeout, abort or an unreadable response after dispatch likewise retains
+the ceiling until authoritative evidence arrives. Failed understanding still
+releases visitor credits independently of provider liability.
+
+The request-shape instruction is host context, separate from person turns.
+The shared understanding builder applies it to draft and final requests without
+changing configured reasoning or effort. Concept HTML already sends one user
+message containing the visitor context and requests reasoning disabled.
+Schema compatibility is still restricted to explicit response-format/schema
+rejections on HTTP 400/422; a plain `invalid_request_error` takes the failed path.
+The understanding loop admits at most one prompt-only retry, with a distinct
+attempt and settlement.
+
+## Earlier rounds
+
+The following round-3 evidence is historical; the zero-cost 4xx rule above
+supersedes its conservative treatment of unbilled HTTP rejections.
 
 The strict understanding request sent the full host schema, including numeric
 `minimum`/`maximum`, while AIT-181 had already removed those constraints from
@@ -201,7 +241,7 @@ Offline fake transports exercise real handlers, adapter, admission and ledger:
 
 | Understanding response | Usage | Cost | Current outcome |
 | --- | --- | --- | --- |
-| OpenRouter HTTP 400, error.code=400 | absent | absent | uncertain, provider-cost-unknown, settled=max |
+| OpenRouter HTTP 400, error.code=400 | absent | absent | cancelled, provider-4xx failure, settled=0 (round 4) |
 | Anthropic-shaped HTTP 529, error.type=overloaded_error | absent | absent | uncertain, provider-cost-unknown, settled=max |
 | HTTP 200 with empty body | absent | absent | uncertain, provider-cost-unknown, settled=max |
 | HTTP 200 with valid structured output and token usage | present | absent | uncertain, provider-cost-unknown, settled=max |
@@ -210,7 +250,7 @@ The adapter is configured with authoritativeCost=true in
 `plugins/openrouter/src/index.js:26`. HTTP errors still attempt to observe usage
 before throwing (`packages/core/src/chat-completions.js:142`); malformed/empty
 200 bodies fail structured parsing (`packages/core/src/chat-completions.js:238`).
-Without an authoritative receipt, dispatched calls select outcome=uncertain
+Before round 4, without an authoritative receipt, dispatched calls selected outcome=uncertain
 (`packages/core/src/invocation.js:42-44`), which emits provider-cost-unknown
 (`packages/core/src/lanes.js:75`). The ledger retains max_micro
 (`packages/server/src/budget.js:295`). Thus this aggregate reason alone cannot

@@ -60,7 +60,9 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     const schema = providerSchema(request.schema);
     return { stream: true, response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema } } };
   };
-  const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
+  // invalid_request_error also covers thinking/prefill refusals. Status or error
+  // type alone cannot authorize a schema retry; require compatibility evidence.
+  const unsupportedResponseFormat = value => [value?.error?.message, value?.error?.metadata?.raw].some(message =>
     typeof message === 'string' && (/no endpoints (?:found (?:that|which) )?support (?:the )?(?:requested|required) parameters/iu.test(message) ||
       /response_format|json_schema|\bschema\b|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable|not permitted|not allowed|invalid schema/iu.test(message)));
   const encoder = new TextEncoder();
@@ -105,6 +107,21 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       if (cost !== null) spend.recordedCost = cost;
     }
   };
+  const observeResponse = async (response, signal, options, invocation, spend) => {
+    const text = response.body ? await responseText(response, 1_000_000, { signal,
+      observeId: id => observe({ id }, options, invocation, spend) }) : '';
+    let value;
+    try { value = JSON.parse(text); } catch { /* A rejection may have a plain-text or empty body. */ }
+    if (value && typeof value === 'object') observe(value, options, invocation, spend);
+    // A fully received 4xx without usage is an unbilled rejection. Persist zero
+    // through the same receipt path to release session and account holds alike.
+    // Usage-bearing errors and 5xx without cost remain conservative.
+    if (response.status >= 400 && response.status < 500 && value?.usage == null) {
+      invocation.usage({ inputTokens: 0, outputTokens: 0 });
+      observe({ usage: { cost: 0 } }, options, invocation, spend);
+    }
+    return value;
+  };
   async function dispatch(request, scope, extra, invocation, spend) {
     scope.signal.throwIfAborted();
     const key = resolveSecret?.(binding.secretRef);
@@ -125,8 +142,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     const tracked = pending.then(async response => {
       if (scope.signal.aborted) {
         const late = operationScope({ deadlineAt: Date.now() + 1000 });
-        try { observe(JSON.parse(await responseText(response, 1_000_000, { signal: late.signal,
-          observeId: id => observe({ id }, spend.options, invocation, spend) })), spend.options, invocation, spend); }
+        try { await observeResponse(response, late.signal, spend.options, invocation, spend); }
         catch { /* Durable unknown costs remain retryable. */ }
         finally { settleSpend(spend); late.dispose(); }
       }
@@ -138,11 +154,10 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       const providerErrorClass = response.status >= 400 && response.status < 500 ? '4xx'
         : response.status >= 500 && response.status < 600 ? '5xx' : undefined;
       let responseFormatUnsupported = false;
-      // A received HTTP error may still carry billed usage. Otherwise keep the hold.
+      // Read the complete response before classifying an unbilled rejection.
+      // Abort/read failure without that response still keeps the dispatched hold.
       try {
-        const value = JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,
-          observeId: id => observe({ id }, spend.options, invocation, spend) }));
-        observe(value, spend.options, invocation, spend);
+        const value = await observeResponse(response, scope.signal, spend.options, invocation, spend);
         responseFormatUnsupported = Boolean(extra.response_format) && [400, 422].includes(response.status) && unsupportedResponseFormat(value);
       }
       catch { /* unknown cost */ }
