@@ -298,6 +298,7 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
       await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
       const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
       session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+      session.transcript = [{ id: 'withdraw-person', role: 'user', content: 'Wir brauchen eine Website.' }];
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); c.configure({ session, copy });
     }, locale);
     await page.locator('aithema-session >>> .notice button').click();
@@ -312,4 +313,29 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
     assert.equal(await shadow(page, c => c.session.consentWithdrawn), true, 'the real server ends the conversation');
   }
+});
+
+test('AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring', async t => {
+  const page = await fixture(t); await scene(page, 'en', 'dark', 1440, ['html']);
+  await page.keyboard.press('Tab');
+  await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text button').focus());
+  await page.keyboard.press('Enter');
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'drafts-anthropic');
+  const focus = await shadow(page, c => { const n = c.shadowRoot.activeElement, style = getComputedStyle(n); return { visible: n.matches(':focus-visible'), outline: parseFloat(style.outlineWidth), tinted: n.closest('.consent-item').classList.contains('consent-item--target') }; });
+  assert.equal(focus.visible, true); assert.ok(focus.outline > 0); assert.equal(focus.tinted, true);
+});
+
+for (const feature of ['voice', 'html']) test(`AIT-197 R2 High: removing only ${feature} keeps save wording and restores its consent line`, async t => {
+  const page = await fixture(t); await scene(page, 'de', 'light', 390, [feature]);
+  page.state.selected = CONSENT_ITEMS.map(i => i.id);
+  await page.locator(`aithema-session >>> ${places[feature]} button`).click();
+  await until(page, item => document.querySelector('aithema-session').shadowRoot.activeElement?.value === item, features[feature][0]);
+  const before = await boxes(page, ['.done', '.settings__footer']);
+  await page.keyboard.press('Space'); await frame(page);
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent), 'Einwilligung speichern');
+  assert.deepEqual(await boxes(page, ['.done', '.settings__footer']), before, 'partial removal shifts 0 px');
+  await page.locator('aithema-session >>> .consent-save').click();
+  await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  assert.equal(page.posts[0].granted, true); assert.equal(await shadow(page, c => c.session.consentWithdrawn), false);
+  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]} · ${words.de.action}`);
 });
