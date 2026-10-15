@@ -154,3 +154,28 @@ test('AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic', 
     const values = { ...view, shiftPx: 0 }; await evidence('F4', page, label, values); t.diagnostic(`PASS F4 ${label}: ${JSON.stringify(values)}`);
   }
 });
+
+test('AIT-186 F5: voice-failure popover has readable words and measured viewport width', { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 400, 1024, 1440]) {
+    await voiceScene(page, locale, theme, width);
+    const before = await boxes(page, railBoxes);
+    await page.evaluate(() => { globalThis.tickRail.state = 'failed'; globalThis.tickRail.failure(new Error('fixture voice outage')); });
+    await settle();
+    const view = await shadow(page, c => {
+      const r = c.shadowRoot, n = r.querySelector('.voice-state'), b = n.getBoundingClientRect(), style = getComputedStyle(n);
+      const bubble = r.querySelector('li.turn').getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(n);
+      return { popoverWidth: b.width, left: b.left, right: b.right, lines: new Set([...range.getClientRects()].map(r => r.y)).size,
+        overlapPx: Math.max(0, Math.min(b.bottom, bubble.bottom) - Math.max(b.top, bubble.top)),
+        overflowWrap: style.overflowWrap, wordBreak: style.wordBreak, hyphens: style.hyphens, railText: n.textContent };
+    });
+    const label = `${locale}-${theme}-${width}-voice-failure`;
+    assert.equal(view.popoverWidth, Math.min(280, width - 32), `${label}: popover width`);
+    assert.ok(view.left >= 16 && view.right <= width - 16, `${label}: inset 16 px: ${JSON.stringify(view)}`);
+    assert.equal(view.overflowWrap, 'normal'); assert.equal(view.wordBreak, 'normal'); assert.equal(view.hyphens, 'auto');
+    assert.equal(view.overlapPx, 0, `${label}: first bubble clear`);
+    assert.deepEqual(await boxes(page, railBoxes), before, `${label}: 0 px shift`);
+    const values = { ...view, shiftPx: 0 }; await evidence('F5', page, label, values); t.diagnostic(`PASS F5 ${label}: ${JSON.stringify(values)}`);
+  }
+});
