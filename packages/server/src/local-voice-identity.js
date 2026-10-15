@@ -1,5 +1,4 @@
-// Runtime recognition of the deterministic development adapter, without importing it.
-// Identity is process-local; a public manifest cannot opt into this exemption.
-const starts = new WeakSet();
-export const markLocalVoice = start => starts.add(start);
-export const isLocalVoice = plugin => starts.has(plugin?.start);
+// Keep the existing export surface, but enrollment belongs only to the simulator.
+export { isLocalVoice } from './dev/local-voice.js';
+// Retained for import compatibility; public callers must never mint identity.
+export const markLocalVoice = () => { throw new TypeError('Simulator identity is private'); };

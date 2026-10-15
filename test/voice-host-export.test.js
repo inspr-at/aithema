@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage } from '@inspr/aithema-server';
+import { SQLiteStorage, createPluginRuntime } from '@inspr/aithema-server';
+import { PluginRegistry, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { createLocalVoiceProvider, localVoiceBinding, isLocalVoice } from '@inspr/aithema-server/dev/local-voice';
 import { createElevenLabsVoiceHost, normalizeElevenLabsDurationBinding } from '@inspr/aithema-plugin-elevenlabs/voice-host';
 import { stubAgentApi } from './fixtures/voice-self-heal-host.js';
 
@@ -83,3 +85,132 @@ test('local voice production requires an explicit boolean simulator opt-in', asy
   process.env.NODE_ENV = 'development';
   assert.ok(isLocalVoice(createLocalVoiceProvider({ storage })));
 });
+
+for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'other-simulator-adapter', 'genuine']) {
+  test(`AIT-218: ${variant} simulator identity survives registry copying only for the genuine pair`, async t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    let session = storage.create({ ownerToken: 'fixture-owner' });
+    storage.append(session.id, 'turn.final', { id: 'reply', role: 'assistant', content: 'Private reply' });
+    session = storage.get(session.id);
+    const sim = createLocalVoiceProvider({ storage, allowProductionSimulator: true });
+    let dispatched = 0;
+    const real = Object.freeze({ ...sim.ports.serverAdapter,
+      async speakText() { dispatched++; throw new Error('Real processing must require real consent'); } });
+    const plugin = variant === 'genuine' ? sim : { ...sim,
+      start: variant === 'copied-adapter' ? async () => {} : sim.start,
+      ports: { serverAdapter: variant === 'copied-start' ? real
+        : variant === 'cloned-adapter' ? Object.freeze({ ...sim.ports.serverAdapter })
+        : variant === 'other-simulator-adapter' ? createLocalVoiceProvider({ storage }).ports.serverAdapter
+        : sim.ports.serverAdapter } };
+    const registry = new PluginRegistry().register(plugin), entry = registry.get(sim.manifest.id);
+    assert.notEqual(entry, plugin, 'registry copies the plugin');
+    const now = Date.now(), binding = { ...localVoiceBinding, legal: { approved: true, countries: ['AT'],
+      training: false, retention: 'fixture', purpose: 'conversation', recipient: 'real-provider', processors: [],
+      dataCategories: ['conversation'], consentVersion: 1, evidence: { qualified: true,
+        accountRef: localVoiceBinding.accountRef, secretRef: localVoiceBinding.secretRef,
+        model: localVoiceBinding.model, endpoint: localVoiceBinding.endpoint, routing: {},
+        verifiedAt: now - 1000, expiresAt: now + 100_000 } } };
+    const scopes = [], consent = { coverage({ scope, consentRevision }) {
+      scopes.push(scope);
+      return { covered: JSON.stringify(scope) === JSON.stringify(MOCK_PROCESSING_SCOPE), ...scope, scope, consentRevision,
+        checkedAt: Date.now(), expiresAt: Date.now() + 100_000 };
+    } };
+    const runtime = createPluginRuntime({ storage, registry, consent,
+      presets: { best: { plugins: [sim.manifest.id], bindings: { voice: binding },
+        policy: { endpoints: [binding.endpoint] } } } });
+    if (variant === 'copied-start') {
+      await runtime.speakText({ session, turnId: 'reply' }).catch(() => {});
+      assert.equal(dispatched, 0, 'mock consent must never dispatch the real adapter');
+    }
+    const offered = runtime.scopes(session, { feature: 'voice' });
+    if (variant === 'genuine') {
+      assert.equal(isLocalVoice(entry), true);
+      assert.deepEqual(offered, [MOCK_PROCESSING_SCOPE]);
+      const admitted = (await runtime.checkVoice(session, { textReplay: true })).plugin;
+      assert.notEqual(admitted, entry, 'dispatch uses a private snapshot');
+      assert.ok(Object.isFrozen(admitted));
+      assert.equal(admitted.start, sim.start);
+      assert.equal(admitted.ports.serverAdapter, sim.ports.serverAdapter);
+      assert.equal((await runtime.speakText({ session, turnId: 'reply' })).kind, 'audio');
+    } else {
+      // Check consent discovery first: the original attack offered mock consent.
+      assert.ok(offered.length > 0);
+      assert.ok(offered.every(scope => scope.purpose !== MOCK_PROCESSING_SCOPE.purpose), 'impostor gets no mock scope');
+      assert.equal(isLocalVoice(entry), false);
+      assert.equal((await runtime.matrix(session)).best.voice.reason, 'current processing consent required');
+      await assert.rejects(runtime.speakText({ session, turnId: 'reply' }), /current processing consent required/u);
+      assert.ok(scopes.length > 0);
+      assert.ok(scopes.every(scope => scope.purpose !== MOCK_PROCESSING_SCOPE.purpose));
+    }
+    assert.equal(dispatched, 0);
+  });
+}
+
+test('AIT-218: the public identity entrypoint cannot enroll an arbitrary provider', async () => {
+  const { markLocalVoice, isLocalVoice: recognizes } = await import('@inspr/aithema-server/local-voice-identity');
+  const start = async () => {}, serverAdapter = Object.freeze({});
+  assert.throws(() => markLocalVoice(start, serverAdapter), /Simulator identity is private/u);
+  assert.equal(recognizes({ start, ports: Object.freeze({ serverAdapter }) }), false);
+});
+
+test('AIT-218: identity does not trust accessor or mutable ports', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const sim = createLocalVoiceProvider({ storage });
+  assert.ok(Object.isFrozen(sim.ports.serverAdapter));
+  assert.equal(isLocalVoice({ ...sim, ports: { serverAdapter: sim.ports.serverAdapter } }), false);
+  assert.equal(isLocalVoice({ ...sim, ports: Object.freeze({ get serverAdapter() { return sim.ports.serverAdapter; } }) }), false);
+  assert.equal(isLocalVoice({ ...sim, get ports() { return sim.ports; } }), false);
+  assert.equal(isLocalVoice({ ...sim, get start() { return sim.start; } }), false);
+});
+
+
+for (const attack of ['health-start-swap', 'bind-ports-swap']) {
+  test(`AIT-218 round 2: ${attack} cannot dispatch under mock consent`, async t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    let session = storage.create({ ownerToken: 'snapshot-owner' });
+    storage.append(session.id, 'turn.final', { id: 'snapshot-reply', role: 'assistant', content: 'Private reply' });
+    session = storage.get(session.id);
+    const sim = createLocalVoiceProvider({ storage });
+    let dispatched = 0, boundCalls = 0, coverageCalls = 0;
+    const realStart = async (_request, options) => {
+      await options.attempt.consume(); dispatched++;
+      throw new Error('attacker start dispatched');
+    };
+    const realAdapter = Object.freeze({ ...sim.ports.serverAdapter,
+      async speakText(_request, options) {
+        await options.attempt.consume(); dispatched++;
+        throw new Error('attacker replay dispatched');
+      } });
+    const bound = { ...sim };
+    const plugin = attack === 'health-start-swap' ? { ...sim,
+      async health() { this.start = realStart; return { available: true }; } }
+      : { ...sim, bind() { boundCalls++; return bound; } };
+    const registry = new PluginRegistry().register(plugin);
+    const consent = { async coverage({ scope, consentRevision }) {
+      coverageCalls++;
+      // The host retains the bind result and changes it while admission awaits.
+      await Promise.resolve();
+      if (attack === 'bind-ports-swap') bound.ports = Object.freeze({ serverAdapter: realAdapter });
+      return { covered: scope.purpose === MOCK_PROCESSING_SCOPE.purpose, ...scope, scope, consentRevision,
+        checkedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    } };
+    const runtime = createPluginRuntime({ storage, registry, consent,
+      presets: { best: { plugins: [sim.manifest.id], bindings: { voice: localVoiceBinding } } } });
+    t.after(() => runtime.stopReplyReplays());
+    if (attack === 'health-start-swap') {
+      let admitted;
+      try {
+        admitted = await runtime.admitVoice({ session, request: { callId: 'snapshot-call' },
+          options: { textReplay: true, spendDeadlineAt: Date.now() + 300_000, browserLivenessDeadlineAt: Date.now() + 300_000 } });
+        const call = await admitted.plugin.start({ callId: 'snapshot-call', sessionId: session.id, ownerToken: 'snapshot-owner' }, admitted.options);
+        await call.close();
+      } catch { /* A refused attacker is safe; real dispatch is never safe. */ }
+      finally { admitted?.finish(); }
+      assert.ok(coverageCalls > 0, 'attack reaches mock admission');
+    } else {
+      await runtime.speakText({ session, turnId: 'snapshot-reply' }).catch(() => {});
+    }
+    assert.equal(dispatched, 0, 'real processing must never dispatch under mock consent');
+    if (attack === 'bind-ports-swap') assert.equal(boundCalls, 0, 'simulator binding must be refused before invoking attacker code');
+  });
+}
