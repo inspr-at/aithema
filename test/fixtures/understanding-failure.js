@@ -10,7 +10,7 @@ import { openRouterConfig } from '../../demo/openrouter-config.js';
 import { start2PurposePolicy } from '../../demo/safeguards.js';
 const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
 
-let storage = new SQLiteStorage(process.argv[2]);
+let storage = new SQLiteStorage(process.env.AITHEMA_DB);
 const owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
@@ -60,7 +60,7 @@ const { server, url } = await listen(async request => {
   if (path === '/settle') { release(u.searchParams.get('verdict')); await handlers.idle(); return Response.json({ ok: true }); }
   if (path === '/restart') {
     await handlers.close(); storage.close();
-    storage = new SQLiteStorage(process.argv[2]); handlers = makeHandlers();
+    storage = new SQLiteStorage(process.env.AITHEMA_DB); handlers = makeHandlers();
     await handlers.resume(); await handlers.idle();
     return Response.json({ ok: true });
   }
