@@ -57,13 +57,17 @@ for (const check of ['abort', 'reply']) test(`superseding a held understanding c
   } finally { held.resolve(); await handlers.close(); storage.close(); }
 });
 
-test('GET retains a sanitized current-revision lane failure and SSE reschedules unfinished work', async () => {
+for (const action of ['reconnect', 'retry']) test(`AIT-212 failed paid understanding: ${action}`, async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(); let calls = 0;
   const reasoning = { ...mock, async structured(...args) {
     if (++calls === 1) throw new Error('private provider diagnostic');
     return mock.structured(...args);
   } };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
+  const runtime = instrumentedMockRuntime(storage, reasoning), admissions = [], settlements = [];
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: { ...runtime, async admit(args) {
+    const admitted = await runtime.admit(args); admissions.push(args.lane);
+    return { ...admitted, async finish(result) { settlements.push({ lane: args.lane, ...result }); return admitted.finish(result); } };
+  } } });
   let subscription;
   try {
     const s = storage.create({ demo: true, ownerToken: testToken });
@@ -75,8 +79,28 @@ test('GET retains a sanitized current-revision lane failure and SSE reschedules 
     assert.equal(JSON.stringify(snapshot).includes('private provider diagnostic'), false);
     const other = storage.create({ demo: true, ownerToken: testToken });
     assert.equal((await handlers.handle(request(other.id)).then(r => r.json())).operations.lastFailure, null);
-    subscription = await handlers.handle(request(`${s.id}/events?after=${snapshot.seq}`));
+    const before = { admissions: admissions.length, settlements: settlements.length };
+    if (action === 'reconnect') {
+      for (let i = 0; i < 3; i++) {
+        subscription = await handlers.handle(request(`${s.id}/events?after=${snapshot.seq}`));
+        await subscription.body.cancel(); subscription = null; await handlers.idle();
+      }
+      assert.equal(calls, 1, 'reconnect makes zero new provider calls');
+      assert.equal(admissions.length, before.admissions, 'reconnect admits zero attempts');
+      assert.equal(settlements.length, before.settlements, 'reconnect makes zero new settlements');
+      assert.deepEqual((await handlers.handle(request(s.id)).then(r => r.json())).operations.lastFailure, snapshot.operations.lastFailure);
+    }
+    const held = deferred(), entered = deferred(), structured = reasoning.structured;
+    reasoning.structured = async (...args) => { entered.resolve(); await held.promise; return structured(...args); };
+    try {
+      assert.equal((await handlers.handle(request(`${s.id}/retry`, {}))).status, 202);
+      await entered.promise;
+      assert.equal((await handlers.handle(request(`${s.id}/retry`, {}))).status, 202);
+    } finally { held.resolve(); }
     await handlers.idle();
+    assert.equal(admissions.length, before.admissions + 1, 'explicit Retry admits exactly one new attempt');
+    assert.equal(settlements.length, before.settlements + 1, 'explicit Retry settles exactly once');
+    assert.deepEqual(settlements.at(-1), { lane: 'understanding', failed: false });
     assert.equal(calls, 2);
     assert.equal(storage.get(s.id).understanding.inputRevision, inputRevision(snapshot));
     assert.equal(storage.get(s.id).understanding.draft, false);
@@ -304,4 +328,21 @@ test('AIT-183 revoke during reply settle broadcasts no lane.failed or fallback',
     assert.equal(diagnostics.some(event => event.event === 'reply.fallback'), false);
     assert.equal(storage.get(s.id).transcript.filter(t => t.role === 'assistant').length, 0);
   } finally { release.resolve(); await reader?.cancel(); await drained; await handlers.close(); storage.close(); }
+});
+
+
+test('AIT-212 reconnect runs genuinely unfinished input exactly once', async () => {
+  const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [];
+  const reasoning = { ...mock, async *stream(...args) { calls.push('reaction'); yield* mock.stream(...args); },
+    async structured(...args) { calls.push('understanding'); return mock.structured(...args); } };
+  const handlers = createHandlers({ storage, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    storage.postTurn(session.id, 'unscheduled', Buffer.from('A website'), 'A website');
+    for (let i = 0; i < 3; i++) {
+      const stream = await handlers.handle(request(`${session.id}/events`));
+      await stream.body.cancel(); await handlers.idle();
+    }
+    assert.deepEqual(calls.sort(), ['reaction', 'understanding']);
+  } finally { await handlers.close(); storage.close(); }
 });

@@ -13,13 +13,14 @@ const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ..
 const storage = new SQLiteStorage(), owner = 'understanding-fixture-owner';
 const config = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
   AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000001,"completion":0.0001}}' });
-let release, success = false, current;
+let release, success = false, current, providerCalls = 0;
 const assessment = { summary: 'Ein Überblick. An overview.', signals: [], openQuestions: [],
   constraints: { operations: null, data: null, systems: null, reach: null, requirements: null },
   progress: { talk: { value: 0.2, reasoning: 'First details' }, build: { value: 0, reasoning: 'Pending' } },
   actor: null, engagement: null, conceptIntent: null };
 const plugin = createOpenRouterReasoning({ binding: config.reaction, prices: config.prices, resolveSecret: () => 'fake-only',
   async fetchImpl(_url, init) {
+    providerCalls++;
     const body = JSON.parse(init.body), usage = { prompt_tokens: 30, completion_tokens: 40, cost: 0.1 };
     if (body.stream) {
       const content = JSON.stringify({ content: 'Welche Arbeit? Which work?', scope: 'in', question_short: null, options: [] });
@@ -52,6 +53,10 @@ const { server, url } = await listen(async request => {
     return handlers.handle(new Request(`http://fixture/api/sessions/${current.id}`, { headers: { 'x-aithema-session-token': owner } }));
   }
   if (path === '/settle') { release(u.searchParams.get('verdict')); await handlers.idle(); return Response.json({ ok: true }); }
+  if (path === '/stats') {
+    await handlers.idle();
+    return Response.json({ providerCalls, attempts: storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all() });
+  }
   if (path === '/success') { success = true; return Response.json({ ok: true }); }
   if (path.startsWith('/api/')) return handlers.handle(new Request(request, { headers: { ...Object.fromEntries(request.headers), 'x-aithema-session-token': owner } }));
   if (path === '/') return new Response('<!doctype html><html><meta charset="utf-8"><style>body{margin:0}aithema-session{display:block;min-height:100vh}</style><aithema-session></aithema-session><script type="module" src="/packages/ui/src/session-element.js"></script></html>', { headers: { 'content-type': 'text/html' } });
