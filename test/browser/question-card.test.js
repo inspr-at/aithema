@@ -192,6 +192,11 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.call), 'active');
         await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'none');
+        // Begin this independent layout scenario following the transcript,
+        // after the preceding voice fixture has finished its notice updates.
+        await page.mouse.move(-1, -1);
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); c.shadowRoot.querySelector('.transcript-latest').click(); });
+        await nextFrame(page);
         // A long, overflowing transcript and option list exercise the actual phone limit.
         await page.evaluate(() => {
           const c = document.querySelector('aithema-session'), de = c.session.locale === 'de';
@@ -216,11 +221,12 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
           const bubble = [...r.querySelectorAll('.turn:not(.user)')].at(-1).getBoundingClientRect();
           const shell = r.querySelector('.transcript-shell').getBoundingClientRect(), b = card.getBoundingClientRect();
           return { height: b.height, viewport: innerHeight, top: b.top, bubbleBottom: bubble.bottom, shellBottom: shell.bottom, shellTop: shell.top,
+            scrollTop: r.querySelector('.transcript-shell').scrollTop, scrollHeight: r.querySelector('.transcript-shell').scrollHeight, clientHeight: r.querySelector('.transcript-shell').clientHeight,
             overflow: opts.scrollHeight > opts.clientHeight, role: opts.getAttribute('role'),
             name: r.querySelector(`#${opts.getAttribute('aria-labelledby')}`)?.textContent };
         });
         if (width <= 600) assert.ok(bounded.height <= .36 * bounded.viewport, `AIT-225: phone card ${bounded.height}px exceeds 36vh`);
-        assert.ok(bounded.bubbleBottom <= bounded.top, `AIT-225: latest assistant bubble ${bounded.bubbleBottom} ends behind card ${bounded.top}`);
+        assert.ok(bounded.bubbleBottom <= bounded.top, `AIT-225: latest reply/card geometry ${JSON.stringify(bounded)}`);
         assert.ok(bounded.shellBottom <= bounded.top, 'AIT-225: the transcript viewport ends above the card');
         assert.ok(bounded.bubbleBottom > bounded.shellTop + 26, 'AIT-225: the latest reply is visible inside the transcript viewport');
         if (width <= 600) assert.equal(bounded.overflow, true, 'the options scroll inside the capped phone card');
@@ -245,7 +251,12 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
           await page.mouse.click(...first);
           await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qopt')?.getAttribute('aria-disabled') === 'true');
           assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']), answerBoxes, 'answering never moves the other options or composer');
-        } finally { globalThis.qcardAnswerHold.resolve(); globalThis.qcardAnswerHold = null; }
+        } finally {
+          // The pointer must leave before persistence closes the card: otherwise
+          // it is now over the transcript and intentionally holds its reading anchor.
+          await page.mouse.move(-1, -1);
+          globalThis.qcardAnswerHold.resolve(); globalThis.qcardAnswerHold = null;
+        }
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.qcard').hidden);
         await nextFrame(page); still(baseline, await boxes(page), 'long answer disappearance');
         const closed = await shadow(page, c => {
@@ -254,7 +265,7 @@ test('AIT-225: bounded question card at 1440/1024/390/393, light/dark, DE/EN; tr
             bubble: [...r.querySelectorAll('.turn:not(.user)')].at(-1).getBoundingClientRect().bottom,
             composer: r.querySelector('.composer').getBoundingClientRect().top };
         });
-        assert.ok(Math.abs(closed.gap) <= 1, 'removing the card keeps the transcript following its latest turn');
+        assert.ok(Math.abs(closed.gap) <= 1, `removing the card keeps the transcript following its latest turn: ${JSON.stringify(closed)}`);
         assert.ok(closed.bubble <= closed.composer, 'the latest assistant reply remains above the composer after answering');
         // A question can arrive and be answered elsewhere while an older turn
         // is under the pointer. Its scroll anchor must survive both changes.
