@@ -28,6 +28,16 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     t.after(() => browser.close());
     const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
+    const accessibility = await page.createCDPSession(), accessibilityChecks = [];
+    // Chrome's full accessibility snapshot includes the session's shadow root.
+    const optionSnapshot = async heading => {
+      const { nodes } = await accessibility.send('Accessibility.getFullAXTree');
+      const region = nodes.find(node => node.role?.value === 'region' && node.name?.value === heading);
+      assert.ok(region, 'the shadow-root answer region is in the accessibility snapshot');
+      const byId = new Map(nodes.map(node => [node.nodeId, node]));
+      const descend = node => [node, ...(node.childIds ?? []).flatMap(id => descend(byId.get(id)))];
+      return descend(region).filter(node => node.role?.value === 'button').map(node => node.name?.value);
+    };
     if (evidence) await mkdir(evidence, { recursive: true });
     // Snapshots model approved reply data; local acknowledgements let us inspect the exact request bytes.
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -196,6 +206,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.deepEqual(geometry.likely, [true, false, false]); assert.ok(geometry.arrows.every(arrow => arrow[0] === 30 && arrow[1] === 30));
         assert.equal(geometry.heading, locale === 'de' ? 'Offene Frage' : 'Open question');
         assert.equal(geometry.horizontalOverflow, false); assert.notEqual(geometry.arrowFills[0], geometry.arrowFills[1]);
+        const fullCardNames = width === 390 && theme === 'light' ? await optionSnapshot(geometry.heading) : undefined;
         await shot('card');
         const cardRest = await assertRest('card');
         const point = await shadow(page, c => { const b = c.shadowRoot.querySelectorAll('.qopt')[1].getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; });
@@ -435,6 +446,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               await shadow(page, (c, height) => {
                 c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
                 visualViewport.height = height; visualViewport.dispatchEvent(new Event('resize'));
+                c.shadowRoot.querySelector('.qopts').scrollLeft = 0;
               }, height);
               await nextFrame(page); await nextFrame(page);
               const keyboard = await shadow(page, c => {
@@ -471,9 +483,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                   placeholderWidth: context.measureText(input.placeholder).width,
                   inputWidth: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
               });
-              assert.equal(chips.scrollLeft, 0, `390×${height}: chips enter compact mode at scrollLeft 0`);
+              assert.equal(chips.scrollLeft, 0, `390×${height}: evidence starts at the suggested chip`);
               assert.equal(chips.suggestionFirst && chips.fullyVisible, true, `the suggestion is first and fully visible: ${JSON.stringify(chips)}`);
-              assert.equal(chips.name, chips.text, 'the accessible name is the full label');
+              assert.equal(chips.name, `${chips.text}, ${locale === 'de' ? 'Vorschlag' : 'Suggestion'}`, 'the accessible name includes the full label and suggestion');
               assert.equal(chips.ellipsis, 'ellipsis');
               assert.equal(chips.moreStart, false); assert.equal(chips.moreEnd, chips.overflows);
               assert.equal(chips.fade, chips.overflows ? '24px' : '0px');
@@ -484,7 +496,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } });
               });
               await nextFrame(page);
-              assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qopts').scrollLeft), 0, 'an unrelated re-render resets chips to their suggested first answer');
+              assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qopts').scrollLeft), 150, 'an unrelated re-render preserves the unfocused row scroll position');
+              // Restore the evidence scene's initial position explicitly.
+              await shadow(page, c => { c.shadowRoot.querySelector('.qopts').scrollLeft = 0; });
               if (height === 320) {
                 const fallback = await shadow(page, c => {
                   const r = c.shadowRoot, button = r.querySelector('.voice-read-full-mini'), b = button?.getBoundingClientRect(), band = r.querySelector('.band').getBoundingClientRect();
@@ -504,6 +518,40 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               }
               await shot(`keyboard-${height}`, height);
               assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
+              if (height === 508 && theme === 'light') await t.test(`AIT-225: ${locale} chip accessibility snapshot announces suggestion; Tab to chip 2 survives re-render fully visible`, async () => {
+                const names = geometry.texts.map((text, index) => text + (index === 0 ? `, ${locale === 'de' ? 'Vorschlag' : 'Suggestion'}` : ''));
+                assert.deepEqual(fullCardNames, names, 'the full card uses the same suggestion naming mechanism');
+                assert.deepEqual(await optionSnapshot(geometry.heading), names, 'the shadow-root chip snapshot has full names and only the suggestion suffix');
+                await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
+                await page.keyboard.press('Tab'); await nextFrame(page);
+                const focusedChip = () => shadow(page, c => {
+                  const r = c.shadowRoot, row = r.querySelectorAll('.qopt')[1], opts = r.querySelector('.qopts');
+                  const b = row.getBoundingClientRect(), v = opts.getBoundingClientRect();
+                  return { focused: r.activeElement === row, fullyVisible: b.left >= v.left && b.right <= v.right && b.top >= v.top && b.bottom <= v.bottom,
+                    scrollLeft: opts.scrollLeft };
+                });
+                const before = await focusedChip();
+                assert.equal(before.focused && before.fullyVisible, true, 'native Tab focuses and fully reveals chip 2');
+                await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } }));
+                await nextFrame(page);
+                assert.deepEqual(await focusedChip(), before, 're-render preserves chip 2 focus, visibility and scroll position');
+                await page.evaluate(() => visualViewport.dispatchEvent(new Event('resize')));
+                await nextFrame(page); await nextFrame(page);
+                assert.deepEqual(await focusedChip(), before, 'viewport reservation also preserves the focused chip');
+                await shadow(page, c => {
+                  c.shadowRoot.querySelector('.qopts').scrollLeft = 0;
+                  c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } });
+                });
+                await nextFrame(page);
+                const revealed = await focusedChip();
+                assert.equal(revealed.focused && revealed.fullyVisible, true, 're-render reveals a focused chip with inline nearest');
+                accessibilityChecks.push({ locale, fullCardNames, chipNames: names, ...revealed, pass: true });
+                await shadow(page, c => {
+                  c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+                  c.shadowRoot.querySelector('.qopts').scrollLeft = 0;
+                });
+                await nextFrame(page);
+              });
               // Shift+Tab from the composer reaches the final answer through
               // the browser's native order and scrolls the chip into view.
               await page.keyboard.down('Shift');
@@ -590,9 +638,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       assert.equal(checks.length, 20, 'every matrix scene must complete before writing evidence');
       assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
-      await writeFile(join(evidence, 'index.md'), `# AIT-225 round 4 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json) · metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
-      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks }, null, 2));
+      await writeFile(join(evidence, 'index.md'), `# AIT-225 round 5 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json) · metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
+        accessibilityPassLines: accessibilityChecks,
         stabilityPassLines: stabilityChecks.map(check => ({ ...check, viewport: `390×${check.height}`, pass: true })),
         keyboardPassLines: keyboardChecks.map(({ locale, theme, height, rowHeight, cardTop, bubbleBottom, shellBottom, chips }) => ({
           locale, theme, viewport: `390×${height}`, pass: true, answerHeightPx: rowHeight, reachableByTab: true, chips,

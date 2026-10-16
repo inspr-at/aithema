@@ -43,7 +43,7 @@ for (const [copy, heading, suggestion, hint] of [
   for (const row of rows) {
     assert.equal(row.tagName, 'BUTTON'); assert.equal(row.type, 'button'); assert.equal(row.tabIndex, 0);
     assert.equal(row.querySelector('.go').getAttribute('aria-hidden'), 'true');
-    assert.equal(row.getAttribute('aria-label'), row.querySelector('.t').textContent);
+    assert.equal(row.getAttribute('aria-label'), row.querySelector('.t').textContent + (row.classList.contains('likely') ? `, ${suggestion}` : ''));
     assert.ok(row.getAttribute('aria-describedby').includes('qhint'));
   }
 });

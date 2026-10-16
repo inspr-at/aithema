@@ -208,8 +208,7 @@ export class QuestionCard {
     }
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);
-    const opts = this.card.querySelector('.qopts');
-    if (compact && (!wasCompact || viewportChanged)) opts.scrollLeft = 0;
+    this.positionOptions(!wasCompact);
     this.fadeOptions();
     const height = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
     if (this.height === height) {
@@ -227,11 +226,18 @@ export class QuestionCard {
     opts.toggleAttribute('data-more-start', offset > 1);
     opts.toggleAttribute('data-more-end', end - offset > 1);
   }
+  positionOptions(reset = false) {
+    if (!this.card.hasAttribute('data-compact')) return;
+    const opts = this.card.querySelector('.qopts'), active = this.root.activeElement;
+    if (opts.contains(active)) active.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    else if (reset) opts.scrollLeft = 0;
+  }
   update(question, copy, unavailable, sending = false) {
     const focused = this.card.contains(this.root.activeElement);
     this.card.hidden = !question;
     if (!question) {
       this.card.querySelector('.qopts').replaceChildren();
+      this.optionSet = undefined;
       setText(this.card.querySelector('.qtext'), '');
       this.reserve();
       if (focused) this.root.querySelector('textarea').focus({ preventScroll: true });
@@ -243,6 +249,10 @@ export class QuestionCard {
     setText(this.card.querySelector('.qhint'), c.hint);
     const options = question.options.map((option, index) => ({ ...option, index }))
       .sort((a, b) => Number(b.likely === true) - Number(a.likely === true));
+    const optionSet = JSON.stringify([question.turnId, options.map(({ text, likely, index }) => [index, text, likely === true])]);
+    const optionsChanged = optionSet !== this.optionSet;
+    const optionsFocused = this.card.querySelector('.qopts').contains(this.root.activeElement);
+    this.optionSet = optionSet;
     reconcile(this.card.querySelector('.qopts'), options.map(option => [`${question.turnId}:${option.index}`, option]), () => {
       const button = node('button', 'qopt'); button.type = 'button'; button.setAttribute('aria-describedby', 'qhint ai-notice');
       const arrow = node('span', 'go'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = icon('arrowRight');
@@ -252,13 +262,13 @@ export class QuestionCard {
       // Native disabled is reserved for unavailable text input; aria-disabled blocks repeat submissions.
       this.answers.set(button, option.text); button.disabled = unavailable;
       button.setAttribute('aria-disabled', String(sending));
-      button.setAttribute('aria-label', option.text);
+      button.setAttribute('aria-label', option.likely ? `${option.text}, ${c.suggestion}` : option.text);
       button.classList.toggle('likely', option.likely === true);
       setText(button.querySelector('.t'), option.text); setText(button.querySelector('.tag'), option.likely ? c.suggestion : '');
       button.title = option.likely ? c.likely : '';
     });
     this.reserve();
-    if (this.card.hasAttribute('data-compact')) this.card.querySelector('.qopts').scrollLeft = 0;
+    this.positionOptions(optionsChanged && !optionsFocused);
     this.fadeOptions();
   }
   destroy() {
