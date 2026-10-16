@@ -126,7 +126,7 @@ export class AithemaSession extends HTMLElement {
     this.#questionCard?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
-    const reopen = this.#dialog?.open;
+    const reopen = this.#dialog?.element.open;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
