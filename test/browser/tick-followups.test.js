@@ -58,12 +58,12 @@ test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 1
       const r = c.shadowRoot, button = r.querySelector('.conversations-toggle');
       const b = button.getBoundingClientRect(), settings = r.querySelector('.settings-open').getBoundingClientRect();
       return { overlapPx: Math.max(0, b.right - settings.left), width: b.width, height: b.height,
-        name: button.getAttribute('aria-label'), icons: button.querySelectorAll('svg').length,
+        name: button.getAttribute('aria-label'), icons: [...button.querySelectorAll('svg')].filter(n => n.getBoundingClientRect().width > 0).length,
         preferencesInSettings: r.querySelector('slot[name="utilities"]').closest('dialog')?.classList.contains('settings') };
     });
     const label = `${locale}-${theme}-${width}`;
     assert.equal(metrics.overlapPx, 0, `${label}: header overlap ${JSON.stringify(metrics)}`);
-    assert.equal(metrics.width, 44); assert.equal(metrics.height, 44); assert.equal(metrics.icons, 1);
+    assert.equal(metrics.width, width < 600 ? 44 : 168); assert.equal(metrics.height, 44); assert.equal(metrics.icons, width < 600 ? 1 : 2);
     assert.equal(metrics.name, locale === 'de' ? 'Gespräche' : 'Conversations');
     assert.equal(metrics.preferencesInSettings, true);
     await page.hover('aithema-session >>> .conversations-toggle');

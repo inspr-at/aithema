@@ -1206,8 +1206,9 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const versionColours = [...value.querySelectorAll('span')].filter(n => n.getBoundingClientRect().width > 0)
       .map(n => ({ ...text(n), opacity: getComputedStyle(n).opacity }));
     const gap = (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
-    const rhythm = [gap(root.querySelector('#ai-notice'), root.querySelector('.host-version')), gap(row, build.querySelector('.build-label')),
-      gap(root.querySelector('.host-version'), build), gap(build, notes)];
+    // AIT-260: notice, version/host/build stack, then optional host notes.
+    const rhythm = [gap(root.querySelector('#ai-notice'), row), gap(row, root.querySelector('.host-version')),
+      gap(root.querySelector('.host-version'), build.querySelector('.build-label')), gap(build.querySelector('.build-label'), notes)];
     const rowStyle = getComputedStyle(row);
     const ring = rowStyle.outlineStyle !== 'none' && parseFloat(rowStyle.outlineWidth) > 0;
     const rowBox = row.getBoundingClientRect();
@@ -1286,7 +1287,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     await notice.hover();
   });
   await t.test('round 3 four groups with 8 px gaps and version/build 2 px', async () => {
-    assert.deepEqual((await popupMetrics()).rhythm, [8, 2, 8, 8]);
+    assert.deepEqual((await popupMetrics()).rhythm, [8, 2, 2, 8]);
   });
   await t.test('round 3 copied ring only for keyboard focus', async () => {
     await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
@@ -1357,7 +1358,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
       const metrics = await popupMetrics();
       for (const data of Object.values(metrics.textLines)) assert.ok(data.contrast >= 4.5);
-      assert.deepEqual(metrics.rhythm, [8, 2, 8, 8]);
+      assert.deepEqual(metrics.rhythm, [8, 2, 2, 8]);
       const copy = locale === 'de' ? de : en;
       assert.deepEqual(metrics.legal, [copy.host.slots.license, copy.host.slots.legalSource]); assert.equal(metrics.notes, copy.host.slots.footer);
       assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');

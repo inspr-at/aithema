@@ -50,7 +50,8 @@ export const bandStyles = `
   background:none; box-shadow:none; }
 .voice-state { max-width:50%; text-wrap:balance; }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
-@media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; } }
+@media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
+  .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
@@ -276,6 +277,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 @media(width < 600px) {
   .edge-column { top:12px; }
   .fold { top:calc(var(--band-height,68px) - 8px); }
+  .concept-rail { padding-left:38px; }
   .band-identity { gap:10px; max-width:none; }
   .band .wordmark { font-size:16.5px; }
   .conversations-toggle { width:44px; min-width:44px; padding:0; }
@@ -298,6 +300,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) { padding-inline:4px; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }

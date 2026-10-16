@@ -442,8 +442,10 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
     });
     page.forceSnapshot = session;
     await shadow(page, async (c, { session, locale }) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); session.locale = locale; c.configure({ session, copy }); }, { session, locale });
+    await frame(page);
+    await page.waitForSelector('aithema-session >>> .notice .consent-action', { visible: true });
     await page.keyboard.press('Tab');
-    await shadow(page, c => c.shadowRoot.querySelector('.notice button').focus());
+    await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').focus());
     await page.keyboard.press('Enter');
     try { await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing'); }
     catch (error) { t.diagnostic(JSON.stringify(await shadow(page, c => ({ active: c.shadowRoot.activeElement?.outerHTML, editor: c.shadowRoot.querySelector('.consent-editor').outerHTML, open: c.shadowRoot.querySelector('dialog.settings').open })))); throw error; }

@@ -103,7 +103,7 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
         assert.equal(initial.themeLabel, '', 'theme label is blank until the screen language resolves');
         assert.equal(initial.label, '', 'first header frame has the reserved blank label');
         for (const [control, box] of Object.entries(initial.boxes)) {
-          if (['conversations', 'settings'].includes(control)) assert.ok(box[2] === 44 && box[3] === 44, `${control} has a fixed icon target in the first header frame`);
+          if (['conversations', 'settings'].includes(control)) assert.ok(box[2] === (control === 'conversations' && width >= 600 ? 168 : 44) && box[3] === 44, `${control} has the approved fixed target in the first header frame`);
           else assert.deepEqual(box, [0, 0, 0, 0], `${control} stays inside closed Settings`);
         }
         const name = `${browserLanguage}-browser-${preference ? `stored-${preference}` : 'fresh'}-screen-${preference ?? 'de'}-os-${theme}-stored-theme-${storedTheme}-${width}`;

@@ -114,7 +114,8 @@ for (const scenario of ['e155043 pause retains pending overview', 'be304ae reply
       const session = await (await fetch('/snapshot')).json();
       const revision = inputRevision(session);
       session.operations = { inputRevision: revision, running: [], lastFailure: null };
-      const configure = () => c.configure({ session: structuredClone(session), copy });
+      // AIT-260: the active voice lifecycle fixture needs a browser binding.
+      const configure = () => c.configure({ session: structuredClone(session), copy, voiceClient: {} });
       const state = () => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
         preparing: c.shadowRoot.querySelector('.notice').textContent === copy.preparingOverview,
         stuck: !c.shadowRoot.querySelector('.overview-retry').hidden,

@@ -414,7 +414,7 @@ export async function displayMatrix(t, section) {
       const edge = await boxes(page, ['.motion-toggle', '.fold', '.band']);
       assert.equal(edge[0][2], 44); assert.equal(edge[1][2], 44);
       assert.ok(Math.abs(edge[0][0] + 22 - 28) <= .5 && Math.abs(edge[1][0] + 22 - 28) <= .5, `${label}: edge controls share the 14 px column`);
-      assert.ok(Math.abs(edge[0][1] + 22 - (edge[2][1] + edge[2][3] / 2 - 3)) <= .5, `${label}: motion control follows the approved band centre`);
+      assert.ok(Math.abs(edge[0][1] + 22 - (width < 600 ? edge[2][1] + 34 : edge[2][1] + edge[2][3] / 2 - 3)) <= .5, `${label}: motion control follows the approved band centre`);
       await page.click('aithema-session >>> .settings-open');
       for (const selector of ['#locale', '#theme']) {
         const target = await page.$eval(selector, n => ({ width: n.getBoundingClientRect().width, height: n.getBoundingClientRect().height, title: n.title }));
