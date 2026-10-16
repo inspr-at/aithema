@@ -50,7 +50,7 @@ const storage = new SQLiteStorage(':memory:'), consent = createMemoryConsentLedg
 const reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning);
 const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 0 });
 const pluginRuntime = createPluginRuntime({ storage, consent, reasoning, registry, presets: mockPresets(), budget });
-const handlers = createHandlers({ storage, consent, pluginRuntime });
+const handlers = createHandlers({ storage, consent, pluginRuntime, log: record => console.error(record) });
 await handlers.resume();
 const { server, url } = await listen(request => new URL(request.url).pathname === '/health'
   ? Response.json({ status: 'ok' }) : handlers.handle(request));
