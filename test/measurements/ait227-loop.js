@@ -92,7 +92,17 @@ try {
     clearTimeout(hardStop);
     const duration = (Date.now()-start)/1000, tests = Number(/^# tests (\d+)/mu.exec(text)?.[1] ?? 0);
     const failureLines = text.split('\n').filter(line => /not ok|error:|failureType:|location:|Error:|testCodeFailure|hookFailed|testTimeoutFailure/u.test(line));
-    const record = { epoch: Math.floor(Date.now()/1000), start: Math.floor(start/1000), duration, exit: result.code, signal: result.signal, tests, pid: child.pid, iteration, failingFiles: [...new Set(failureLines.filter(line=>/test\/browser/u.test(line)))], failureLines };
+    const pending = new Map();
+    if (result.code !== 0) try {
+      for (const line of readFileSync(trace, 'utf8').trim().split('\n')) {
+        const event = JSON.parse(line), key = `${event.pid}/${event.id}`;
+        if (event.phase === 'start') pending.set(key,event); else pending.delete(key);
+      }
+    } catch { /* A module-load error can precede the first trace record. */ }
+    const oldestPending = [...pending.values()].sort((a,b)=>a.epoch-b.epoch)[0];
+    const failingFiles = [...new Set([...failureLines.filter(line=>/test\/browser/u.test(line)),
+      ...[...pending.values()].map(event=>event.file ?? event.caller ?? event.name)])];
+    const record = { epoch: Math.floor(Date.now()/1000), start: Math.floor(start/1000), duration, exit: result.code, signal: result.signal, tests, pid: child.pid, iteration, failingFiles, failureLines, oldestPending };
     appendFileSync(stats, JSON.stringify(record)+'\n'); log(JSON.stringify(record));
     active = undefined;
     if (result.code !== 0 || tests === 0) {

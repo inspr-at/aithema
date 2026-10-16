@@ -14,9 +14,9 @@ function wrap(prototype, name) {
   prototype[name] = async function (...args) {
     const id = ++sequence, start = Date.now();
     const caller = new Error().stack.split('\n').find(line => /test\/browser\//u.test(line))?.trim();
-    const record = phase => output && appendFileSync(output, JSON.stringify({ epoch: Date.now(), pid: process.pid, id, name, phase, caller, ms: Date.now() - start }) + '\n');
+    const record = (phase, extra = {}) => output && appendFileSync(output, JSON.stringify({ epoch: Date.now(), pid: process.pid, file: process.argv[1], id, name, phase, caller, ms: Date.now() - start, ...extra }) + '\n');
     record('start');
-    try { const result = await original.apply(this, args); record('end'); return result; }
+    try { const result = await original.apply(this, args); record('end', name === 'launch' ? { browserPid: result.process()?.pid } : {}); return result; }
     catch (error) { record('error'); throw error; }
   };
 }
@@ -29,14 +29,14 @@ for (const name of ['newPage', 'close']) wrap(CdpBrowser.prototype, name);
 const listen = Server.prototype.listen;
 Server.prototype.listen = function (...args) {
   const id = ++sequence, epoch = Date.now();
-  const record = phase => output && appendFileSync(output, JSON.stringify({ epoch: Date.now(), pid: process.pid, id, name: 'server.listen', phase, ms: Date.now()-epoch })+'\n');
+  const record = phase => output && appendFileSync(output, JSON.stringify({ epoch: Date.now(), pid: process.pid, file: process.argv[1], id, name: 'server.listen', phase, ms: Date.now()-epoch })+'\n');
   record('start'); this.once('listening',()=>record('end')); this.once('error',()=>record('error'));
   return listen.apply(this,args);
 };
 const fork = childProcess.fork;
 childProcess.fork = function (...args) {
   const id = ++sequence, epoch = Date.now(), child = fork.apply(this,args);
-  const record = phase => output && appendFileSync(output, JSON.stringify({ epoch: Date.now(), pid: process.pid, id, name: 'server.fork.ready', phase, ms: Date.now()-epoch })+'\n');
+  const record = phase => output && appendFileSync(output, JSON.stringify({ epoch: Date.now(), pid: process.pid, file: process.argv[1], id, name: 'server.fork.ready', phase, ms: Date.now()-epoch })+'\n');
   record('start'); child.once('message',()=>record('end')); child.once('error',()=>record('error'));
   return child;
 };
