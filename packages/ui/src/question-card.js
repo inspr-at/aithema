@@ -53,12 +53,13 @@ export const questionCardStyles = `
   .qcard[data-compact] .qhint { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
   /* A short keyboard viewport needs the input and its 44px actions on one row
      as well, leaving a strip of the latest reply above the answer chips. */
-  .workspace[data-question-compact] .display-foot { display:none; }
-  .workspace[data-question-compact] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
-  .workspace[data-question-compact] textarea { height:44px; min-height:44px; padding-block:10px; }
-  .workspace[data-question-compact] .composer-actions { gap:6px; }
-  .workspace[data-question-compact] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
-  .workspace[data-question-compact] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  /* This is a viewport decision, independent of the question's presence or size. */
+  .workspace[data-phone-short] .display-foot { display:none; }
+  .workspace[data-phone-short] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
+  .workspace[data-phone-short] textarea { height:44px; min-height:44px; padding-block:10px; }
+  .workspace[data-phone-short] .composer-actions { gap:6px; }
+  .workspace[data-phone-short] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
+  .workspace[data-phone-short] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
   .workspace[data-question-compact] .concept-bar { display:none; }
   .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 28px); }
@@ -114,6 +115,15 @@ export class QuestionCard {
       this.followOnResize ??= this.followsTranscript();
       this.scheduleReserve();
     };
+    this.endScroll = () => {
+      const shell = this.root.querySelector('.transcript-shell');
+      // An explicit return to the end finishes a reading hold, even with the
+      // pointer still in the pane and no further incoming content.
+      if (this.held && shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 1) {
+        this.releaseAtEnd = true;
+        this.scheduleReserve();
+      }
+    };
     this.connect();
   }
   connect() {
@@ -124,6 +134,7 @@ export class QuestionCard {
     }
     this.view?.addEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.addEventListener('resize', this.viewportResize);
+    this.root.querySelector('.transcript-shell').addEventListener('scroll', this.endScroll, { passive: true });
   }
   reserve() {
     if (this.root.querySelector('.conversation').hidden) return;
@@ -131,12 +142,22 @@ export class QuestionCard {
     const viewportChanged = this.followOnResize !== undefined;
     const following = this.followOnResize ?? this.followsTranscript();
     this.followOnResize = undefined;
+    const phone = this.view?.matchMedia('(max-width:600px)').matches;
+    const visual = this.view.visualViewport;
+    const viewport = visual?.scale === 1 ? visual.height : this.view.innerHeight;
+    const workspace = this.root.querySelector('.workspace');
+    // 620px covers the keyboard-height range. Keep the input's box independent
+    // of card state, including after its question has been answered.
+    const short = phone && viewport <= 620;
+    workspace?.toggleAttribute('data-phone-short', short);
+    // Always measure the expanded transcript, never the extra room obtained by
+    // hiding the concept bar in compact mode. Restore the chosen state before paint.
+    workspace?.removeAttribute('data-question-compact');
     // Add back the existing reservation to measure the unobstructed scrollport.
     // Preserve 128px for the latest reply, its fade and the Latest control.
     const available = shell.getBoundingClientRect().height + (this.height ?? 0);
     const limit = Math.max(0, available - 128);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
-    const phone = this.view?.matchMedia('(max-width:600px)').matches;
     this.card.removeAttribute('data-compact');
     let compact = false;
     if (phone && !this.card.hidden) {
@@ -147,19 +168,18 @@ export class QuestionCard {
       const minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
         + this.card.querySelector('.qhint').getBoundingClientRect().height
         + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2 * parseFloat(style.rowGap) + 2;
-      const visual = this.view.visualViewport;
-      const viewport = visual?.scale === 1 ? visual.height : this.view.innerHeight;
-      compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
+      compact = short || Math.min(limit, .35 * viewport, viewport - 220) < minimum;
     }
     this.card.toggleAttribute('data-compact', compact);
-    this.root.querySelector('.workspace')?.toggleAttribute('data-question-compact', compact);
+    workspace?.toggleAttribute('data-question-compact', compact);
     const measured = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
     const previous = this.height ?? 0, scrollTop = shell.scrollTop;
     // Releasing space enlarges the scrollport. At the bottom that would clamp
     // scrollTop and move every visible line. Wait until enough content remains
     // below the reading position, then release without following the new end.
     this.held = measured < previous && (!following || this.held);
-    const release = this.held && scrollTop <= Math.max(0, shell.scrollHeight - shell.clientHeight - (previous - measured));
+    const release = this.held && (this.releaseAtEnd || scrollTop <= Math.max(0, shell.scrollHeight - shell.clientHeight - (previous - measured)));
+    this.releaseAtEnd = false;
     const height = this.held && !release ? previous : measured;
     if (this.height === height) {
       if (viewportChanged && following) this.onResize?.({ following });
@@ -205,6 +225,7 @@ export class QuestionCard {
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.removeEventListener('resize', this.viewportResize);
+    this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.endScroll);
     if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
     this.frame = null;
   }

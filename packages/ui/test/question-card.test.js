@@ -217,3 +217,27 @@ test('AIT-225: scroll and visual viewport resize reservations coalesce into one 
   viewport.dispatchEvent(new view.Event('resize')); view.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 2, 'disconnect removes both resize listeners');
 });
+
+test('AIT-225: returning to the bottom releases a reading hold without waiting for new content or pointer exit', t => {
+  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}<textarea></textarea>`;
+  const shell = root.querySelector('.transcript-shell'), frames = [];
+  Object.defineProperties(shell, { scrollHeight: { value: 1500 }, clientHeight: { value: 300 } });
+  t.mock.method(view, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  let following = true;
+  const card = new QuestionCard({ root, send() {}, followsTranscript: () => following });
+  card.card.getBoundingClientRect = () => ({ height: 290 });
+  card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
+  shell.scrollTop = 1200; following = false;
+  card.update(null, en, false);
+  const reserved = () => root.querySelector('.conversation').style.getPropertyValue('--question-card-height');
+  assert.equal(reserved(), '290px', 'closing preserves the reading box');
+  shell.dispatchEvent(new view.Event('scroll'));
+  assert.equal(frames.length, 1, 'return to the end is coalesced into one frame');
+  frames[0]();
+  assert.equal(reserved(), '0px', 'there is no obsolete gap at the reading bottom');
+  card.reserve(); assert.equal(reserved(), '0px', 'the gap stays released while the reader remains there');
+  card.destroy();
+  shell.dispatchEvent(new view.Event('scroll'));
+  assert.equal(frames.length, 1, 'disconnect removes the end-scroll listener');
+});
