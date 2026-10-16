@@ -30,7 +30,8 @@ export function hostSettingsGauges(input) {
     const privacy = selected.map(option => {
       const base = settingsGauges({ preset: input.preset, info: input.info, model: option }).privacy;
       // Host countries can strengthen a lane, but never weaken its existing privacy claim.
-      return hasCountries(option) && rank.indexOf(base.state) < rank.indexOf('hostCountries')
+      const training = option.facts?.hostTraining === true && base.state === 'eu' && input.preset !== 'eu';
+      return hasCountries(option) && (training || rank.indexOf(base.state) < rank.indexOf('hostCountries'))
         ? { state: 'hostCountries', fill: 55, enforced: false, countries: option.facts.hostCountries } : base;
     })
       .reduce((a, b) => rank.indexOf(a.state) <= rank.indexOf(b.state) ? a : b);
@@ -572,7 +573,9 @@ export class SettingsDialog {
     const message = this.#q('.context-message');
     // Keep the policy link reachable when the pointer leaves the gauge, and
     // preserve the actual focused node when focus moves into the help line.
-    if (message.contains(this.#focused()) || (!term || term.dataset.help === 'gauges') && message.querySelector('a[data-aithema-privacy]')) return;
+    const privacy = this.#q('[data-gauge="privacy"]');
+    const keepLink = message.querySelector('a[data-aithema-privacy]') && privacy.dataset.state === 'hostCountries' && message.textContent === privacy.dataset.helpText;
+    if (keepLink && (message.contains(this.#focused()) || !term || term.dataset.help === 'gauges')) return;
     message.textContent = text;
     if (term?.dataset.gauge !== 'privacy' || term.dataset.state !== 'hostCountries') return;
     const host = this.#dialog.getRootNode().host;

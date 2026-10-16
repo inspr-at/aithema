@@ -198,8 +198,10 @@ test('AIT-270: host-country wording and usable privacy-policy links, DE/EN', { t
     if (evidenceDirectory) for (const width of linked ? [1440, 390] : [1440]) {
       await mkdir(evidenceDirectory, { recursive: true });
       await page.setViewport({ width, height: 1000 });
+      await page.mouse.move(-1, -1);
+      await page.focus('aithema-session >>> [data-gauge="privacy"]');
       await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-      await page.mouse.move(-1, -1); await settle(page);
+      await settle(page);
       await page.screenshot({ path: join(evidenceDirectory, `ait270-${locale}-${linked ? 'linked-pair' : 'plain-us'}-${width}.png`), fullPage: false, captureBeyondViewport: false });
     }
     await page.click('aithema-session >>> dialog.settings .done');

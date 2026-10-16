@@ -483,10 +483,12 @@ for (const [locale, copy] of Object.entries({ de, en })) {
   });
   for (const lane of ['model', 'voice', 'visuals']) for (const countries of [['US'], ['FR']]) {
     test(`AIT-270 ${locale}: training:true for ${lane} in ${countries} never claims no training`, () => {
-      const input = { preset: 'best', [lane]: { facts: facts({ hostTraining: true, hostCountries: countries }) } };
-      const gauge = hostSettingsGauges(input).privacy;
-      assert.equal(gauge.state, 'hostCountries');
-      assert.doesNotMatch(copy.gauges.short.privacy[gauge.state] + copy.gauges.details.privacy[gauge.state], /ohne Training|without training|no training/iu);
+      for (const processingLocations of [['unverified'], ['EU']]) for (const policy of [undefined, { residency: 'eu' }]) {
+        const input = { preset: 'best', info: { policy }, [lane]: { facts: facts({ processingLocations, hostTraining: true, hostCountries: countries }) } };
+        const gauge = hostSettingsGauges(input).privacy;
+        assert.equal(gauge.state, 'hostCountries');
+        assert.doesNotMatch(copy.gauges.short.privacy[gauge.state] + copy.gauges.details.privacy[gauge.state], /ohne Training|without training|no training/iu);
+      }
     });
   }
 }
