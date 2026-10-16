@@ -698,6 +698,39 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
 
 const paimosOptions = { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 };
 
+for (const state of ['two failures', 'overview-only failure', 'stale', 'pending', 'generating', 'draft', 'empty', 'current', 'recovered']) {
+  test(`AIT-221 project action requires a current overview: ${state}`, t => {
+    const c = setup(), session = c.session;
+    session.transcript = [{ id: 'person', role: 'user', content: 'A bakery app.' }];
+    const revision = inputRevision(session);
+    session.transcript.push({ id: 'reply', role: 'assistant', content: 'Payments?', inputRevision: revision });
+    Object.assign(session.understanding, { inputRevision: revision, readinessAssessed: true, summary: 'A bakery app.' });
+    const failures = (state === 'two failures' ? ['reaction', 'understanding'] : state === 'overview-only failure' || state === 'recovered' ? ['understanding'] : [])
+      .map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true }));
+    session.operations = { inputRevision: revision, running: state === 'generating' ? ['understanding'] : [], failures, lastFailure: failures.at(-1) ?? null };
+    if (state === 'stale' || state === 'pending') session.understanding.inputRevision = 'older';
+    if (state === 'pending' || state === 'empty') session.understanding.readinessAssessed = false;
+    if (state === 'pending') session.operations.running = ['reaction'];
+    if (state === 'draft') session.understanding.draft = true;
+    c.configure({ copy: en, session, ...paimosOptions });
+    if (state === 'recovered') {
+      c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], failures: [], lastFailure: null } });
+      c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+    }
+    const current = ['current', 'recovered'].includes(state), root = c.shadowRoot, create = root.querySelector('.create-project');
+    assert.equal(root.querySelector('.understanding').dataset.overview, current ? 'current' : 'unavailable');
+    assert.equal(create.inert, !current, 'unavailable overview cannot be reached with the keyboard');
+    assert.equal(create.hidden, false, 'keep the measured footer slot');
+    assert.notEqual(create.style.display, 'none');
+    const submitted = [];
+    t.mock.method(window.HTMLFormElement.prototype, 'submit', function () { submitted.push(this); });
+    // Even an invocation that bypasses visibility and inert must use a current overview.
+    create.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    assert.equal(submitted.length, Number(current));
+    assert.match(styles, /\.understanding:not\(\[data-overview="current"\]\) > \.foot > \.create-project\s*\{ visibility:hidden; \}/);
+  });
+}
+
 test('AIT-242 device mode hides the project action and the handler refuses a forced invocation', t => {
   const c = setup(), submitted = [], createdForms = [];
   assert.equal(c.shadowRoot.querySelector('.create-project'), null, 'the host must configure the handoff');
@@ -723,7 +756,9 @@ test('AIT-242 device mode hides the project action and the handler refuses a for
 
 test('AIT-242 switching device to server and back updates the same project action without removing its layout slot', () => {
   const c = setup();
-  c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), ...paimosOptions });
+  const session = createSession({ processingPreset: 'device' });
+  Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true });
+  c.configure({ copy: en, session, ...paimosOptions });
   const root = c.shadowRoot, create = root.querySelector('.create-project'), footer = create.parentElement;
   const children = [...footer.children];
   for (const processingPreset of ['best', 'device']) {
@@ -749,6 +784,7 @@ for (const processingPreset of ['best', 'eu', 'custom']) test(`AIT-242 ${process
     { id: 'erased', role: 'user', content: 'Erased private content', at, erased: true },
     { id: 'withdrawn', role: 'assistant', content: 'Withdrawn reply', at, withdrawn: true },
   ];
+  Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true });
   c.configure({ copy: en, session, sessionToken: 'must-not-be-posted', ...paimosOptions });
   const create = c.shadowRoot.querySelector('.create-project'), submitted = [];
   assert.equal(create.style.visibility, '');
