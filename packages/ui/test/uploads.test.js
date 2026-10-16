@@ -380,7 +380,7 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: 
   assert.equal(await c.changeLocale(target), true);
   assert.equal(line(), busy(target));
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(root.querySelector('.upload-retry'), null, 'a pause removes retry without a refused click');
+  assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'a pause removes retry without a refused click');
   assert.equal(await c.changeLocale(source), true);
   assert.equal(line(), copy === de
     ? 'Dateien können nicht angehängt werden: Gespräch pausiert · Verwerfen'
@@ -404,7 +404,7 @@ for (const copy of [de, en]) {
     const busy = root.querySelector('.composer-reason').textContent;
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
     const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
-    assert.equal(root.querySelector('.upload-retry'), null, 'no retry while paused');
+    assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'no retry while paused');
     assert.equal(root.querySelector('.composer-reason').textContent, `${refusal} · ${copy.uploads.discard}`);
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
     const discard = root.querySelector('.upload-discard');
@@ -426,7 +426,7 @@ for (const copy of [de, en]) {
     state(c, pending('takes-last-slot', { bytes: 4 }));
     const refusal = ceiling === 'count' ? copy.uploads.tooMany.replace('{files}', '1')
       : copy.uploads.sessionFull.replace('{size}', '4 B');
-    assert.equal(root.querySelector('.upload-retry'), null, 'no retry while over limits');
+    assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'no retry while over limits');
     assert.equal(root.querySelector('.composer-reason').textContent, `${refusal} · ${copy.uploads.discard}`);
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
     state(c, { id: 'takes-last-slot', state: 'withdrawn', withdrawn: true, erased: true });
