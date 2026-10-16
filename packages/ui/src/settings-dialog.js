@@ -1,8 +1,9 @@
+import { featureConsentText } from './consent-line.js';
 import { ConsentSettings } from './consent-settings.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
-import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort } from '../../core/src/settings.js';
+import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort, isConsentReason } from '../../core/src/settings.js';
 import { modelDisplayName } from './display.js';
 import { OperatorSettings } from './operator-settings.js';
 
@@ -37,10 +38,11 @@ export const PRESET_ORDER = Object.freeze(['best', 'eu', 'device', 'custom']);
 export const fill = (template, values = {}) => String(template).replace(/\{(\w+)\}/gu, (_, key) => values[key] ?? '');
 const DELEGATED = 'delegated reasoning: ';
 /** Server verdicts are stable machine reasons; this shows them in the page language. */
-export function reasonText(copy, reason) {
+export function reasonText(copy, reason, feature) {
+  if (feature && isConsentReason(reason)) return featureConsentText(copy, feature);
   const reasons = copy.reasons ?? {};
   if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
-    return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length)));
+    return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length), feature));
   }
   // ensure-agent emits a bounded HTTP verb plus the provider's status.
   const agentAPI = typeof reason === 'string' && /^agent-api-(?:get|post|patch)-(\d{3})$/u.exec(reason);
@@ -459,7 +461,7 @@ export class SettingsDialog {
         if (result.error === 'setting-not-allowed') {
           // A host refusal never retries; the acknowledged choice stays in force.
           this.#draft = { ...this.#active }; this.#status = c.autosave;
-          this.#notice = { text: fill(c.notAllowed, { reason: reasonText(this.#copy, result.body.reason) }) }; void this.reload(); break;
+          this.#notice = { text: fill(c.notAllowed, { reason: reasonText(this.#copy, result.body.reason, 'text') }) }; void this.reload(); break;
         }
         this.#failed = true; this.#status = c.failed; break;
       }
@@ -482,8 +484,9 @@ export class SettingsDialog {
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
     const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? this.#q('.host-verify').dataset.emailHelp ?? key : key;
-    const text = term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
-      ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason) })
+    const text = isConsentReason(reason) ? featureConsentText(this.#copy, term?.dataset.feature ?? 'text')
+      : term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
+      ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason, term?.dataset.feature ?? 'text') })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;
     this.#q('.context-message').textContent = text;
   }
@@ -492,9 +495,10 @@ export class SettingsDialog {
     return !option ? '' : !option.offered && kind === 'retained' ? c.notOffered : option.status === 'unavailable' ? c.unavailable
       : option.status === 'consent' ? c.consentNeeded : option.status === 'limited' ? c.limited : '';
   }
-  #optionNode({ value, label, vendor, status, kind, reason, help, icon, selected }) {
+  #optionNode({ value, label, vendor, status, kind, reason, help, icon, selected, feature }) {
     const node = document.createElement('button'); node.type = 'button'; node.className = 'select__option'; node.setAttribute('role', 'option');
     node.tabIndex = -1; node.dataset.value = value; node.dataset.help = help;
+    if (feature) node.dataset.feature = feature;
     node.setAttribute('aria-selected', String(selected)); node.setAttribute('aria-disabled', String(kind === 'unavailable'));
     if (reason) { node.dataset.reason = reason; node.dataset.kind = kind; }
     const name = document.createElement('span'); name.className = 'option-label';
@@ -516,6 +520,7 @@ export class SettingsDialog {
       if (focused) [...menu.querySelectorAll('[role=option]')].find(node => node.dataset.value === focused)?.focus();
     }
     const chosen = options.find(option => option.value === selectedValue);
+    button.dataset.feature = chosen?.feature ?? (name === 'voice' ? 'voice' : 'text');
     const value = select.querySelector('.select__value');
     value.replaceChildren();
     if (chosen?.icon) { const icon = document.createElement('span'); icon.className = 'preset-icon'; icon.innerHTML = chosen.icon; value.append(icon); }
@@ -562,7 +567,7 @@ export class SettingsDialog {
     const models = device ? [] : info?.models ?? [];
     const named = label => catalogLabel(this.#copy, label);
     const modelOptions = models.map(option => ({ value: option.id, label: modelDisplayName(option.id, this.#copy), vendor: named(option.facts?.vendor),
-      status: this.#optionStatus(option), kind: option.status === 'available' ? '' : option.status, reason: option.status === 'available' ? '' : option.reason, help: 'model' }));
+      status: this.#optionStatus(option), kind: option.status === 'available' ? '' : option.status, reason: option.status === 'available' ? '' : option.reason, help: 'model', feature: 'text' }));
     if (!device && draft.model && !models.some(o => o.id === draft.model)) modelOptions.push({ value: draft.model, label: modelDisplayName(draft.model, this.#copy),
       status: c.notOffered, kind: 'unavailable', reason: 'model not offered', help: 'model' });
     const localModel = this.#ports.connector?.model;
@@ -579,7 +584,7 @@ export class SettingsDialog {
     this.#q('.effort-note').textContent = !catalog ? (this.#loadFailed ? c.loadFailed : c.loading) : device ? c.deviceNote : c.fixedEffort;
     const optional = (name, list, off, offLabel, help) => [{ value: SETTINGS_OFF, label: offLabel, icon: name === 'voice' ? ICONS.text : ICONS.off, help: off },
       ...list.map(o => ({ value: o.id, label: named(o.label), vendor: named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
-        reason: o.status === 'available' ? '' : o.reason, help }))];
+        reason: o.status === 'available' ? '' : o.reason, help, feature: name === 'voice' ? 'voice' : o.kind === 'html' ? 'html' : 'images' }))];
     this.#renderSelect('voice', optional('voice', device ? [] : info?.voices ?? [], 'voiceOff', c.voiceOff, 'voice'), draft.voice ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });
     this.#renderSelect('visuals', optional('visuals', device ? [] : info?.visuals ?? [], 'visualsOff', c.visualsOff, 'visuals'), draft.visuals ?? SETTINGS_OFF,

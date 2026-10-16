@@ -336,7 +336,7 @@ export async function displayMatrix(t, section) {
         const before = await boxes(page, selectors), mic = (await boxes(page, ['.voice-cell--mic']))[0];
         await page.mouse.move(mic[0] + 22, mic[1] + 22);
         await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } }));
-        await until(page, expected => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent === expected, { de, en }[locale].consentRequired);
+        await until(page, expected => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent === expected, { de, en }[locale].featureConsent.voice);
         await settle();
         const label = await statusGeometry(page), renderedWidth = Math.max(...label.rendered.map(r => r.width));
         assert.ok(Math.abs(label.half - renderedWidth / 2) <= .5, `${width}/${theme}/${locale}: rendered-line hole ${JSON.stringify(label)}`);
