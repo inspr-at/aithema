@@ -55,7 +55,7 @@ const binding = { baselineOrigin: 'https://start2.example', maxDurationSeconds: 
     endpoint: 'https://api.elevenlabs.io', microPerMinute: 1001 } };
 
 for (const origin of [undefined, 'http://start2.example', 'https://localhost', 'https://127.1', 'https://127.0.0.2',
-  'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://start2.example/', 'https://user:fake@start2.example', 'https://start2.example/path']) {
+  'https://localhost.', 'https://sub.localhost.', 'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://start2.example/', 'https://user:fake@start2.example', 'https://start2.example/path']) {
   test(`baselineOrigin rejects ${origin === undefined ? 'missing' : new URL(origin).hostname}`, () => {
     assert.throws(() => baselineOrigin(origin), /baselineOrigin/);
   });
