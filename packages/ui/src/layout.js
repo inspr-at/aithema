@@ -149,6 +149,7 @@ export class PhoneComposerViewport {
       // Size the input before measuring the dock/footer, independent of cards.
       // Updating both in this paint avoids a second resize losing bottom-follow.
       workspace.toggleAttribute('data-phone-short', Boolean(phone && height <= 620));
+      workspace.toggleAttribute('data-phone-overlay', Boolean(phone && (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0) >= 150));
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
       const movedNotices = notices.parentNode !== parent;

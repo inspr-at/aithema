@@ -54,7 +54,7 @@ export const questionCardStyles = `
   /* A short keyboard viewport needs the input and its 44px actions on one row
      as well, leaving a strip of the latest reply above the answer chips. */
   /* This is a viewport decision, independent of the question's presence or size. */
-  .workspace[data-phone-short] .display-foot { display:none; }
+  .workspace[data-phone-short][data-phone-overlay] .display-foot { display:none; }
   .workspace[data-phone-short] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
   .workspace[data-phone-short] textarea { height:44px; min-height:44px; padding-block:10px; }
   .workspace[data-phone-short] .composer-actions { gap:6px; }
