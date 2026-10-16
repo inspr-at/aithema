@@ -234,7 +234,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   assert.equal(h.posts.length, 0, 'an unavailable option is never sent');
   assert.equal(h.q('.context-message').textContent, `Unavailable · ${en.reasons['not configured']}`);
   button.click(); h.option('model', 'Deep (mock)').click(); await tick();
-  assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0 }]);
+  assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0, confirm: true }]);
   assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Mock reasoning/, 'the panel still shows the acknowledged choice');
   assert.equal(h.q('.save-status').textContent, en.settings.saving); assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
   held.resolve(); await tick(6);
@@ -245,7 +245,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   assert.equal(effort.disabled, false); assert.equal(effort.max, '2'); assert.equal(effort.getAttribute('aria-valuetext'), 'Medium');
   effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true })); effort.dispatchEvent(new window.Event('change', { bubbles: true }));
   await tick(6);
-  assert.deepEqual(h.posts.at(-1), { processingPreset: 'best', model: 'mock/deep', effort: 'high', voice: 'fake-voice', visuals: 'off', baseRevision: 1 });
+  assert.deepEqual(h.posts.at(-1), { processingPreset: 'best', model: 'mock/deep', effort: 'high', voice: 'fake-voice', visuals: 'off', baseRevision: 1, confirm: true });
   h.q('.done').click(); await tick(); assert.equal(h.dialog.open, false);
 });
 
@@ -305,7 +305,7 @@ test('a choice that needs consent is saved and the host is asked for consent out
   const h = await opened(fixture(t, { respond: (body, n, ack) => ack(body, { consent: { required: true, features: ['text', 'analysis'] } }) }));
   let asked; h.c.addEventListener('aithema-consent', event => { asked = event.detail; });
   h.q('.preset-option[data-preset="custom"]').click(); await tick(6);
-  assert.deepEqual(h.posts[0], { processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0 });
+  assert.deepEqual(h.posts[0], { processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0, confirm: true });
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.consentRequired);
   h.q('.notice-body .notice-action').click(); await tick();
   assert.equal(h.dialog.open, false, 'the host consent interface is outside the modal');
@@ -320,7 +320,7 @@ test('crossing the device boundary in a started conversation starts a new conver
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.toDevice); assert.equal(h.q('.notice-body .notice-action').textContent, en.settings.startDevice);
   assert.equal(h.q('[data-select="voice"] .select__button').getAttribute('aria-disabled'), 'true', 'device keeps voice unavailable');
   h.q('.notice-body .notice-action').click(); await tick();
-  assert.deepEqual(requested, { processingPreset: 'device', settings: {}, previousSessionId: h.c.session.id });
+  assert.deepEqual(requested, { processingPreset: 'device', settings: {}, previousSessionId: h.c.session.id, confirm: true });
   assert.equal(h.dialog.open, false);
 });
 
@@ -379,7 +379,7 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.equal(cards()[2].getAttribute('aria-pressed'), 'true');
   assert.equal(root.querySelector('.chooser__summary [role=status]').textContent, en.chooser.summary.device);
   cards()[0].click(); root.querySelector('.chooser__continue').click(); await tick(6);
-  assert.deepEqual(h.posts, [{ processingPreset: 'best', baseRevision: 0, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off' }]);
+  assert.deepEqual(h.posts, [{ processingPreset: 'best', baseRevision: 0, confirm: true, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off' }]);
   assert.equal(root.querySelector('.intro').dataset.mode, 'ready'); assert.equal(root.querySelector('.audio-rail').inert, true, 'the call waits for the explicit start');
   const rows = Object.fromEntries([...root.querySelectorAll('.ready__row')].map(row => [row.dataset.ready, [row.querySelector('dd').textContent.replace('✓', ''), row.dataset.state]]));
   assert.deepEqual(rows, { model: ['Mock reasoning', 'selected'], consent: [en.ready.granted, 'confirmed'], microphone: [en.ready.checkOnStart, 'pending'],
@@ -387,6 +387,81 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.deepEqual(starts, [], 'the ready card starts no call');
   h.c.receive({ seq: h.c.session.seq + 1, type: 'turn.final', data: { id: 'first', role: 'user', content: 'Hello' } });
   assert.equal(root.querySelector('.intro').hidden, true, 'the first message replaces the start screen');
+});
+
+test('AIT-237: unchanged entrance confirmation is chosen and remains ready after reconfiguration', async t => {
+  const h = fixture(t);
+  h.root.querySelector('.chooser__continue').click(); await tick(6);
+  assert.equal(h.posts[0].confirm, true);
+  assert.equal(h.c.session.settings.origin, 'chosen');
+  assert.equal(h.c.session.settings.revision, 1);
+  assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready');
+  assert.equal(h.root.activeElement, h.root.querySelector('.ready__start'));
+  h.c.configure({ copy: en, session: structuredClone(h.server.session) });
+  assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready', 'the durable confirmation survives the consent return');
+});
+
+for (const action of ['reopen', 'navigate', 'tab', 'edit']) test(`AIT-237: held Done confirmation cannot close Settings after ${action}`, async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = await opened(fixture(t, { respond: async (body, n, ack) => { if (n === 1) await held.promise; return ack(body); } }));
+  h.q('.done').click(); await tick();
+  assert.equal(h.posts.length, 1); assert.equal(h.posts[0].confirm, true);
+  assert.equal(h.dialog.open, true, 'Done waits for its save');
+  if (action === 'reopen') {
+    h.dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
+    assert.equal(h.dialog.open, false);
+    h.c.openSettings();
+  } else if (action === 'navigate') h.c.openSettings(undefined, { tab: 'general', anchor: '.general-new' });
+  else if (action === 'tab') h.q('[data-tab=general]').click();
+  else { h.q('[data-select=model] .select__button').click(); h.option('model', 'Deep (mock)').click(); }
+  const body = h.q('.settings__body'); body.scrollTop = 123;
+  held.resolve(); await tick(12);
+  assert.equal(h.c.session.settings.origin, 'chosen', 'the explicit confirmation is still durable');
+  assert.equal(h.dialog.open, true, 'the earlier Done cannot dismiss the later interaction');
+  assert.equal(body.scrollTop, 123);
+  h.q('.done').click(); await tick(6);
+  assert.equal(h.dialog.open, false, 'a fresh Done can close the current dialog');
+});
+
+for (const debounce of [false, true]) test(`AIT-237: Done awaiting ${debounce ? 'debounced' : 'in-flight'} edits cannot close reopened Settings`, async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = await opened(fixture(t, { origin: 'chosen', respond: async (body, n, ack) => { if (n === (debounce ? 2 : 1)) await held.promise; return ack(body); } }));
+  h.q('[data-select=model] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick();
+  if (debounce) { const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true })); }
+  h.q('.done').click(); await tick();
+  assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
+  h.dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
+  h.c.openSettings();
+  const body = h.q('.settings__body'); body.scrollTop = 123;
+  held.resolve(); await tick(12);
+  assert.equal(h.dialog.open, true, 'Done belongs to the dismissed dialog');
+  assert.equal(body.scrollTop, 123);
+});
+
+test('AIT-237: Settings Done explicitly confirms unchanged defaults', async t => {
+  const h = await opened(fixture(t));
+  assert.equal(h.posts.length, 0);
+  h.q('.done').click(); await tick(6);
+  assert.equal(h.posts.length, 1);
+  assert.equal(h.posts[0].confirm, true);
+  assert.equal(h.c.session.settings.origin, 'chosen');
+  assert.equal(h.dialog.open, false);
+  assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready');
+});
+
+for (const copy of [de, en]) test(`AIT-237 ${copy.display.locale}: drafts off action opens Settings at visuals without saving`, async t => {
+  const h = fixture(t, { copy });
+  const line = h.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent.replaceAll('\u00a0', ' '), `${copy.display.draftsDisabled} · ${copy.display.draftsEnable}`);
+  const action = line.querySelector('.consent-action'); action.click(); await tick();
+  assert.equal(h.dialog.open, true);
+  assert.equal(h.q('[data-tab="model"]').getAttribute('aria-selected'), 'true');
+  assert.equal(h.q('[data-select="visuals"]').closest('[data-panel]').hidden, false);
+  assert.deepEqual(h.posts, []);
+  h.server.session.featureMatrix.best.images = refused('current processing consent required');
+  h.q('[data-select="visuals"] .select__button').click(); h.option('visuals', 'Fake images').click(); await tick(6);
+  assert.equal(line.querySelector('.drafts-settings-action'), null);
+  assert.equal(line.dataset.consentFeature, 'images');
 });
 
 test('the Custom card opens settings with Continue and preselects the host\'s Custom preset; a last choice is announced', async t => {

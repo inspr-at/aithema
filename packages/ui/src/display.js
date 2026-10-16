@@ -1,3 +1,6 @@
+import { isConsentReason } from '../../core/src/settings.js';
+import { featureConsentText } from './consent-line.js';
+
 // AIT-131: public names for served routes. Unknown routes get localized copy, never an id or a host label.
 export const MODEL_DISPLAY_NAMES = Object.freeze({
   'anthropic/claude-haiku-5.5': 'Claude Haiku 5.5',
@@ -28,11 +31,17 @@ export const wholeCredits = micro => Number.isFinite(micro) ? Math.max(0, Math.f
 export const formatCredits = (micro, locale) => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(wholeCredits(micro));
 
 /** One sentence in the rail. A missing quote cannot offer paid work; feature verdicts still gate consent. */
-export function draftsLine({ copy, cost, feature }) {
-  const low = /(?:credit|spend cap|budget|Ausgabenlimit)/iu.test(feature.rawReason ?? feature.reason ?? '');
+export function draftsLine({ copy, cost, feature, kind = 'html' }) {
+  const reason = feature.rawReason ?? feature.reason ?? '';
+  if (!feature.available && reason === 'visuals off') return { state: 'off',
+    text: `${copy.display.draftsDisabled} · ${copy.display.draftsEnable}`, action: false };
+  if (!feature.available && isConsentReason(reason)) return { state: 'off',
+    text: `${featureConsentText(copy, kind)} · ${copy.featureConsent.action}`, action: false };
+  const low = /(?:credit|spend cap|budget|Ausgabenlimit)/iu.test(reason);
   const known = Number.isSafeInteger(cost?.maxMicro) && cost.maxMicro >= 0;
   if (low) return { state: 'low', text: copy.display.draftsLow, action: false };
-  if (!known || !feature.available) return { state: 'off', text: copy.display.draftsOff, action: false };
+  if (!feature.available && ['not configured', 'preset not configured'].includes(reason)) return { state: 'off', text: copy.display.draftsOff, action: false };
+  if (!known || !feature.available) return { state: 'off', text: copy.display.draftsUnavailable, action: false };
   const credits = Math.ceil(cost.maxMicro / 10_000);
   return { state: 'on', text: copy.display.draftsOn.replace('{credits}', new Intl.NumberFormat(copy.display.locale).format(credits)), action: true };
 }
