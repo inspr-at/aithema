@@ -28,7 +28,7 @@ for (const copy of [de, en]) test(`AIT-197 ${copy.display.locale}: host-mapped c
 });
 
 for (const copy of [de, en]) for (const mock of [false, true]) test(`AIT-231 ${copy.display.locale}: ${mock ? 'mock' : 'real'} documents retain every described item`, async t => {
-  const h = fixture(t, copy, { load: async () => ({ contract: 'persistent-v1', mock,
+  const h = fixture(t, copy, { load: async () => ({ contract: 'persistent-v1', mock, intro: 'Host page introduction', withdrawal: 'Host page withdrawal',
     selected: ['host-speech'], features: { voice: ['host-speech', 'host-model'] }, items: [
       { id: 'host-speech', version: 'speech-v2', title: 'Host speech', recipients: 'Speech recipient', text: 'Speech purpose' },
       { id: 'host-model', version: 1, title: 'Host model', recipients: 'Model recipient', text: 'Model purpose' },
@@ -40,6 +40,7 @@ for (const copy of [de, en]) for (const mock of [false, true]) test(`AIT-231 ${c
   assert.equal(h.root.querySelector('.consent-save').disabled, false);
   assert.equal(h.root.querySelector('.consent-intro').textContent, mock
     ? `${copy.host.consentPage.mockNotice} ${copy.host.consentPage.intro}` : copy.processingConsent.intro);
+  assert.equal(h.root.querySelector('.consent-withdrawal').textContent, mock ? copy.host.consentPage.mockTerms : copy.processingConsent.withdrawal);
 });
 
 test('AIT-231: invalid described items leave the existing visitor failure state without editable data', async t => {

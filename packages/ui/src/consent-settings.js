@@ -43,9 +43,9 @@ export class ConsentSettings {
       if (!Array.isArray(doc.items) || !Array.isArray(doc.selected) || !ids?.length || !ids.every(id => doc.items.some(item => item.id === id))) throw new Error('Consent document unavailable');
       this.#document = doc;
       const fieldset = this.#root.querySelector('.consent-items');
-      const intro = doc.intro ?? (doc.mock ? this.#copy.host.consentPage.intro : this.#copy.processingConsent.intro);
+      const intro = doc.mock ? this.#copy.host.consentPage.intro : this.#copy.processingConsent.intro;
       setText(this.#root.querySelector('.consent-intro'), doc.mock && !shorthand ? `${this.#copy.host.consentPage.mockNotice} ${intro}` : intro);
-      setText(this.#root.querySelector('.consent-withdrawal'), doc.withdrawal ?? (doc.mock ? this.#copy.host.consentPage.mockTerms : this.#copy.processingConsent.withdrawal));
+      setText(this.#root.querySelector('.consent-withdrawal'), doc.mock ? this.#copy.host.consentPage.mockTerms : this.#copy.processingConsent.withdrawal);
       for (const item of doc.items) {
         const supplied = this.#ports.presentation?.translations?.find(entry => entry.locale === this.#copy.display.locale)?.consentItem;
         const translated = supplied?.id === item.id ? supplied : this.#copy.processingConsent.items[item.id];

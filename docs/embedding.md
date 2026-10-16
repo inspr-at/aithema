@@ -320,7 +320,7 @@ ledger, never a grant from the browser.
 | `items` | Required array of item objects, possibly empty if no processing is offered. Each has a unique non-empty string `id`, a `version` that is a positive safe integer or non-empty string, and non-empty strings `title`, `recipients` and `text` (purpose and data use). Strings render as text, never HTML. |
 | `selected` | Required array of unique item IDs from `items`, including only currently valid grants for this session and contract. An empty array grants nothing. |
 | `mock` | Optional boolean; absent and `false` mean a real document. `true` adds mock labelling. It never removes or replaces described items or changes their feature mapping. |
-| `intro`, `withdrawal` | Optional non-empty strings for the document introduction and withdrawal terms. Supply them in the visitor's language; otherwise the configured UI copy supplies these paragraphs. |
+| `intro`, `withdrawal` | Optional non-empty strings for a host consent page's introduction and withdrawal terms. Settings uses the configured, localized `copy.processingConsent.intro`/`withdrawal`, or the mock host copy described below. |
 | `optional` | Optional array of unique known item IDs, for host consent-page presentations. Settings displays all items. |
 
 For example, a host using the local processing scope can return:
@@ -356,9 +356,9 @@ and `consentPage.mockRecipients`, `mockConsequence`, `mockTerms`;
 duration or persistence. The demo overlays its own memory-only/restart wording
 in `demo/consent-copy.js`, used by both its host and consent page.
 
-Invalid shapes fail closed before any editable items are exposed. The host's
-server and UI share `validateConsentDocument` from
-`@inspr/aithema-core/consent-document`. The
+Invalid shapes fail closed before any editable items are exposed. The server
+and UI share `validateConsentDocument` from
+`@inspr/aithema-core/consent-document`. The host's log callback passed to
 `createHandlers({ log })` receives `event: 'consent.document.invalid'` and a
 field-specific `reason` beginning `Invalid consent.describe():`, without
 document values. The HTTP response is a generic 500
