@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { fullMatrix } from './matrix-coverage.js';
+import { captureEvidence, settleEvidenceFrame } from './start2-display-helpers.js';
 
 // PR artifacts must not enable evidence-only captures or the exhaustive sweep.
 // Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
@@ -32,7 +33,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     t.after(() => browser.close());
-    const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
+    const page = await browser.newPage(), evidence = evidenceDirectory, files = [], captures = {}, checks = [], keyboardChecks = [], stabilityChecks = [];
     const accessibility = await page.createCDPSession(), accessibilityChecks = [];
     // Chrome's full accessibility snapshot includes the session's shadow root.
     const optionSnapshot = async heading => {
@@ -86,16 +87,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
           });
           try {
-            await page.evaluate(async () => {
-              await document.fonts.ready;
-              for (const animation of document.getAnimations()) {
-                if (animation.effect?.getComputedTiming().iterations !== Infinity) await animation.finished.catch(() => {});
-              }
-            });
-            await nextFrame(page); await nextFrame(page);
             const file = `ait-225-${label}-${state}.png`;
-            await page.screenshot({ path: join(evidence, file), fullPage: false,
-              ...(height ? { clip: { x: 0, y: 0, width, height }, captureBeyondViewport: false } : {}) });
+            const { iconBoxes, frame } = await captureEvidence(page, { path: join(evidence, file),
+              ...(height ? { clip: { x: 0, y: 0, width, height } } : {}) });
+            captures[file] = { iconBoxes, frame };
             files.push(file);
           } finally {
             await page.evaluate(() => { globalThis.qcardShotFocus?.focus({ preventScroll: true }); delete globalThis.qcardShotFocus; });
@@ -217,6 +212,28 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.equal(geometry.heading, locale === 'de' ? 'Offene Frage' : 'Open question');
         assert.equal(geometry.horizontalOverflow, false); assert.notEqual(geometry.arrowFills[0], geometry.arrowFills[1]);
         const fullCardNames = width === 390 && theme === 'light' ? await optionSnapshot(geometry.heading) : undefined;
+        if (locale === 'de' && theme === 'light' && width === 1440) {
+          // A cheap real-browser contract in the existing fixture; no extra page
+          // or screenshot in CI. Exercise shadow animations and a queued scroll.
+          await shadow(page, c => {
+            const host = document.createElement('div'); host.id = 'capture-contract';
+            host.style.cssText = 'position:fixed;left:-1000px;top:0';
+            const root = host.attachShadow({ mode: 'open' });
+            root.innerHTML = '<div style="width:20px;height:20px;overflow:auto"><div style="width:100px;height:100px"></div></div>';
+            c.shadowRoot.append(host);
+            const pane = root.firstElementChild;
+            pane.scrollTo(10.5, 10.5);
+            pane.firstElementChild.animate([{ opacity: .5 }, { opacity: 1 }], { duration: 50 });
+            requestAnimationFrame(() => { pane.scrollTop = 12.5; pane.scrollLeft = 13.5; });
+            c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+          });
+          const settled = await settleEvidenceFrame(page);
+          assert.equal(settled.settledFrames, 2);
+          assert.ok(settled.scroll.every(pair => pair.every(Number.isInteger)), 'all nested scroll origins are integer');
+          assert.equal(await shadow(page, c => Boolean(c.shadowRoot.activeElement)), false, 'capture blurs controls');
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#capture-contract').shadowRoot.getAnimations().length), 0, 'nested shadow animation finished');
+          await shadow(page, c => c.shadowRoot.querySelector('#capture-contract').remove());
+        }
         await shot('card');
         const cardRest = await assertRest('card');
         // The two-row rail can bound the option list sooner with Linux fonts.
@@ -662,7 +679,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
       await writeFile(join(evidence, 'index.md'), `# AIT-225 round 5 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json)\u00a0· metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
-      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, captures, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         accessibilityPassLines: accessibilityChecks,
         stabilityPassLines: stabilityChecks.map(check => ({ ...check, viewport: `390×${check.height}`, pass: true })),

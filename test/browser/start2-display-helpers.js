@@ -110,5 +110,72 @@ const seekReveal = (page, ms) => page.evaluate(ms => {
   for (const animation of globalThis.displayRevealTimeline) animation.currentTime = ms;
 }, ms);
 
+// Evidence only: retain the real paint, but eliminate fractional compositor scroll
+// origins and wait until fonts, shadow-root transitions and scroll handlers agree.
+// Timed animation assertions intentionally keep their explicit screenshot clocks.
+export async function settleEvidenceFrame(page) {
+  await page.mouse.move(-1, -1);
+  return page.evaluate(async () => {
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const roots = [document], nodes = [];
+    for (let i = 0; i < roots.length; i++) for (const node of roots[i].querySelectorAll('*')) {
+      nodes.push(node); if (node.shadowRoot) roots.push(node.shadowRoot);
+    }
+    for (const root of roots.slice().reverse()) root.activeElement?.blur();
+    await document.fonts.ready;
+    let scrollEvents = 0;
+    const scrolled = () => { scrollEvents++; };
+    for (const root of roots) root.addEventListener('scroll', scrolled, true);
+    try {
+      // Transcript first: its scroll handler may update fades and reservation.
+      const panes = [...new Set([...nodes.filter(n => n.matches('.transcript-shell')),
+        document.scrollingElement, ...nodes.filter(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)])].filter(Boolean);
+      const snapshot = () => panes.map(n => [n.scrollTop, n.scrollLeft]);
+      const markers = nodes.filter(n => n.matches('.turn:not(.user) .speaker-sign'));
+      const geometry = () => markers.map(n => {
+        const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+      });
+      const animations = () => [...new Set(roots.flatMap(root => root.getAnimations()))]
+        .filter(a => a.playState === 'running' || a.pending);
+      const deadline = performance.now() + 5000;
+      while (performance.now() < deadline) {
+        const active = animations();
+        if (active.some(a => !Number.isFinite(a.effect.getComputedTiming().endTime))) {
+          throw new Error('Evidence has an active infinite animation; use reduced motion for this fixture');
+        }
+        // Bound the wait as well as the loop (a stalled animation is invalid evidence).
+        if (active.length) {
+          await frame(); continue;
+        }
+        for (const n of panes) {
+          n.scrollTo({ top: Math.round(n.scrollTop), left: Math.round(n.scrollLeft), behavior: 'instant' });
+        }
+        const before = JSON.stringify([snapshot(), geometry()]), events = scrollEvents;
+        await frame(); await frame();
+        const positions = snapshot();
+        if (events === scrollEvents && !animations().length &&
+            positions.every(pair => pair.every(Number.isInteger)) &&
+            before === JSON.stringify([positions, geometry()])) {
+          return { scroll: positions, markers: geometry(), settledFrames: 2 };
+        }
+      }
+      throw new Error('Evidence did not reach an integer, scroll-idle marker frame within 5s');
+    } finally {
+      for (const root of roots) root.removeEventListener('scroll', scrolled, true);
+    }
+  });
+}
+
+// Icon boxes are unpadded SVG bounds. The assistant marker is deliberately absent:
+// class I must reproduce exactly; only composer/attachment class R gets tolerance.
+export async function captureEvidence(page, options = {}) {
+  const frame = await settleEvidenceFrame(page);
+  const iconBoxes = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.composer svg')].map(n => {
+    const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height };
+  }).filter(r => r.width > 0 && r.height > 0));
+  const png = await page.screenshot({ fullPage: false, captureBeyondViewport: false, ...options });
+  return { png, iconBoxes, frame };
+}
+
 const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'd886da3';
 export { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit };
