@@ -237,9 +237,16 @@ ${headerGeometry('.band')}
 @media(max-width:1099px) {
   .band > .header-actions { grid-column:2; }
 }
+/* Legal links take the existing compact footer treatment at medium widths too. */
+@media(600px <= width < 1100px) {
+  .display-foot:has(.host-legal:not([hidden])) :is(.ai-notice__label,.status__sizer,.host-credits__total,.host-credits__measure-total),
+  .display-foot:has(.host-legal:not([hidden])) .status:not([data-message]) .status__label { display:none; }
+  .display-foot:has(.host-legal:not([hidden])) .status { grid-template-columns:8ch; gap:0; }
+  .display-foot:has(.host-legal:not([hidden])) .connection-timer { grid-column:1; }
+}
 @media(width < 600px) {
-  .display-foot__row { gap:8px; }
-  .footer-right { gap:8px; }
+  .display-foot:has(.host-legal:not([hidden])) .display-foot__row { gap:8px; }
+  .display-foot:has(.host-legal:not([hidden])) .footer-right { gap:8px; }
   .footer-right .status { display:none; }
   .footer-info .connection-timer { grid-column:auto; }
   .display-foot:has(.host-legal:not([hidden])) .ai-notice__short { display:none; }
