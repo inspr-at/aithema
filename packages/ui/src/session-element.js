@@ -32,7 +32,7 @@ import { modelDisplayName, languageFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
-import { mountVersionDetails } from './version-display.js';
+import { mountVersionDetails, renderHostVersion } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { emailAskStyles } from './email-ask-styles.js';
 import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
@@ -300,7 +300,7 @@ export class AithemaSession extends HTMLElement {
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
       <footer class="display-foot"><div class="display-foot__row">
         <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-label="Aithema 2026.10" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span>${this.#voiceBound ? '<span class="ai-notice__voice"></span>' : ''}</button>
-          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><p class="host-version" hidden><span class="host-version__label"></span><span class="host-version__value"></span></p><p id="build-info"></p><div class="host-foot" hidden><slot name="footer"></slot></div></div></div>
+          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><div class="version-details"><div id="build-info"></div><p class="host-version" hidden><span class="host-version__label"></span><span class="host-version__value"></span></p></div><p class="phone-status"><span class="phone-status__label"></span></p><div class="host-foot" hidden><slot name="footer"></slot></div></div></div>
         <div class="host-credits" data-footer-popup hidden><button class="host-credits__button" type="button" aria-expanded="false" aria-controls="credits-popup"><span class="host-credits__stack"><span class="host-credits__text"><strong class="host-credits__amount"><span class="host-credits__value"></span></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span>
           <span class="host-credits__low" aria-hidden="true"><span class="host-credits__low-full"></span><span class="host-credits__low-short"></span></span>
           <span class="host-credits__measure" aria-hidden="true"><strong class="host-credits__measure-amount"></strong><span class="host-credits__measure-total"></span><span class="host-credits__measure-unit"></span></span>
@@ -325,7 +325,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
     this.#timer = new ConnectionTimer(root.querySelector('.connection-timer'));
     this.#footerMedia = this.ownerDocument.defaultView?.matchMedia?.('(width < 600px)');
-    this.#footerListener = () => (this.#footerMedia?.matches ? root.querySelector('.footer-info .footer-popup') : root.querySelector('.status')).append(this.#timer.element);
+    this.#footerListener = () => (this.#footerMedia?.matches ? root.querySelector('.phone-status') : root.querySelector('.status')).append(this.#timer.element);
     this.#footerMedia?.addEventListener?.('change', this.#footerListener); this.#footerListener();
     const legal = root.querySelector('slot[name="legal"]');
     const syncLegal = () => { legal.parentElement.hidden = !legal.assignedElements().length; };
@@ -1313,6 +1313,7 @@ export class AithemaSession extends HTMLElement {
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
     setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
     if (this.#voiceBound) setText(root.querySelector('.ai-notice__voice'), this.#copy.layout.syntheticVoice);
+    setText(root.querySelector('.phone-status__label'), this.#copy.connected);
   }
   // Replies can be spoken here: voice is available now, or once consent, a resume or the provider allows it.
   #voiceOffered() {
@@ -1328,9 +1329,7 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.band').toggleAttribute('data-branded', Boolean(brand));
       const text = brand?.textContent.replace(/\s+/gu, ' ').trim() || 'Host';
       setText(root.querySelector('.host-version__label'), text);
-      const version = this.#options.host?.version?.version;
-      root.querySelector('.host-version').hidden = !version;
-      setText(root.querySelector('.host-version__value'), version ? ` ${version}` : '');
+      root.querySelector('.host-version').hidden = !renderHostVersion(root.querySelector('.host-version__value'), this.#options.host?.version ?? {});
     };
     const Observer = this.ownerDocument.defaultView?.MutationObserver;
     if (Observer) {

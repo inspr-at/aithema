@@ -43,26 +43,28 @@ export async function hostChromeCheck(t) {
     for (const theme of fullMatrix ? ['light', 'dark'] : ['light']) {
       await page.select('#theme', theme);
       const heights = [];
+      for (const brandMode of fullMatrix ? ['start', 'none', 'long'] : ['start']) {
       for (const voice of [false, true]) {
-        await shadow(page, async (c, { locale, voice }) => {
+        await shadow(page, async (c, { locale, voice, brandMode }) => {
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
           const session = structuredClone(window.chromeSeed); session.locale = locale; session.transcript = []; session.uploads = [];
           session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: voice, reason: voice ? null : 'not configured' } };
           c.querySelectorAll('[slot="legal"], [slot="brand"]').forEach(n => n.remove());
-          const brand = document.createElement('h1'); brand.slot = 'brand'; brand.textContent = '  START\n  Studio  ';
-          const legal = document.createElement('nav'); legal.slot = 'legal'; legal.style.cssText = 'display:flex;gap:8px';
+          const brand = document.createElement('h1'); brand.slot = 'brand'; brand.textContent = brandMode === 'long' ? 'START · Augmentoring — a deliberately very long host brand for truncation' : '  START\n  ';
+          const legal = document.createElement('nav'); legal.slot = 'legal'; legal.style.cssText = 'display:flex;gap:0';
           for (const [href, text] of [['/imprint', locale === 'de' ? 'Impressum' : 'Imprint'], ['/privacy', locale === 'de' ? 'Datenschutz' : 'Privacy']]) {
-            const a = document.createElement('a'); a.href = href; a.textContent = text; a.style.color = 'inherit'; legal.append(a);
+            const a = document.createElement('a'); a.href = href; a.textContent = text; a.style.cssText = 'display:inline-flex;align-items:center;min-height:44px;padding:0 8px;color:inherit;text-decoration:underline;text-underline-offset:3px'; legal.append(a);
           }
-          c.append(brand, legal);
+          if (brandMode !== 'none') c.append(brand);
+          c.append(legal);
           c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
           c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
           c.setAttribute('motion', 'off');
-          c.configure({ copy, session, voiceClients: voice ? { offered: {} } : {}, host: { version: { version: '261017010000.0.0', version_scheme: 'inspr-calver-3', commit: 'abcdef1234' } } });
+          c.configure({ copy, session, voiceClients: voice ? { offered: {} } : {}, host: { library: true, version: { version: '261017010000.0.0', version_scheme: 'inspr-calver-3', commit: 'abcdef1234' } } });
           document.documentElement.lang = locale; scrollTo(0, 0);
-        }, { locale, voice });
+        }, { locale, voice, brandMode });
         await settle();
-        const label = `${locale}-${theme}-${width}-${voice ? 'voice' : 'no-voice'}`;
+        const label = `${locale}-${theme}-${width}-${voice ? 'voice' : 'no-voice'}-${brandMode}`;
         for (const stage of ['entrance', 'ready', 'conversation']) {
           if (stage === 'ready') await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings: { ...c.session.settings, origin: 'chosen', revision: 1 } } }));
           if (stage === 'conversation') await shadow(page, c => {
@@ -78,18 +80,23 @@ export async function hostChromeCheck(t) {
             const content = r.querySelector('.workspace');
             const timer = r.querySelector('.connection-timer');
             return { height: r.querySelector('.band').getBoundingClientRect().height, h1: document.querySelectorAll('h1').length + r.querySelectorAll('h1').length,
-              brand: visible(brand), brandHeight: brand.getBoundingClientRect().height, brandLabel: r.querySelector('.host-version__label').textContent,
+              brand: Boolean(brand && visible(brand)), brandHeight: brand?.getBoundingClientRect().height ?? 0, brandLabel: r.querySelector('.host-version__label').textContent,
               product: r.querySelector('.display-version').textContent, noVoice: !r.querySelector(absent),
               voice: Boolean(r.querySelector('.voice-start') && r.querySelector('.pause')),
               claim: /synthetische Stimme|synthetic voice|Text lesen|Read text/u.test(content.textContent),
               legal: links.every(n => { const b = n.getBoundingClientRect(); return visible(n) && b.left >= 0 && b.right <= innerWidth && b.top >= footer.top && b.bottom <= footer.bottom; }),
               timerPopup: Boolean(timer.closest('.footer-info .footer-popup')),
               footerOverflow: r.querySelector('.display-foot__row').scrollWidth > r.querySelector('.display-foot__row').clientWidth,
+              overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+              brandFont: getComputedStyle(r.querySelector('.wordmark')).fontSize,
+              brandWeight: getComputedStyle(r.querySelector('.wordmark')).fontWeight,
             };
           }, voice);
           heights.push(metrics.height);
-          assert.equal(metrics.h1, 1, `${label}/${stage}: one page h1`); assert.equal(metrics.brand, true); assert.ok(metrics.brandHeight <= 44, `${label}/${stage}: brand uses existing wordmark typography`);
-          assert.equal(metrics.brandLabel, 'START Studio'); assert.equal(metrics.product, 'Aithema 2026.10');
+          assert.equal(metrics.h1, brandMode === 'none' ? 0 : 1, `${label}/${stage}: only the host page h1`); assert.equal(metrics.brand, brandMode !== 'none'); assert.ok(metrics.brandHeight <= 44, `${label}/${stage}: brand uses existing wordmark typography`);
+          assert.equal(metrics.brandLabel, brandMode === 'none' ? 'Host' : brandMode === 'start' ? 'START' : 'START · Augmentoring — a deliberately very long host brand for truncation');
+          assert.equal(metrics.brandFont, width < 600 ? '16.5px' : '18px'); assert.equal(metrics.brandWeight, '400');
+          assert.equal(metrics.overflowPx, 0, `${label}/${stage}: horizontal overflow 0 px`); assert.equal(metrics.product, 'Aithema 2026.10');
           assert.equal(metrics.legal, true, `${label}/${stage}: legal links visible in bar`);
           assert.equal(metrics.footerOverflow, false, `${label}/${stage}: footer fits`);
           assert.equal(metrics.timerPopup, width < 600);
@@ -108,18 +115,28 @@ export async function hostChromeCheck(t) {
           checks.push({ label, stage, ...metrics });
           if (stage !== 'ready') await shot(`${label}-${stage}`);
         }
-        // Popup metadata and the relocated phone timer are visible on activation.
+        // Opening either overlay must preserve all host-frame/content boxes.
+        const frame = () => shadow(page, c => ['.band', '.band-identity', '.header-actions', '.conversation', '.display-foot', '.footer-right'].map(selector => {
+          const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        }));
+        const baseline = await frame();
         await page.click('aithema-session >>> .ai-notice'); await settle();
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-version').checkVisibility({ checkVisibilityCSS: true })), true);
-        if (width < 600) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.connection-timer').checkVisibility({ checkVisibilityCSS: true })), true);
-        // Keep the popup open while every interactive control is blurred for evidence.
-        if (evidence) {
-          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-          await page.mouse.move(-1, -1); await settle();
-          const { png } = await captureEvidence(page); await writeFile(join(evidence, `${label}-popup.png`), png);
-        }
+        if (width < 600) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.phone-status').checkVisibility({ checkVisibilityCSS: true })), true);
+        assert.deepEqual(await frame(), baseline, `${label}: popup opens with 0 px movement`);
+        await shot(`${label}-popup`);
+        await page.keyboard.press('Escape');
+        await page.click('aithema-session >>> .conversations-toggle'); await settle();
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), false);
+        assert.deepEqual(await frame(), baseline, `${label}: menu opens with 0 px movement`);
+        assert.equal(await shadow(page, c => Math.max(0, document.documentElement.scrollWidth - innerWidth)), 0);
+        await shot(`${label}-menu`);
+        checks.push({ label, popupShiftPx: 0, menuShiftPx: 0 });
+        await page.keyboard.press('Escape');
       }
-      assert.equal(new Set(heights).size, 1, `${locale}/${theme}/${width}: header difference 0 px across voice and stages`);
+      }
+      if (width >= 600) assert.equal(new Set(heights).size, 1, `${locale}/${theme}/${width}: header difference 0 px across voice and stages`);
+      checks.push({ locale, theme, width, headerHeights: [...new Set(heights)], voiceHeightDifferencePx: Math.max(...heights) - Math.min(...heights) });
     }
   }
   assert.deepEqual(errors, []);

@@ -54,7 +54,7 @@ for (const locale of ['de', 'en']) {
     assert.equal(root.querySelector('.wordmark').classList.contains('visually-hidden'), false);
     assert.equal(root.querySelector('slot[name="brand"]').assignedElements()[0], brand);
     assert.equal(root.querySelector('.host-version__label').textContent, 'START Studio');
-    assert.equal(root.querySelector('.host-version__value').textContent, ' 1.2.3');
+    assert.equal(root.querySelector('.host-version__value').dataset.canonical, '1.2.3');
     assert.equal(root.querySelector('.display-version').textContent, 'Aithema 2026.10');
     assert.match(root.querySelector('#build-info').textContent, /Build abcdef1/u);
     brand.textContent = 'New\t Brand'; await new Promise(resolve => setImmediate(resolve));

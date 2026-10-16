@@ -1841,4 +1841,4 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
 });
 
 import { hostChromeCheck } from './host-chrome-check.js';
-test('AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN', { timeout: 90_000 }, hostChromeCheck);
+test('AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN', { timeout: fullMatrix ? 300_000 : 90_000 }, hostChromeCheck);

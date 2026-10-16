@@ -9,7 +9,7 @@ export class ConversationsMenu {
     this.#root = root; this.#copy = copy; this.#request = request; this.#current = current; this.#locale = locale; this.#newLocale = newLocale;
     this.#adopt = adopt; this.#manage = manage; this.#status = status;
     this.#button = root.querySelector('.conversations-toggle'); this.#menu = root.querySelector('.conversations-menu');
-    this.#button.innerHTML = `${icon('conversations')}<span></span>`;
+    this.#button.innerHTML = `${icon('conversations')}<span></span>${icon('chevron')}`;
     root.querySelector('.conversations-new').innerHTML = `${icon('plus')}<span></span>`;
     this.setCopy(copy);
     this.#button.addEventListener('click', () => this.#menu.hidden ? this.open() : this.close());

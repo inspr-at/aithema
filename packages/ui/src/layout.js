@@ -126,9 +126,10 @@ export class FooterPopups {
   position(entry) {
     const popup = entry.querySelector('.footer-popup'); if (!popup) return;
     const anchor = entry.getBoundingClientRect(), box = popup.getBoundingClientRect(), width = this.view?.innerWidth ?? 320;
-    const left = Math.min(Math.max(12, anchor.left + anchor.width / 2 - box.width / 2), Math.max(12, width - box.width - 12));
+    const origin = entry.classList.contains('footer-info') ? anchor.left : anchor.left + anchor.width / 2 - box.width / 2;
+    const left = Math.min(Math.max(12, origin), Math.max(12, width - box.width - 12));
     popup.style.left = `${left}px`;
-    popup.style.bottom = `${Math.max(12, (this.view?.innerHeight ?? 900) - anchor.top + 6)}px`;
+    popup.style.bottom = `${Math.max(12, (this.view?.innerHeight ?? 900) - anchor.top + (entry.classList.contains('footer-info') ? 8 : 6))}px`;
   }
   destroy() {
     this.root.ownerDocument.removeEventListener('click', this.outside);
