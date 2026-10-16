@@ -1776,3 +1776,135 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
     t.diagnostic(`AI notice in view without scrolling to it, en and de, at the viewport's bottom and top edge and on keyboard focus: ${
       Object.entries(tally).map(([state, selectors]) => `${state} px: ${selectors.length} entry points`).join('; ')}; first paint at 1440 px; nothing moves under the pointer.`);
   });
+
+// Timing probe for AIT-234; uses the real demo host's Best and Custom defaults.
+test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-custom-catalog-'));
+  const { child, url } = await startDemo(directory);
+  const { browserForFile } = await import('./shared-browser.js');
+  const browser = await browserForFile();
+  t.after(async () => { await browser.close(); await stopDemo(child); await rm(directory, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const [locale, theme] of [['de', 'light'], ['en', 'dark']]) for (const width of [1440, 390]) {
+    const cookies = await browser.cookies();
+    if (cookies.length) await browser.browser().defaultBrowserContext().deleteCookie(...cookies);
+    const page = await browser.newPage();
+    await preparePage(page, [locale]);
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluateOnNewDocument(theme => {
+      localStorage.removeItem('aithema-reset-slice-1-session');
+      localStorage.setItem('aithema-theme', theme);
+      localStorage.setItem('aithema-motion', 'off');
+    }, theme);
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.documentElement.hasAttribute('data-host-ready') && document.querySelector('aithema-session')?.session);
+    assert.deepEqual(await inShadow(page, c => [c.session.processingPreset, c.session.settings.voice, c.session.settings.visuals]), ['best', 'fake-voice', 'fake-html']);
+    await inShadow(page, c => {
+      const original = window.fetch.bind(window), held = Promise.withResolvers();
+      window.customCatalog = { release: held.resolve, posts: [], reads: 0, replies: [] };
+      window.fetch = async (url, init = {}) => {
+        if (new URL(url, location.href).pathname.endsWith('/settings')) {
+          if (init.method === 'POST') window.customCatalog.posts.push(JSON.parse(init.body));
+          else { window.customCatalog.reads++; await held.promise; }
+        }
+        const response = await original(url, init);
+        if (new URL(url, location.href).pathname.endsWith('/settings') && init.method === 'POST') window.customCatalog.replies.push({ status: response.status, body: await response.clone().json() });
+        return response;
+      };
+      // Match the Chrome baseline even if a host changes its page fonts.
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+      c.setAttribute('motion', 'off');
+      c.openSettings();
+      c.shadowRoot.querySelector('dialog.settings [data-preset="custom"]').click();
+    });
+    await until(page, () => window.customCatalog.reads > 0);
+    const settle = async () => {
+      await page.mouse.move(-10, -10);
+      await inShadow(page, async c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+        await document.fonts.ready;
+        await Promise.all(c.shadowRoot.querySelector('dialog.settings').getAnimations({ subtree: true })
+          .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+    };
+    const geometry = () => shadowRects(page, 'dialog.settings, .settings__header, .settings-field, .select__button, .notice-area, .settings-context, .settings__footer, .done');
+    await settle();
+    const pending = await geometry();
+    assert.deepEqual(await page.evaluate(() => window.customCatalog.posts), [], 'no save before the catalog');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings [data-preset="custom"]').getAttribute('aria-checked')), 'true');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy')), 'true');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.notice-body .notice-text').textContent), ({ de, en })[locale].settings.loading);
+    const loadingControls = await inShadow(page, c => {
+      const root = c.shadowRoot, done = root.querySelector('.done');
+      return {
+        selects: [...root.querySelectorAll('.select__button')].map(button => ({
+          disabled: button.disabled, label: button.querySelector('.select__value').textContent,
+          muted: getComputedStyle(button).color === getComputedStyle(root.querySelector('.note')).color,
+          opacity: getComputedStyle(button).opacity,
+          spinner: Boolean(button.querySelector('.select__spinner svg')),
+          animation: getComputedStyle(button.querySelector('.select__spinner')).animationName,
+        })),
+        done: { disabled: done.disabled, opacity: getComputedStyle(done).opacity,
+          description: root.querySelector(`#${done.getAttribute('aria-describedby')}`)?.textContent },
+      };
+    });
+    assert.deepEqual(loadingControls.selects, Array.from({ length: 3 }, () => ({
+      disabled: true, label: ({ de, en })[locale].settings.loadingOption, muted: true, opacity: '0.5', spinner: true, animation: 'none',
+    })), 'queued Custom shows muted disabled loading selects; reduced motion stops the spinner');
+    assert.deepEqual(loadingControls.done, { disabled: true, opacity: '0.5', description: ({ de, en })[locale].settings.loading },
+      'Done uses the shared disabled button style and describes the loading line');
+    // Exercise reduced motion independently of the component's motion switch.
+    await inShadow(page, c => c.setAttribute('motion', 'on'));
+    const spinnerAnimation = () => inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.select__spinner')).animationName);
+    assert.equal(await spinnerAnimation(), 'none', 'system reduced motion stops loading animation');
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+    assert.equal(await spinnerAnimation(), 'settings-loading', 'loading animates when motion is allowed');
+    await inShadow(page, c => c.setAttribute('motion', 'off'));
+    assert.equal(await spinnerAnimation(), 'none', 'component motion switch also stops loading animation');
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await settle();
+    if (evidence) await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-pending.png`), fullPage: false });
+    await page.evaluate(() => window.customCatalog.release());
+    await until(page, () => {
+      const c = document.querySelector('aithema-session');
+      return window.customCatalog.posts.length > 0 && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
+    }).catch(async error => {
+      t.diagnostic(JSON.stringify(await inShadow(page, c => ({ probe: window.customCatalog, settings: c.session.settings, preset: c.session.processingPreset, busy: c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy'), notice: c.shadowRoot.querySelector('.notice-body').textContent, status: c.shadowRoot.querySelector('.save-status').textContent }))));
+      throw error;
+    });
+    const applied = await inShadow(page, c => ({ processingPreset: c.session.processingPreset, ...c.session.settings }));
+    t.diagnostic(JSON.stringify({ locale, width, applied, posts: await page.evaluate(() => window.customCatalog.posts) }));
+    assert.equal(applied.processingPreset, 'custom');
+    assert.equal(applied.origin, 'chosen');
+    assert.equal(applied.model, 'mock/deep');
+    assert.equal(applied.effort, 'high');
+    assert.equal(applied.voice, 'off', 'Custom must never inherit Best voice');
+    assert.equal(applied.visuals, 'off', 'Custom must never inherit Best HTML drafts');
+    assert.equal(await page.evaluate(() => window.customCatalog.posts.length), 1);
+    await settle();
+    assert.deepEqual(await geometry(), pending, 'loading and applied Custom keep Settings geometry');
+    const appliedLabels = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.select__value')].map(node => node.textContent));
+    assert.equal(appliedLabels[0], locale === 'de' ? 'Nur Demo: ausführliche Antworten' : 'Demo only: thorough replies',
+      'AIT-246 supplies the applied deep-model demo label');
+    assert.doesNotMatch(appliedLabels.join('\n'), /mock/iu, 'no applied visible selection label exposes Mock');
+    t.diagnostic(JSON.stringify({ locale, width, appliedLabels }));
+    if (evidence) {
+      await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-applied.png`), fullPage: false });
+      await writeFile(join(evidence, `ait-234-${locale}-${theme}-${width}.json`), JSON.stringify({ applied, appliedLabels, loadingControls, pending, appliedGeometry: await geometry(), posts: await page.evaluate(() => window.customCatalog.posts), viewport: page.viewport(), font: await inShadow(page, c => getComputedStyle(c).fontFamily) }, null, 2));
+    }
+    for (const name of ['model', 'voice', 'visuals']) {
+      await inShadow(page, (c, name) => c.shadowRoot.querySelector(`[data-select="${name}"] .select__button`).click(), name);
+      const labels = await inShadow(page, (c, name) => [...c.shadowRoot.querySelectorAll(`[data-select="${name}"] .option-label`)]
+        .filter(node => node.checkVisibility()).map(node => node.textContent), name);
+      assert.ok(labels.length, `${name} menu exposes its option labels`);
+      assert.doesNotMatch(labels.join('\n'), /mock/iu, `${name}: no visible option label exposes Mock`);
+      await inShadow(page, (c, name) => c.shadowRoot.querySelector(`[data-select="${name}"] .select__button`).click(), name);
+    }
+    await page.close();
+  }
+});
