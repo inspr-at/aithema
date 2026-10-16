@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
+import { createSession, inputRevision, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { bandStyles } from '../src/band-styles.js';
@@ -16,14 +16,14 @@ const bytes = new TextEncoder().encode('<!doctype html><html><head><title>Popula
 const artifact = (mediaType = 'text/html') => ({ id: 'draft1', mediaType, turnIds: ['source'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } });
 
-function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse } = {}) {
+function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse, visuals = { available: true }, kind = 'html', cost } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.settings = { ...session.settings, origin: 'chosen', model, effort: 'none', voice: 'off', visuals: 'off' };
   if (label !== undefined) session.engine = { preset: 'best', model: { id: model, label, offered } };
   session.transcript = concepts.length ? [{ id: 'source', role: 'user', content: 'A populated interactive draft' }] : [];
-  session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = 'html';
-  session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'html', 'images'].map(key => [key, { available: true }])) };
-  const calls = [];
+  session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = kind; session.conceptCost = cost;
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: kind === 'html' ? visuals : { available: true }, images: kind === 'image' ? visuals : { available: true } } };
+  const calls = []; let snapshot;
   t.mock.method(URL, 'createObjectURL', () => 'blob:canvas-regression');
   t.mock.method(URL, 'revokeObjectURL', () => {});
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
@@ -37,13 +37,20 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, concept
     if (url.endsWith('/settings')) return Response.json({ processingPreset: 'best', settings: session.settings, engine: session.engine,
       presets: { best: { offered: true, status: 'available', models: offered ? [{ id: model, label, status: 'available' }] : [], voices: [], visuals: [] } } });
     if (String(url).startsWith('/api/library')) return Response.json({ items: [], total: 0 });
-    return Response.json(c.session);
+    return Response.json(snapshot ?? c.session);
   });
   const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP;
   if (!document.head.querySelector('meta[http-equiv]')) document.head.append(meta);
   c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, host }); document.body.append(c);
   t.after(() => c.remove());
-  return { c, root: c.shadowRoot, calls };
+  const refresh = async (visuals, cost = { maxMicro: 400_000 }) => {
+    snapshot = c.session; snapshot.featureMatrix.best[kind === 'html' ? 'html' : 'images'] = visuals;
+    snapshot.conceptCost = cost; snapshot.seq += 1;
+    const refreshed = new Promise(resolve => c.addEventListener('aithema-features', resolve, { once: true }));
+    receive(c, 'session.paused', { paused: false });
+    await refreshed;
+  };
+  return { c, root: c.shadowRoot, calls, refresh };
 }
 async function ready(preview) {
   await tick(); await tick();
@@ -205,4 +212,117 @@ test('AIT-131: detach removes the conversations outside-click listener and reatt
   root.querySelector('.conversations-toggle').click(); assert.equal(root.querySelector('.conversations-menu').hidden, false);
   document.body.click(); assert.equal(root.querySelector('.conversations-menu').hidden, true);
   c.remove(); document.body.append(c); assert.deepEqual(counts(), { click: 1 }, 'another reconnect does not duplicate the listener');
+});
+
+for (const copy of [de, en]) for (const kind of ['html', 'image']) {
+  test(`AIT-229: ${copy === de ? 'DE' : 'EN'}/${kind} no-drafts host keeps transcript through fold attempts and incoming replies`, t => {
+    const { c, root } = fixture(t, { copy, kind, concepts: [], visuals: { available: false, reason: 'not configured' } });
+    receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
+    // Exercise both the ordinary conversation and the final open-question card.
+    for (const options of [[], [{ text: 'Yes' }, { text: 'No' }]]) {
+      receive(c, 'turn.final', { id: `question-${options.length}`, role: 'assistant', content: 'Which option?', question_short: 'Which option?', options, inputRevision: inputRevision(c.session) });
+      assert.equal(root.querySelector('.qcard').hidden, !options.length);
+      root.querySelector('.fold').click();
+      assert.equal(root.querySelector('.conversation').hidden, false, 'the transcript owns the space');
+      assert.equal(root.querySelector('.fold-view').hidden, true, 'no empty canvas or promise');
+      assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), false);
+      assert.equal(root.querySelector('.concept-activity-text').textContent, copy.display.draftsOff);
+    }
+  });
+  test(`AIT-229: ${copy === de ? 'DE' : 'EN'}/${kind} configured host can show empty canvas without a price quote`, t => {
+    const { root } = fixture(t, { copy, kind, concepts: [] });
+    root.querySelector('.fold').click();
+    assert.equal(root.querySelector('.conversation').hidden, true);
+    assert.equal(root.querySelector('.fold-view').hidden, false);
+    assert.equal(root.querySelector('.canvas-empty > span').textContent, `${copy.display.draftsQuote}\u00a0· ${copy.display.draftsRetry}`);
+    assert.equal(root.querySelector('.canvas-empty .drafts-settings-action').textContent, copy.display.draftsRetry);
+    root.querySelector('.fold-strip').click();
+    assert.equal(root.querySelector('.conversation').hidden, false);
+  });
+}
+
+test('AIT-229: removing the selected capability while HTML loads restores transcript and rejects late bytes', async t => {
+  let finish; const pending = new Promise(resolve => { finish = resolve; });
+  const { c, root } = fixture(t, { htmlResponse: () => pending });
+  root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.fold-view').hidden, false);
+  receive(c, 'settings.changed', { processingPreset: 'device', settings: c.session.settings });
+  assert.equal(root.querySelector('.conversation').hidden, false);
+  assert.equal(root.querySelector('.fold-view').hidden, true);
+  finish(new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } }));
+  await tick(); await tick();
+  assert.equal(root.querySelector('.canvas-html').artifact, null);
+  assert.equal(root.querySelector('.canvas-html').shadowRoot.querySelector('iframe'), null);
+});
+
+for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} missing capability fails closed even with an old draft`, t => {
+  const { root } = fixture(t, { copy, visuals: null });
+  root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.conversation').hidden, false);
+  assert.equal(root.querySelector('.fold-view').hidden, true);
+});
+
+// Admission restrictions must preserve the current fold even before the first draft.
+for (const copy of [de, en]) for (const [name, reason, cost] of [
+  ['quote-missing', null, null],
+  ['admission-timeout', 'admission deadline', { maxMicro: 400_000 }],
+  ['temporarily-unavailable', 'plugin unhealthy', { maxMicro: 400_000 }],
+  ['consent-needed', 'current processing consent required', { maxMicro: 400_000 }],
+  ['credits-low', 'budget denied', { maxMicro: 400_000 }],
+  ['future-temporary-reason', 'new transient restriction', { maxMicro: 400_000 }],
+]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} ${name} keeps an empty fold and blocks requests`, async t => {
+  const { c, root, calls, refresh } = fixture(t, { copy, concepts: [], cost: { maxMicro: 400_000 } });
+  receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
+  root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+  await refresh(reason ? { available: false, reason } : { available: true }, cost);
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true, 'temporary restriction keeps the fold');
+  assert.equal(root.querySelector('.conversation').hidden, true);
+  assert.equal(root.querySelector('.concept-request').disabled, true);
+  assert.equal(root.querySelector('.concept-request').hidden, true);
+  root.querySelector('.concept-request').click(); await tick();
+  assert.equal(calls.some(url => /\/concepts(?:\/request|\/regenerate)?$/u.test(url)), false, 'no generation request');
+  const notice = root.querySelector('.canvas-empty > span');
+  assert.notEqual(notice.textContent, copy.layout.canvasEmpty, 'empty canvas explains the restriction');
+  if (name === 'quote-missing' || name === 'admission-timeout') assert.equal(notice.querySelector('button').textContent, copy.display.draftsRetry);
+  if (name === 'consent-needed') {
+    assert.equal(notice.querySelector('button').textContent, copy.featureConsent.action);
+    assert.notEqual(notice.querySelector('[id]').id, root.querySelector('.concept-activity-text [id]').id, 'unique accessible labels');
+    notice.querySelector('button').click();
+    assert.equal(root.querySelector('dialog.settings').open, true, 'canvas action opens consent settings');
+  }
+  // The same restriction permits a fresh fold attempt on a capable host.
+  root.querySelector('.fold-strip').click(); root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+});
+
+for (const reason of ['not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device', 'plugin not in preset']) {
+  test(`AIT-229: ${reason} capability loss unfolds an empty canvas and blocks refolding`, async t => {
+    const { c, root, calls, refresh } = fixture(t, { concepts: [] });
+    receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
+    root.querySelector('.fold').click();
+    assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+    await refresh({ available: false, reason });
+    assert.equal(root.querySelector('.conversation').hidden, false);
+    assert.equal(root.querySelector('.fold-view').hidden, true);
+    root.querySelector('.fold').click(); root.querySelector('.concept-request').click(); await tick();
+    assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), false);
+    assert.equal(root.querySelector('.concept-request').disabled, true);
+    assert.equal(calls.some(url => /\/concepts(?:\/request|\/regenerate)?$/u.test(url)), false);
+  });
+}
+
+for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} preset-excluded cached draft stays readable with a working choice action`, async t => {
+  const { root, calls, refresh } = fixture(t, { copy });
+  root.querySelector('.fold').click();
+  const canvas = root.querySelector('.canvas-html'), frame = await ready(canvas);
+  await refresh({ available: false, reason: 'plugin not in preset' });
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+  assert.ok(canvas.shadowRoot.querySelector('iframe') === frame, 'cached draft remains readable');
+  assert.equal(root.querySelector('.concept-request').disabled, true);
+  const line = root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, `${copy.display.draftsPreset}\u00a0· ${copy.display.draftsChoose}`);
+  line.querySelector('button').click(); await tick();
+  assert.equal(root.querySelector('dialog.settings').open, true);
+  assert.equal(calls.filter(url => url.endsWith('/html')).length, 1, 'cached bytes are reused');
 });

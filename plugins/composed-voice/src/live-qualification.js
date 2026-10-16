@@ -69,7 +69,7 @@ export function validateQualificationPlan(plan) {
   if (plan.corpus.some(item => !Number.isSafeInteger(item?.leadingSilenceMs) || item.leadingSilenceMs < 20_000)) {
     throw new Error('Corpus requires declared leading silence of at least 20000 ms in each identical lane WAV');
   }
-  if (plan.checks.ttsFinalFlag.spelling !== 'is_final') throw new Error('Adapter expects is_final; resolve protocol spelling before run');
+  if (plan.checks.ttsFinalFlag.spelling !== 'isFinal') throw new Error('Adapter expects isFinal; resolve protocol spelling before run');
 }
 
 /** Both lanes consume the same unmodified PCM16 mono WAV. Check the declared
@@ -167,6 +167,7 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
     const report = { mode: 'live', runId: plan.runId, candidate: evaluateQualification(samples.candidate),
       baseline: evaluateQualification(samples.baseline),
       tts: Object.fromEntries(['candidate', 'baseline'].map(lane => [lane, samples[lane].map(sample => sample.ttsConfig)])),
+      ttsNullSemantics: "Null style/use_speaker_boost means the voice's own default, the same as the saved agent; omitted from candidate stream-input voice_settings, preserved in lane evidence.",
       budget: budget.snapshot(), blindPreference: 'pending' };
     await writeFile(join(outputDirectory, 'blind.json'), JSON.stringify(blind, null, 2), { flag: 'wx', mode: 0o600 });
     await writeFile(join(outputDirectory, 'ops-answer-key.json'), JSON.stringify(answerKey, null, 2), { flag: 'wx', mode: 0o600 });

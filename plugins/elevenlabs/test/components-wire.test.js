@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createElevenLabsSTT, createElevenLabsTTS, STT_FORMAT, TTS_FORMAT } from '../src/components.js';
 import { fixtureSocket, fixtureBinding, fixtureConsent, fixtureConfig as config, fixtureVoiceSettings, sttWire, ttsWire, unverified } from './component-fixtures.js';
 import { createQualificationBudget, runOfflineQualification } from '../../composed-voice/src/qualification.js';
+import { validateVoiceSettings } from '../src/voice-settings.js';
 
 const collect = async source => { const result = []; for await (const item of source) result.push(item); return result; };
 const options = reports => ({ deadlineAt: Date.now() + 5000,
@@ -27,10 +28,10 @@ test('AIT-160: ElevenLabs STT sends documented PCM16/manual-commit frames after 
   assert.deepEqual(await stt.negotiateAudioFormat([STT_FORMAT], {}), STT_FORMAT);
   const events = await run('stt', stt, options(reports));
   assert.deepEqual(events, [{ text: 'Grüß', final: false }, { text: 'Grüß Gott', final: true }]);
-  assert.deepEqual(sent, [sttWire.chunk(Buffer.alloc(3200).toString('base64')), sttWire.chunk('', true)]);
+  assert.deepEqual(sent, [sttWire.chunk(Buffer.alloc(64_000).toString('base64'), true)]);
   assert.equal(closes, 1); assert.equal(reports.length, 1);
-  assert.equal(reports[0].usage.quantity, 0.1); assert.equal(reports[0].usage.unit, 'seconds');
-  assert.equal(reports[0].chargedMicro, 1); assert.equal(reports[0].usage.estimated, true);
+  assert.equal(reports[0].usage.quantity, 2); assert.equal(reports[0].usage.unit, 'seconds');
+  assert.equal(reports[0].chargedMicro, 20); assert.equal(reports[0].usage.estimated, true);
   assert.deepEqual(reports[0].identity, { sessionId: sttWire.session().session_id });
   assert.equal(stt.estimateCost({ maxDurationMs: 30000 }), 300);
 });
@@ -48,7 +49,7 @@ test('AIT-160: ElevenLabs TTS streams explicit PCM16/24k and includes trailing w
   assert.equal(closed, 1); assert.equal(reports.length, 1); assert.equal(reports[0].usage.quantity, 7);
   assert.equal(reports[0].chargedMicro, 14); assert.equal(tts.estimateCost({ text: 'Hallo' }), 14);
   assert.ok(unverified.length);
-  assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, 'tts-provider-identity-not-observed');
+  assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, 'no-request-id');
 });
 
 test('AIT-249: TTS validates and snapshots explicit voice settings and sends them for each synthesis', async () => {
@@ -60,6 +61,21 @@ test('AIT-249: TTS validates and snapshots explicit voice settings and sends the
   assert.deepEqual(sent.filter(frame => frame.text === ' '), Array.from({ length: 2 }, () => ({ text: ' ', voice_settings: fixtureVoiceSettings })));
   for (const voiceSettings of [null, {}, { ...fixtureVoiceSettings, speed: 2 }, { ...fixtureVoiceSettings, stability: '0.5' }]) {
     assert.throws(() => setup('tts', { config: { ...config, voiceSettings } }), /voice settings/);
+  }
+});
+
+test('AIT-250: start2 saved null settings pass unchanged and only nulls are omitted on every TTS initialization', async () => {
+  for (const [style, use_speaker_boost] of [[null, null], [null, false], [0, null], [0, false], [1, true]]) {
+    const saved = { stability: 0.5, similarity_boost: 0.8, style, use_speaker_boost, speed: 1 };
+    const voiceSettings = { ...saved }, sent = [];
+    assert.deepEqual(validateVoiceSettings(saved), saved);
+    const tts = setup('tts', { config: { ...config, voiceSettings },
+      connect: () => fixtureSocket({ role: 'tts', onSend: frame => sent.push(frame) }) });
+    voiceSettings.style = 0.5; voiceSettings.use_speaker_boost = true;
+    for (let i = 0; i < 2; i++) await run('tts', tts, options([]));
+    const expected = { stability: 0.5, similarity_boost: 0.8,
+      ...(style === null ? {} : { style }), ...(use_speaker_boost === null ? {} : { use_speaker_boost }), speed: 1 };
+    assert.deepEqual(sent.filter(frame => frame.text === ' '), Array.from({ length: 2 }, () => ({ text: ' ', voice_settings: expected })));
   }
 });
 
@@ -110,7 +126,7 @@ for (const role of ['stt', 'tts']) {
       const adapter = setup(role, { connect: () => ({ send() {}, close() {}, events: (async function* () { yield* frames; })() }) });
       await assert.rejects(run(role, adapter, options(reports)), { code: 'invalid-output' });
       assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
-      assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, `${role}-provider-identity-not-observed`);
+      assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, role === 'tts' ? 'no-request-id' : 'stt-provider-identity-not-observed');
     }
   });
   test(`AIT-160: ${role} successful estimates retain maximum, reconcile only attempt-bound evidence`, async () => {

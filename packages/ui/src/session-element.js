@@ -304,7 +304,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.settings-open span').textContent = this.#copy.settings.open; root.querySelector('.settings-open').title = this.#copy.settings.open;
     root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
     this.#timer = new ConnectionTimer(root.querySelector('.connection-timer'));
-    this.#fold = new ConversationFold({ root, copy: this.#copy, onChange: folded => {
+    this.#fold = new ConversationFold({ root, copy: this.#copy, canFold: () => this.#concept?.canShowCanvas() ?? false, onChange: folded => {
       if (folded) void this.#concept?.paintCanvas();
       else this.#concept?.suspendCanvas();
       this.#syncPanes();

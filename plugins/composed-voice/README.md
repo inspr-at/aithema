@@ -137,20 +137,43 @@ the existing metrics with synthetic 900 ms first-audio latency and 0 ms barge-in
 stop time, blind preference pending, and `qualified: false`. Fixtures and source
 sections are in `plugins/elevenlabs/test/component-fixtures.js`.
 
-Protocol sources (checked 2026-10-15):
+Protocol sources (checked 2026-10-16):
 
 | Messages | Official URL and section |
 | --- | --- |
 | STT handshake, `session_started`, `input_audio_chunk`, `partial_transcript`, `committed_transcript`, auth/rate errors | https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime — Handshake; AsyncAPI schemas SessionStarted, MessagesSessionStartedConfig, InputAudioChunk, PartialTranscript, CommittedTranscript, ScribeAuthError, ScribeRateLimitedError |
 | TTS handshake, initial space, text/flush, empty text end, audio and final | https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input — Handshake; Send InitializeConnection/SendText/CloseConnection; Receive AudioOutput/FinalOutput and Messages examples |
 
-Unverified offline: the TTS page examples spell finality `is_final`, whereas its
-AsyncAPI spells it `isFinal` (this adapter uses the page example and rejects the
-ambiguous alternative); acceptance of an empty STT commit chunk and provider
-minimum duration; actual signed-16 LE mono output/account/model availability;
-configured tariffs, whitespace billing and rounding; server usage/receipt fields;
-latency, quality, retention and residency. Fixtures name these explicitly rather
-than inventing provider usage. OPS must resolve them before a separately authorized
+OPS live evidence (mbp2606, 2026-10-16, code `7613fb5`), copied from
+`/private/tmp/ait160-probes-1/probes-1/` into non-secret repository summaries:
+
+- [TTS probe](../elevenlabs/test/fixtures/ait-250/tts-final-flag.json):
+  `eleven_flash_v2_5`, voice `MGG5Irb57ATHvyIeTEYo`, `pcm_24000` returned
+  `alignment`, `audio`, `isFinal`, `normalizedAlignment`; only `isFinal` was final,
+  and no upgrade `request-id` was present. The adapter and plan require `isFinal`.
+  We choose the live/AsyncAPI spelling only; the conflicting `is_final` page
+  example is not evidence that the deployed provider supports both.
+- [STT probe](../elevenlabs/test/fixtures/ait-250/stt-empty-commit.json):
+  `scribe_v2_realtime` at 16 kHz, corpus 01.wav (35.413625 s), session at 262 ms,
+  partials at 21575/22500/23515/32119 ms, then an accepted empty commit and a
+  zero-character final at 35984 ms. This demonstrates loss, not successful commit.
+  The [realtime API Messages example](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime)
+  attaches `commit: true` to audio. We retain one owned chunk (at most 64,000
+  bytes), send it exactly once with that flag when the coordinator ends its queue,
+  and never send an empty commit. No partial is promoted to a final.
+- The [manual commit guide](https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/transcripts-and-commit-strategies)
+  says processing starts after the first two seconds of audio. As a conservative
+  processing guard, inputs shorter than two seconds receive trailing zero PCM up
+  to two seconds. This adds no wall-clock wait to the coordinator's 500 ms
+  endpoint; padding counts in the estimate, reservation check and reported audio
+  usage. Empty input fails without a commit. This is not a claim about a verified
+  account billing minimum; OPS's single long probe cannot establish that.
+
+Synthetic wire responses follow these observed shapes and the documented
+nonempty commit protocol. The corrected STT commit still requires OPS live
+qualification. Unverified offline: account/model availability, configured tariffs,
+whitespace billing/rounding/minimums, authenticated usage/receipt fields, latency,
+quality, retention and residency. OPS must resolve them before the authorized
 live run. PR 4b-2 owns network relay routes, physical capture/playback and full
 format propagation; PR 4b-2 supplies the durable ledger, timestamp probes and guarded runner below;
 OPS owns their account-specific integration, receipt authentication and execution
@@ -262,7 +285,7 @@ node scripts/composed-qualification.js --operator-approved --budget /ops/run/qua
 The plan is non-secret JSON: `runId` (unique explicit operator identity), `corpus`
 (entries with `reference` and expected entities), `ceilingChecks` (complete pricing
 specs), and `checks`. Every named check below needs `{ verified: true, reference:
-"OPS evidence reference" }`; `ttsFinalFlag` also needs `spelling: "is_final"`.
+"OPS evidence reference" }`; `ttsFinalFlag` also needs `spelling: "isFinal"`.
 Missing checklist, persisted budget, verified ceilings or operator flag refuses
 before any sample can dispatch. A crashed/failed run requires an explicit new
 operator-approved plan; retain the original shared budget and attempt history.
@@ -278,11 +301,12 @@ evidence rather than trusting fixtures:
   and initialization billing, rounding and minimum duration.
 - `authenticatedReceipts`: actual usage/receipt fields and authenticated
   server-observed charges covering both lanes, components, reasoning and retries.
-- `sttEmptyCommitAndMinimumDuration`: acceptance of empty STT commit chunks and
-  provider minimum audio duration.
-- `ttsFinalFlag`: resolve `is_final` in examples versus `isFinal` in AsyncAPI.
-  This adapter accepts `is_final`; the harness refuses `isFinal` until the adapter
-  is deliberately updated and tested. Do not silently accept both.
+- `sttEmptyCommitAndMinimumDuration`: keep this existing checklist key, but
+  verify the corrected nonempty final-audio commit delivers spoken text, the
+  two-second processing guard and account billing minimums. An accepted empty
+  commit with zero final text does not satisfy this check.
+- `ttsFinalFlag`: use `spelling: "isFinal"` with the 2026-10-16 OPS probe above.
+  The adapter and harness require this observed spelling; `is_final` is refused.
 - `pcmOutputAndAccountModels`: real signed-16 LE mono output, sampling metadata,
   selected voices/models and account availability; Voxtral float32 remains distinct.
 - `retentionAndResidency`: verify actual account policy and processing location.
@@ -538,7 +562,7 @@ module. Missing or malformed money settings refuse construction.
 | --- | --- |
 | `stt` | Processing binding for ElevenLabs `scribe_v2_realtime`, plus explicit integer `microPerSecond >= 0`. |
 | `tts` | Processing binding for fixed ElevenLabs `eleven_flash_v2_5`, plus saved `voiceId`, required `voiceSettings` (below), and explicit integer `microPerCharacter >= 0`. |
-| `tts.voiceSettings` | Required complete object `{ stability, similarity_boost, style, use_speaker_boost, speed }`. First three are finite numbers in `[0, 1]`, speaker boost is boolean, speed is a finite number in `[0.7, 1.2]`. Missing, extra, or invalid fields refuse before provider setup. Read the saved start2 agent as described below; no provider defaults. |
+| `tts.voiceSettings` | Required complete object `{ stability, similarity_boost, style, use_speaker_boost, speed }`. Stability and similarity boost are finite numbers in `[0, 1]`; style is `null` or a finite number in `[0, 1]`; speaker boost is `null` or boolean; speed is a finite number in `[0.7, 1.2]`. All five fields remain required. Missing, extra, or invalid fields refuse before provider setup. Copy the saved start2 values, including explicit nulls. |
 | `reasoning` | Existing OpenRouter private binding: `plugin`, `model`, `effort`, `endpoint`, `accountRef`, `secretRef`, `maxMicro`, `maxTokens`, `maxInputTokens`, `rates: { inputMicro, outputMicro }` and `legal`; optional `routing`. Rates are integer micro-USD per token. No model/routing fallback. |
 | `baselineOrigin` | Required canonical HTTPS production origin, without path, credentials, query or trailing slash. Loopback/localhost refuse; no default. Chrome runs production's normal visitor/consent/voice flow there. |
 | `baselineAuthFile` | Optional binding field, but required to run the baseline behind start2's basic-auth gate; missing refuses before admission. Absolute mba-owned 0600 regular non-symlink file containing JSON `{ "username": "...", "password": "..." }`. Inode, owner, mode and 16 KiB bound use the same checks as `loadQualificationKeys`. |
@@ -557,7 +581,16 @@ returns them under `conversation_config.tts.voice_settings`, use those values
 for the corresponding keys (nested values take precedence). Do not invent
 missing settings or copy other agent configuration into the binding.
 The candidate model remains `eleven_flash_v2_5`; each synthesis connection sends
-the validated settings as `voice_settings` in its initialization message.
+the non-null validated settings as `voice_settings` in its initialization message.
+The [stream-input AsyncAPI schema](https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input)
+defines `RealtimeVoiceSettings.style` and `.use_speaker_boost` as optional number
+and boolean fields, without nullable types. Therefore saved nulls are omitted
+on the wire. Effectively, null means the voice's own default, the same thing the
+saved agent gets; it must never be replaced with an invented `0` or `false`.
+ElevenLabs also describes [request voice settings](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
+as overrides of the voice's stored settings. For start2's saved
+`{ stability: 0.5, similarity_boost: 0.8, style: null, use_speaker_boost: null, speed: 1 }`,
+the request sends `{ stability: 0.5, similarity_boost: 0.8, speed: 1 }`.
 
 The candidate uses the same exported `buildVoiceReplyRequest` as production's
 voice reply lane, bound by the host handlers to their purpose policy, host
@@ -571,7 +604,9 @@ person and assistant history is retained within that sample.
 
 `observations.json` records `ttsConfig: { model, voiceId, voiceSettings }` per
 sample. `report.json.tts.candidate` and `.baseline` list those same configurations
-in corpus order, including both TTS model IDs and all settings. The private
+in corpus order, including both TTS model IDs and all settings with nulls
+preserved exactly. `report.json.ttsNullSemantics` states the effective default
+behavior and wire omission. The private
 `ops-answer-key.json` also associates each audio file with its source TTS
 configuration. These OPS files disclose the fixed-model difference; `blind.json`
 and the A/B WAV labels retain no lane or settings information. Keep the report
@@ -706,11 +741,12 @@ claim IDs, voice IDs and trace IDs never substitute for a provider billing ident
 | --- | --- | --- |
 | Candidate reasoning (each retry separately) | `generationId` and `identity: { generationId }` when present; otherwise `identity: null`, `identityReason: 'provider-identity-not-observed'` | OpenRouter response `id`, accepted only by core `generationId` (`gen-` plus 1–124 ASCII alphanumerics/hyphens). Shared `chat-completions.js` parses SSE events and non-streamed JSON, including error responses. OPS authenticates the matching OpenRouter generation receipt. |
 | Candidate STT (each utterance attempt) | `identity: { sessionId, requestId? }`; a returned request ID alone may survive a missing/invalid session message. If neither is observed: `identity: null`, `identityReason: 'stt-provider-identity-not-observed'` | ElevenLabs realtime `session_started.session_id`; optional upgrade response `request-id`. IDs are bounded to 1–128 ASCII alphanumerics/underscore/hyphen. OPS must authenticate attempt-bound STT billing evidence; a session ID itself is no cost receipt. |
-| Candidate TTS (each fragment attempt) | `identity: { requestId }` if returned; otherwise `identity: null`, `identityReason: 'tts-provider-identity-not-observed'` | Optional WebSocket upgrade `request-id`. The current TTS audio/final messages have no request/history item ID. No history ID is invented or inferred from voice/model/text. |
+| Candidate TTS (each fragment attempt) | `identity: { requestId }` only if actually returned; otherwise `identity: null`, `identityReason: 'no-request-id'` (OPS observed no header). Every dispatched terminal also carries `matchingKey: { voiceId, modelId, characterCount, textSha256, startedAt, endedAt }`. | OPS searches authenticated ElevenLabs TTS history using the matching key, then authenticates an attempt-bound charge. `textSha256` is lowercase SHA-256 of UTF-8 concatenated nonempty wire text (initialization space + fragment including trailing space); `characterCount` counts Unicode code points in those same characters. UTC ISO timestamps bound dispatch through terminal reporting, including failure/cancellation. Raw text is never retained in this key. A matching key is not a provider ID or receipt; ambiguous/no matches keep uncertainty. |
 | Baseline (one combined attempt) | `baselineSessions` / private baseline-session file: `attemptId`, `visitorSessionId`, `providerSessionId` (ElevenLabs conversation ID), `callId`, run/sample labels | Existing production visitor-to-conversation mapping plus OPS's start2 session-to-OpenRouter-generation mapping; both billing sides must be complete. Baseline IDs stay in `baselineSessions`, not candidate terminal `identity`. |
 
 Candidate terminals pass through the acknowledged control port; the durable ledger
-retains only `generationId`, `identity`, `identityReason` and validated `servedModel`
+retains only `generationId`, `identity`, `identityReason`, validated `servedModel`
+and the bounded six-field `matchingKey` (extra fields including text are dropped)
 as accounting metadata. These fields survive restart in `snapshot.records` passed
 to `reconcile` and in `storedAttempt` passed to `verifyReceipt`. Missing terminal
 evidence on early shutdown also yields explicit null/reason. Every consumed
@@ -726,7 +762,8 @@ and [Tracking generation costs](https://elevenlabs.io/docs/api-reference/introdu
 (`request-id` response header). The last source demonstrates HTTP metadata;
 it does **not** guarantee that a WebSocket upgrade returns that header. The
 transport records it only if actually present; the existing no-header TTS fixture
-therefore records null. These sources establish identity shape, not a verified
+therefore records null with `no-request-id`. OPS live evidence above confirms
+that absence for the probed account. These sources establish identity shape, not a verified
 STT/TTS billing API or guaranteed receipt availability.
 
 `ops/qualification-live-host.mjs` exports `launchQualificationHost(options)` and
@@ -916,8 +953,8 @@ keys** (Rule C shares the consent/holds row). The automated output probe supplem
 | `consentAndHolds`, `ruleCAndNoSilentRerun` | Exact stored owner/processing scopes; Rule C envelope/store; immediate revoke, holds and AIT-138 fresh generation recovery; persisted run identity refusing rerun; every reasoning/retry routed through the shared admit. |
 | `verifiedTariffsAndRounding` | Host account proofs matching each exact request/digest, lane, component/model and retry ceiling; whitespace, initialization, rounding, minimums and duration coverage; one persisted $25 cap. |
 | `authenticatedReceipts` | Authenticated host usage/receipts for both lanes, components, reasoning and retries; matching attempt/receipt identities and existing settlement reconciliation; pending exposure retained. |
-| `sttEmptyCommitAndMinimumDuration` | Account/provider observation of endpoint commit with an empty chunk and actual minimum duration using corpus capture. |
-| `ttsFinalFlag` | Provider evidence for `is_final`, preserved in plan `spelling`; adapter still refuses unresolved `isFinal`. |
+| `sttEmptyCommitAndMinimumDuration` | Corrected endpoint commit on the last nonempty audio chunk yields spoken final text; short-input processing guard and account billing minimums verified using corpus capture. The existing key name is retained for plan compatibility. |
+| `ttsFinalFlag` | OPS 2026-10-16 provider evidence for `isFinal`, preserved as plan `spelling: "isFinal"`; `is_final` is refused. |
 | `pcmOutputAndAccountModels` | Available account models/voices and observed output encoding, mono channels and rate; PCM16 versus float32 kept explicit through relay/player and blind normalization. |
 | `retentionAndResidency` | Actual account retention and processing-location evidence for the selected account; secure evidence access and later disposal under OPS policy. |
 

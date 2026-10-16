@@ -169,7 +169,8 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
             ...(!row.consumed ? { chargedMicro: 0 } : {}),
             ...(generation ? { generationId: generation } : {}), identity,
             ...(identity === null ? { identityReason: terminal.identityReason ?? 'provider-identity-not-observed' } : {}),
-            ...(terminal.servedModel ? { servedModel: terminal.servedModel } : {}) })));
+            ...(terminal.servedModel ? { servedModel: terminal.servedModel } : {}),
+            ...(role === 'tts' && terminal.matchingKey ? { matchingKey: terminal.matchingKey } : {}) })));
           return row.reporting;
         };
         const attempt = { attemptId: spec.attemptId, claimId: granted.attempt.claimId, maxMicro,
