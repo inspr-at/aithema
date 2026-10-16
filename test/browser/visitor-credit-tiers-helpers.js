@@ -318,7 +318,7 @@ export async function visitorCreditMatrix(t, locales) {
           separator: pending.textContent.match(/reader@example\.test(.*?)((?:Ändern)|Change)/u)?.[1], gapPx: message.getBoundingClientRect().top - button.getBoundingClientRect().bottom,
           widthPx: button.getBoundingClientRect().width, primaryWidthPx: form.querySelector('.verify__primary').getBoundingClientRect().width };
       });
-      assert.equal(sent.helper, ''); assert.equal(sent.separator, ' · '); assert.equal(sent.inlineChange, true, `${label}: Change stays inline`);
+      assert.equal(sent.helper, ''); assert.equal(sent.separator, '\u00a0· '); assert.equal(sent.inlineChange, true, `${label}: Change stays inline`);
       assert.equal(sent.gapPx, 12); assert.ok(sent.widthPx < sent.primaryWidthPx, `${label}: resend hugs its label`);
       assert.match(sent.confirmation, locale === 'de' ? /^Wir haben Ihnen einen Bestätigungslink geschickt/u : /^We sent you a confirmation link/u);
       uiChecks.push({ locale, theme, width, state: 'mail-link-sent', pass: true, ...sent });
@@ -340,7 +340,7 @@ export async function visitorCreditMatrix(t, locales) {
           tierText: r.querySelector('.host-verify .m-mail-tier').textContent, gapPx: parseFloat(getComputedStyle(r.querySelector('.host-verify .m-mail-tier')).gap) };
       });
       assert.equal(alignment.indentPx, 0); assert.equal(alignment.gapPx, 0);
-      assert.match(alignment.tierText, locale === 'de' ? /Bestätigt · Guthaben: 2\.400 Credits/u : /Confirmed · Credit: 2,400 Credits/u);
+      assert.match(alignment.tierText, locale === 'de' ? /Bestätigt\u00a0· Guthaben: 2\.400 Credits/u : /Confirmed\u00a0· Credit: 2,400 Credits/u);
       uiChecks.push({ locale, theme, width, state: 'mail-confirmed', pass: true, ...alignment });
       await shot('mail-confirmed'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-confirmed');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-confirm');

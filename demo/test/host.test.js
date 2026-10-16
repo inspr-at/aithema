@@ -93,8 +93,8 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     const { en: copy } = await import('../../packages/ui/src/i18n/en.js'), h = copy.host;
     const header = () => document.querySelector('#provider').textContent;
     assert.equal(component.session.conceptVisualKind, 'html');
-    assert.equal(header(), `Local demo, no AI provider · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
-    assert.equal(header(), 'Local demo, no AI provider · Demo only: clickable draft');
+    assert.equal(header(), `Local demo, no AI provider\u00a0· ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
+    assert.equal(header(), 'Local demo, no AI provider\u00a0· Demo only: clickable draft');
     option('visuals', 'Demo only: sample images').click();
     await wait('image visuals acknowledged in header', () => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
     option('visuals', 'Off').click();

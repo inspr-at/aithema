@@ -27,7 +27,7 @@ import { hostStyles } from './host-styles.js';
 import { entranceStyles } from './entrance-styles.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
-import { modelDisplayName, settingsFlag } from './display.js';
+import { modelDisplayName, languageFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
@@ -1157,7 +1157,7 @@ export class AithemaSession extends HTMLElement {
     const readiness = u.readinessAssessed ? [
       copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)),
       copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)),
-    ].join(' · ') : copy.notAssessed;
+    ].join(reasonSeparator) : copy.notAssessed;
     scale.setAttribute('aria-valuenow', percent);
     scale.setAttribute('aria-valuetext', readiness);
     scale.title = readiness;
@@ -1303,16 +1303,16 @@ export class AithemaSession extends HTMLElement {
       : presentation?.translations?.find(item => item.locale === this.#session.locale)?.label
         ?? presentation?.label ?? view.voice?.label ?? this.#voiceClientFor()?.manifest?.vendor?.name ?? d.hostProvider;
     return [`${name}, ${scope}`, `${d.reply}: ${reply}`, `${d.understanding}: ${understanding}`,
-      `${d.via.replace('{provider}', preset === 'device' ? d.deviceProvider : provider)} · ${d.voice}: ${voice}`].join('\n');
+      `${d.via.replace('{provider}', preset === 'device' ? d.deviceProvider : provider)}${reasonSeparator}${d.voice}: ${voice}`].join('\n');
   }
   #renderEngine() {
     const root = this.shadowRoot, preset = this.#session.processingPreset ?? 'best';
     root.querySelector('.engine__value').textContent = this.#copy.presets[preset] ?? this.#copy.display.presetUnknown;
     root.querySelector('.engine__detail').textContent = this.#engineDetail();
     root.querySelector('.engine-info').setAttribute('aria-label', this.#copy.display.modelInfo);
-    const kind = { best: 'quality', eu: 'eu', device: 'device', custom: 'selfhosted' }[preset] ?? 'selfhosted';
+    const kind = this.#session.locale;
     const flag = root.querySelector('.engine__flag');
-    if (flag.dataset.kind !== kind) { flag.dataset.kind = kind; flag.innerHTML = settingsFlag(kind); }
+    if (flag.dataset.kind !== kind) { flag.dataset.kind = kind; flag.innerHTML = languageFlag(kind); }
   }
   #syncPanes() {
     for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
@@ -1569,7 +1569,7 @@ export class AithemaSession extends HTMLElement {
     const microphone = { granted: [r.micGranted, 'confirmed'], denied: [r.micDenied, 'pending'], prompt: [r.micPrompt, 'pending'] }[this.#microphone] ?? [r.checkOnStart, 'pending'];
     const rows = [
       ['model', 'settings', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected
-        : [model, effort && effort !== 'none' ? copy.settings.efforts[effort] ?? effort : null].filter(Boolean).join(' · '), device && !local ? 'pending' : 'selected'],
+        : [model, effort && effort !== 'none' ? copy.settings.efforts[effort] ?? effort : null].filter(Boolean).join(reasonSeparator), device && !local ? 'pending' : 'selected'],
       ['consent', 'info', r.consent, consent === 'device' ? r.notNeeded : consent === 'granted' ? r.granted : r.missing, ['device', 'granted'].includes(consent) ? 'confirmed' : 'pending'],
       ['microphone', 'mic', r.microphone, voiceMode ? microphone[0] : r.off, voiceMode ? microphone[1] : 'off'],
       ['speaker', 'volume', r.speaker, voiceMode ? r.onOnStart : r.off, voiceMode ? 'selected' : 'off'],
@@ -1812,7 +1812,7 @@ export class AithemaSession extends HTMLElement {
       await this.#loadLimits();
       if (!current()) return;
       // The host's limits may have arrived just now and leave no room: nothing is sent.
-      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(' · '); return; }
+      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(reasonSeparator); return; }
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
       const notices = [replacement, refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
       if (count) {
@@ -1832,7 +1832,7 @@ export class AithemaSession extends HTMLElement {
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
-      this.#uploadNotice = notices.filter(Boolean).join(' · ');
+      this.#uploadNotice = notices.filter(Boolean).join(reasonSeparator);
     } finally {
       if (this.#uploadController === controller) {
         this.#uploadController = null; this.#uploading = false;

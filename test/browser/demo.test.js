@@ -267,7 +267,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
         await waitForShadow(page, '.engine__value', { text: 'Custom' });
-        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test · Voice: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test\u00a0· Voice: Off' });
         // The effect: the next reply comes from the newly chosen model.
         await composer.type('What about our data?');
         const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
@@ -286,7 +286,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id, 'Reload must restore the same session');
         await waitForShadow(page, 'aside .summary-text', { text: `${content} What about our data?` });
         assert.equal(await page.$eval('#error', node => node.textContent), '');
-        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test · Voice: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test\u00a0· Voice: Off' });
 
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));
@@ -727,7 +727,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
     // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
-    assert.equal(await german.$eval('#provider', node => node.textContent), 'Lokale Demo, ohne KI-Anbieter · Nur Demo: klickbarer Entwurf');
+    assert.equal(await german.$eval('#provider', node => node.textContent), 'Lokale Demo, ohne KI-Anbieter\u00a0· Nur Demo: klickbarer Entwurf');
     // AIT-118: at 400 px every English and German voice message, the longest German recovery and closure
     // messages included, is whole in the rail's reserved lines and moves no control.
     const voiceMessages = [en, de].flatMap(copy => Object.entries(copy).filter(([key, value]) => /^voice[A-Z]/u.test(key) && typeof value === 'string'

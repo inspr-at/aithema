@@ -132,7 +132,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         // item's innerText still exposes whether its spaces actually rendered.
         await t.test(`AIT-169 exact rendered entry: ${locale}-${theme}-${width}`, async () => {
           assert.equal(await shadow(page, c => [...c.shadowRoot.querySelector('.operator-signed-in').children].map(n => n.innerText).join('')),
-            locale === 'de' ? 'Operator: Ada · Verwaltung · Abmelden' : 'Operator: Ada · Admin · Sign out');
+            locale === 'de' ? 'Operator: Ada\u00a0· Verwaltung\u00a0· Abmelden' : 'Operator: Ada\u00a0· Admin\u00a0· Sign out');
         });
         await t.test(`AIT-169 measured dot gaps: ${locale}-${theme}-${width}`, async () => {
           const gaps = await shadow(page, c => {
@@ -253,7 +253,7 @@ test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/
           assert.equal(first.children, state === 'with-admin' ? 5 : 3, 'no hidden admin slot');
           assert.equal(first.separators, state === 'with-admin' ? 2 : 1);
           assert.equal(first.separatorsHidden, true); assert.equal(first.logoutMargin, '0px', 'no reserved admin gap');
-          const expectedText = `Operator: Ada${state === 'with-admin' ? ` · ${copy.settings.operatorAdmin}` : ''} · ${copy.settings.operatorLogout}`;
+          const expectedText = `Operator: Ada${state === 'with-admin' ? `\u00a0· ${copy.settings.operatorAdmin}` : ''}\u00a0· ${copy.settings.operatorLogout}`;
           assert.equal(first.text, expectedText); assert.equal(first.renderedText, expectedText);
           texts.push(first.text); renderedTexts.push(first.renderedText);
           if (state === 'without-admin') assert.equal(await page.evaluate(() => window.operatorAtAttach), first.html, 'no admin fallback at attachment');
@@ -275,8 +275,8 @@ test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), false, 'flow continues after capture');
         }
         assert.deepEqual(frames[1], frames[0], 'admin availability preserves dialog, footer and row height');
-        assert.equal(texts[1], texts[0].replace(` · ${copy.settings.operatorAdmin}`, ''), 'only the admin item and its separator disappear');
-        assert.equal(renderedTexts[1], renderedTexts[0].replace(` · ${copy.settings.operatorAdmin}`, ''), 'remaining items keep their rendered join');
+        assert.equal(texts[1], texts[0].replace(`\u00a0· ${copy.settings.operatorAdmin}`, ''), 'only the admin item and its separator disappear');
+        assert.equal(renderedTexts[1], renderedTexts[0].replace(`\u00a0· ${copy.settings.operatorAdmin}`, ''), 'remaining items keep their rendered join');
       }
       assert.deepEqual(errors, []); await browser.close(); browser = null;
     }

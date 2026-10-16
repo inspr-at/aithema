@@ -1,3 +1,4 @@
+import { reasonSeparator } from './consent-line.js';
 // Settings reserves only the acknowledged visitor-address states reachable in each mode.
 import { setText, fill } from './dom.js';
 import { formatCredits } from './display.js';
@@ -161,7 +162,7 @@ export class VisitorEmail {
     setText(this.q('.m-sent-prefix'), pending ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
     setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
     setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;
-    setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? ' · ' + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
+    setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? reasonSeparator + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
     // Reserve the pending tier even before an address exists or after confirmation.
     setText(this.q('.m-mail-tier-measure'), this.viewDelivery && this.tiers ? fill(e.pendingTier, n) : '');
     const button = this.q('.verify-entry'); button.hidden = !this.viewDelivery || !this.canCollect || verified;

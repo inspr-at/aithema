@@ -23,7 +23,7 @@ for (const copy of [de, en]) test(`AIT-165 final General section: muted native o
     assert.equal(link.getAttribute('aria-hidden'), 'true');
     view.set({ ...operator, name: 'Ada' });
     assert.equal(s.querySelector('.operator-signed-in').textContent.trim(),
-      copy === de ? 'Operator: Ada · Verwaltung · Abmelden' : 'Operator: Ada · Admin · Sign out');
+      copy === de ? 'Operator: Ada\u00a0· Verwaltung\u00a0· Abmelden' : 'Operator: Ada\u00a0· Admin\u00a0· Sign out');
   } finally { await window.happyDOM.close(); }
 });
 
@@ -40,7 +40,7 @@ for (const copy of [de, en]) {
         assert.equal(parent.querySelectorAll('.operator-separator').length, 1);
         assert.equal(parent.querySelector('.operator-separator').getAttribute('aria-hidden'), 'true');
         assert.equal(parent.querySelector('.operator-name').textContent, 'Operator: Ada');
-        assert.equal(parent.querySelector('.operator-signed-in').textContent.trim(), `Operator: Ada · ${copy.settings.operatorLogout}`);
+        assert.equal(parent.querySelector('.operator-signed-in').textContent.trim(), `Operator: Ada\u00a0· ${copy.settings.operatorLogout}`);
         assert.equal(parent.querySelector('.operator-logout').textContent, copy.settings.operatorLogout);
       } finally { await window.happyDOM.close(); }
     });
@@ -63,7 +63,7 @@ for (const copy of [de, en]) {
         view.set({ ...operator, adminUrl: 'javascript:alert(1)' });
         assert.equal(parent.querySelectorAll('.operator-admin').length, 0);
         assert.equal(parent.querySelectorAll('.operator-separator').length, 1);
-        assert.equal(parent.querySelector('.operator-signed-in').textContent.trim(), withAdmin.replace(` · ${copy.settings.operatorAdmin}`, ''));
+        assert.equal(parent.querySelector('.operator-signed-in').textContent.trim(), withAdmin.replace(`\u00a0· ${copy.settings.operatorAdmin}`, ''));
         assert.equal(parent.querySelector('.operator-separator').getAttribute('aria-hidden'), 'true');
         view.set({ ...operator, adminUrl }); view.setCopy(copy === de ? en : de);
         assert.equal(parent.querySelector('.operator-admin').getAttribute('href'), adminUrl);

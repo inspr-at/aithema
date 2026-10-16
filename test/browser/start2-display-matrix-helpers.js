@@ -512,7 +512,7 @@ export async function displayMatrix(t, section) {
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), copy.display.draftsOff);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').hidden), true); await shot('drafts-off', width, theme);
       await scene('conversation', 'on');
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), copy.display.draftsOn.replace('{credits}', '40'));
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), `${copy.display.draftsOn}\u00a0· ${copy.display.creditUpperBound.replace('{cost}', `40 ${copy.display.credits}`).replaceAll(' ', '\u00a0')}`);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').disabled), false); await shot('drafts-on', width, theme);
       await scene('conversation', 'low');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), copy.display.draftsLow);
@@ -574,7 +574,7 @@ export async function displayMatrix(t, section) {
     const footer = await boxes(page, ['.display-foot', '.engine-info', '.composer']);
     await page.hover('aithema-session >>> .engine-info'); sameBoxes(footer, await boxes(page, ['.display-foot', '.engine-info', '.composer']), 'footer model hover');
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.engine__detail')).visibility), 'visible');
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.engine__detail').textContent), 'Beste Modelle, international\nAntworten: Claude Haiku 5.5\nEinschätzung: Claude Opus 5.5\nüber OpenRouter · Stimme: ElevenLabs');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.engine__detail').textContent), 'Beste Modelle, international\nAntworten: Claude Haiku 5.5\nEinschätzung: Claude Opus 5.5\nüber OpenRouter\u00a0· Stimme: ElevenLabs');
     await shot('footer-model-hover-open', 1440, 'light');
     await page.mouse.move(0, 0); await page.click('aithema-session >>> .conversations-toggle');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 3);

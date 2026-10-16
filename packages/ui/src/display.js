@@ -1,6 +1,9 @@
 import { isConsentReason } from '../../core/src/settings.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 
+// Shared with native browser hosts through the public display entrypoint.
+export { reasonSeparator };
+
 // AIT-131: public names for served routes. Unknown routes get localized copy, never an id or a host label.
 export const MODEL_DISPLAY_NAMES = Object.freeze({
   'anthropic/claude-haiku-5.5': 'Claude Haiku 5.5',
@@ -30,6 +33,14 @@ export function modelDisplayName(id, copy) {
 export const wholeCredits = micro => Number.isFinite(micro) ? Math.max(0, Math.floor(micro / 10_000)) : 0;
 export const formatCredits = (micro, locale) => new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(wholeCredits(micro));
 
+// Quotes are upper bounds: round up whole credits, without hiding a positive sub-credit cost.
+export function creditCost(micro, copy) {
+  if (!Number.isSafeInteger(micro) || micro <= 0) return '';
+  const amount = micro < 10_000 ? '< 1' : new Intl.NumberFormat(copy.display.locale).format(Math.ceil(micro / 10_000));
+  const cost = `${amount} ${micro <= 10_000 ? copy.display.credit : copy.display.credits}`;
+  return (micro < 10_000 ? cost : copy.display.creditUpperBound.replace('{cost}', cost)).replaceAll(' ', '\u00a0');
+}
+
 /** One sentence in the rail. A missing quote cannot offer paid work; feature verdicts still gate consent. */
 export function draftsLine({ copy, cost, feature, kind = 'html' }) {
   const reason = feature.rawReason ?? feature.reason ?? '';
@@ -54,8 +65,7 @@ export function draftsLine({ copy, cost, feature, kind = 'html' }) {
       ...(recovery ? { recovery, message, label } : {}) };
   }
   if (!known || !feature.available) return { state: 'off', text: copy.display.draftsUnavailable, action: false };
-  const credits = Math.ceil(cost.maxMicro / 10_000);
-  return { state: 'on', text: copy.display.draftsOn.replace('{credits}', new Intl.NumberFormat(copy.display.locale).format(credits)), action: true };
+  return { state: 'on', text: [copy.display.draftsOn, creditCost(cost.maxMicro, copy)].filter(Boolean).join(reasonSeparator), action: true };
 }
 
 // START's SettingsFlag. The flags and machine paths are ported from its AGPL-3.0-only component.
@@ -66,4 +76,10 @@ export function settingsFlag(kind) {
   if (kind === 'quality') return wrap(`<svg viewBox="0 0 60 40"><rect width="60" height="40" fill="#fff"/>${Array.from({ length: 7 }, (_, i) => `<rect y="${i * 80 / 13}" width="60" height="${40 / 13}" fill="#bd2940"/>`).join('')}<rect width="25" height="${280 / 13}" fill="#173e7e"/>${Array.from({ length: 9 }, (_, r) => Array.from({ length: r % 2 ? 5 : 6 }, (_, c) => star(2.1 + c * 4.15 + (r % 2 ? 2.07 : 0), 2 + r * 2.2, .85)).join('')).join('')}</svg>`);
   if (kind === 'eu') return wrap(`<svg viewBox="0 0 60 40"><rect width="60" height="40" fill="#0646aa"/>${Array.from({ length: 12 }, (_, i) => star(30 + 12 * Math.sin(i * Math.PI / 6), 20 - 12 * Math.cos(i * Math.PI / 6), 2)).join('')}</svg>`);
   return wrap(`<svg viewBox="0 0 60 40"><path d="M10 36V4" stroke="#758087" stroke-width="2"/><path d="M11 5c12-7 24 8 38 0v22c-14 8-26-7-38 0Z" fill="#fff" stroke="#b9b9b1"/></svg><svg class="settings-flag__machine" viewBox="0 0 32 28" fill="none" stroke="#102945" stroke-width="1.5">${kind === 'device' ? '<rect x="5" y="3" width="22" height="16" rx="1.5" fill="#d8e9ed"/><path d="m5 19-3 5h28l-3-5Z" fill="#8eacba"/>' : [3, 11, 19].map(y => `<rect x="4" y="${y}" width="24" height="6" rx="1.5" fill="#23475a"/><path d="M8 ${y + 3}h2m11 0h3" stroke="#d5f0ec"/>`).join('')}</svg>`);
+}
+
+/** The footer marks the UI language; processing scope is named in its model details. */
+export function languageFlag(locale) {
+  if (locale !== 'de') return settingsFlag('quality');
+  return '<span class="settings-flag" aria-hidden="true"><svg viewBox="0 0 60 40"><path fill="#111" d="M0 0h60v14H0z"/><path fill="#d00" d="M0 13h60v14H0z"/><path fill="#ffce00" d="M0 26h60v14H0z"/></svg></span>';
 }

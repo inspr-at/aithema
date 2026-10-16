@@ -3,7 +3,7 @@ import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.
 import { postJson, sameOrigin } from './post-json.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
-import { draftsLine } from './display.js';
+import { draftsLine, creditCost } from './display.js';
 
 // START generated-ui-progress: estimates reserve completion for durable success.
 export function conceptProgress(status, now = Date.now()) {
@@ -355,13 +355,13 @@ export class ConceptView {
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
     const line = draftsLine({ copy: this.copy, cost: this.#session?.conceptCost,
       feature: this.#session?.paused && !this.#session.consentWithdrawn && !this.#session.tombstone ? this.#stageFeature ?? feature : feature });
-    const costCopy = line.action ? this.copy.display.draftsCost.replace('{credits}', new Intl.NumberFormat(this.#session.locale).format(Math.ceil(this.#session.conceptCost.maxMicro / 10_000))) : '';
+    const costCopy = line.action ? creditCost(this.#session.conceptCost.maxMicro, this.copy) : '';
     const request = this.root.querySelector('.concept-request');
     this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(this.#session?.conceptStatus?.phase);
-    request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? `${this.copy.conceptRetry} · ${costCopy}` : line.text;
+    request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? [this.copy.conceptRetry, costCopy].filter(Boolean).join(reasonSeparator) : line.text;
     request.hidden = !line.action;
     request.disabled = this.#busy || pending || !feature.available || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
-    const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = `${this.copy.conceptRegenerate} · ${costCopy}`;
+    const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = [this.copy.conceptRegenerate, costCopy].filter(Boolean).join(reasonSeparator);
     regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {
       node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';

@@ -262,12 +262,12 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.footerSeed = c.session; });
   const expected = {
-    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
-    en: 'General · Start a new conversation, review consent and your defaults, and confirm your email address.',
+    de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+    en: 'General\u00a0· Start a new conversation, review consent and your defaults, and confirm your email address.',
   };
   const general = {
-    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
-    en: 'General · Start a new conversation, review consent and your defaults.',
+    de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
+    en: 'General\u00a0· Start a new conversation, review consent and your defaults.',
   };
   const controls = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.footer-links', '.save-state', '.done'];
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390], theme, 2, 'display-settings-footer')) {
@@ -1060,8 +1060,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   });
   await t.test('version has its own line followed by muted UTC build', async () => {
     const metrics = await popupMetrics(); assert.equal(metrics.first, 'version-row');
-    assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
-    assert.equal(metrics.version, '26.10.14 · 08:00');
+    assert.equal(metrics.build, 'Build abcdef1\u00a0· 2026-10-14 08:00:00 UTC');
+    assert.equal(metrics.version, '26.10.14\u00a0· 08:00');
     assert.ok(metrics.row[1] >= metrics.notice[1] + metrics.notice[3]);
   });
   await t.test('round 3 every text line reaches 4.5:1 in both themes', async () => {
@@ -1140,7 +1140,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     assert.equal(copied.feedbackBox[1], copied.row[1]);
     assert.deepEqual(copied.popup, before.popup); assert.deepEqual(copied.row, before.row);
     await new Promise(resolve => setTimeout(resolve, 1300));
-    assert.equal((await popupMetrics()).text, 'Version 26.10.14 · 08:00');
+    assert.equal((await popupMetrics()).text, 'Version 26.10.14\u00a0· 08:00');
   });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
@@ -1167,8 +1167,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       const surfaceOffset = ((Math.floor(metrics.popup[1]) + 4) * viewportPaint.width + Math.floor(metrics.popup[0]) + 14) * viewportPaint.channels;
       assert.deepEqual([...viewportPaint.result.subarray(surfaceOffset, surfaceOffset + 3)], [16, 43, 66], 'painted popup pixel is opaque approved dark surface');
       assert.equal(metrics.product, 'Aithema 2026.10'); assert.equal(metrics.first, 'version-row');
-      assert.equal(metrics.version, '26.10.14 · 08:00');
-      assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
+      assert.equal(metrics.version, '26.10.14\u00a0· 08:00');
+      assert.equal(metrics.build, 'Build abcdef1\u00a0· 2026-10-14 08:00:00 UTC');
       assert.match(metrics.title, /261014080000\.0\.0.*2026-10-14 08:00:00 UTC/u);
       assert.deepEqual(await boxes(page, ['.display-foot', '.ai-notice', '.host-credits', '.footer-right']), footerBefore);
       await capture(locale, theme, width, state, metrics);
@@ -1184,7 +1184,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       assert.equal(copied.ring, true);
       await capture(locale, theme, width, 'copied', copied);
       await new Promise(resolve => setTimeout(resolve, 1300));
-      assert.equal((await popupMetrics()).text, 'Version 26.10.14 · 08:00');
+      assert.equal((await popupMetrics()).text, 'Version 26.10.14\u00a0· 08:00');
     }
     if (locale === 'de' && theme === 'light' && width === 1440) {
       await shadow(page, c => c.shadowRoot.activeElement?.blur()); await notice.hover();

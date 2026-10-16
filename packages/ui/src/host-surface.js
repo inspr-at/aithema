@@ -1,3 +1,4 @@
+import { reasonSeparator } from './consent-line.js';
 // The host surface inside <aithema-session> (AIT-104 B2): the host bar (conversation library,
 // credits, the host's account slot), the verification entry in Settings, the verification lock on the
 // understanding pane, the handover band and the host's legal and footer slots. Each part
@@ -275,7 +276,7 @@ export class HostSurface {
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
     const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
     setText(scope, balance); button.setAttribute('aria-label', balance);
-    if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + ' · ' + balance);
+    if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
     current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');

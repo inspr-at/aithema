@@ -7,6 +7,7 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
+import { reasonSeparator } from '../packages/ui/src/display.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
@@ -66,8 +67,8 @@ function paintVisuals() {
   const h = copy.host, kind = visualKind(), raw = { html: binding.htmlLabel, images: binding.imageLabel }[kind];
   const visuals = kind === 'off' ? h.visualsOff : h.labels[raw] ?? raw;
   const provider = document.querySelector('#provider'); if (!provider) return;
-  provider.textContent = [h.labels[binding.label] ?? binding.label, visuals].join(' · ')
-    + (binding.voiceDisabledReason ? ` · ${h.voiceUnavailable.replace('{reason}', reasonText(copy, binding.voiceDisabledReason))}` : '');
+  provider.textContent = [h.labels[binding.label] ?? binding.label, visuals].join(reasonSeparator)
+    + (binding.voiceDisabledReason ? `${reasonSeparator}${h.voiceUnavailable.replace('{reason}', reasonText(copy, binding.voiceDisabledReason))}` : '');
 }
 // Without an explicit request the server offers the owner's last confirmed choice.
 async function open(fresh = false, request = {}) {

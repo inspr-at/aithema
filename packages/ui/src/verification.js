@@ -1,3 +1,4 @@
+import { reasonSeparator } from './consent-line.js';
 // Email verification (AIT-104 B2), after START EmailLock.astro, the v2 identify card and
 // v2-verification-recovery.ts. The server owns every fact: the component sends an address or
 // a resend request and shows the identity view the server acknowledges (also over SSE).
@@ -179,7 +180,7 @@ export class Verification {
     capture.append(label, input);
     const pending = node('p', 'verify__pending'), change = node('button', 'verify-change', v.change); change.type = 'button';
     const recipient = node('span', 'verify__recipient');
-    recipient.append(node('strong', 'verify__address'), ' · ', change);
+    recipient.append(node('strong', 'verify__address'), reasonSeparator, change);
     pending.append(node('span', '', v.sentTo), ' ', recipient);
     const done = node('p', 'verify__done'); done.innerHTML = CHECK; done.append(node('span', '', v.confirmed));
     field.append(capture, pending, done);
