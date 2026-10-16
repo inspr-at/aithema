@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createQualificationServer, validateQualificationBinding, matchQualificationEntities } from '../ops/qualification-live-server.mjs';
 import { fixtureBinding } from '../../elevenlabs/test/component-fixtures.js';
+import { baselineAttemptCeiling } from '../ops/qualification-production-baseline.mjs';
 
 // Models/formats: elevenlabs/src/components.js STT_MODEL/TTS_MODEL.
 // All amounts are synthetic fixture tariffs, never qualification thresholds.
@@ -32,6 +33,15 @@ test('live server refuses missing and malformed money binding at construction', 
     assert.throws(() => validateQualificationBinding(binding), /binding/i);
   }
   assert.equal(validateQualificationBinding(liveBinding()).stt.model, 'scribe_v2_realtime');
+});
+
+test('qualification duration is explicit and bounded at 120s; baseline includes the whole bound and reasoning', () => {
+  const binding = validateQualificationBinding({ ...liveBinding(), maxDurationSeconds: 120 });
+  assert.equal(binding.maxDurationSeconds, 120);
+  assert.equal(baselineAttemptCeiling(binding), binding.baseline.microPerMinute * 2 + binding.baselineReasoningCeilingMicro);
+  for (const maxDurationSeconds of [undefined, null, 0, 120.5, 121]) {
+    assert.throws(() => validateQualificationBinding({ ...liveBinding(), maxDurationSeconds }), /binding/i);
+  }
 });
 
 test('entity matching uses evaluateQualification NFC, de-AT case and whitespace normalization with token boundaries', () => {
@@ -68,7 +78,8 @@ const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: s
 // Corpus packets and endpoint silence mirror configuration.test.js turn(); the
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
-async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds } = {}) {
+async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds,
+  generation = 'gen-fixture', ttsRequestId } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
@@ -88,7 +99,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       }
       if (request.url.includes('text-to-speech')) {
         observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
-        const socket = fixtureSocket({ role: 'tts' }); sockets.push(socket); return socket;
+        const socket = { ...fixtureSocket({ role: 'tts' }), requestId: ttsRequestId }; sockets.push(socket); return socket;
       }
       throw new Error('Unexpected component socket');
     },
@@ -97,7 +108,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       assert.equal(JSON.parse(init.body).model, liveBinding().reasoning.model);
       assert.deepEqual(JSON.parse(init.body), specs.at(-1).request, 'admission digest covers actual reasoning wire body');
       if (retry && reasoningIndex++ === 0) return new Response('{}', { status: 503 });
-      return new Response('data: {"id":"gen-fixture","choices":[{"delta":{"content":"Danke. "},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+      return new Response(`data: ${JSON.stringify({ id: generation, choices: [{ delta: { content: 'Danke. ' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
     },
   };
   const configured = liveBinding(); if (durationSeconds) configured.maxDurationSeconds = durationSeconds;
@@ -146,6 +157,10 @@ test('candidate uses real component wire parsers and Rule C; consumes before tra
   assert.deepEqual(answer.entities, [{ expected: 'Wien', actual: 'wien' }, { expected: 'Müller GmbH', actual: 'müller gmbh' }]);
   const reasoning = h.specs.filter(spec => spec.role === 'reasoning');
   assert.equal(reasoning.length, 2); assert.equal(reasoning[1].retryOf, reasoning[0].attemptId);
+  const first = h.reports.find(report => report.attemptId === reasoning[0].attemptId);
+  assert.equal(first.identity, null); assert.equal(first.identityReason, 'provider-identity-not-observed');
+  const second = h.reports.find(report => report.attemptId === reasoning[1].attemptId);
+  assert.equal(second.generationId, 'gen-fixture'); assert.deepEqual(second.identity, { generationId: 'gen-fixture' });
   assert.equal(h.storage.voiceOperations(h.session.id).length, 1, 'retry stays in the existing Rule C operation');
   assert.equal(h.reports.length, h.specs.length);
   for (const spec of h.specs) {
@@ -155,6 +170,45 @@ test('candidate uses real component wire parsers and Rule C; consumes before tra
   }
   assert.doesNotMatch(JSON.stringify({ logs: h.logs, browserResponses: h.browserResponses, specs: h.specs, reports: h.reports, answer, grant: sample.grant, records: h.storage.voiceCalls(h.session.id) }), new RegExp(sentinel));
   assert.equal(h.storage.voiceCalls(h.session.id)[0].terminal.usage.costSource, 'separate-component-claims');
+});
+
+for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate exposes STT session and TTS ${ttsRequestId ? 'request ID' : 'explicit null'} to OPS terminals`, async t => {
+  const h = await harness(t, { ttsRequestId }), sample = await h.start(), transport = await h.open(sample);
+  await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000)); await h.audioFrame(transport);
+  await sample.close(); await sample.result;
+  for (const spec of h.specs) {
+    const report = h.reports.find(value => value.attemptId === spec.attemptId);
+    assert.equal(report.outcome, 'uncertain', 'identity alone never releases a reservation');
+    if (spec.role === 'stt') assert.deepEqual(report.identity, { sessionId: 'fixture-session' });
+    if (spec.role === 'tts') {
+      assert.deepEqual(report.identity, ttsRequestId ? { requestId: ttsRequestId } : null);
+      assert.equal(report.identityReason, ttsRequestId ? undefined : 'tts-provider-identity-not-observed');
+    }
+  }
+});
+
+test('candidate missing generation ID stays uncertain with an explicit identity reason', async t => {
+  const h = await harness(t, { generation: null }), sample = await h.start(), transport = await h.open(sample);
+  await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000)); await h.audioFrame(transport);
+  await sample.close(); await sample.result;
+  const spec = h.specs.find(value => value.role === 'reasoning'), report = h.reports.find(value => value.attemptId === spec.attemptId);
+  assert.equal(report.outcome, 'uncertain'); assert.equal(report.generationId, undefined);
+  assert.equal(report.identity, null); assert.equal(report.identityReason, 'provider-identity-not-observed');
+});
+
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { WebSocketServer } from 'ws';
+import { connectQualificationSocket } from '../ops/qualification-live-transport.mjs';
+
+for (const requestId of [null, 'fixture-upgrade-request', 'unsafe id']) test(`qualification transport retains only a bounded provider request-id: ${requestId}`, async t => {
+  const server = createServer(), sockets = new WebSocketServer({ server });
+  if (requestId !== null) sockets.on('headers', headers => headers.push(`request-id: ${requestId}`));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { sockets.close(); await new Promise(resolve => server.close(resolve)); });
+  const socket = await connectQualificationSocket({ url: `ws://127.0.0.1:${server.address().port}`, headers: {} });
+  try { assert.equal(socket.requestId, requestId === 'fixture-upgrade-request' ? requestId : null); }
+  finally { await socket.close(); }
 });
 
 for (const refusal of ['admit', 'consume']) test(`refused ${refusal} blocks candidate STT transport`, async t => {

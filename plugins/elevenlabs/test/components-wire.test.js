@@ -31,6 +31,7 @@ test('AIT-160: ElevenLabs STT sends documented PCM16/manual-commit frames after 
   assert.equal(closes, 1); assert.equal(reports.length, 1);
   assert.equal(reports[0].usage.quantity, 0.1); assert.equal(reports[0].usage.unit, 'seconds');
   assert.equal(reports[0].chargedMicro, 1); assert.equal(reports[0].usage.estimated, true);
+  assert.deepEqual(reports[0].identity, { sessionId: sttWire.session().session_id });
   assert.equal(stt.estimateCost({ maxDurationMs: 30000 }), 300);
 });
 
@@ -47,6 +48,17 @@ test('AIT-160: ElevenLabs TTS streams explicit PCM16/24k and includes trailing w
   assert.equal(closed, 1); assert.equal(reports.length, 1); assert.equal(reports[0].usage.quantity, 7);
   assert.equal(reports[0].chargedMicro, 14); assert.equal(tts.estimateCost({ text: 'Hallo' }), 14);
   assert.ok(unverified.length);
+  assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, 'tts-provider-identity-not-observed');
+});
+
+for (const role of ['stt', 'tts']) test(`AIT-248: ${role} preserves a returned upgrade request-id and no invalid ID`, async () => {
+  for (const requestId of ['fixture-request', undefined, 'unsafe id', 'x'.repeat(129)]) {
+    const reports = [], adapter = setup(role, { connect: () => ({ ...fixtureSocket({ role }), requestId }) });
+    await run(role, adapter, options(reports));
+    assert.deepEqual(reports[0].identity, role === 'stt'
+      ? { sessionId: 'fixture-session', ...(requestId === 'fixture-request' ? { requestId } : {}) }
+      : requestId === 'fixture-request' ? { requestId } : null);
+  }
 });
 
 for (const role of ['stt', 'tts']) {
@@ -86,6 +98,7 @@ for (const role of ['stt', 'tts']) {
       const adapter = setup(role, { connect: () => ({ send() {}, close() {}, events: (async function* () { yield* frames; })() }) });
       await assert.rejects(run(role, adapter, options(reports)), { code: 'invalid-output' });
       assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+      assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, `${role}-provider-identity-not-observed`);
     }
   });
   test(`AIT-160: ${role} successful estimates retain maximum, reconcile only attempt-bound evidence`, async () => {
