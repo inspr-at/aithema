@@ -89,3 +89,41 @@ test('AIT-160: a refused component claim never resolves auth or opens a provider
   await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, opts)));
   assert.equal(calls, 0); assert.equal(reports.length, 1); assert.equal(reports[0].chargedMicro, 0);
 });
+
+
+function burstTTS(chunks, done = true) {
+  return createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    fetchImpl: async () => new Response(new ReadableStream({ start(controller) {
+      // Coalesced SSE events exercise the event bound independently of HTTP reads.
+      const frames = chunks.map(bytes => 'data: ' + JSON.stringify({ type: 'speech.audio.delta', audio_data: bytes.toString('base64') }) + '\n\n');
+      if (done) frames.push('data: {"type":"speech.audio.done","usage":{}}\n\n');
+      controller.enqueue(new TextEncoder().encode(frames.join(''))); controller.close();
+    } }), { headers: { 'content-type': 'text/event-stream' } }) });
+}
+
+test('AIT-258: Voxtral large deltas split aligned and byte-identical with terminal accounting', async () => {
+  for (const size of [102_540, 1_048_576]) {
+    const bytes = Buffer.from(Array.from({ length: size }, (_, i) => i % 251)), reports = [];
+    const pieces = await collect(burstTTS([bytes, bytes]).speak({ text: 'Hallo', format: TTS_FORMAT.encoding }, options(reports)));
+    assert.ok(pieces.every(piece => piece.length > 0 && piece.length <= 64_000 && piece.length % 4 === 0));
+    assert.equal(pieces.length, 2 * Math.ceil(size / 64_000));
+    assert.deepEqual(Buffer.concat(pieces), Buffer.concat([bytes, bytes]));
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'completed'); assert.equal(reports[0].usage.quantity, 5);
+    const truncated = [];
+    await assert.rejects(collect(burstTTS([bytes], false).speak({ text: 'Hallo', format: TTS_FORMAT.encoding }, options(truncated))), { code: 'invalid-output' });
+    assert.equal(truncated.length, 1); assert.equal(truncated[0].outcome, 'uncertain');
+  }
+});
+
+test('AIT-258: Voxtral keeps empty, alignment, 1 MiB message and 16 MB total bounds', async () => {
+  for (const size of [0, 2, 1_048_580, 1_500_000]) {
+    const reports = [];
+    await assert.rejects(collect(burstTTS([Buffer.alloc(size)]).speak({ text: 'Hallo', format: TTS_FORMAT.encoding }, options(reports))), { code: 'limit' });
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+  }
+  const bytes = Buffer.alloc(1_000_000), reports = []; let delivered = 0;
+  await assert.rejects(async () => {
+    for await (const part of burstTTS(Array(17).fill(bytes)).speak({ text: 'Hallo', format: TTS_FORMAT.encoding }, options(reports))) delivered += part.length;
+  }, { code: 'limit' });
+  assert.equal(delivered, 16_000_000); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+});

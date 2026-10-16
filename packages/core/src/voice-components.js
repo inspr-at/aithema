@@ -2,6 +2,9 @@ import { PluginError } from './invocation.js';
 import { operationScope } from './reasoning.js';
 import { voiceOperation, assertComponentUsage } from './live-voice.js';
 
+/** Generated PCM ceiling per TTS speak, shared by providers and playback. */
+export const TTS_SPEAK_BYTES = 16_000_000;
+
 /** Component accounting has its own admission, independent of the call claim. */
 export async function componentInvocation(options, { role, unit, model }) {
   if (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' ||

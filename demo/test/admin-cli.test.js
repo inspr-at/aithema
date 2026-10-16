@@ -54,7 +54,7 @@ test('AIT-135 CLI talks only to a running host and refuses offline without openi
   await assert.rejects(execute(process.execPath, [cli.pathname, '--socket', path, 'settings']), error => /host is not running/iu.test(error.stderr));
 });
 
-test('AIT-135 the running start2 host exposes OPS only on its socket, with $1000 ledger subcaps and no owner deadline', { timeout: 15_000 }, async t => {
+test('AIT-135 the running start2 host exposes OPS only on its socket, with $1000 ledger subcaps and a per-conversation deadline', { timeout: 15_000 }, async t => {
   const { adminRequest } = await import('../admin-socket.js');
   const db = await temporaryDb(), socketPath = join(db, '..', 'ops', 'admin');
   const running = await startChild(new URL('../server.js', import.meta.url), db); t.after(() => running.kill());
@@ -66,7 +66,8 @@ test('AIT-135 the running start2 host exposes OPS only on its socket, with $1000
   const created = await post(running.url + '/api/sessions', {}), session = await created.json();
   const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
   const credits = await fetch(running.url + `/api/sessions/${session.id}/credits`, { headers }).then(r => r.json());
-  assert.equal(credits.limitSlot, null);
+  assert.equal(credits.limitSlot.status, 'ready');
+  assert.equal(credits.limitSlot.remainingMs, null);
   assert.equal(credits.balance.session.limitMicro, 1_000_000_000);
   assert.equal(credits.balance.voiceVisitor.limitMicro, 1_000_000_000);
   const initial = (await adminRequest(socketPath, 'settings')).body;

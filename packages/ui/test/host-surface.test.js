@@ -1448,3 +1448,32 @@ for (const copy of [de, en]) test(`AIT-186 F6 r2: purpose pause before assessmen
   assert.equal(root.querySelector('.purpose-pause-copy').hidden, false);
   assert.equal(root.querySelector('.status__label').textContent, copy.connected);
 });
+
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-261: ${reason} disables every conversation control and retains export (${copy === de ? 'de' : 'en'})`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const { c, root } = setup(t, { copy, host: { credits: true } }); await tick(8); userTurn(c);
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+    c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason, preserveTranscript: true, settleOutstanding: true } });
+    await tick(8);
+    assert.ok(copy.hostSurface.credits.ended[reason], 'translated terminal copy exists');
+    assert.equal(root.querySelector('form.composer').inert, true);
+    assert.equal(root.querySelector('.qcard').inert, true);
+    assert.equal(root.querySelector('.voice-start').disabled, true);
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+    assert.ok(root.querySelector('.composer-out__export').href.endsWith(`/api/sessions/${c.session.id}/export`));
+    assert.equal(c.session.transcript[0].content, 'We need a preorder app.');
+    t.mock.timers.tick(15_001); await tick(12);
+    assert.equal(root.querySelector('form.composer').inert, true, 'an unrelated credit refresh cannot clear a terminal reason');
+  });
+}
+
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-261: reconnecting to saved ${reason} keeps controls disabled and export available (${copy === de ? 'de' : 'en'})`, async t => {
+    const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
+    await tick(8);
+    assert.equal(root.querySelector('form.composer').inert, true);
+    assert.equal(root.querySelector('.composer-out__body').textContent, copy.hostSurface.credits.ended[reason]);
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+  });
+}

@@ -541,7 +541,7 @@ test('AIT-135 visitor email API is owner-bound, sends no mail without delivery a
   const saved = await call('/api/visitor/email', { address, noticeVersion }); assert.equal(saved.status, 200);
   assert.equal((await saved.json()).visitor.tier, 'emailGiven');
   const s = await (await call('/api/sessions', {})).json();
-  assert.equal((await (await call(`/api/sessions/${s.id}/credits`)).json()).limitSlot, null);
+  assert.equal((await (await call(`/api/sessions/${s.id}/credits`)).json()).limitSlot.status, 'ready');
   assert.equal(f.storage.ownerCreditState(owner), null);
   assert.equal((await (await call(`/api/sessions/${s.id}/credits`)).json()).balance.owner.limitMicro, 15_000_000);
   assert.equal((await call('/api/visitor/email', {}, 'DELETE')).status, 200);

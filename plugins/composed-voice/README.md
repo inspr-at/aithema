@@ -23,6 +23,94 @@ playback synchronously and cancels TTS while admitted reasoning remains intact.
 Pause revokes current media/work until authorization and acknowledgement permit
 resume. Lease expiry waits; the independent spend deadline remains absolute.
 
+### AIT-258: eager provider reader and bounded reply playback
+
+The server drains each `tts.speak()` eagerly into one owned queue per reply.
+A separate pacer alone waits for playback time. Its cursor spans fragments;
+the first audio is immediate, and provider gaps earn no catch-up credit.
+At 24 kHz mono, lead L = 1 s is 48,000 B PCM16 or 96,000 B float32.
+Including a whole unfinished 64,000 B player frame gives at most 160,000 B,
+below each 256,000 B relay/player bound, with 96,000 B left for polling/startup
+and control frames. Higher rates cap lead bytes at 96,000 B as before.
+
+At most **two fragments** are retained: the one being paced and one lookahead.
+N+1 opens at N's provider terminal, after its accounting finishes. N+2 waits
+until N's **last frame has been relayed**, including completion of `relay.audio`.
+A FIFO drain marker per fragment enforces this even for an empty provider output.
+Only one TTS stream per reply is open at a time. An open stream is always drained
+eagerly; the wait happens before the next component admission. All fragments use
+the same pacing cursor, so the lookahead hides synthesis latency at boundaries.
+One `speaking` event starts the continuous reply; fragment dispatch does not add
+control polls at sentence boundaries that could delay PCM delivery.
+
+The enforced per-fragment bound is **`F = 16,000,000 B`** of generated PCM,
+matching the providers' existing per-speak ceiling. Both providers and the
+coordinator import `TTS_SPEAK_BYTES` from core. The count includes bytes already
+relayed. It is independent of text length, format and speaking rate: number
+expansion, lists of amounts, IBANs and spelled codes can take much longer to
+speak than ordinary prose without triggering a character-derived duration cap.
+
+The reply queue bound is **`2 × F + 64,000 B = 32,064,000 B`** in both formats:
+two worst-case fragments plus a maximum pacer-held provider chunk. The byte
+counter includes that held chunk until all of its frames finish relaying,
+making the extra chunk reserve conservative. One-fragment lookahead keeps
+legitimate retained PCM below this byte ceiling. `audioQueue` allocates as
+chunks arrive; it does not pre-allocate the ceiling, so actual retained PCM is
+at most two real fragments. A **1,024-chunk ceiling**, including the held chunk,
+bounds tiny-chunk metadata. A fragment above F, queue byte overflow or chunk
+overflow fails closed with `limit`; the call's absolute deadlines also apply.
+
+The fake-clock regression streams **30,000 characters at 10× real-time TTS**,
+using 12 spoken characters/second, in both default formats and with 1,000-character
+float32 fragments. Every N+2 dispatch observes N fully relayed, the retained PCM
+never exceeds two real fragments or reaches the queue ceiling, all audio arrives in
+order, and each speak is accounted once. The existing end-to-end three-sentence
+tests still assert a continuous player timeline with 1.5 s synthesis latency.
+Additional fake-clock tests complete a 240-character list of amounts taking
+120 seconds at two source characters/second in both formats, admit two full
+16,000,000 B fragments, and reject a single fragment's first aligned sample
+above that per-speak ceiling.
+Queue memory is bounded per call by the pending-turn ceiling (four by default,
+sixteen maximum), independent of reply length.
+
+Silence first fences the revision and drops all playback queues synchronously,
+aborting pacers and in-flight TTS. The pacer checks the revision again immediately
+before `relay.audio`. Abort/end clears the queue waiter and playback timer; reply
+cleanup joins the pacer. Interruption leaves admitted reasoning publication and
+once-only per-speak terminal accounting under their existing contracts. The
+`isFinal` / `speech.audio.done` paths still record usage once per completed speak;
+an interrupted dispatched component still finishes as uncertain.
+
+Transport inventory (all repo TTS transport implementations and injections):
+
+| TTS host / injection | Per-message bound | Unread backlog bound | Eager reader behavior |
+| --- | --- | --- | --- |
+| ElevenLabs `ops/qualification-live-transport.mjs:connectQualificationSocket` | `ws maxPayload` 256,000 B wire | 256,000 B wire, then `provider`; outbound bufferedAmount also 256,000 B | Every arriving wire message is consumed without playback waits; independently arriving 136,748 B test messages leave zero backlog between arrivals. Already-coalesced bursts exceeding the transport limit still fail closed. |
+| ElevenLabs server/demo qualification host (`ops/qualification-live-server.mjs`, loaded by `demo/server.js`) | Same 256,000 B | Same 256,000 B | Authorization wrapper delegates to the same socket; no separate server/demo WebSocket implementation. |
+| Generic ElevenLabs host (`src/configuration.js` → injected `componentOptions.elevenlabs.tts.connect`) | Host-defined; component additionally caps 1 MiB decoded / 1,414,488 wire characters | Host-defined; no default connect installed | Every yielded PCM piece is enqueued without awaiting relay or pacing. Queue overflow aborts instead of leaving a reader stalled. |
+| ElevenLabs `test/component-fixtures.js:fixtureSocket`, used by `components-wire.test.js`, `live-protocol.test.js`, composed `configuration.test.js` and `qualification-live-server.test.js` | No transport cap; synthetic fixed messages, component limits apply | Pull iterator, no independently arriving backlog | Eager iterator reads through `isFinal` before playback drains. Stall/error/late-connect overrides intentionally exercise cancellation. |
+| ElevenLabs composed `test/egress.test.js` and `components-wire.test.js:burstTTS` | No transport cap; includes up to 1 MiB decoded fixtures | Pull iterator, no independently arriving backlog | Same eager drain; these support the generic connect contract rather than simulate the qualification socket. |
+| ElevenLabs composed `test/provider-pacing.test.js:boundedSocket` | 256,000 B wire | 256,000 B wire, then `provider` | Independently delivered ~137 KB messages, including final, drain while the pacer waits; a negative control proves two unread messages fail. |
+| Voxtral generic host (`src/configuration.js` → injected `fetchImpl`); qualification transport bundle offers `globalThis.fetch` but its candidate currently instantiates ElevenLabs | HTTP/SSE, **no TTS connect**; component caps 1 MiB decoded / 1,414,488 SSE-message characters | Fetch implementation controls network buffering; component SSE pending text capped at 1,414,488 characters; no repo fetch backlog ceiling | Reads and parses HTTP chunks/events without playback waits, including coalesced events, until done or server limit/abort. Voxtral `connect` is STT only. |
+| Voxtral `test/wire.test.js` and composed `test/egress.test.js` injected Response/ReadableStream | No transport cap; component limits apply | Finite synthetic pre-enqueued SSE; no configured byte cap | Eagerly drains the response body through `speech.audio.done`, independently of playback. |
+
+The 1 MiB decoded component allowance is a ceiling for generic injected connect
+and HTTP/SSE transports, not a claim about the qualification WebSocket. That
+socket's 256,000 B wire limit fits **less than 192,000 B decoded**, or roughly
+191 KB after JSON metadata (base64 uses 4 wire characters per 3 PCM bytes).
+Its tighter limit applies first. The 102,540 B observed chunk fits both. Keeping
+the larger component ceiling preserves the round-1 generic-transport fixtures;
+it cannot raise the qualification socket's payload or backlog allowance.
+
+`test/provider-pacing.test.js` covers bounded arrival, ordering and L, eager final
+accounting, dispatch before the preceding fragment's last paced frame, byte/chunk
+overflow, and two buffered fragments interrupted by barge-in,
+explicit interruption, output-off, pause, close, lease expiry and spend expiry.
+The round-1 `egress.test.js` continues to cover both formats, sentence ordering,
+provider gaps, HTTP relay/player traversal and stale-frame fencing. Three-sentence
+tests add 1.5 s provider latency per fragment in both formats and verify that only
+the first fragment delays playback, with no gaps at subsequent sentence boundaries.
+
 `src/client.js` accepts host `capture`, `player`, and `openRelay` ports. `player.play`
 must schedule audio in order and support synchronous `player.stop`. The player
 receives an explicit encoding; Voxtral output is float32 PCM, not PCM16. The media

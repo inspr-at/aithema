@@ -11,6 +11,7 @@ import { localImagesImplementation } from './local-images.js';
 import { localHTMLImplementation } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
 import { SQLiteBudgetLedger } from './budget.js';
+import { createConversationLimits } from './conversation-limits.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
   voice: ['voice', 'live-voice', 'start'], transcription: ['transcription', 'stt', 'transcribe'], images: ['images', 'ui-generation', 'generate'], html: ['html', 'ui-generation', 'generate'] };
@@ -92,7 +93,8 @@ export function mockPresets() {
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
   presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
-  renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }) } = {}) {
+  renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
+  conversationLimits = createConversationLimits({ storage, now }) } = {}) {
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
@@ -110,10 +112,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   let ownerWallet, costRetryOffset = 0, costJob;
   const admitBudget = async (session, request) => {
+    conversationLimits.start(session.id);
     const wallet = ownerWallet?.(session);
     if (!wallet) return budget.admit(request);
-    const verdict = await admitCredits(budget, request, wallet);
-    if (!verdict.ok) throw new PluginError('not-admitted', verdict.reason);
+    const verdict = await admitCredits(budget, request, wallet, { beforeReserve: () => conversationLimits.assertOpen(session.id) });
+    if (!verdict.ok) {
+      conversationLimits.assertOpen(session.id);
+      throw new PluginError('not-admitted', verdict.reason);
+    }
     return verdict.admission;
   };
   // Invalid host choices fail at startup instead of at a visitor's first request.
@@ -216,6 +222,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const durationBinding = raw => createDurationBinding(
     registry.get(raw.plugin)?.ports?.serverAdapter?.normalizeBinding?.(raw) ?? raw);
   async function evaluate(session, preset, feature, options) {
+    const terminalReason = !options.existingCall && conversationLimits.reason(session.id);
+    if (terminalReason) return { reason: terminalReason };
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
@@ -387,7 +395,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const runtime = {
     setLaneDiagnostic(callback) { laneDiagnostic = callback; },
-    budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor, conversationLimits,
     voiceServerAdapters: () => registry.list().flatMap(plugin => {
       const adapter = (localVoiceImplementation(plugin) ?? plugin).ports?.serverAdapter;
       return adapter ? [adapter] : [];
@@ -684,9 +692,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return result;
     },
     async checkVoice(session, { allowPaused = false, ...options } = {}) {
+      conversationLimits.assertOpen(session.id);
       const result = await boundedEvaluate(allowPaused ? { ...session, paused: false } : session,
         session.processingPreset ?? 'best', 'voice', options);
       const current = storage.get(session.id);
+      conversationLimits.assertOpen(session.id);
       if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
         (!allowPaused && current.paused) || voiceAuthorizationRevision(current) !== voiceAuthorizationRevision(session) ||
         selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed');
@@ -766,11 +776,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         try {
           const audio = await adapter.speakText({ text: reply.content, quote }, { ...options,
             attempt: { ...claim, async consume() {
+              conversationLimits.assertOpen(session.id);
               current();
               if (result.scope) {
                 const coverage = await coverageFor(session, result.scope, options);
                 if (consentReason(coverage, result.scope, now(), session.consentRevision)) throw new PluginError('not-admitted');
               }
+              conversationLimits.assertOpen(session.id);
               current(); claim.consume(); dispatched = true;
             } }, report });
           current();
@@ -812,13 +824,17 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
         const receipt = budget.settleVoice(claim.claimId, terminal); reported = true;
-        if (reservation && (!dispatched || terminal.closureConfirmed === true && terminal.outcome !== 'uncertain')) {
-          voiceCap.settle(reservation, dispatched ? terminal.usage.providerSeconds : 0);
+        if (reservation && receipt.outcome !== 'uncertain') {
+          voiceCap.settle(reservation, JSON.parse(receipt.usage).providerSeconds);
         }
         return receipt;
       };
       const zero = () => report({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
+      // The owner/ledger await can finish just before expiry; a separate
+      // aggregate reservation still requires current admission authority.
+      try { conversationLimits.assertOpen(session.id); }
+      catch (error) { zero(); throw error; }
       // Atomic aggregate admission precedes facade provisioning and provider credentials.
       try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
       catch (error) { zero(); throw error; }
@@ -827,6 +843,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         get exposureMicro() { return budget.get(attemptId).voice_exposure_micro; },
         retainExposure: () => budget.retainVoiceExposure(attemptId),
         ...(binding.reservationSeconds ? { extend(seconds) {
+          conversationLimits.assertOpen(session.id);
           // The runway is funded once at admission. Healthy extensions reserve
           // only elapsed + one segment, bounded by the technical end.
           const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
@@ -837,6 +854,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
+        const assertOpen = () => conversationLimits.assertOpen(session.id);
+        assertOpen();
         try {
           if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           if (result.scope) {
@@ -847,9 +866,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             } finally { scope.dispose(); }
           }
           options.signal?.throwIfAborted();
+          assertOpen();
           if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           claim.consume(); dispatched = true;
-        } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
+        } catch { assertOpen(); zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };
       return { plugin, binding, options: { ...options, attempt, report }, finish() {
         if (!reported) {
@@ -872,6 +892,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return (await boundedEvaluate(session, session.processingPreset ?? 'best', 'text', options)).reason ?? null;
     },
     async admit({ session, lane, operation, request, options = {} }) {
+      conversationLimits.assertOpen(session.id);
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));
       const invocationCurrent = () => unchanged(session, lane, false, purposeAssessment) && (lane !== 'concept' ||
@@ -934,11 +955,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         return settlement;
       };
       const refuse = reason => {
+        assertDispatchOpen();
         report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
         refused = true;
         throw new PluginError('not-admitted', reason);
       };
       const consume = () => lane === 'concept' ? renderLimiter.consume(attemptId, session.id, claim.consume) : claim.consume();
+      const assertDispatchOpen = () => conversationLimits.assertOpen(session.id);
       const consumeOrRefuse = () => {
         try { return consume(); } catch (error) {
           report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }); refused = true; throw error;
@@ -947,6 +970,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const attempt = Object.freeze({ ...claim, ...(plugin.reconcileCost ? {
         observeCost: evidence => budget.observeCost(attemptId, evidence), dispatchCost: () => budget.markCostDispatch(attemptId) } : {}), consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
+        assertDispatchOpen();
         if (!dispatchCurrent() || options.signal?.aborted) return refuse('Session changed before dispatch');
         consuming = true;
         if (!result.scope) return consumeOrRefuse();
@@ -956,6 +980,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             let coverage;
             try { coverage = await untilCancelled(coverageFor(session, result.scope, { ...options, signal: scope.signal }), scope.signal); }
             catch { return refuse('consent port unavailable'); }
+            assertDispatchOpen();
             if (!dispatchCurrent() || scope.signal.aborted) return refuse('Session changed before dispatch');
             const reason = consentReason(coverage, result.scope, now(), session.consentRevision);
             if (reason) return refuse(reason);

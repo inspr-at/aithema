@@ -185,3 +185,16 @@ test('product interrupt and lifecycle teardown retain distinct playback stop ori
   await session.close();
   assert.deepEqual(origins, ['interrupt', 'teardown']);
 });
+
+
+test('AIT-258: silence flushes a full relay and stale producers cannot refill it', async () => {
+  const h = relayFixture();
+  for (let i = 0; i < 3; i++) h.relay.audio({ playbackRevision: 0, bytes: new Uint8Array(64_000) });
+  h.relay.silence({ playbackRevision: 1, reason: 'barge-in' });
+  for (let i = 0; i < 10; i++) h.relay.audio({ playbackRevision: 0, bytes: new Uint8Array(64_000) });
+  h.relay.audio({ playbackRevision: 1, bytes: new Uint8Array([1, 2, 3, 4]) });
+  const connection = await h.relay.connect(h.relay.grant);
+  assert.equal((await connection.frames.next()).value.type, 'silence');
+  assert.deepEqual((await connection.frames.next()).value.bytes, new Uint8Array([1, 2, 3, 4]));
+  h.relay.close(); assert.equal((await connection.frames.next()).done, true);
+});
