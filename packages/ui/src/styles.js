@@ -204,12 +204,13 @@ svg { display:block; flex:none; }
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
 .transcript-shell { position:relative; min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
-  mask-image:linear-gradient(to bottom,transparent 0,#000 26px);
-  padding:calc(26px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
+  /* Fade only the real top edge; retain just enough inset for the first row. */
+  mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
+  padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
-.turn { position:relative; max-width:78%; align-self:flex-start; padding:.65rem .8rem; line-height:1.45; overflow-wrap:anywhere;
+.turn { --turn-max-width:78%; position:relative; max-width:var(--turn-max-width); align-self:flex-start; padding:.65rem .8rem; line-height:1.45; overflow-wrap:anywhere;
   border:1px solid color-mix(in srgb,var(--aithema-line) 70%,transparent); border-radius:.75rem;
   background:color-mix(in srgb,var(--aithema-ink) 7%,var(--aithema-paper)); box-shadow:0 1px 3px color-mix(in srgb,var(--aithema-ink) 10%,transparent);
   animation:turn-in 220ms ease-out; }
@@ -226,6 +227,11 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .user .speaker-sign { background:none; } .speaker-sign svg { width:12px; height:12px; }
 .turn.user { padding-right:2.8rem; }
 .turn span { white-space:pre-wrap; } .turn.partial { color:var(--aithema-muted); }
+.turn[data-voice-transcript] { animation:none; }
+.turn[data-voice-transcript="partial"] { min-height:var(--voice-min-height,0px); min-width:min(var(--voice-min-width,0px),var(--turn-max-width)); }
+.turn.user.partial { border-color:transparent; box-shadow:none; background:color-mix(in srgb,var(--aithema-accent) 5%,var(--aithema-paper)); }
+.turn.user.partial::before { border-color:transparent; }
+.voice-provisional { font-weight:400; }
 @keyframes turn-in { from { transform:translateY(.35rem); } to { transform:none; } }
 /* START's 20 px x in a reserved 44 px target: opacity changes, geometry does not. */
 .withdraw { position:absolute; top:0; right:0; display:grid; place-items:center; width:44px; height:44px; padding:0; color:var(--aithema-ink); opacity:0; background:none; }
@@ -304,10 +310,6 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   background:var(--aithema-accent-bright); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent-bright) 42%,var(--aithema-line)); }
 .scale::after { content:''; left:calc(100% - .4rem); background:var(--aithema-amber); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-amber) 50%,var(--aithema-line)); }
 .scale-labels { display:flex; justify-content:space-between; height:1.4rem; font-size:.72rem; color:var(--aithema-muted); }
-.readiness p { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-ink); } .readiness p:empty { display:none; }
-/* Keep the build row before the first result so retry recovery cannot move the pane. */
-.readiness .build-progress { min-height:1.35em; }
-.readiness .build-progress:empty { display:block; }
 .analysis-content { min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable; overflow-wrap:anywhere;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;
@@ -340,8 +342,12 @@ summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,tran
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
 .overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
-.export { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
-.export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
+.export, .create-project { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
+.create-project { margin-inline-start:auto; padding:0; border-radius:0; text-align:start; text-decoration:underline; }
+/* Retry owns the existing action space during recovery; never add another footer row. */
+.understanding > .foot:has(> .retry:not([hidden])) > .create-project { display:none; }
+.export:hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }
+.export svg, .create-project svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 
 /* Neutral scrollbars only during interaction. A stable gutter prevents hover from changing line wraps. */
 :is(.transcript-shell,.analysis-content):is(:hover,:focus-within,[data-scrolling]) { scrollbar-color:var(--aithema-line-strong) transparent; }
@@ -408,7 +414,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 @media(max-width:44rem) {
   .wordmark { font-size:20px; }
   .header-actions { gap:0; }
-  .turn { max-width:88%; } .upload { width:90%; }
+  .turn { --turn-max-width:88%; } .upload { width:90%; }
   .concept-bar { grid-template-columns:minmax(0,1fr) auto; } .concept-rail { column-gap:.5rem; }
   /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
   .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }

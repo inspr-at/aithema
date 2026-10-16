@@ -13,6 +13,7 @@ import { SETTINGS_OFF, isDynamicReason, isConsentReason, CONSENT_REASON } from '
 import { aiNotice } from '../../core/src/ai-notice.js';
 import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
+import { voiceTranscriptTransition } from './voice-transcript.js';
 import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
@@ -33,6 +34,7 @@ import { createReveal } from './reveal.js';
 import { mountVersionDetails } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { emailAskStyles } from './email-ask-styles.js';
+import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -78,6 +80,7 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #postCallMatrix = null;
+  #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
@@ -104,6 +107,7 @@ export class AithemaSession extends HTMLElement {
    * `voicePresentation` supplies the selected adapter label and localized presentation.
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
    * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
+   * `paimosImportUrl` and `paimosImportVersion: 1` enable creating a Paimos project via form POST.
    * `host` ({library, verification, handover, credits, locale, operator}) turns on the host surface (AIT-104 B2):
    * the conversation library, email verification, handover and credits; see the README.
    */
@@ -130,7 +134,7 @@ export class AithemaSession extends HTMLElement {
         onChange: () => { this.#render('features'); this.#render('transcript'); this.#dialog?.sync(); } }) : null;
     }
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
-    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#reasoningRevision = 0;
+    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
@@ -242,7 +246,7 @@ export class AithemaSession extends HTMLElement {
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
             <div class="conversations-recent" role="group"></div><button class="library-open-dialog" type="button" role="menuitem" tabindex="-1" aria-haspopup="dialog"></button></div></div></div>
-        <div class="band-utilities" data-reveal><slot name="utilities"></slot></div><div class="host-account" data-reveal><slot name="account"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
+        <div class="host-account" data-reveal><slot name="account"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
         <div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
           <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div></header>
       <div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div>
@@ -264,7 +268,7 @@ export class AithemaSession extends HTMLElement {
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
-          <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
+          <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
           <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
@@ -335,6 +339,7 @@ export class AithemaSession extends HTMLElement {
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
       consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
+      settings: opener => this.#dialog.openAt('model', '[data-select="visuals"]', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');
@@ -342,6 +347,13 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.transcript-latest').addEventListener('click', () => this.#scrollToLatest());
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
+    if (paimosImportUrl(this.#options)) {
+      const create = node('button', 'create-project'); create.type = 'button';
+      create.innerHTML = `${icon('plus')}<span data-copy="createProject"></span>`;
+      create.querySelector('span').textContent = this.#copy.createProject;
+      create.addEventListener('click', () => this.#createProject());
+      root.querySelector('.understanding > .foot').append(create);
+    }
     this.#renderMode();
     root.querySelector('.export').addEventListener('click', e => {
       if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
@@ -389,8 +401,25 @@ export class AithemaSession extends HTMLElement {
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       onRender: rail => this.#syncVoicePause(rail),
+      onPartial: event => {
+        if (this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) return;
+        this.#updateVoiceTranscript(event);
+        this.#render('transcript');
+      },
+      onFinal: event => {
+        this.#updateVoiceTranscript(event);
+        // A provider echo can refer to an already saved typed turn under another id.
+        const saved = event.role === 'user' && this.#session.transcript.find(t => t.id === event.turnId ||
+          t.role === 'user' && t.voiceCallId === event.callId && !t.erased && !t.withdrawn &&
+          t.content.trim().replace(/\s+/gu, ' ') === event.text.trim().replace(/\s+/gu, ' '));
+        if (saved) this.#updateVoiceTranscript({ type: 'turn.final', data: { ...saved,
+          callId: event.callId, providerSessionId: event.providerSessionId, userTurnOrdinal: event.userTurnOrdinal }, providerTurnId: event.turnId });
+        this.#render('transcript');
+      },
       // A call that starts, ends or fails moves the stage and the avatar with it.
       onState: state => {
+        if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
+        if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
         // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
         // an invalidation closes the rail without one, and its brief closing state starts nothing.
         if (this.#rail?.session) this.#started = true;
@@ -399,6 +428,7 @@ export class AithemaSession extends HTMLElement {
       },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
+        this.#updateVoiceTranscript({ type: 'reset' }); this.#render('transcript');
         // The in-call verdict cannot describe post-call admission. Keep it closed
         // with waiting copy until a generation-fenced server snapshot replaces it.
         if (this.#rail?.endedCall) this.#postCallMatrix = this.#session.featureMatrix;
@@ -408,6 +438,7 @@ export class AithemaSession extends HTMLElement {
         if (this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor) void this.#refreshFeatures();
       },
       onPause: paused => {
+        if (paused) { this.#updateVoiceTranscript({ type: 'reset' }); this.#render('transcript'); }
         this.#session.paused = paused; this.#clearNotice();
         this.#render('features'); this.#render('composer'); this.#render('aside');
         this.#host?.update();
@@ -461,9 +492,10 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
-      // A last-item notice follows like a message; reading older turns never moves.
-      if (this.#follow && !this.#fold.folded) this.#scrollToLatest();
+    // Upload state changes preserve their action target even when the short transcript fits.
+    const followsNotices = () => this.#follow && !this.#hovered()?.closest('.upload');
+    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: followsNotices, onNoticesChange: () => {
+      if (followsNotices() && !this.#fold.folded) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
@@ -673,6 +705,19 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
   }
+  #createProject() {
+    if (this.#session.processingPreset === 'device') return;
+    const action = paimosImportUrl(this.#options); if (!action) return;
+    const document = this.ownerDocument, form = document.createElement('form');
+    try {
+      const payload = buildPaimosPayload(this.#session, { host: document.location.host, fallbackTitle: this.#copy.understanding });
+      form.method = 'post'; form.action = action; form.target = '_blank'; form.rel = 'noopener';
+      form.acceptCharset = 'UTF-8'; form.hidden = true;
+      const field = document.createElement('input'); field.type = 'hidden'; field.name = 'payload'; field.value = JSON.stringify(payload);
+      form.append(field); document.body.append(form); form.submit();
+    } catch { this.#status(this.#copy.controlFailed); }
+    finally { form.remove(); }
+  }
   #creditsChanged({ allowanceChanged = false, settledCall } = {}) {
     if (!this.#host) return;
     if (settledCall) this.#rail?.settleLedger(settledCall);
@@ -726,6 +771,9 @@ export class AithemaSession extends HTMLElement {
   // Mode-dependent controls; a choice made at conversation start can switch the mode in place.
   #renderMode() {
     const exported = this.shadowRoot.querySelector('.export'), device = this.#session.processingPreset === 'device';
+    const create = this.shadowRoot.querySelector('.create-project');
+    // Keep the footer's space while removing the device handoff from sight and interaction.
+    if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device; }
     if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
     else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
@@ -765,7 +813,7 @@ export class AithemaSession extends HTMLElement {
   #newConversation({ processingPreset, settings }) {
     this.#dialog.close();
     this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { processingPreset, settings: structuredClone(settings ?? {}),
-      previousSessionId: this.#session.id }, bubbles: true, composed: true }));
+      previousSessionId: this.#session.id, confirm: true }, bubbles: true, composed: true }));
   }
   async #saveConsent(body) {
     const sessionId = this.#session.id;
@@ -1027,18 +1075,40 @@ export class AithemaSession extends HTMLElement {
           const speaker = element('strong'); speaker.innerHTML = '<i class="speaker-sign" aria-hidden="true"></i><b class="speaker-name"></b>';
           row.append(speaker, element('span', undefined, 'turn-text'));
         }
+        const voicePartial = t === this.#voiceTranscript.pending && t.partial;
+        // Corrections keep the largest provisional footprint; final text
+        // takes over the same node with normal bubble sizing.
+        if (row.classList.contains('partial') && row.dataset.voiceTranscript) {
+          const { height, width } = row.getBoundingClientRect();
+          row.style.setProperty('--voice-min-height', `${Math.max(parseFloat(row.style.getPropertyValue('--voice-min-height')) || 0, height)}px`);
+          row.style.setProperty('--voice-min-width', `${Math.max(parseFloat(row.style.getPropertyValue('--voice-min-width')) || 0, width)}px`);
+        }
+        if (voicePartial) { row.dataset.voiceTranscript = 'partial'; row.setAttribute('aria-hidden', 'true'); row.setAttribute('aria-live', 'off'); }
+        else if (row.dataset.voiceTranscript) {
+          row.dataset.voiceTranscript = 'final';
+          row.style.removeProperty('--voice-min-height'); row.style.removeProperty('--voice-min-width');
+          row.querySelector('.voice-provisional')?.remove();
+        }
         row.className = `turn ${t.role === 'user' ? 'user' : ''} ${t.partial ? 'partial' : ''}`;
         // Redacted rows keep their height only while the pointer rests on the transcript.
         if (!hovered) row.style.minHeight = '';
         row.querySelector('.speaker-name').textContent = t.role === 'user' ? copy.you : copy.assistant;
+        if (voicePartial) {
+          let label = row.querySelector('.voice-provisional');
+          if (!label) { label = node('span', 'voice-provisional'); label.setAttribute('aria-hidden', 'true'); row.querySelector('strong').append(label); }
+          label.textContent = copy.voiceProvisional;
+        }
         const sign = row.querySelector('.speaker-sign');
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
-        const withdrawable = t.role === 'user' && !t.erased;
+        row.querySelector('.turn-text').removeAttribute('tabindex');
+        const withdrawable = t.role === 'user' && !t.erased && !t.partial && t !== this.#voiceTranscript.pending;
         if (withdrawable && !row.querySelector('.withdraw')) row.append(this.#withdrawButton(row));
         const withdraw = row.querySelector('.withdraw');
         if (withdraw) { withdraw.title = copy.display.withdraw; withdraw.setAttribute('aria-label', copy.display.withdraw); }
         if (!withdrawable) row.querySelector('.withdraw')?.remove();
+        // Expose only the final bytes, after the entire row has been updated.
+        if (!voicePartial) { row.removeAttribute('aria-hidden'); row.removeAttribute('aria-live'); }
         if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
       }
       for (const row of rows.values()) row.remove();
@@ -1070,14 +1140,16 @@ export class AithemaSession extends HTMLElement {
     // Sections appear with the first assessment; empty lists then say so quietly (D15).
     for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
-    root.querySelector('.scale').setAttribute('aria-valuenow', percent);
-    root.querySelector('.scale').setAttribute('aria-valuetext', u.readinessAssessed ? `${percent}%` : copy.notAssessed);
+    const scale = root.querySelector('.scale');
+    const readiness = u.readinessAssessed ? [
+      copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)),
+      copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)),
+    ].join(' · ') : copy.notAssessed;
+    scale.setAttribute('aria-valuenow', percent);
+    scale.setAttribute('aria-valuetext', readiness);
+    scale.title = readiness;
     root.querySelector('.fill').style.width = `${percent}%`;
     root.querySelector('.marker').style.left = `${this.#session.preset.talkMarker}%`;
-    root.querySelector('.talk-progress').textContent = u.readinessAssessed
-      ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
-    root.querySelector('.build-progress').textContent = u.readinessAssessed
-      ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const turns = activeTurns(this.#session), person = turns.findLast(t => t.role === 'user');
@@ -1255,7 +1327,7 @@ export class AithemaSession extends HTMLElement {
   #stage() {
     if (this.#host?.usedUp) return 'live';
     if (this.#hasInput() || this.#started || this.#session.paused || this.#rail?.root.dataset.call === 'active') return 'live';
-    return (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'entrance';
+    return this.#chooser.confirmed || (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'entrance';
   }
   #renderIntro() {
     const root = this.shadowRoot, workspace = root.querySelector('.workspace'), intro = root.querySelector('.intro'), active = root.activeElement;
@@ -1398,7 +1470,7 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     const sessionId = this.#session.id, view = engineView(this.#session), settings = this.#session.settings ?? {};
-    const body = { processingPreset: choice, baseRevision: settings.revision ?? 0 };
+    const body = { processingPreset: choice, baseRevision: settings.revision ?? 0, confirm: true };
     const id = value => value === SETTINGS_OFF ? SETTINGS_OFF : value?.id;
     // Confirming the offered preset keeps the offered (possibly last) choice exactly.
     if (choice === current && choice !== 'device') Object.assign(body, { model: view.model?.id, effort: view.effort ?? undefined,
@@ -1408,6 +1480,7 @@ export class AithemaSession extends HTMLElement {
     const result = await this.#saveSettings(body);
     if (sessionId !== this.#session.id) return;
     this.#chooser.busy = false;
+    if (result.ok) this.#chooser.confirmed = true;
     if (!result.ok) {
       this.#chooser.error = result.error === 'setting-not-allowed' ? copy.settings.notAllowed.replace('{reason}', reasonText(copy, result.body.reason, 'text'))
         : result.error === 'settings-conflict' ? copy.settings.conflict : copy.chooser.failed;
@@ -1530,6 +1603,18 @@ export class AithemaSession extends HTMLElement {
     });
     return button;
   }
+  #updateVoiceTranscript(event) {
+    const { state, replacement } = voiceTranscriptTransition(this.#voiceTranscript, event);
+    if (replacement) {
+      const rows = [...this.shadowRoot.querySelectorAll('.turn')];
+      const row = rows.find(row => row.dataset.id === replacement.from);
+      if (row) {
+        if (rows.some(other => other !== row && other.dataset.id === replacement.to)) row.remove();
+        else row.dataset.id = replacement.to;
+      }
+    }
+    this.#voiceTranscript = state;
+  }
   // Uploads sit in the transcript where they arrived: before the first turn saved after them, and
   // ahead of a running reply. A withdrawn upload keeps the place it had on this page; one already
   // withdrawn when the page loaded has no time left (it was erased) and stands before the turns.
@@ -1549,6 +1634,7 @@ export class AithemaSession extends HTMLElement {
       if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }
     entries.push(...uploads.slice(next));
+    if (this.#voiceTranscript.pending) entries.push({ key: this.#voiceTranscript.pending.id, turn: this.#voiceTranscript.pending });
     for (const turn of this.#partials.values()) entries.push({ key: turn.id, turn });
     return entries;
   }
@@ -1848,6 +1934,7 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort();
         void this.#rail.close(event.type === 'turn.withdrawn' ? 'turn-withdrawn' : event.type === 'session.erased' ? 'session-erased'
@@ -1902,6 +1989,7 @@ export class AithemaSession extends HTMLElement {
       }
       if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
+        this.#updateVoiceTranscript(event);
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') {
           this.#partials.clear(); this.#failure = false;
@@ -1997,7 +2085,7 @@ export class AithemaSession extends HTMLElement {
       }
       // An accepted snapshot protects its state from older responses to concurrent restores.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
-      this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
+      this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
       if (session.voiceLifecycle) this.#rail.receiveState(session.voiceLifecycle);
       this.#repaintLocale();
       this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();

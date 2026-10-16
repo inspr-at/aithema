@@ -64,6 +64,7 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
               theme: document.querySelector('.utility-theme'),
               themeLabel: document.querySelector('#theme-value'),
               themeIcon: document.querySelector('#theme-icon'),
+              conversations: root?.querySelector('.conversations-toggle'),
               settings: root?.querySelector('.header-actions > .settings-open'),
             };
             return Object.fromEntries(Object.entries(nodes).map(([name, node]) => {
@@ -102,7 +103,8 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
         assert.equal(initial.themeLabel, '', 'theme label is blank until the screen language resolves');
         assert.equal(initial.label, '', 'first header frame has the reserved blank label');
         for (const [control, box] of Object.entries(initial.boxes)) {
-          assert.ok(box[2] > 0 && box[3] > 0, `${control} exists in the first header frame`);
+          if (['conversations', 'settings'].includes(control)) assert.ok(box[2] === 44 && box[3] === 44, `${control} has a fixed icon target in the first header frame`);
+          else assert.deepEqual(box, [0, 0, 0, 0], `${control} stays inside closed Settings`);
         }
         const name = `${browserLanguage}-browser-${preference ? `stored-${preference}` : 'fresh'}-screen-${preference ?? 'de'}-os-${theme}-stored-theme-${storedTheme}-${width}`;
         // The blank state is held unchanged from headerFrames[0]; reduced motion
@@ -127,6 +129,7 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
             label: document.querySelector('#language-value').textContent, locale: document.querySelector('#locale').value,
             title: (() => { const r = document.querySelector('.wordmark').getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })(), boxes: window.controlBoxes(), session: document.querySelector('aithema-session').session.locale };
         });
+        await page.click('aithema-session >>> .settings-open');
         const spacing = await page.evaluate(() => {
           const label = document.querySelector('#theme-value'), reserve = label.getBoundingClientRect();
           const chevron = document.querySelector('.utility-theme .utility-chevron').getBoundingClientRect();
@@ -139,6 +142,7 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
           probe.remove();
           return { gap: chevron.left - reserve.right, reserve: reserve.width, widths };
         });
+        await page.keyboard.press('Escape');
         assert.ok(spacing.gap >= 0 && spacing.gap <= 8, `theme reserve-to-chevron gap ${spacing.gap}`);
         const widest = Math.max(...Object.values(spacing.widths));
         assert.ok(Math.abs(spacing.reserve - widest) <= 0.02, 'reserve is the widest actual label with zero slack');

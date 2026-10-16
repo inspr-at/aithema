@@ -17,6 +17,17 @@ const model = 'anthropic/claude-opus-5.5';
 const values = { AITHEMA_HTML_MODE: 'claude', OPENROUTER_MODEL: model, OPENROUTER_PROVIDER_ONLY: ' "Anthropic, Google" ',
   AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [model]: { prompt: 1.4e-6, completion: 1.4e-5 } }) };
 
+test('AIT-237: live best preset offers configured Claude drafts regardless of the conversation model', () => {
+  const configured = htmlConfig(values);
+  for (const model of ['~anthropic/claude-haiku-latest', 'openai/gpt-4.1-mini']) {
+    const presets = demoPresets({ provider: 'openrouter', reaction: { model },
+      htmlPlugin: { manifest: { id: 'claude-html' } }, htmlBinding: configured.binding });
+    assert.equal(presets.best.choices.defaults.visuals, 'claude-html');
+    assert.deepEqual(presets.best.choices.visuals.map(o => o.id), ['claude-html']);
+  }
+  assert.equal(demoPresets({ provider: 'openrouter', reaction: { model } }).best.choices.defaults.visuals, 'off');
+});
+
 test('HTML defaults to a local fake; live mode validates Claude model and operator prices', () => {
   assert.deepEqual(htmlConfig({}), { mode: 'fake' }); assert.deepEqual(htmlConfig({ AITHEMA_HTML_MODE: 'off' }), { mode: 'off' });
   assert.deepEqual(htmlConfig({}, { live: true }), { mode: 'off' });

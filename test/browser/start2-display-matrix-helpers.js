@@ -228,28 +228,30 @@ export async function displayMatrix(t, section) {
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
     }
     if (section === 'geometry') {
-    await t.test('B1/B2: all band menus share centred chevrons, icon sizes and gaps at every width', async () => {
+    await t.test('B1/B2: header icon and Settings preferences retain icon sizes, centred chevrons and gaps at every width', async () => {
       for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 321, 390, 400, 600, 680, 768, 900, 1000, 1024, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
+        await page.click('aithema-session >>> .settings-open');
         const menus = await page.evaluate(() => {
           const root = document.querySelector('aithema-session').shadowRoot;
           const button = root.querySelector('.conversations-toggle');
           const rect = n => { const b = n.getBoundingClientRect(); return { left: b.left, right: b.right, cy: b.top + b.height / 2, width: b.width, height: b.height }; };
-          return [{ host: button, glyph: button.firstElementChild, label: button.querySelector('span'), chevron: button.lastElementChild },
+          return [{ host: button, glyph: button.firstElementChild, label: null, chevron: null },
             ...[...document.querySelectorAll('.utility')].map(host => ({ host, glyph: host.querySelector('.utility-icon svg'), label: host.querySelector('.utility-value'), chevron: host.querySelector('.utility-chevron svg') }))]
-            .map(({ host, glyph, label, chevron }) => ({ glyph: rect(glyph), label: rect(label), chevron: chevron ? rect(chevron) : null,
+            .map(({ host, glyph, label, chevron }) => ({ glyph: rect(glyph), label: label ? rect(label) : null, chevron: chevron ? rect(chevron) : null,
               path: chevron?.querySelector('path')?.getAttribute('d'), gap: getComputedStyle(host).columnGap, theme: host.classList.contains('utility-theme'), bounds: rect(host) }));
         });
         assert.ok(menus.every(n => n.bounds.left >= 0 && n.bounds.right <= width + .5), `${width}/${theme}/${locale}: menus fit`);
-        assert.ok(menus.every(n => n.chevron), 'language and appearance use the shared SVG chevron');
-        for (const menu of menus.filter(menu => menu.label.width > 0)) {
+        assert.ok(menus.slice(1).every(n => n.chevron), 'language and appearance use the shared SVG chevron');
+        for (const menu of menus.filter(menu => menu.label?.width > 0)) {
           assert.equal(menu.chevron.width, 10); assert.equal(menu.chevron.height, 10);
           assert.ok(Math.abs(menu.chevron.cy - menu.label.cy) <= .5, 'chevron is centred on its label');
           assert.equal(menu.path, menus[1].path);
           assert.equal(menu.gap, menu.theme ? '4px' : menus[1].gap, 'AIT-206 theme chevron uses Tick’s 4px gap; other menus keep their shared spacing');
           assert.equal(menu.glyph.width, 16); assert.equal(menu.glyph.height, 16);
         }
-        assert.equal(menus[0].glyph.width, 16, 'the conversations icon is visible even at 320');
+        await page.keyboard.press('Escape');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-toggle > svg').getBoundingClientRect().width), 16, 'the conversations icon is visible even at 320');
       }
     });
     await t.test('B3/B4/B8: footer zones stay 24px apart, digits start after 6px, and only the credit number is bold', async () => {
@@ -304,13 +306,13 @@ export async function displayMatrix(t, section) {
       for (locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const wave = await shadow(page, c => { const n = c.shadowRoot.querySelector('.voice-wave'), style = getComputedStyle(n), rect = n.getBoundingClientRect();
-          return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - 8, visibility: style.visibility }; });
+          return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - Math.abs(parseFloat(style.getPropertyValue('--voice-label-center'))) - 16, visibility: style.visibility }; });
         assert.ok(wave.width > 0 && wave.height === 30, 'visibility keeps the reserved box');
         assert.equal(wave.visibility, wave.width >= 184 && wave.flank >= 24 ? 'visible' : 'hidden', JSON.stringify({ width, locale, ...wave }));
         await shot('band-amended', width, 'light');
       }
     });
-    await t.test('r2 menu: icon-only below 448px, whole localized labels from 448px, no ellipsis', async () => {
+    await t.test('AIT-240 menu: one icon and a full localized accessible name at every width', async () => {
       for (locale of ['de', 'en']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 479, 480, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const menu = await shadow(page, c => {
@@ -323,12 +325,12 @@ export async function displayMatrix(t, section) {
         });
         const name = locale === 'de' ? 'Gespräche' : 'Conversations';
         assert.equal(menu.name, name); assert.equal(menu.title, name); assert.equal(menu.label, name); assert.equal(menu.icon, 16);
-        assert.equal(menu.visible, width >= 448); assert.notEqual(menu.overflow, 'ellipsis');
+        assert.equal(menu.visible, false); assert.notEqual(menu.overflow, 'ellipsis');
         if (menu.visible) assert.equal(menu.fits, true, `${width}/${locale}: ${JSON.stringify(menu)}`);
         await shot('r2-band', width, 'light');
       }
     });
-    await t.test('r3 status: widest rendered line gets the same 8px fade on one/two lines, no pixels beneath text and no control shift', async () => {
+    await t.test('AIT-239 status: one/two lines keep 8px clear space plus 8px fade, no waveform under text and no control shift', async () => {
       for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('ready');
         const single = await statusGeometry(page);
@@ -342,7 +344,7 @@ export async function displayMatrix(t, section) {
         const label = await statusGeometry(page), renderedWidth = Math.max(...label.rendered.map(r => r.width));
         assert.ok(Math.abs(label.half - renderedWidth / 2) <= .5, `${width}/${theme}/${locale}: rendered-line hole ${JSON.stringify(label)}`);
         if (width >= 600) for (const [i, gap] of label.gaps.entries()) {
-          assert.ok(Math.abs(gap - 8) <= .5, `8px fade beside the widest line: ${JSON.stringify(label)}`);
+          assert.ok(Math.abs(gap - 16) <= .5, `8px clear space plus 8px fade beside the widest line: ${JSON.stringify(label)}`);
           assert.ok(Math.abs(gap - single.gaps[i]) <= 2, 'one-line and wrapped text have the same gap (±2px)');
         }
         assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
@@ -412,10 +414,12 @@ export async function displayMatrix(t, section) {
       assert.equal(edge[0][2], 44); assert.equal(edge[1][2], 44);
       assert.ok(Math.abs(edge[0][0] + 22 - 28) <= .5 && Math.abs(edge[1][0] + 22 - 28) <= .5, `${label}: edge controls share the 14 px column`);
       assert.ok(Math.abs(edge[0][1] + 22 - (edge[2][1] + edge[2][3] / 2 - 3)) <= .5, `${label}: motion control follows the approved band centre`);
+      await page.click('aithema-session >>> .settings-open');
       for (const selector of ['#locale', '#theme']) {
         const target = await page.$eval(selector, n => ({ width: n.getBoundingClientRect().width, height: n.getBoundingClientRect().height, title: n.title }));
         assert.ok(target.width >= 44 && target.height >= 44 && target.title, `${label}: ${selector} target and tooltip`);
       }
+      await page.keyboard.press('Escape');
       if (locale === 'de' && theme === 'light' && width === 390) {
         await page.evaluate(() => localStorage.removeItem('aithema-motion'));
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await scene('entrance');

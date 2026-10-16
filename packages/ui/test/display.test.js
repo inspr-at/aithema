@@ -40,11 +40,27 @@ test('AIT-131 drafts line: exactly one sentence/action for off, policy quote and
     }
     for (const cost of [null, {}, { maxMicro: -1 }, { maxMicro: NaN }, { maxMicro: Infinity }]) {
       const line = draftsLine({ copy, feature: { available: true }, cost });
-      assert.equal(line.action, false); assert.equal(line.text, copy.display.draftsOff);
+      assert.equal(line.action, false); assert.equal(line.text, copy.display.draftsUnavailable);
       assert.doesNotMatch(line.text, /Kosten unbekannt|Cost unknown/u);
     }
     assert.equal(draftsLine({ copy, feature: { available: true }, cost: { maxMicro: 0 } }).text, copy.display.draftsOn.replace('{credits}', '0'));
     assert.equal(draftsLine({ copy, feature: { available: true }, cost: { maxMicro: 400_001 } }).text, copy.display.draftsOn.replace('{credits}', '41'));
+  }
+});
+
+test('AIT-237 drafts line distinguishes off, consent, host configuration and temporary quote refusal', () => {
+  for (const copy of [de, en]) {
+    for (const cost of [null, { maxMicro: 400_000 }]) {
+      const line = reason => draftsLine({ copy, feature: { available: false, rawReason: reason, reason: 'localized verdict' }, cost });
+      assert.deepEqual(line('visuals off'), { state: 'off', text: `${copy.display.draftsDisabled} · ${copy.display.draftsEnable}`, action: false });
+      assert.deepEqual(line('current processing consent required'), { state: 'off', text: `${copy.featureConsent.html} · ${copy.featureConsent.action}`, action: false });
+      assert.equal(line('not configured').text, copy.display.draftsOff);
+      assert.equal(line('preset not configured').text, copy.display.draftsOff);
+      for (const reason of ['plugin unhealthy', 'admission deadline', 'visuals not offered']) {
+        assert.deepEqual(line(reason), { state: 'off', text: copy.display.draftsUnavailable, action: false });
+      }
+    }
+    assert.equal(draftsLine({ copy, feature: { available: true }, cost: null }).text, copy.display.draftsUnavailable);
   }
 });
 

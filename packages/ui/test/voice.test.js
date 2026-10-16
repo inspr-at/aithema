@@ -511,13 +511,13 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));
   let lineWidths = [280], waveWidth = 500, inline = false;
   t.mock.method(label, 'getBoundingClientRect', () => ({ width: 440 }));
-  t.mock.method(wave, 'getBoundingClientRect', () => ({ width: waveWidth }));
+  t.mock.method(wave, 'getBoundingClientRect', () => ({ left: 0, right: waveWidth, width: waveWidth }));
   t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 96 }));
   t.mock.method(document, 'createRange', () => {
     let selected;
     return { selectNodeContents(node) { selected = node; },
       getClientRects: () => selected !== caption && inline ? [{ left: 80, right: 240, width: 160 }, { left: 240, right: 320, width: 80 }]
-        : (selected === caption ? [80] : lineWidths).map(width => ({ width, left: 220 - width / 2, right: 220 + width / 2 })) };
+        : (selected === caption ? [80] : lineWidths).map(width => ({ width, left: waveWidth / 2 - width / 2, right: waveWidth / 2 + width / 2 })) };
   });
   const buttons = [...root.querySelectorAll('button')];
   observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
@@ -526,6 +526,7 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
   lineWidths = [140, 200]; rail.render(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '100px', 'a text repaint also updates the hole when the capped box stays the same size');
   inline = true; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '120px', 'the adjacent consent sentence and action share one clear mask');
+  assert.equal(wave.style.getPropertyValue('--voice-label-center'), '-100px', 'an off-centre sentence and action move the clear gap with their actual ink');
   caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
   assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
   rail.disconnect(); assert.equal(observer.targets.size, 0);
@@ -1147,4 +1148,85 @@ test('AIT-215: retained voice consent refusals use C1 after a locale repaint', t
       assert.equal(root.querySelector('.voice-state').textContent, copy.featureConsent.voice);
     }
   }
+});
+
+async function transcriptFixture(t) {
+  const session = createSession({ demo: true }), events = voiceEvents();
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  const identity = { callId: 'transcript-call', providerSessionId: 'transcript-provider' };
+  const client = { manifest, async start() {
+    return { ...identity, events, async close() { events.end(); return { closureConfirmed: true }; },
+      async setInput() {}, async setOutput() {}, async updateContext() {} };
+  } };
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { events.end(); c.configure({ copy: en, session: createSession() }); c.remove(); await tick(); });
+  const root = c.shadowRoot;
+  c.receive({ seq: 1, type: 'turn.final', data: { id: 'earlier', role: 'user', content: 'Earlier turn' } });
+  root.querySelector('.voice-start').click(); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening');
+  const emit = async event => { events.push({ ...identity, ...event }); await tick(); await tick(); };
+  const partial = { type: 'partial', turnId: 'pending:1', role: 'user', text: 'A short hypothesis', userTurnOrdinal: 1 };
+  const final = { type: 'final', turnId: 'saved:1', role: 'user', text: 'A much longer final correction that must grow freely inside the transcript.', userTurnOrdinal: 1 };
+  const save = () => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { ...identity, id: final.turnId,
+    role: 'user', content: final.text, userTurnOrdinal: 1 } });
+  return { c, root, identity, emit, partial, final, save };
+}
+
+for (const order of ['provider first', 'SSE first']) test(`AIT-235 ${order}: final occupies the identical row with no gap or duplicate`, async t => {
+  const { c, root, emit, partial, final, save } = await transcriptFixture(t);
+  const list = root.querySelector('ol'), earlier = list.firstElementChild;
+  await emit(partial); const row = list.querySelector('[data-id="pending:1"]');
+  assert.equal(list.children.length, 2); assert.equal(row.previousElementSibling, earlier);
+  assert.equal(row.getAttribute('aria-hidden'), 'true');
+  row.getBoundingClientRect = () => ({ height: 90, width: 240 });
+  await emit({ ...partial, text: 'Shorter' });
+  assert.equal(row.style.getPropertyValue('--voice-min-height'), '90px');
+  if (order === 'provider first') {
+    await emit(final);
+    assert.equal(list.children.length, 2, 'provider completion never leaves a gap');
+    assert.equal(list.lastElementChild, row);
+    assert.equal(row.querySelector('.turn-text').textContent, final.text);
+    assert.equal(row.getAttribute('aria-hidden'), null);
+    assert.equal(c.session.transcript.length, 1, 'provider text does not manufacture a saved turn');
+    await emit({ type: 'speaking' });
+    assert.equal(list.lastElementChild, row, 'speaking clears hypotheses, but keeps completed text awaiting SSE');
+    save();
+  } else { save(); await emit(final); }
+  assert.equal(list.children.length, 2);
+  assert.equal(list.querySelector('[data-id="saved:1"]'), row);
+  assert.equal(row.previousElementSibling, earlier);
+  assert.equal(row.querySelector('.turn-text').textContent, final.text);
+  assert.equal(row.classList.contains('partial'), false);
+  assert.equal(row.hasAttribute('aria-hidden'), false);
+  assert.equal(row.querySelector('.voice-provisional'), null);
+  assert.equal(row.querySelector('.turn-text').hasAttribute('tabindex'), false);
+  assert.equal(row.dataset.voiceTranscript, 'final', 'the promoted row does not replay its entrance animation');
+  assert.equal(row.style.getPropertyValue('--voice-min-height'), '');
+  assert.equal(row.style.getPropertyValue('--voice-min-width'), '');
+  await emit(partial);
+  assert.equal(list.children.length, 2, 'late partial cannot resurrect the bubble');
+  assert.equal(list.querySelector('.partial'), null);
+});
+
+for (const boundary of ['speaking', 'provider assistant final', 'saved assistant final']) test(`AIT-235: ${boundary} removes unfinished transcript text`, async t => {
+  const { c, root, identity, emit, partial } = await transcriptFixture(t);
+  await emit(partial); assert.ok(root.querySelector('.turn.user.partial'));
+  if (boundary === 'speaking') await emit({ type: 'speaking' });
+  else if (boundary === 'provider assistant final') await emit({ type: 'final', turnId: 'reply', role: 'assistant', text: 'Reply' });
+  else c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { ...identity, id: 'reply', role: 'assistant', content: 'Reply', inputRevision: inputRevision(c.session) } });
+  assert.equal(root.querySelector('.turn.user.partial'), null);
+  await emit(partial); assert.equal(root.querySelector('.turn.user.partial'), null);
+});
+
+test('AIT-235: an already saved typed echo removes its hypothesis without duplicating the saved row', async t => {
+  const { c, root, identity, emit, partial, final } = await transcriptFixture(t);
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'typed', role: 'user', content: final.text,
+    voiceCallId: identity.callId, voiceProviderId: identity.providerSessionId } });
+  const savedRow = root.querySelector('[data-id="typed"]');
+  await emit(partial); assert.equal(root.querySelectorAll('.turn').length, 3);
+  await emit(final);
+  assert.equal(root.querySelectorAll('.turn').length, 2);
+  assert.equal(root.querySelector('[data-id="typed"]'), savedRow);
+  assert.equal(root.querySelector('.partial'), null);
+  await emit(partial); assert.equal(root.querySelectorAll('.turn').length, 2);
 });

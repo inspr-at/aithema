@@ -253,7 +253,7 @@ function conformanceFixture(local) {
       callbacks.onMessage({ role: 'agent', message: 'Hello there', event_id: 11 });
       callbacks.onAgentResponseCorrection({ event_id: 11, original_agent_response: 'Hello there', corrected_agent_response: 'Hello' });
       return [
-        { type: 'partial', turnId: `${provider}:user:pending`, role: 'user', text: 'hel', callId, providerSessionId: provider },
+        { type: 'partial', turnId: `${provider}:user:pending:1`, role: 'user', text: 'hel', userTurnOrdinal: 1, callId, providerSessionId: provider },
         { type: 'final', turnId: `${provider}:user:10`, role: 'user', text: 'hello', userTurnOrdinal: 1, event_id: 10, callId, providerSessionId: provider },
         { type: 'final', turnId: `${provider}:assistant:11`, role: 'assistant', text: 'Hello there', event_id: 11, callId, providerSessionId: provider },
         { type: 'heard', turnId: `${provider}:assistant:11`, prefix: 'Hello', callId, providerSessionId: provider },
@@ -360,4 +360,28 @@ test('AIT-137 round 5: metadata after a final annotates that transcript exactly 
   assert.deepEqual(local.persisted.map(event => [event.type, event.turnId, event.replyId]),
     [['final', `${session.providerSessionId}:assistant:2`, undefined], ['reply', `${session.providerSessionId}:assistant:2`, 'chatcmpl-a']]);
   assert.deepEqual((await events).map(event => event.type), ['final', 'ended']);
+});
+
+test('AIT-235: anonymous tentative callbacks stay fenced after a final until the next input boundary', async t => {
+  const local = fixture(), session = await local.client.start({ callId: 'late_tentative' }, invocationOptions());
+  t.after(() => session.close());
+  const sdk = local.sdk.starts[0], events = drain(session);
+  const partial = text => sdk.onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: text } });
+  partial('First hypothesis');
+  sdk.onMessage({ role: 'user', message: 'First final', event_id: 1 });
+  partial('Late after final');
+  sdk.onModeChange({ mode: 'listening' }); partial('Repeated listening is not a new turn');
+  sdk.onModeChange({ mode: 'speaking' }); partial('Late while speaking');
+  sdk.onMessage({ role: 'agent', message: 'Reply', event_id: 2 }); partial('Late after assistant final');
+  sdk.onModeChange({ mode: 'listening' });
+  sdk.onMessage({ role: 'user', message: 'First final', event_id: 1 }); // stale duplicate must not close the next input
+  partial('Second hypothesis');
+  sdk.onMessage({ role: 'user', message: 'Second final', event_id: 3 });
+  partial('Late second');
+  await session.close(); const observed = await events;
+  const hypotheses = observed.filter(event => event.type === 'partial');
+  assert.deepEqual(hypotheses.map(event => event.text), ['First hypothesis', 'Second hypothesis']);
+  assert.deepEqual(hypotheses.map(event => event.userTurnOrdinal), [1, 2]);
+  assert.notEqual(hypotheses[0].turnId, hypotheses[1].turnId);
+  assert.deepEqual(local.persisted.filter(event => event.role === 'user').map(event => event.text), ['First final', 'Second final']);
 });
