@@ -4,6 +4,8 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { probePhysicalOutput, findRefusedOutputFlags } from './qualification-output-probe.mjs';
+import { baselineOrigin, baselineAttemptCeiling, loadBaselineAuth, runProductionBaseline } from './qualification-production-baseline.mjs';
+import { matchQualificationEntities } from './qualification-live-server.mjs';
 import { launchLocalBrowser } from './qualification-browser.mjs';
 
 /** Inert browser-side factory. OPS ports are mandatory and remain authoritative;
@@ -21,6 +23,7 @@ export function createQualificationHost(options = {}) {
   if (!options.ownerHeaders || !Object.keys(options.ownerHeaders).length) throw new TypeError('Existing owner authentication headers required');
   if (!/^[a-f0-9]{64}$/u.test(options.controlCapability ?? '')) throw new TypeError('CLI controlCapability required');
   if (Object.keys(options.ownerHeaders).some(name => name.toLowerCase() === 'x-aithema-qualification-control')) throw new TypeError('Control capability must stay out of browser ownerHeaders');
+  const baselineSessions = new Map(); let identityWrites = Promise.resolve();
   const lifetimes = new Set(); let closed = false, running = false;
   const headers = { ...options.ownerHeaders };
   const post = async (input, signal) => {
@@ -33,13 +36,18 @@ export function createQualificationHost(options = {}) {
   return Object.freeze({
     verifyCeiling: options.verifyCeiling,
     verifyReceipt: options.verifyReceipt,
-    reconcile: options.reconcile,
+    reconcile: input => options.reconcile({ ...input, baselineSessions: [...baselineSessions.values()] }),
     async runSample({ item, lane, runId, admit, onTiming }) {
       if (closed || running) throw new Error('Qualification host closed or already running');
       if (![admit, onTiming].every(fn => typeof fn === 'function')) throw new TypeError('admit and onTiming required');
       if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !isAbsolute(item?.wavPath ?? '')) throw new TypeError('Sample identity and absolute corpus wavPath required');
       const launchArgs = options.launchArgs ?? [];
       if (findRefusedOutputFlags(launchArgs).length || launchArgs.some(arg => /fake-audio|user-data-dir|use-fake-device/u.test(arg))) throw new TypeError('Qualification capture/output flags cannot be overridden');
+      if (lane === 'baseline') baselineAttemptCeiling(options.binding);
+      const targetOrigin = lane === 'baseline' ? baselineOrigin(options.binding?.baselineOrigin) : hostOrigin;
+      // Authentication is mandatory for the internal production gate. Refuse
+      // before launch/admission; candidate never opens or receives this file.
+      const baselineAuth = lane === 'baseline' ? await loadBaselineAuth(options.binding?.baselineAuthFile) : undefined;
       running = true;
       let browser, sampleId, polling;
       const lifetime = new AbortController(), ready = Promise.withResolvers(), result = Promise.withResolvers();
@@ -81,8 +89,41 @@ export function createQualificationHost(options = {}) {
             '--use-fake-ui-for-media-stream', '--disable-features=AudioServiceSandbox',
             '--autoplay-policy=no-user-gesture-required', ...launchArgs] }, launchLifetime)));
         if (!processGroups.size || [...processGroups].some(group => group.failed)) throw new Error('Launcher returned without an armed process-group watchdog');
-        await bounded(browser.defaultBrowserContext().overridePermissions(hostOrigin, ['microphone']));
+        await bounded(browser.defaultBrowserContext().overridePermissions(targetOrigin, ['microphone']));
         const page = await bounded(browser.newPage());
+        const preflight = async () => {
+          const physicalBrowserMedia = await bounded(probePhysicalOutput(page, browser));
+          await bounded(writeFile(join(run, `${lane}-physical-browser-media.json`), JSON.stringify({ physicalBrowserMedia }, null, 2), { mode: 0o600 }));
+          if (physicalBrowserMedia?.verified !== true) {
+            const error = new Error('Qualification refused: null or unverified audio output device');
+            error.physicalBrowserMedia = physicalBrowserMedia; throw error;
+          }
+          return physicalBrowserMedia;
+        };
+        if (lane === 'baseline') {
+          const answer = await runProductionBaseline({ page, binding: options.binding, item, runId, admit, onTiming,
+            auth: baselineAuth,
+            async boundConversation(deadlineAt) {
+              for (const group of processGroups) {
+                if (typeof group.limitDeadline !== 'function') throw new Error('Baseline requires a duration watchdog');
+                await bounded(group.limitDeadline(deadlineAt));
+              }
+            }, consentDecision: options.consentDecision, bounded, abort, preflight,
+            async recordEvidence(evidence) {
+              const file = createHash('sha256').update(`${runId}:${item.sampleId ?? item.id}`).digest('hex').slice(0, 24);
+              await writeFile(join(run, `baseline-invalid-${file}.json`), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+            },
+            async recordIdentity(identity) {
+              const key = `${runId}:${item.sampleId ?? item.id}`;
+              baselineSessions.set(key, identity);
+              // Persist identities even when media fails, for OPS's receipt GET.
+              const file = createHash('sha256').update(key).digest('hex').slice(0, 24);
+              identityWrites = identityWrites.then(() => writeFile(join(run, `baseline-session-${file}.json`), JSON.stringify(identity, null, 2), { mode: 0o600 }));
+              await identityWrites;
+            } });
+          return { ...answer, entities: matchQualificationEntities(answer.hypothesis,
+            item.expected === undefined ? [] : Array.isArray(item.expected) ? item.expected : [item.expected]) };
+        }
         await bounded(page.setExtraHTTPHeaders(headers));
         await bounded(page.setRequestInterception(true));
         page.on('request', request => {
@@ -92,15 +133,11 @@ export function createQualificationHost(options = {}) {
         const response = await bounded(page.goto(`${hostOrigin}/composed/qualification`, { waitUntil: 'networkidle0' }));
         if (response.status() !== 200) throw new Error('Qualification page refused');
         await bounded(page.waitForFunction(() => window.composedQualification));
-        const physicalBrowserMedia = await bounded(probePhysicalOutput(page, browser));
-        await bounded(writeFile(join(run, `${lane}-physical-browser-media.json`), JSON.stringify({ physicalBrowserMedia }, null, 2), { mode: 0o600 }));
-        if (physicalBrowserMedia?.verified !== true) {
-          const error = new Error('Qualification refused: null or unverified audio output device');
-          error.physicalBrowserMedia = physicalBrowserMedia; throw error;
-        }
-        // Corpus reference/expected text stays in the CLI; only capture metadata
-        // crosses to the server. The provider transcript is server-authoritative.
-        ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId } }, lifetime.signal)));
+        const physicalBrowserMedia = await preflight();
+        // Reference sentences stay in the CLI. Expected entities travel only
+        // on Node control requests; providers and Chrome receive neither.
+        ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId, ...(options.sessionId ? { sessionId: options.sessionId,
+          expectedEntities: Array.isArray(item.expected) ? item.expected : [item.expected] } : {}) } }, lifetime.signal)));
         polling = (async () => {
           try {
             while (!lifetime.signal.aborted) {

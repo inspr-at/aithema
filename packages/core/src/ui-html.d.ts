@@ -24,6 +24,9 @@ export interface UIHTMLArtifact {
   };
 }
 export interface HTMLGeneration {
+  /** Exact request ceiling in micro-dollars; omitted adapters reserve binding.maxMicro.
+   * Called without a request when quoting availability. Must not dispatch or spend. */
+  estimateCost?(request?: UIHTMLSpec & { feedback?: string; previousArtifact?: UIHTMLArtifact }, operation?: 'generate' | 'edit'): number;
   generate(spec: UIHTMLSpec, feedback: string, options: OperationOptions): Promise<UIHTMLArtifact>;
   /** The artifact is the previous dummy; feedback is required. */
   edit(artifact: UIHTMLArtifact, spec: UIHTMLSpec, feedback: string, options: OperationOptions): Promise<UIHTMLArtifact>;

@@ -17,22 +17,30 @@ so changing policy requires updating both together.
 | --- | --- | --- | --- |
 | core | `packages/core` | none | Headless domain, contracts and shared engine primitives |
 | ui | `packages/ui` | core | Web components and browser presentation |
-| server | `packages/server` | core | Fetch handlers and persistence; AIT-211 pins claude-html/openai-images; #173 pins the legacy bridge |
+| server | `packages/server` | core | Fetch handlers and persistence; #173 pins the legacy bridge |
 | host | `demo` | core, ui, server, plugin | Reference host; package imports except named browser sources |
 | plugin | `plugins/*` | core, ui, server, plugin | Exchangeable provider adapters |
 
 Every cross-module edge must resolve to an explicit package export. Core cannot
-import server, UI or plugins; UI cannot import server or plugins. The existing
-server-to-claude-html/openai-images dependencies below belong to AIT-211. The
-separate legacy ElevenLabs bridge preserves #173's frozen server root exports. Only their listed source
-and target files are permitted; another server file or plugin target fails.
+import server, UI or plugins; UI cannot import server or plugins. Server source
+cannot import provider plugins. The separate legacy ElevenLabs bridge preserves
+#173's frozen compatibility exports; only its listed source and targets are permitted.
+
+AIT-211: hosts configure and register HTML/image implementations (the demo uses
+`demo/visual-plugins.js` from `demo/server.js`). HTML admission calls the selected
+plugin's `estimateCost(request, operation)` port, preserving Claude's exact prompt
+byte ceiling; without that port it reserves `binding.maxMicro`. Local deterministic
+adapters own their manifests and retain their private implementation pairings and
+zero-cost consent exemption. Core's explicit `ui-html-prompt`, `ui-html-artifact`
+and `ui-image-artifact` subpaths provide shared request validation and artifact
+construction, with provider repair, decoding, prices and watermark claims in plugins.
+The browser-facing core root does not import these Node artifact constructors.
 
 | Source | Exact exception | Owner / reason |
 | --- | --- | --- |
-| `packages/server/src/plugin-runtime.js` | `plugins/claude-html/src/index.js`, `plugins/claude-html/src/html-artifact.js` | AIT-211 |
-| `packages/server/src/local-html.js` | `plugins/claude-html/src/index.js` | AIT-211: existing deterministic HTML adapter |
 | `packages/server/elevenlabs-compat.js` | `plugins/elevenlabs/src/provider.js`, `plugins/elevenlabs/src/callbacks.js` | #173: frozen legacy root exports |
-| `packages/server/src/local-images.js` | `plugins/openai-images/src/index.js`, `plugins/openai-images/src/image-artifact.js` | AIT-211 |
+| `plugins/composed-voice/ops/qualification-live-server.mjs` | `plugins/elevenlabs/src/components.js` | AIT-160: source-only live qualification components |
+| `plugins/composed-voice/ops/qualification-live-baseline.mjs` | `plugins/elevenlabs/src/options.js` | AIT-160: source-only baseline production overrides |
 | `demo/server.js` | `plugins/composed-voice/ops/qualification-server.mjs` | AIT-160: explicitly flagged source-only qualification host |
 | `plugins/composed-voice/src/server.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/qualification.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |

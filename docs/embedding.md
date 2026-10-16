@@ -9,6 +9,11 @@ See [candidate notes](../release/notes.md) and the [GitHub release route](../rel
 
 ## Consume Aithema as a module (START or another thin host)
 
+[START’s `host/`](https://github.com/augmentoring-team/start-agm-com/tree/main/host)
+is the living reference for a thin host consuming Aithema’s release tarballs.
+Follow that host’s current integration when wiring storage, consent and runtime
+lifecycle into a consuming application.
+
 On the build runner, retain the candidate directory and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
 From a separate host directory, install **all fifteen** module tarballs so npm
@@ -39,6 +44,15 @@ Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
 `npm ci` for repeat deployments and retain the verified artifacts for rollback.
 Public release downloads need no consumer token. The Linux tag build tests the
 exact published tarballs; historical BSD candidate digests do not cover them.
+
+For HTML and images, the embedding host installs and registers
+`createClaudeHTML` (`@inspr/aithema-plugin-claude-html`) and/or
+`createOpenAIImages` (`@inspr/aithema-plugin-openai-images`) itself. Add their IDs
+and private bindings to the selected preset, mark HTML choices `kind: 'html'`,
+and supply authoritative consent covering their exact processing scopes. Claude
+provides `estimateCost` for exact admission pricing; other HTML adapters may
+provide it or reserve the full binding ceiling. See `demo/visual-plugins.js` and
+`demo/server.js` for host composition. The server does not load provider defaults.
 
 The host supplies durable storage, authoritative identity/ownership and consent,
 and budget policy. The server and UI are mounted independently; the demo is

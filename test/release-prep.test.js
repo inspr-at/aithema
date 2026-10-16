@@ -68,13 +68,13 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
     assert.equal((await fetch(`${demo.url}/composed/qualification`)).status, 404);
     assert.equal((await fetch(`${demo.url}/composed/relay`, { method: 'POST', body: new Uint8Array(1280) })).status, 404);
   } finally { await demo.kill(); }
-  const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession } from '@inspr/aithema-server';
+  const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession, createLocalHTML, createLocalImages } from '@inspr/aithema-server';
     import { createSession, createMockReasoning } from '@inspr/aithema-core';
     import { manifest as reasoningManifest } from '@inspr/aithema-plugin-openrouter';
     import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images';
     import { readFileSync } from 'node:fs';
     const runtime = JSON.parse(readFileSync('release/runtime.json'));
-    if ([createMockReasoning().manifest, reasoningManifest, imageManifest].some(manifest => manifest.version !== runtime.version || manifest.apiVersion !== '^1.0.0')) throw new Error('Public plugin version mapping drift');
+    if ([createMockReasoning().manifest, createLocalHTML().manifest, createLocalImages().manifest, reasoningManifest, imageManifest].some(manifest => manifest.version !== runtime.version || manifest.apiVersion !== '^1.0.0')) throw new Error('Public plugin version mapping drift');
     const storage = new SQLiteStorage(':memory:');
     const handlers = createHandlers({ storage, consent: createMemoryConsentLedger() });
     await handlers.resume();

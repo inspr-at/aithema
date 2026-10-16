@@ -22,9 +22,17 @@ test('workflow parses, only a matching pushed tag admits release packing, and PR
   assert.ok(ci.jobs.test.steps.some(step => step.run?.includes('release/dry-run.mjs')));
   assert.equal(ci.jobs.browser['timeout-minutes'], 10); // 480 s is the measured budget, with runner headroom.
   assert.equal(ci.jobs.test['timeout-minutes'], 10);
+  const boot = ci.jobs.test.steps.find(step => step.name === 'Boot standalone host from candidate tarballs');
+  assert.equal(boot['timeout-minutes'], 2);
+  assert.equal(boot.if, ci.jobs.test.steps.find(step => step.run?.trim().endsWith('npm test')).if);
+  assert.match(boot.run, /npm run release:pack -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --candidate\nnpm run release:consumer -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --boot-only/u);
   const upload = ci.jobs.test.steps.find(step => step.uses?.includes('upload-artifact'));
   assert.equal(upload.with.name, 'reset-candidate'); assert.equal(upload.with['retention-days'], 90);
-  assert.match(upload.with.path, /release-evidence\/candidate\//u);
+  assert.equal(upload.with.path, '${{ runner.temp }}/release-evidence/candidate/');
+  const smokeUpload = ci.jobs.test.steps.find(step => step.with?.name === 'consumer-smoke');
+  assert.equal(smokeUpload.with.path, '${{ runner.temp }}/release-evidence/tarball-boot/');
+  assert.equal(smokeUpload.if, upload.if);
+  assert.equal(smokeUpload.with['retention-days'], 90);
   assert.doesNotMatch(JSON.stringify(ci), /npm publish|gh release|git tag|git push/u);
   assert.deepEqual(release.permissions, { contents: 'read' });
   assert.deepEqual(release.jobs.pack.permissions, { contents: 'write', 'id-token': 'write', attestations: 'write' });

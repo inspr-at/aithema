@@ -27,7 +27,8 @@
     "happy-dom": "^20.11.2",
     "puppeteer-core": "25.13.0",
     "typescript": "5.9.3",
-    "yaml": "2.8.2"
+    "yaml": "2.8.2",
+    "ws": "8.22.0"
   },
   "version": "261015164601.0.0",
   "description": "Embeddable requirements conversation: core, server, web components and provider plugins",
