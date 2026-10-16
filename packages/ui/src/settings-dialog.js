@@ -27,9 +27,12 @@ export function hostSettingsGauges(input) {
   if (selected.some(hasCountries)) {
     // Keep the least private selected lane; one approved model cannot qualify voice/visuals.
     const rank = ['unverified', 'declared', 'restricted', 'eu', 'device'];
-    const privacy = selected.map(option => hasCountries(option)
-      ? { state: 'restricted', fill: 55, enforced: true, countries: option.facts.hostCountries }
-      : settingsGauges({ preset: input.preset, info: input.info, model: option }).privacy)
+    const privacy = selected.map(option => {
+      const base = settingsGauges({ preset: input.preset, info: input.info, model: option }).privacy;
+      // Host countries can strengthen a lane, but never weaken its existing privacy claim.
+      return hasCountries(option) && rank.indexOf(base.state) < rank.indexOf('restricted')
+        ? { state: 'restricted', fill: 55, enforced: true, countries: option.facts.hostCountries } : base;
+    })
       .reduce((a, b) => rank.indexOf(a.state) <= rank.indexOf(b.state) ? a : b);
     gauges.privacy = { ...privacy, countries: privacy.state === 'restricted'
       ? [...new Set(selected.flatMap(option => option.facts?.hostCountries ?? input.info?.policy?.countries ?? []))] : privacy.countries };
