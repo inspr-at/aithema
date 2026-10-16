@@ -27,7 +27,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     t.after(() => browser.close());
-    const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], keyboardChecks = [];
+    const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
     if (evidence) await mkdir(evidence, { recursive: true });
     // Snapshots model approved reply data; local acknowledgements let us inspect the exact request bytes.
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -304,6 +304,26 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         await nextFrame(page);
         assert.deepEqual(await readingBox(), releaseBefore, 'releasing held card space keeps the reading anchor at exactly the same box');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the obsolete reservation is actually released');
+        // Closing at the old bottom may hold the reading box briefly. A reader
+        // who then scrolls to the end must never be left with that empty dock gap.
+        await page.mouse.move(-1, -1);
+        await page.evaluate(() => globalThis.showQuestion()); await nextFrame(page);
+        const bottomPoint = await shadow(page, c => {
+          const shell = c.shadowRoot.querySelector('.transcript-shell'); shell.scrollTop = shell.scrollHeight;
+          const b = shell.getBoundingClientRect(); return [b.left + 30, b.bottom - 30];
+        });
+        await nextFrame(page); await page.mouse.move(...bottomPoint);
+        const bottomBefore = await boxes(page, ['.turn:last-child']);
+        await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
+        assert.deepEqual(await boxes(page, ['.turn:nth-last-child(2)']), bottomBefore, 'closing at the reading bottom preserves visible text');
+        await shadow(page, c => {
+          const shell = c.shadowRoot.querySelector('.transcript-shell');
+          shell.scrollTop = shell.scrollHeight; shell.dispatchEvent(new Event('scroll'));
+        });
+        await nextFrame(page); await nextFrame(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'reaching the bottom releases the obsolete gap while the pointer stays in the transcript');
+        await nextFrame(page); await nextFrame(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the bottom gap stays released without new content or pointer movement');
         await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);
         if (width <= 600) {
@@ -328,6 +348,24 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
           });
           try {
+            const heights = [844, 508, ...Array.from({ length: 21 }, (_, index) => 460 + 8 * index), 320, 844];
+            for (const height of heights) {
+              const samples = await shadow(page, async (c, height) => {
+                const card = c.shadowRoot.querySelector('.qcard'), states = [];
+                visualViewport.height = height;
+                for (let resize = 0; resize < 2; resize++) {
+                  visualViewport.dispatchEvent(new Event('resize'));
+                  // Settle layout observers, then sample twelve consecutive frames.
+                  for (let frame = 0; frame < 14; frame++) {
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    if (frame >= 2) states.push(card.hasAttribute('data-compact'));
+                  }
+                }
+                return states;
+              }, height);
+              assert.deepEqual(samples, Array(24).fill(height <= 620), `${locale}/${theme}/390×${height}: explicit compact state stays stable across 12 frames after each of two equal-size resizes`);
+              stabilityChecks.push({ locale, theme, height, compact: height <= 620, frames: 24, resizes: 2 });
+            }
             for (const height of [420, 320]) {
               await shadow(page, (c, height) => {
                 c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
@@ -346,6 +384,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                   composerBottom: composer.bottom, bandBottom: band.bottom };
               });
               assert.equal(keyboard.layoutHeight, 844, 'only the visual viewport shrinks');
+              assert.equal(keyboard.compact, true, `390×${height}: short keyboard viewports explicitly use compact answers`);
               assert.ok(keyboard.rowHeight >= 44 && keyboard.rowTop >= keyboard.optionsTop - 1 && keyboard.rowBottom <= keyboard.optionsBottom + 1,
                 `390×${height}: a full answer stays visible: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.rowTop >= Math.max(0, keyboard.bandBottom) && keyboard.rowBottom <= height,
@@ -372,6 +411,18 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 await page.screenshot({ path: join(evidence, file), fullPage: false, clip: { x: 0, y: 0, width, height }, captureBeyondViewport: false }); files.push(file);
               }
             }
+            for (const height of [320, 844]) {
+              await shadow(page, (c, height) => {
+                visualViewport.height = height; visualViewport.dispatchEvent(new Event('resize'));
+                globalThis.showQuestion();
+              }, height);
+              await nextFrame(page); await nextFrame(page);
+              const beforeClose = await boxes(page);
+              assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), height === 320);
+              await page.evaluate(() => globalThis.showQuestion({ options: [] }));
+              await nextFrame(page); await nextFrame(page);
+              still(beforeClose, await boxes(page), `390×${height}: close in ${height === 320 ? 'compact' : 'full'} mode`);
+            }
           } finally {
             await page.evaluate(() => {
               const c = document.querySelector('aithema-session'), parent = c.parentNode; c.remove();
@@ -388,7 +439,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     if (evidence) {
       assert.equal(files.length, 16, 'eight baseline and eight keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
-      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks }, null, 2));
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         keyboardPassLines: keyboardChecks.map(({ locale, theme, height, rowHeight, cardTop, bubbleBottom, shellBottom }) => ({
           locale, theme, viewport: `390×${height}`, pass: true, answerHeightPx: rowHeight, reachableByTab: true,
