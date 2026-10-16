@@ -5,6 +5,7 @@ import { createQualificationServer, validateQualificationBinding, matchQualifica
 import { fixtureBinding, fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
 import { start2PurposePolicy } from '../../../demo/safeguards.js';
 import { baselineAttemptCeiling } from '../ops/qualification-production-baseline.mjs';
+import { QualificationSampleFailure } from '../src/qualification-failure.js';
 
 // Models/formats: elevenlabs/src/components.js STT_MODEL/TTS_MODEL.
 // All amounts are synthetic fixture tariffs, never qualification thresholds.
@@ -365,6 +366,24 @@ test('host revoke stops sample before acknowledging the hold; next sample uses a
   assert.ok(h.storage.voiceCalls(h.session.id).every(call => call.terminal));
   const next = await h.start(); assert.notEqual(next.grant.providerSessionId, sample.grant.providerSessionId);
   await next.close(); await assert.rejects(next.result);
+});
+
+test('candidate without a transcript settles as missing-transcript when closed', async t => {
+  const h = await harness(t), sample = await h.start();
+  await sample.close();
+  await assert.rejects(sample.result, error => error instanceof QualificationSampleFailure && error.reason === 'missing-transcript');
+});
+
+test('candidate with a transcript but refused TTS settles as missing-audio when closed', async t => {
+  const h = await harness(t, { refuse: 'tts' }), sample = await h.start(), transport = await h.open(sample);
+  await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000));
+  for (;;) {
+    const frame = await transport.frames.next();
+    assert.equal(frame.done, false);
+    if (frame.value.event?.type === 'waiting') break;
+  }
+  await sample.close();
+  await assert.rejects(sample.result, error => error instanceof QualificationSampleFailure && error.reason === 'missing-audio');
 });
 
 import { createProcessingConsent } from '../../../demo/processing-consent.js';

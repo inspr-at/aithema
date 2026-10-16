@@ -10,6 +10,7 @@ import { createElevenLabsSTT, createElevenLabsTTS, TTS_FORMAT } from '../../elev
 import { validateVoiceSettings, VOICE_SETTING_KEYS } from '../../elevenlabs/src/voice-settings.js';
 import { createComposedVoice } from '../src/server.js';
 import { normalizeQualificationEntity } from '../src/qualification.js';
+import { QualificationSampleFailure } from '../src/qualification-failure.js';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { connectQualificationSocket } from './qualification-live-transport.mjs';
 import { baselineOrigin, baselineAttemptCeiling } from './qualification-production-baseline.mjs';
@@ -147,7 +148,10 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       };
       function capture(bytes) {
         pcmBytes += bytes.byteLength;
-        if (pcmBytes > MAX_SAMPLE_PCM_BYTES) throw new PluginError('limit');
+        if (pcmBytes > MAX_SAMPLE_PCM_BYTES) {
+          const error = new QualificationSampleFailure('pcm-bound');
+          answer.reject(error); throw error;
+        }
         chunks.push(Uint8Array.from(bytes));
       }
       const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
@@ -175,7 +179,10 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
             ...(generation ? { generationId: generation } : {}), identity,
             ...(identity === null ? { identityReason: terminal.identityReason ?? 'provider-identity-not-observed' } : {}),
             ...(terminal.servedModel ? { servedModel: terminal.servedModel } : {}),
-            ...(role === 'tts' && terminal.matchingKey ? { matchingKey: terminal.matchingKey } : {}) })));
+            ...(role === 'tts' && terminal.matchingKey ? { matchingKey: terminal.matchingKey } : {}) })).catch(() => {
+              const error = new QualificationSampleFailure('report-rejected');
+              answer.reject(error); throw error;
+            }));
           return row.reporting;
         };
         const attempt = { attemptId: spec.attemptId, claimId: granted.attempt.claimId, maxMicro,
@@ -193,11 +200,12 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
             await sample?.close();
             await Promise.allSettled([...jobs]);
             await Promise.all(rows.map(row => row.finish()));
-          } catch {
-            answer.reject(new PluginError('provider', 'Qualification stop failed'));
-            throw new PluginError('provider', 'Qualification stop failed');
+          } catch (error) {
+            const failure = error instanceof QualificationSampleFailure ? error : new QualificationSampleFailure('stop-failed');
+            answer.reject(failure); throw failure;
           }
-          if (!hypothesis || !pcmBytes) answer.reject(new PluginError('invalid-output', 'Missing qualification audio or transcript'));
+          if (!hypothesis) answer.reject(new QualificationSampleFailure('missing-transcript'));
+          else if (!pcmBytes) answer.reject(new QualificationSampleFailure('missing-audio'));
           else answer.resolve({ hypothesis, entities: matchQualificationEntities(hypothesis, item.expectedEntities),
             ttsPCM: Uint8Array.from(Buffer.concat(chunks)), ttsFormat: sample.format,
             ttsConfig: { model: binding.tts.model, voiceId: binding.tts.voiceId, voiceSettings: binding.tts.voiceSettings } });

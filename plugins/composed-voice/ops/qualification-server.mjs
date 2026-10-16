@@ -4,6 +4,7 @@ import { lstat, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { qualificationRequestDigest, readPersistedQualificationSnapshot } from '../src/persisted-budget.js';
+import { QualificationSampleFailure } from '../src/qualification-failure.js';
 
 const sampleComplete = Object.freeze({ refused: 'sample-complete' });
 
@@ -207,13 +208,15 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       if (!row.sample?.grant || typeof row.sample.close !== 'function' || typeof row.sample.result?.then !== 'function') throw new TypeError('OPS sample grant, result promise and close port required');
       publish(row, { type: 'ready', grant: row.sample.grant });
       const result = await row.sample.result;
-      await Promise.all(reports);
-      if (!(result.ttsPCM instanceof Uint8Array) || result.ttsPCM.length > 16_000_000) throw new Error('Bounded server PCM required');
+      try { await Promise.all(reports); }
+      catch { throw new QualificationSampleFailure('report-rejected'); }
+      if (!(result.ttsPCM instanceof Uint8Array) || result.ttsPCM.length > 16_000_000) throw new QualificationSampleFailure('pcm-bound');
       publish(row, { type: 'result', result: { hypothesis: result.hypothesis, entities: result.entities,
         ttsConfig: result.ttsConfig, ttsFormat: result.ttsFormat, ttsPCM: Buffer.from(result.ttsPCM).toString('base64') } });
-    } catch {
+    } catch (error) {
       row.setup.resolve();
-      if (!row.closed) publish(row, { type: 'failure', error: 'OPS sample failed; retain reservations and inspect server evidence' });
+      const failure = error instanceof QualificationSampleFailure ? error : new QualificationSampleFailure('sample-failed');
+      if (!row.closed) publish(row, { type: 'failure', reason: failure.reason, error: failure.message });
     }
   }
   return {

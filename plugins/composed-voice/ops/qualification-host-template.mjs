@@ -8,6 +8,7 @@ import { baselineOrigin, baselineAttemptCeiling, loadBaselineAuth, runProduction
 import { matchQualificationEntities } from './qualification-live-server.mjs';
 import { readQualificationCorpus } from '../src/qualification-corpus.js';
 import { IncompleteMediaEvidence } from '../src/live-qualification.js';
+import { QualificationSampleFailure, QUALIFICATION_SAMPLE_FAILURES } from '../src/qualification-failure.js';
 import { installScriptedCapture } from './qualification-scripted-capture.mjs';
 import { launchLocalBrowser } from './qualification-browser.mjs';
 
@@ -53,7 +54,7 @@ export function createQualificationHost(options = {}) {
       // before launch/admission; candidate never opens or receives this file.
       const baselineAuth = lane === 'baseline' ? await loadBaselineAuth(options.binding?.baselineAuthFile) : undefined;
       running = true;
-      let browser, sampleId, polling, measured = false;
+      let browser, sampleId, polling, terminalRefusal, sampleFailure, measured = false;
       let evidenceRun, postMeasurementCount = 0;
       const recordTiming = event => {
         if (event.kind === 'post-measurement') postMeasurementCount++;
@@ -151,7 +152,8 @@ export function createQualificationHost(options = {}) {
         // on Node control requests; providers and Chrome receive neither.
         ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId, ...(sessionId ? { sessionId,
           expectedEntities: Array.isArray(item.expected) ? item.expected : [item.expected] } : {}) } }, lifetime.signal)));
-        await bounded(page.exposeFunction('qualificationMeasurementTerminal', async () => {
+        await bounded(page.exposeFunction('qualificationMeasurementTerminal', async (outcome = {}) => {
+          terminalRefusal = outcome.refusal === undefined ? undefined : new IncompleteMediaEvidence(outcome.refusal);
           measured = true;
           await post({ action: 'measurement-terminal', sampleId }, lifetime.signal);
         }));
@@ -162,8 +164,16 @@ export function createQualificationHost(options = {}) {
               if (event.type === 'post-measurement') { recordPostMeasurement(); continue; }
               if (event.type === 'ready') { ready.resolve(event.grant); continue; }
               if (event.type === 'failure') {
-                if (measured) { recordPostMeasurement(); continue; }
-                throw new Error(event.error);
+                const failure = new QualificationSampleFailure(Object.hasOwn(QUALIFICATION_SAMPLE_FAILURES, event.reason) ? event.reason : 'sample-failed');
+                // Closing before first audio can leave a transcript but no PCM
+                // (qualification-live-server.mjs close()). Only that settlement
+                // is expected for these typed early refusals. A measured sample,
+                // missing transcript, stop/report failure or PCM bound must abort.
+                if (failure.reason === 'missing-audio' && terminalRefusal &&
+                  ['late-first-audio', 'barge-in-before-first-audio'].includes(terminalRefusal.reason)) {
+                  result.resolve(); return;
+                }
+                throw failure;
               }
               if (event.type === 'result') { result.resolve(event.result); continue; }
               let value, error, refused;
@@ -187,19 +197,28 @@ export function createQualificationHost(options = {}) {
               } catch { error = true; }
               if (error && measured && event.type === 'admit') { refused = 'sample-complete'; recordPostMeasurement(); }
               await post({ action: 'ack', sampleId, id: event.id, value, error, refused }, lifetime.signal);
-              if (error && !refused) throw new Error('Remote provider admission refused');
+              if (error && !refused) {
+                if (event.type === 'report') throw new QualificationSampleFailure('report-rejected');
+                throw new Error('Remote provider admission refused');
+              }
             }
           } catch (error) { ready.reject(error); result.reject(error); throw error; }
         })();
         polling.catch(() => {});
         const grant = await bounded(ready.promise);
-        const media = await bounded(page.evaluate(input => window.composedQualification.run(input), { grant, headers }));
+        // A failed server settlement also aborts a still-pending browser close.
+        const serverFailure = result.promise.then(() => new Promise(() => {}));
+        const media = await bounded(Promise.race([
+          page.evaluate(input => window.composedQualification.run(input), { grant, headers }), serverFailure,
+        ]));
         for (const event of media.trace) recordTiming(event);
-        if (media.refusal) throw new IncompleteMediaEvidence(media.refusal);
         const answer = await bounded(result.promise);
+        if (media.refusal) throw new IncompleteMediaEvidence(media.refusal);
         // Keep observed source/device timestamps unchanged in the probe.
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat, ttsConfig: answer.ttsConfig };
+      } catch (error) {
+        sampleFailure = error; throw error;
       } finally {
         try {
           try { kill(); } finally { lifetime.abort(new Error('Qualification sample ended')); }
@@ -207,13 +226,17 @@ export function createQualificationHost(options = {}) {
           if (sampleId) {
             // Acknowledgement means OPS close() has stopped the dispatcher.
             // If it cannot be confirmed, retain exposure for explicit orphan recovery.
-            await post({ action: 'close', sampleId });
+            try { await post({ action: 'close', sampleId }); }
+            catch { throw new QualificationSampleFailure('stop-failed'); }
             for (const [attemptId, row] of admissions) if (!row.reported && (row.consumed || !measured)) await row.admission.report({
               attemptId, outcome: row.consumed ? 'uncertain' : 'cancelled',
             });
           }
-        }
-        finally {
+        } catch (error) {
+          // A failed stop/report acknowledgement cannot hide the server's
+          // already observed settlement. Successful samples still require close.
+          if (!sampleFailure || sampleFailure instanceof IncompleteMediaEvidence) throw error;
+        } finally {
           try {
             // Refused-sample summaries have a closed event-kind allowlist.
             // Retain this numeric count independently for both lanes.
@@ -222,6 +245,10 @@ export function createQualificationHost(options = {}) {
               await writeFile(join(evidenceRun, `${lane}-post-measurement-${sample}.json`),
                 JSON.stringify({ counts: { 'post-measurement': postMeasurementCount } }), { mode: 0o600 });
             }
+          } catch {
+            // Diagnostic I/O must never replace the sample result or exception.
+            try { process.emitWarning('Qualification post-measurement count write failed', { code: 'QUALIFICATION_COUNT_WRITE_FAILED' }); }
+            catch { /* Even a diagnostic sink failure cannot replace settlement. */ }
           } finally {
             try { await Promise.race([browser?.close().catch(() => {}), new Promise(resolve => { const closing = setTimeout(resolve, 1000); closing.unref(); })]); }
             finally {

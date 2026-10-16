@@ -5,6 +5,7 @@ import { evaluateQualification, QUALIFICATION_THRESHOLDS } from './qualification
 import { openPersistedQualificationBudget } from './persisted-budget.js';
 import { readQualificationCorpus } from './qualification-corpus.js';
 import { validateVoiceSettings } from '../../elevenlabs/src/voice-settings.js';
+import { QUALIFICATION_SAMPLE_FAILURES } from './qualification-failure.js';
 
 const BLIND_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
 function blindWav(pcm, format) {
@@ -35,6 +36,7 @@ function blindWav(pcm, format) {
 // Only literal harness messages may survive in abort diagnostics. Never persist
 // stacks, causes, provider codes/names, or arbitrary host error properties.
 const FAILURE_MESSAGES = new Set([
+  ...Object.values(QUALIFICATION_SAMPLE_FAILURES),
   'Media evidence bound exceeded', 'Real capture/output/barge-in evidence required',
   'Incomplete corpus WAV', 'PCM16 mono corpus WAV required', 'Invalid corpus sample rate',
   'Corpus WAV bound exceeded', 'Absolute corpus utterancePath and bargeInPath required',

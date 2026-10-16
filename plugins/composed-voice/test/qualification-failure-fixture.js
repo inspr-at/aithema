@@ -9,7 +9,7 @@ import { fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.j
 /** Exercise AIT-254's real coordinator/storage path around a failing media lane. */
 export const assertNoFailureDiagnostic = (t, runSample, lane = 'candidate') => assertFailureDiagnostic(t, runSample, lane, true);
 
-export async function assertFailureDiagnostic(t, runSample, lane = 'candidate', succeeds = false) {
+export async function assertFailureDiagnostic(t, runSample, lane = 'candidate', succeeds = false, expectedMessage) {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-error-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const budgetPath = join(directory, 'budget.sqlite'), outputDirectory = join(directory, 'evidence'), path = join(directory, 'input.wav');
@@ -45,6 +45,7 @@ export async function assertFailureDiagnostic(t, runSample, lane = 'candidate', 
   const failurePath = join(outputDirectory, 'failure.json'), record = JSON.parse(await readFile(failurePath));
   assert.equal(record.phase, 'runSample'); assert.equal(record.lane, lane); assert.equal(record.sample, 1);
   assert.equal((await stat(failurePath)).mode & 0o777, 0o600);
-  assert.match(record.message, /^Error sha256:[a-f0-9]{64}$/u);
+  if (expectedMessage === undefined) assert.match(record.message, /^Error sha256:[a-f0-9]{64}$/u);
+  else assert.equal(record.message, expectedMessage);
   assert.doesNotMatch(JSON.stringify(record), /hypothesis|ttsPCM|stack|cause/u);
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createQualificationMount, qualificationSettings, loadQualificationKeys, loadQualificationControl } from '../ops/qualification-server.mjs';
+import { createQualificationMount, qualificationSettings, loadQualificationKeys, loadQualificationControl, loopbackOrigin } from '../ops/qualification-server.mjs';
 import { createQualificationHost } from '../ops/qualification-host-template.mjs';
 import { startChild, temporaryDb } from '../../../test/helpers.js';
 import { spawn, spawnSync } from 'node:child_process';
@@ -10,11 +10,15 @@ import { probeOutputDevice, defaultOutputFromProfiler, combineOutputEvidence, re
 import { guardBrowserProcessGroup } from '../ops/qualification-browser-watchdog.mjs';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
-import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { initializeQualificationBudget, openPersistedQualificationBudget } from '../src/persisted-budget.js';
+import { readQualificationCorpus } from '../src/qualification-corpus.js';
+import { IncompleteMediaEvidence } from '../src/live-qualification.js';
+import { QualificationSampleFailure, QUALIFICATION_SAMPLE_FAILURES } from '../src/qualification-failure.js';
+import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
 
 const sentinel = 'SENTINEL_FAKE_QUALIFICATION_VALUE_NEVER_LOG';
 async function keysFixture(t) {
@@ -403,6 +407,128 @@ async function sampleFixture(path) {
   return sampleOptions(path);
 }
 
+// Execute the real host with inert browser/control ports and a verified output
+// probe. No Chrome, OS audio probe, provider or network is used in these tests.
+async function settlementFixture(t, { reason, refusal, countWriteFailure = false, closeFailure = false, pendingMedia = false, lateEvents = false } = {}) {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-settlement-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const input = await sampleFixture(join(directory, 'input.wav'));
+  const fenced = Promise.withResolvers(), delivered = Promise.withResolvers();
+  const warnings = [], acknowledgements = [], timings = [];
+  t.mock.method(process, 'emitWarning', (...args) => warnings.push(args));
+  let terminal, polls = 0, countPath;
+  const browser = inertBrowser({});
+  const page = await browser.newPage();
+  page.exposeFunction = async (_name, fn) => { terminal = fn; };
+  page.evaluate = async () => {
+    if (countWriteFailure) await mkdir(countPath);
+    await terminal(refusal ? { refusal } : {}); fenced.resolve();
+    if (pendingMedia) return new Promise(() => {});
+    return { trace: lateEvents ? [{ kind: 'post-measurement' }, { kind: 'post-measurement' }] : [], ...(refusal ? { refusal } : {}) };
+  };
+  browser.newPage = async () => page;
+  const ports = { createHash, mkdir, mkdtemp, writeFile, homedir, isAbsolute, join, loopbackOrigin,
+    findRefusedOutputFlags, readQualificationCorpus, IncompleteMediaEvidence, QualificationSampleFailure, QUALIFICATION_SAMPLE_FAILURES,
+    probePhysicalOutput: async () => ({ verified: true }),
+    async fetch(_url, options) {
+      const request = JSON.parse(options.body), json = value => Response.json(value);
+      if (request.action === 'start') return json({ sampleId: 'offline-sample' });
+      if (request.action === 'close' && closeFailure) return new Response(null, { status: 400 });
+      if (request.action === 'measurement-terminal' || request.action === 'close') return json({});
+      if (request.action === 'ack') { acknowledgements.push(request); return json({}); }
+      assert.equal(request.action, 'poll');
+      if (polls++ === 0) return json({ event: { type: 'ready', grant: {} } });
+      await fenced.promise;
+      if (lateEvents && polls === 2) return json({ event: { type: 'post-measurement' } });
+      if (lateEvents && polls === 3) return json({ event: { type: 'admit', id: 'late-admit', spec: attemptSpec('after-fence') } });
+      if (polls === (lateEvents ? 4 : 2)) {
+        delivered.resolve();
+        return json({ event: reason ? { type: 'failure', reason, error: sentinel } :
+          { type: 'result', result: { hypothesis: 'Wien', entities: [], ttsPCM: 'AAE=', ttsFormat: {}, ttsConfig: {} } } });
+      }
+      return new Promise((_, reject) => {
+        options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+        if (options.signal.aborted) reject(options.signal.reason);
+      });
+    } };
+  const source = (await readFile(new URL('../ops/qualification-host-template.mjs', import.meta.url), 'utf8'))
+    .replace(/^import .*;\n/gmu, '').replace('export function createQualificationHost', 'function createQualificationHost');
+  const factory = new Function(...Object.keys(ports), `${source}\nreturn createQualificationHost;`)(...Object.values(ports));
+  const host = factory({ ...hostOptions(directory), launchBrowser(_settings, lifetime) {
+    assert.equal(lifetime.timeoutMs, 20 * 60_000);
+    lifetime.registerProcessGroup({ watchdogArmed: true, kill() {} });
+    return browser;
+  } });
+  t.after(() => host.close());
+  const runSample = async (options = input) => {
+    const run = createHash('sha256').update(options.runId).digest('hex').slice(0, 24);
+    const sample = createHash('sha256').update(`${options.runId}:${options.item.sampleId ?? options.item.id}`).digest('hex').slice(0, 24);
+    countPath = join(directory, run, `candidate-post-measurement-${sample}.json`);
+    return host.runSample({ ...options, onTiming(event) { timings.push(event); options.onTiming(event); } });
+  };
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  return { runSample, delivered: delivered.promise, warnings, acknowledgements, timings, countPath: () => countPath };
+}
+
+for (const [reason, message] of Object.entries(QUALIFICATION_SAMPLE_FAILURES)) {
+  test(`measured server settlement ${reason} aborts promptly with its cause in failure.json`, { timeout: 5000 }, async t => {
+    const h = await settlementFixture(t, { reason, pendingMedia: true });
+    await assertFailureDiagnostic(t, h.runSample, 'candidate', false, message);
+    assert.deepEqual(h.timings, [], 'a server failure is not a post-measurement event');
+  });
+}
+
+for (const refusal of ['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop']) {
+  for (const reason of Object.keys(QUALIFICATION_SAMPLE_FAILURES)) {
+    test(`${refusal} followed by ${reason} preserves only the expected missing-audio consequence`, { timeout: 5000 }, async t => {
+      const h = await settlementFixture(t, { reason, refusal });
+      const expected = reason === 'missing-audio' && refusal !== 'missing-playback-stop';
+      await assert.rejects(h.runSample(), error => {
+        assert.equal(error instanceof IncompleteMediaEvidence, expected);
+        assert.equal(error.reason, expected ? refusal : reason); return true;
+      });
+      assert.deepEqual(h.timings, []);
+    });
+  }
+}
+
+test('late lane events and sample-complete admission stay counted after measurement', { timeout: 5000 }, async t => {
+  const h = await settlementFixture(t, { lateEvents: true });
+  assert.equal((await h.runSample()).hypothesis, 'Wien');
+  assert.equal(h.timings.length, 4);
+  assert.ok(h.timings.every(event => event.kind === 'post-measurement'));
+  assert.deepEqual(h.acknowledgements.map(row => row.refused), ['sample-complete']);
+  assert.deepEqual(JSON.parse(await readFile(h.countPath())), { counts: { 'post-measurement': 4 } });
+});
+
+for (const outcome of ['result', 'failure', 'refusal']) {
+  test(`count write failure preserves the original ${outcome} and records no values`, { timeout: 5000 }, async t => {
+    const h = await settlementFixture(t, { countWriteFailure: true,
+      ...(outcome === 'failure' ? { reason: 'stop-failed' } : outcome === 'refusal' ? { reason: 'missing-audio', refusal: 'late-first-audio' } : {}) });
+    if (outcome === 'result') assert.equal((await h.runSample()).hypothesis, 'Wien');
+    else await assert.rejects(h.runSample(), error => {
+      assert.equal(error.reason, outcome === 'failure' ? 'stop-failed' : 'late-first-audio'); return true;
+    });
+    assert.deepEqual(h.warnings, [['Qualification post-measurement count write failed', { code: 'QUALIFICATION_COUNT_WRITE_FAILED' }]]);
+    assert.ok(!JSON.stringify(h.warnings).includes(sentinel));
+  });
+}
+
+test('a rejected close acknowledgement preserves an observed server failure', { timeout: 5000 }, async t => {
+  const h = await settlementFixture(t, { reason: 'stop-failed', closeFailure: true });
+  await assert.rejects(h.runSample(), { reason: 'stop-failed' });
+});
+
+test('an expected refusal consequence cannot hide a subsequent close failure', { timeout: 5000 }, async t => {
+  const h = await settlementFixture(t, { reason: 'missing-audio', refusal: 'late-first-audio', closeFailure: true });
+  await assert.rejects(h.runSample(), { reason: 'stop-failed' });
+});
+
+test('an unknown server failure uses the fixed generic reason without trusting its payload', { timeout: 5000 }, async t => {
+  const h = await settlementFixture(t, { reason: sentinel, refusal: 'late-first-audio' });
+  await assert.rejects(h.runSample(), { reason: 'sample-failed', message: QUALIFICATION_SAMPLE_FAILURES['sample-failed'] });
+});
+
 test('null-device refusal persists physicalBrowserMedia before control/admission and kills launcher group', async t => {
   const fixture = await keysFixture(t), evidence = { renderingVerified: false, labelledAudioOutputs: 0, outputLatency: 0 };
   let killed = 0;
@@ -680,6 +806,30 @@ for (const action of ['measurement-terminal', 'close']) test(`server ${action} f
   assert.deepEqual(await admit(attemptSpec('late-attempt')), { refused: 'sample-complete' });
   assert.equal(budget.snapshot().records.length, 0);
 });
+
+for (const reason of [...Object.keys(QUALIFICATION_SAMPLE_FAILURES), 'untyped', 'invalid-pcm']) {
+  test(`server publishes only a fixed settlement for ${reason} after measurement`, async t => {
+    const { control } = await controlFixture(t);
+    const answer = Promise.withResolvers(); answer.promise.catch(() => {});
+    const mount = createQualificationMount({ enabled: true, control, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+      authenticateRelay: () => 'owner', networkRelay: { handle() {} },
+      async createSample() { return { grant: {}, result: answer.promise, async close() {} }; } });
+    t.after(() => mount.close());
+    const post = async input => {
+      const response = await mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+        headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': control.capability }, body: JSON.stringify(input) }));
+      assert.equal(response.status, 200); return response.json();
+    };
+    const { sampleId } = await post({ action: 'start', lane: 'candidate', runId: control.runId, item: { id: 'one' } });
+    assert.equal((await post({ action: 'poll', sampleId })).event.type, 'ready');
+    await post({ action: 'measurement-terminal', sampleId });
+    if (reason === 'invalid-pcm') answer.resolve({ ttsPCM: null });
+    else answer.reject(reason === 'untyped' ? Object.assign(new Error(sentinel), { reason: 'missing-audio' }) : new QualificationSampleFailure(reason));
+    const expected = reason === 'untyped' ? 'sample-failed' : reason === 'invalid-pcm' ? 'pcm-bound' : reason;
+    assert.deepEqual((await post({ action: 'poll', sampleId })).event,
+      { type: 'failure', reason: expected, error: QUALIFICATION_SAMPLE_FAILURES[expected] });
+  });
+}
 
 for (const dispatched of [false, true]) test(`measurement fence preserves an already ${dispatched ? 'dispatched' : 'reserved'} attempt`, async t => {
   const { control, budget } = await controlFixture(t);

@@ -26,7 +26,7 @@ window.composedQualification = {
         scripted.stopInput();
         // CDP carries the control capability only in Node. Start both fences in
         // this callback, before yielding to another product event or user turn.
-        fencing = window.qualificationMeasurementTerminal(); fencing.catch(() => {});
+        fencing = window.qualificationMeasurementTerminal(result); fencing.catch(() => {});
         closeSession()?.catch(() => {});
         done.resolve(result);
       } catch (error) { mediaFailure ??= error; done.reject(error); }
