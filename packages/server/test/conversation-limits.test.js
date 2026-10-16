@@ -170,6 +170,7 @@ test('AIT-261: legacy owner guard recovery keeps the exact deadline on its origi
 for (const paused of [true, false]) for (const deletion of ['retention', 'session', 'owner', 'withdrawal with erasure']) {
   test(`AIT-268: ${deletion} removes pause=${paused}, deadline and refusal rows`, async t => {
     const f = fixture(t, { ownerGuard: true }), session = await f.create();
+    const ownerHash = f.storage.get(session.id).ownerHash;
     const seed = (id, token) => {
       f.storage.setOwnerPaused(token, paused, id);
       f.storage.transitionCredits(id, token, { type: 'start', now: epoch });
@@ -181,7 +182,7 @@ for (const paused of [true, false]) for (const deletion of ['retention', 'sessio
       const other = await f.create(); ids.push(other.id); seed(other.id, owner);
     }
     const foreign = f.storage.create({ ownerToken: 'foreign-owner' }); seed(foreign.id, 'foreign-owner');
-    const ownerRows = () => f.storage.db.prepare('SELECT * FROM owner_credit_guards WHERE owner_hash=?').all(session.ownerHash);
+    const ownerRows = () => f.storage.db.prepare('SELECT * FROM owner_credit_guards WHERE owner_hash=?').all(ownerHash);
     assert.equal(ownerRows().length, 1, 'the preference must exist before deletion');
     for (const id of ids) for (const table of ['conversation_credit_guards', 'lane_failures']) {
       assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE session_id=?`).get(id).n, 1);
@@ -208,6 +209,7 @@ for (const paused of [true, false]) for (const deletion of ['retention', 'sessio
 
 test('AIT-268: a manual pause carries over New/reset and restart, then follows its source session erasure', async t => {
   const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), source = await f.create();
+  const ownerHash = f.storage.get(source.id).ownerHash;
   assert.equal((await f.call(`/api/sessions/${source.id}/pause`, { paused: true })).status, 200);
   assert.equal((await f.create()).paused, true);
   const reset = await (await f.call(`/api/library/${source.id}/reset`, {})).json();
@@ -215,25 +217,26 @@ test('AIT-268: a manual pause carries over New/reset and restart, then follows i
   await f.close();
   const restarted = fixture(t, { path, ownerGuard: true });
   assert.equal((await restarted.create()).paused, true);
-  const record = JSON.parse(restarted.storage.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(source.ownerHash).record);
+  const record = JSON.parse(restarted.storage.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).record);
   assert.deepEqual(record, { sessionId: source.id, paused: true });
   assert.equal((await restarted.call(`/api/sessions/${source.id}/erase`, {})).status, 200);
-  assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards WHERE owner_hash=?').get(source.ownerHash).n, 0);
+  assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).n, 0);
   assert.equal((await restarted.create()).paused, false);
 });
 
 test('AIT-268: startup binds legacy pause rows and removes orphaned or erased guards', async t => {
   const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), live = await f.create();
+  const ownerHash = f.storage.get(live.id).ownerHash;
   const erased = f.storage.create({ ownerToken: 'erased-owner' }); f.storage.erase(erased.id);
   const orphanHash = 'a'.repeat(64);
-  for (const ownerHash of [live.ownerHash, erased.ownerHash, orphanHash]) {
-    f.storage.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?)').run(ownerHash, JSON.stringify({ paused: true }));
+  for (const legacyOwnerHash of [ownerHash, erased.ownerHash, orphanHash]) {
+    f.storage.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?)').run(legacyOwnerHash, JSON.stringify({ paused: true }));
   }
   f.storage.db.prepare('INSERT INTO conversation_credit_guards VALUES (?,?)').run(erased.id, JSON.stringify({ sessionId: erased.id, paused: true }));
   await f.close();
   const restarted = fixture(t, { path, ownerGuard: true });
   assert.deepEqual(restarted.storage.db.prepare('SELECT * FROM owner_credit_guards').all().map(row => ({ ...row, record: JSON.parse(row.record) })),
-    [{ owner_hash: live.ownerHash, record: { paused: true, sessionId: live.id } }]);
+    [{ owner_hash: ownerHash, record: { paused: true, sessionId: live.id } }]);
   assert.deepEqual(restarted.storage.db.prepare('SELECT * FROM conversation_credit_guards WHERE session_id=?').all(erased.id), []);
   assert.equal((await restarted.create()).paused, true);
   assert.equal((await restarted.call(`/api/sessions/${live.id}/erase`, {})).status, 200);
