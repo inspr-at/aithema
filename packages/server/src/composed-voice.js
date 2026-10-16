@@ -167,7 +167,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   function createPlayback(revision, turnSignal, replyId) {
     const queue = audioQueue(replyAudioBytes), controller = new AbortController(), fragments = [];
     const signal = AbortSignal.any([turnSignal, controller.signal]), opts = options(signal);
-    let bytes = 0, chunks = 0, endAt, failure;
+    let bytes = 0, chunks = 0, endAt, speaking = false, failure;
     const valid = () => !signal.aborted && revision === playbackRevision && output && current();
     const drain = () => {
       while (fragments[0]?.ended && fragments[0].pending === 0) fragments.shift().drained.resolve();
@@ -187,8 +187,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         if (fragments.length === 2) await voiceOperation(opts, () => fragments[0].drained.promise);
         if (failure) throw failure;
         if (!valid()) return;
-        const fragment = { drained: Promise.withResolvers(), pending: 0, generated: 0, ended: false, speaking: false };
+        const fragment = { drained: Promise.withResolvers(), pending: 0, generated: 0, ended: false };
         fragments.push(fragment);
+        speaking = false;
         return fragment;
       },
       endSpeak(fragment) { fragment.ended = true; drain(); },
@@ -215,7 +216,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             while ((delay = frameEndAt - now() - leadMs) > 0) await playbackDelay(delay, opts);
             if (!valid()) return;
             endAt = Math.max(frameEndAt, now() + durationMs);
-            if (!fragment.speaking) { fragment.speaking = true; event({ type: 'speaking' }); }
+            if (!speaking) { speaking = true; event({ type: 'speaking' }); }
             await voiceOperation(opts, () => {
               // The speaking event can synchronously trigger silence. Fence
               // publication again inside the host callback.

@@ -127,7 +127,7 @@ for (const format of ['pcm_s16le', 'pcm_f32le']) {
     assert.ok(h.scheduled.length > 3);
     for (let i = 1; i < h.scheduled.length; i++) {
       const previousEnd = h.scheduled[i - 1].start + h.scheduled[i - 1].duration;
-      assert.ok(Math.abs(h.scheduled[i].start - previousEnd) < 0.000001, 'no gap or overlap in the player timeline, including sentence boundaries');
+      assert.ok(Math.abs(h.scheduled[i].start - previousEnd) < 0.000001, `no gap or overlap at frame ${i}: previous end ${previousEnd}, next start ${h.scheduled[i].start}`);
     }
     assert.ok(!h.events.some(event => event.type === 'waiting'));
   });

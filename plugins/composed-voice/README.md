@@ -102,7 +102,7 @@ it cannot raise the qualification socket's payload or backlog allowance.
 
 `test/provider-pacing.test.js` covers bounded arrival, ordering and L, eager final
 accounting, dispatch before the preceding fragment's last paced frame, byte/chunk
-overflow, and two fragments filling the 32 MB queue interrupted by barge-in,
+overflow, and two buffered fragments interrupted by barge-in,
 explicit interruption, output-off, pause, close, lease expiry and spend expiry.
 The round-1 `egress.test.js` continues to cover both formats, sentence ordering,
 provider gaps, HTTP relay/player traversal and stale-frame fencing. Three-sentence

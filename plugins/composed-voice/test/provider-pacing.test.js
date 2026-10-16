@@ -217,6 +217,7 @@ for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 24
     assert.ok(peak < 2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000, 'never reaches the derived queue ceiling');
     assert.ok(lastAt - firstAt >= 2_499_000, 'one-second lead spans the whole reply');
     assert.equal(h.coordinator.state.state, 'active');
+    t.diagnostic(`${dispatches.length} fragments; peak retained PCM ${peak} B; two-fragment allowance ${2 * fragmentBytes} B; queue bound ${2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000} B`);
     assert.ok(!h.events.some(event => event.type === 'waiting'));
     assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatches.length, 'accounting once per speak');
   });
