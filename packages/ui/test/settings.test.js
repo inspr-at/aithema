@@ -194,7 +194,7 @@ test('AIT-147 verify: an explicit voice-call notice keeps the unsaved draft in S
   h.root.querySelector('.voice-start').click(); await tick(6);
   h.q('.verify-entry').click(); await tick(10);
   assert.equal(h.dialog.open, true); assert.equal(h.root.querySelector('dialog.verify-dialog').open, false);
-  assert.equal(h.posts.length, 1); assert.equal(h.q('.notice-text').textContent, de.settings.callActive);
+  assert.equal(h.posts.length, 1); assert.equal(h.q('.notice-body .notice-text').textContent, de.settings.callActive);
   assert.equal(h.q('#settings-effort').value, '2');
 });
 
@@ -272,10 +272,10 @@ test('host refusals and conflicts never retry: the acknowledged choice stays and
   } }));
   deliver = event => h.c.receive(event);
   h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
-  assert.equal(h.q('.notice-text').textContent, en.settings.notAllowed.replace('{reason}', en.reasons['model not offered']));
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.notAllowed.replace('{reason}', en.reasons['model not offered']));
   assert.equal(h.q('[data-select="model"] .select__value').textContent, 'Mock reasoning'); assert.equal(h.q('.save-retry').dataset.visible, 'false');
   h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
-  assert.equal(h.q('.notice-text').textContent, en.settings.conflict);
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.conflict);
   assert.equal(h.q('[data-select="model"] .select__value').textContent, 'Deep (mock)', 'the saved choice from the other window is shown');
   assert.equal(h.posts.length, 2);
 });
@@ -291,9 +291,12 @@ test('a running voice call keeps its choice until the visitor explicitly ends it
   await opened(h);
   h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
   assert.equal(h.posts.length, 0, 'no change is sent while the call runs');
-  assert.equal(h.q('.notice-text').textContent, en.settings.callActive);
-  assert.equal(h.q('.notice-action').textContent, en.settings.endCallApply); assert.equal(h.q('.notice-action').hidden, false);
-  h.q('.notice-action').click(); await tick(10);
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.callActive);
+  const tallest = [en.settings.callActive, en.settings.toDevice, en.settings.fromDevice, en.settings.consentRequired, en.settings.running,
+    en.settings.conflict, en.settings.notAllowed.replace('{reason}', '')].reduce((a, b) => b.length > a.length ? b : a);
+  assert.equal(h.q('.notice-measure .notice-text').textContent, tallest, 'AIT-245: the hidden measurement copy keeps the tallest notice');
+  assert.equal(h.q('.notice-body .notice-action').textContent, en.settings.endCallApply); assert.equal(h.q('.notice-body .notice-action').hidden, false);
+  h.q('.notice-body .notice-action').click(); await tick(10);
   assert.equal(closed.length, 1, 'the visitor ends the call explicitly');
   assert.equal(h.posts.length, 1); assert.equal(h.posts[0].model, 'mock/deep'); assert.equal(h.c.session.settings.model, 'mock/deep');
 });
@@ -303,8 +306,8 @@ test('a choice that needs consent is saved and the host is asked for consent out
   let asked; h.c.addEventListener('aithema-consent', event => { asked = event.detail; });
   h.q('.preset-option[data-preset="custom"]').click(); await tick(6);
   assert.deepEqual(h.posts[0], { processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0, confirm: true });
-  assert.equal(h.q('.notice-text').textContent, en.settings.consentRequired);
-  h.q('.notice-action').click(); await tick();
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.consentRequired);
+  h.q('.notice-body .notice-action').click(); await tick();
   assert.equal(h.dialog.open, false, 'the host consent interface is outside the modal');
   assert.deepEqual(asked, { sessionId: h.c.session.id, reason: 'settings', features: ['text', 'analysis'] });
 });
@@ -314,9 +317,9 @@ test('crossing the device boundary in a started conversation starts a new conver
   let requested; h.c.addEventListener('aithema-new-conversation', event => { requested = event.detail; });
   h.q('.preset-option[data-preset="device"]').click(); await tick(6);
   assert.equal(h.posts.length, 0);
-  assert.equal(h.q('.notice-text').textContent, en.settings.toDevice); assert.equal(h.q('.notice-action').textContent, en.settings.startDevice);
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.toDevice); assert.equal(h.q('.notice-body .notice-action').textContent, en.settings.startDevice);
   assert.equal(h.q('[data-select="voice"] .select__button').getAttribute('aria-disabled'), 'true', 'device keeps voice unavailable');
-  h.q('.notice-action').click(); await tick();
+  h.q('.notice-body .notice-action').click(); await tick();
   assert.deepEqual(requested, { processingPreset: 'device', settings: {}, previousSessionId: h.c.session.id, confirm: true });
   assert.equal(h.dialog.open, false);
 });
