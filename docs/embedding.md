@@ -108,6 +108,12 @@ unpredictable token when creating a session and retain it for every subsequent
 request. A framework host should pass its own authenticated `ownership.token`
 port (for example, its HttpOnly visitor cookie). A session ID alone is never
 ownership. `POST /api/sessions` takes JSON and returns the public session.
+The optional `ownership.created(response, ownerToken, request)` hook runs once
+before returning a successful 201 from every session-creating route:
+`POST /api/sessions`, `POST /api/library`, and `POST /api/library/:id/reset`.
+Use it to set or renew the host's owner cookie; failed requests do not call it.
+After upgrading to a release containing AIT-217, START can remove its
+`compose.js` wrapper that calls `ownership.created` for the two library 201s.
 `GET /api/sessions/:id/events` supplies durable SSE replay; `/export` downloads
 the provenance-preserving ZIP. See the root README's route tables for commands,
 settings, uploads, withdrawal, concepts, and host routes.
