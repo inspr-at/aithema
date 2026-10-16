@@ -11,7 +11,8 @@ export default async function* browserTimings(source) {
   for await (const { type, data } of source) {
     if ((type === 'test:pass' || type === 'test:fail') && data.nesting === 0) {
       yield `${JSON.stringify({ type, file: data.file, name: data.name, seconds: data.details.duration_ms / 1000,
-        skip: Boolean(data.skip), todo: Boolean(data.todo) })}\n`;
+        skip: Boolean(data.skip), todo: Boolean(data.todo),
+        ...(type === 'test:fail' ? { error: data.details.error?.cause?.stack ?? data.details.error?.stack } : {}) })}\n`;
     }
     if (type === 'test:summary') yield `${JSON.stringify({ type, ...data })}\n`;
   }

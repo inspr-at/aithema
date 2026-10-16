@@ -162,6 +162,15 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
             }
           }
         }
+        // Accepted requests still use the real route and extractor. Serialise
+        // those fixture batches through extraction completion: an earlier
+        // pending upload can otherwise change inputRevision while the next
+        // multipart body is being parsed, legitimately producing another 429.
+        // Real backoff used to conceal that race with a five-second sleep.
+        if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
+          const c = document.querySelector('aithema-session');
+          while (c.session.uploads.some(upload => upload.state === 'pending')) await new Promise(resolve => setTimeout(resolve, 10));
+        }
         const response = await original(url, options);
         if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
           const body = await response.clone().json();

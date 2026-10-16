@@ -10,7 +10,7 @@ const sample = (runId = '1', seconds = 10) => ({ runId, attempt: 1, sha, observe
 const artifact = overrides => [
   { type: 'run', schema: 1, runId: '123', attempt: 1, sha, observedAt: '2026-10-16T12:00:00Z', files: { [file]: workload } },
   { type: 'test:pass', file: `/checkout/${file}`, name: 'first', seconds: 2, skip: false, todo: false },
-  { type: 'test:summary', success: true, counts: { failed: 0, cancelled: 0, skipped: 0, todo: 0 } },
+  { type: 'test:summary', success: true, counts: { failed: 0, cancelled: 0, skipped: 0, todo: 0, topLevel: 1 } },
 ].map((record, index) => JSON.stringify({ ...record, ...overrides?.[index] })).join('\n');
 
 test('nearest-rank rolling p95 uses measured observations, including a warming window', () => {

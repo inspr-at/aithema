@@ -67,35 +67,55 @@ Browser launches use a 60 s default per attempt (caller overrides preserved), wi
 
 ## Browser shard weights
 
-Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`:
+Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
+The `seconds` value is the sum of **measured per-test rolling p95** durations,
+without historical floors, ten-second buckets or added padding. Packing remains
+deterministic LPT across **six** bins. `npm run test:browser-shards` checks
+complete, exactly-once coverage and the **420 s per-bin ceiling**; this leaves
+headroom for installation, Chrome startup, process cleanup and artifact upload
+within the unchanged ten-minute job timeout. Required check names stay unchanged.
 
-```json
-{
-  "seconds": 90,
-  "evidence": "CI 38774634960-1: 76.396s; rounded up + 10s margin"
-}
+Each CI shard writes `browser-timings-N-of-6` artifacts (14-day retention).
+`scripts/browser-timing-reporter.js` records passing top-level `node:test`
+durations in seconds alongside the run ID, attempt, commit and workload hash.
+Nested subtests are excluded because their parent's duration already includes
+them. Failed, cancelled, skipped, todo or incomplete batches cannot enter the
+measurement set. Remote runs remain useful for profiling and UI evidence;
+GitHub CI is the planner's comparable timing source.
+
+Refresh from the latest 20 successful main CI runs, or include a green feature
+PR run to measure its new workload before merging:
+
+```sh
+npm run update:browser-timings
+npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
+npm run update:browser-timings -- --artifacts DOWNLOADED_TIMING_DIRECTORY
+npm run test:browser-shards
 ```
 
-Sibling files keep additions and refreshes independent of a shared manifest and
-avoid changing executable tests just to refresh timings. Discovery reads each
-sibling; missing files, malformed JSON, nonpositive seconds or empty evidence
-fail the shard guard with the offending path. No shared list needs editing.
-Orphaned `.weight.json` files also fail the guard; remove or rename the sibling measurement when removing or renaming a test.
+The script downloads only the small timing artifacts through the selected `gh`
+account. It also accepts an already downloaded directory for reproducible offline
+updates. It validates all input before writing siblings, deduplicates run/attempt
+pairs, and retains the latest 20 successful executions **per workload**. For each
+top-level test it selects sorted observation `ceil(0.95 * n)` (nearest rank),
+then sums those p95 values for the file, rounding upward only to millisecond
+precision. During warmup, fewer than 20 samples use that same formula (the
+maximum for 1–19 samples); the sample count and full provenance remain visible.
 
-For a new file, measure it on the designated remote test machine or CI and
-record the run/attempt and observed seconds. Sum top-level test durations only;
-nested subtests are already included. Follow AIT-191: use the slowest observed
-successful per-file duration, round **up** to a 10-second bucket, then add 10s
-for variance (`Math.ceil(slowestSeconds / 10) * 10 + 10`). On refresh, retain
-slower historical observations and never reduce an existing planning weight
-because a newer run is faster. Preserve the historical floor and measurement
-provenance in `evidence`. Estimates exclude setup, process overhead and evidence
-upload; validate whole-job wall time against the 450s budget separately.
+The workload hash covers the test plus transitive statically referenced helpers
+and fixtures under `test/`. Changing those inputs starts a fresh series when a
+matching successful CI artifact arrives; old slow workloads are not permanent
+floors. Product implementation changes remain in the rolling window. Artifacts
+for older workload hashes are ignored, and files without matching observations
+stay unchanged. Review sibling changes with the code, then commit the generated
+measurements. New files need a measured sibling before joining the required
+suite. Missing, malformed, nonpositive, inconsistent or orphaned measurements
+fail the guard. The updater never changes the shard count, budget or checks.
 
-`test/browser-shards.test.js` checks weight parsing, missing weights and stale measurements.
-Adding a browser test requires only its own sibling `.weight.json`; refreshing a
-measurement edits only that sibling file. Algorithm unit tests use inline data,
-so neither operation requires updating a shared fixture.
+`test/browser-shards.test.js` covers discovery, exact coverage, deterministic
+packing and the live budget. `test/browser-timings.test.js` covers percentile
+selection, window eviction, provenance, invalid/incomplete imports, workload
+changes, duplicate runs and per-test coverage consistency.
 
 AIT-216 final regeneration evidence (2026-10-16): main
 `429b72f277119e2204e8478d6629ac8787ffb190` was merged with signoff, without

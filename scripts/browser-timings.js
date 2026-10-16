@@ -93,6 +93,9 @@ export function parseTimingArtifact(text) {
     if (!file || record.type !== 'test:pass' || record.skip || record.todo) throw new Error('Unsuccessful or unassigned browser timing');
     tests.get(file).push({ name: record.name, seconds: record.seconds });
   }
+  if (summary.counts.topLevel !== [...tests.values()].reduce((sum, values) => sum + values.length, 0)) {
+    throw new Error('Incomplete top-level timing coverage');
+  }
   return Object.fromEntries(files.map(file => {
     const sample = { runId: header.runId, attempt: header.attempt, sha: header.sha,
       observedAt: header.observedAt, tests: tests.get(file).sort((a, b) => compare(a.name, b.name)) };

@@ -1,6 +1,6 @@
 // Read-only GitHub access; writes only measured sibling .weight.json files.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,11 +17,12 @@ for (let i = 0; i < args.length; i++) {
 }
 const gh = (...args) => execFileSync('gh', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const observations = new Map();
-function readDirectory(directory) {
+function readDirectory(directory, expectedRun) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) readDirectory(path);
+    if (entry.isDirectory()) readDirectory(path, expectedRun);
     else if (entry.name.endsWith('.jsonl')) for (const [file, observation] of Object.entries(parseTimingArtifact(readFileSync(path, 'utf8')))) {
+      if (expectedRun && observation.sample.runId !== expectedRun) throw new Error('Timing artifact run provenance mismatch');
       if (!observations.has(file)) observations.set(file, []);
       observations.get(file).push(observation);
     }
@@ -41,12 +42,13 @@ try {
     if (new Set(artifacts.map(artifact => artifact.name)).size !== 6) throw new Error(`CI ${runId}: incomplete six-shard timing artifacts`);
     const directory = join(temporary, runId);
     gh('run', 'download', runId, '--pattern', 'browser-timings-*-of-6', '--dir', directory);
-    readDirectory(directory);
+    readDirectory(directory, runId);
   }
   for (const directory of directories) readDirectory(directory);
   if (!observations.size) throw new Error('No complete CI timing observations found');
   const writes = [];
   for (const [file, values] of observations) {
+    if (!existsSync(resolve(root, file))) { console.log(`${file}: removed test; ignored`); continue; }
     const workload = browserWorkload(file, root), path = resolve(root, file.replace(/\.test\.js$/u, '.weight.json'));
     let previous;
     try { previous = JSON.parse(readFileSync(path, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
