@@ -122,14 +122,18 @@ export class AudioRail {
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
     const range = this.root.ownerDocument.createRange();
     range.selectNodeContents(label);
-    // A quiet consent action is a sibling inline box. Measure the whole line's
-    // ink, including both the sentence and its action. Centred wrapped lines
-    // share an axis, so their horizontal union is the widest painted line.
+    // Include every rendered line and any inline consent action. Measure their
+    // actual position: held-call copy can borrow the adjacent pause cell.
     const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
-    const half = rects.length ? (Math.max(...rects.map(rect => rect.right)) - Math.min(...rects.map(rect => rect.left))) / 2 : 0;
-    // Only paint changes: the label and every control keep their existing layout boxes.
+    const bounds = wave.getBoundingClientRect();
+    const left = rects.length ? Math.min(...rects.map(rect => rect.left)) : bounds.left + bounds.width / 2;
+    const right = rects.length ? Math.max(...rects.map(rect => rect.right)) : left;
+    const half = (right - left) / 2;
+    // Only paint changes. The clear gap, fades and 24px useful flanks never
+    // resize a label, control or the bar when its state changes.
     wave.style.setProperty('--voice-label-half', `${half}px`);
-    wave.toggleAttribute('data-short-flanks', wave.getBoundingClientRect().width / 2 - half - 8 < 24);
+    wave.style.setProperty('--voice-label-center', `${(left + right) / 2 - bounds.left - bounds.width / 2}px`);
+    wave.toggleAttribute('data-short-flanks', Math.min(left - bounds.left, bounds.right - right) - 16 < 24);
   }
   // Both checks matter: a provider can end without changing the generation, and a new call can reuse a session object.
   current(session, generation) { return session === this.session && generation === this.generation; }

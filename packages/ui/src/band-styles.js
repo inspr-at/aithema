@@ -34,8 +34,10 @@ export const bandStyles = `
 .audio-rail[data-moved] .pause:disabled { opacity:1; }
 .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
-.voice-wave { height:30px; --voice-label-half:0px;
-  mask-image:linear-gradient(to right,#000 calc(50% - var(--voice-label-half) - 8px),transparent calc(50% - var(--voice-label-half)),transparent calc(50% + var(--voice-label-half)),#000 calc(50% + var(--voice-label-half) + 8px)); }
+/* Leave 8px of fully clear space outside the text before each 8px fade.
+   The measured centre also follows off-centre consent and reconciliation copy. */
+.voice-wave { height:30px; --voice-label-half:0px; --voice-label-center:0px;
+  mask-image:linear-gradient(to right,#000 calc(50% + var(--voice-label-center) - var(--voice-label-half) - 16px),transparent calc(50% + var(--voice-label-center) - var(--voice-label-half) - 8px),transparent calc(50% + var(--voice-label-center) + var(--voice-label-half) + 8px),#000 calc(50% + var(--voice-label-center) + var(--voice-label-half) + 16px)); }
 .voice-wave[data-short-flanks] { visibility:hidden; }
 /* Keep the accepted phone baseline hidden; the observer also hides short flanks at wider sizes. */
 @container (width < 184px) { .voice-wave { visibility:hidden; } }

@@ -306,7 +306,7 @@ export async function displayMatrix(t, section) {
       for (locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const wave = await shadow(page, c => { const n = c.shadowRoot.querySelector('.voice-wave'), style = getComputedStyle(n), rect = n.getBoundingClientRect();
-          return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - 8, visibility: style.visibility }; });
+          return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - Math.abs(parseFloat(style.getPropertyValue('--voice-label-center'))) - 16, visibility: style.visibility }; });
         assert.ok(wave.width > 0 && wave.height === 30, 'visibility keeps the reserved box');
         assert.equal(wave.visibility, wave.width >= 184 && wave.flank >= 24 ? 'visible' : 'hidden', JSON.stringify({ width, locale, ...wave }));
         await shot('band-amended', width, 'light');
@@ -330,7 +330,7 @@ export async function displayMatrix(t, section) {
         await shot('r2-band', width, 'light');
       }
     });
-    await t.test('r3 status: widest rendered line gets the same 8px fade on one/two lines, no pixels beneath text and no control shift', async () => {
+    await t.test('AIT-239 status: one/two lines keep 8px clear space plus 8px fade, no waveform under text and no control shift', async () => {
       for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('ready');
         const single = await statusGeometry(page);
@@ -344,7 +344,7 @@ export async function displayMatrix(t, section) {
         const label = await statusGeometry(page), renderedWidth = Math.max(...label.rendered.map(r => r.width));
         assert.ok(Math.abs(label.half - renderedWidth / 2) <= .5, `${width}/${theme}/${locale}: rendered-line hole ${JSON.stringify(label)}`);
         if (width >= 600) for (const [i, gap] of label.gaps.entries()) {
-          assert.ok(Math.abs(gap - 8) <= .5, `8px fade beside the widest line: ${JSON.stringify(label)}`);
+          assert.ok(Math.abs(gap - 16) <= .5, `8px clear space plus 8px fade beside the widest line: ${JSON.stringify(label)}`);
           assert.ok(Math.abs(gap - single.gaps[i]) <= 2, 'one-line and wrapped text have the same gap (±2px)');
         }
         assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
