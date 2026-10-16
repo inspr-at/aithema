@@ -14,6 +14,14 @@ the empty-canvas promise. Capability removal while folded restores the transcrip
 A configured host can fold without a price quote, and existing drafts remain
 readable through temporary generation restrictions. The fold retains its edge slot
 and keyboard focus target (`aria-disabled`) without moving composer controls.
+The unit regressions cover HTML/image capability state, cached drafts and late
+canvas responses. Browser CI checks actual transcript/canvas visibility and
+zero-shift fold attempts at phone and desktop sizes in DE/EN, switching host
+configuration in the same page. Evidence runs separately with the complete
+1440/1024/390 × light/dark × DE/EN matrix; CI artifact paths do not enable captures.
+The question-card browser sweep retains all width-specific geometry and native
+keyboard/voice checks, with representative visual-viewport heights around the
+620px compact breakpoint; evidence keeps the exhaustive 8px height sweep.
 
 ## Allowed edges
 
