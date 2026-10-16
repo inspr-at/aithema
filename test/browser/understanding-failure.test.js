@@ -121,7 +121,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
       c.shadowRoot.addEventListener('focusin', event => { if (event.target.matches('.overview-retry, .retry')) window.retryFocusPulls.push(event.target.className); });
     });
     await page.evaluate((verdict, held) => { window.heldCredits = held; return fetch('/settle?verdict=' + verdict); }, verdict, held);
-    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden · Erneut versuchen' : "The overview couldn't be built just now · Try again";
+    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden\u00a0· Erneut versuchen' : "The overview couldn't be built just now\u00a0· Try again";
     await page.waitForFunction(expected => document.querySelector('aithema-session').shadowRoot.querySelector('.notice').textContent === expected, { timeout: 10_000 }, expected);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent !== window.heldCredits, undefined);
     await settle(page);
@@ -201,7 +201,7 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'stuck state never pulls focus from the composer');
     assert.deepEqual(await page.evaluate(() => window.retryFocusPulls), [], 'no intermediate Retry focus');
     await settle(page);
-    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden · Erneut versuchen' : "The overview couldn't be built just now · Try again";
+    const expected = locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden\u00a0· Erneut versuchen' : "The overview couldn't be built just now\u00a0· Try again";
     const state = await shadow(page, c => ({ notice: c.shadowRoot.querySelector('.notice').textContent,
       inline: c.shadowRoot.querySelectorAll('.notice .overview-retry').length,
       disabled: c.shadowRoot.querySelector('.overview-retry')?.disabled,
@@ -348,7 +348,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
       c.configure({ session, copy, host: { credits: true } });
-      window.failedCopy = `${copy.understandingFailed} · ${copy.understandingRetry}`;
+      window.failedCopy = `${copy.understandingFailed}\u00a0· ${copy.understandingRetry}`;
     }, locale, theme);
     await page.evaluate(kind => fetch('/settle?verdict=' + kind), kind);
     await until(page, () => document.querySelector('aithema-session').session.operations?.lastFailure?.lane === 'understanding');
@@ -473,10 +473,10 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       window.bothFailures = structuredClone(c.session.operations);
       c.receive({ type: 'lane.status', data: { ...window.bothFailures, running: ['reaction'] } });
     });
-    assert.deepEqual(await shadow(page, c => ({ hidden: c.shadowRoot.querySelector('.retry').hidden,
-      text: c.shadowRoot.querySelector('.reaction-failure-text').textContent,
-      expected: window.reasoningFailedCopy })), { hidden: true, text: await page.evaluate(() => window.reasoningFailedCopy),
-      expected: await page.evaluate(() => window.reasoningFailedCopy) }, 'hidden Retry leaves the failure sentence without a trailing separator');
+    const hiddenRetry = await shadow(page, c => ({ hidden: c.shadowRoot.querySelector('.retry').hidden,
+      text: c.shadowRoot.querySelector('.reaction-failure-text').textContent, expected: window.reasoningFailedCopy }));
+    assert.equal(hiddenRetry.hidden, true);
+    assert.equal(hiddenRetry.text, hiddenRetry.expected, 'hidden Retry leaves the failure sentence without a trailing separator');
     if ((locale === 'de' && theme === 'light') || (locale === 'en' && theme === 'dark')) await capture(locale, width, theme, 'two-failures-retry-hidden');
     await shadow(page, c => {
       c.receive({ type: 'lane.status', data: window.bothFailures });

@@ -1200,16 +1200,17 @@ export class AithemaSession extends HTMLElement {
     }
     const replyRetry = replyFailed && overviewFailed;
     replyNotice.hidden = !replyFailed;
-    setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed ? `${copy.reasoningFailed}${replyRetry ? ' · ' : ''}` : '');
     // Several failed lanes share one action at the first failure in reading
     // order. Keep its handler and node; the footer row is free for the host action.
     const retry = root.querySelector('.retry'), retrySlot = replyRetry ? replyNotice : root.querySelector('.understanding > .foot');
-    if (retry.parentNode !== retrySlot) retrySlot.append(retry);
+    if (retry.parentNode !== retrySlot) retrySlot.insertBefore(retry, replyRetry ? null : retrySlot.querySelector('.export-reason'));
+    setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed
+      ? `${copy.reasoningFailed}${replyRetry && !retry.hidden && !this.#host?.usedUp ? reasonSeparator : ''}` : '');
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
       (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
     const overviewText = !hasPersonTurn ? copy.empty : preparing ? copy.preparingOverview
-      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ' · '}`
+      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : reasonSeparator}`
       : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply

@@ -27,7 +27,7 @@ function assertInlineRetry(component, message) {
   const root = component.shadowRoot;
   assert.equal(root.querySelector('.retry').hidden, true, message);
   assert.equal(root.querySelector('.overview-retry').hidden, false, message);
-  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed} · ${en.understandingRetry}`, message);
+  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed}\u00a0· ${en.understandingRetry}`, message);
 }
 function understanding(component, draft = false) {
   const session = component.session;
@@ -1068,7 +1068,7 @@ for (const copy of [de, en]) test(`AIT-198 ${copy === de ? 'DE' : 'EN'} missing 
   session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
   c.configure({ copy, session });
   const root = c.shadowRoot;
-  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed} · ${copy.understandingRetry}`);
+  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed}\u00a0· ${copy.understandingRetry}`);
   assert.equal(root.querySelectorAll('.notice .overview-retry').length, 1);
   assert.equal(root.querySelector('.overview-retry').disabled, false);
   assert.equal(root.querySelector('.retry').hidden, true, 'never a bare footer retry next to the placeholder');
@@ -1157,4 +1157,21 @@ test('AIT-197 R5 DE/EN copy has identical recursive key sets', () => {
     assert.equal(typeof copy[key], 'string');
     assert.ok(copy[key].length > 0);
   }
+});
+
+for (const state of ['shown', 'running', 'unavailable']) test(`AIT-221 two failures: ${state} Retry separator and footer return order`, () => {
+  const c = setup(); turn(c, 'person', 'A project detail');
+  const session = c.session;
+  const failures = ['reaction', 'understanding'].map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true }));
+  session.operations = { inputRevision: inputRevision(session), running: state === 'running' ? ['reaction'] : [], failures, lastFailure: failures[1] };
+  if (state === 'unavailable') session.featureMatrix.best.analysis = { available: false, reason: 'not configured' };
+  c.configure({ session, copy: en, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
+  const root = c.shadowRoot, retry = root.querySelector('.retry');
+  assert.equal(retry.hidden, state !== 'shown');
+  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.reasoningFailed}${state === 'shown' ? '\u00a0· ' : ''}`);
+  c.receive({ type: 'lane.status', data: { ...session.operations, running: [], failures: [failures[0]], lastFailure: failures[0] } });
+  const footer = root.querySelector('.understanding > .foot');
+  assert.equal(footer.children[1], retry, 'same Retry returns immediately after export');
+  assert.equal(retry.nextElementSibling, footer.querySelector('.export-reason'));
+  assert.deepEqual([...footer.querySelectorAll('a, button')].map(n => n.className), ['export', 'retry', 'create-project'], 'original keyboard order');
 });
