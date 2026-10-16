@@ -357,6 +357,8 @@ duration or persistence. The demo overlays its own memory-only/restart wording
 in `demo/consent-copy.js`, used by both its host and consent page.
 
 Invalid shapes fail closed before any editable items are exposed. The host's
+server and UI share `validateConsentDocument` from
+`@inspr/aithema-core/consent-document`. The
 `createHandlers({ log })` receives `event: 'consent.document.invalid'` and a
 field-specific `reason` beginning `Invalid consent.describe():`, without
 document values. The HTTP response is a generic 500
