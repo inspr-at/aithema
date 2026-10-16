@@ -1,4 +1,4 @@
 {
-  "seconds": 80,
-  "evidence": "AIT-221 full changed browser file with 390/1024/1440 \u00d7 DE/EN \u00d7 light/dark viewport evidence: mbp2606 55250cf108-54980, 60.692487s, 26/26 pass; rounded up to 70s + 10s margin. Prior AIT-242 observation 51.511s retained below this maximum."
+  "seconds": 110,
+  "evidence": "AIT-221 round 4: CI at 08501a38b6dbe7311cef1763c24fded0c48aaa63, successful browser (3/6), https://github.com/inspr-at/aithema/actions/runs/38902917001/job/116979623809 . All 14 successful root tests (26 tests including subtests) in understanding-failure.test.js total 90.729s; round up to 100s + 10s margin. Replaces the 80s weight based on the earlier mbp2606 60.692487s observation. The preceding CI observation was 92.515s; both CI observations require 110s under the same rounding rule. Main now includes AIT-229 browser savings; shard count and 420s ceiling are unchanged."
 }

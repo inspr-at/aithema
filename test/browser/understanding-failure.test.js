@@ -28,10 +28,12 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  // Reconfigure the same mounted page for each viewport and locale.
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
   for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
-    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     const configure = enabled => shadow(page, async (c, locale, enabled) => {
       const { createSession, inputRevision } = await import('/packages/core/src/index.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -509,13 +511,16 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === window.firstFailureRetry && c.shadowRoot.querySelector('.reaction-failure > .retry') === window.firstFailureRetry), true, 'live status preserves the reply Retry node and keyboard focus');
     await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' }));
     await settle(page);
-    assert.equal(await shadow(page, c => {
+    const retryTarget = await shadow(page, c => {
       const button = c.shadowRoot.querySelector('.retry'), box = button.getBoundingClientRect();
-      return c.shadowRoot.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === button;
-    }), true, 'visible Retry is reachable above the fixed dock');
-    const retryButton = await page.$('aithema-session >>> .retry');
+      const x = box.x + box.width / 2, y = box.y + box.height / 2;
+      return { x, y, reachable: c.shadowRoot.elementFromPoint(x, y) === button };
+    });
+    assert.equal(retryTarget.reachable, true, 'visible Retry is reachable above the fixed dock');
+    // Click the point just hit-tested; avoid resolving and scrolling the same
+    // element again through ElementHandle.click(). This remains a real click.
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')),
-      retryButton.click()]);
+      page.mouse.click(retryTarget.x, retryTarget.y)]);
     assert.equal(response.status(), 202);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await until(page, () => {
