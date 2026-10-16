@@ -1,7 +1,7 @@
 import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { componentInvocation, boundedEvents } from '../../../packages/core/src/voice-components.js';
+import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES } from '../../../packages/core/src/voice-components.js';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
 // Speech API PCM is float32 LE. It must never be sent to a PCM16 player.
@@ -172,7 +172,7 @@ export function createVoxtralTTS({ enabled = false, config: raw, resolveSecret, 
             if (typeof event.audio_data !== 'string' || event.audio_data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(event.audio_data)) throw new PluginError('invalid-output');
             if (event.audio_data.length > 4 * Math.ceil(TTS_MESSAGE_BYTES / 3)) throw new PluginError('limit');
             const bytes = Buffer.from(event.audio_data, 'base64'); totalBytes += bytes.byteLength;
-            if (!bytes.byteLength || bytes.byteLength % 4 || bytes.byteLength > TTS_MESSAGE_BYTES || totalBytes > 16_000_000) throw new PluginError('limit');
+            if (!bytes.byteLength || bytes.byteLength % 4 || bytes.byteLength > TTS_MESSAGE_BYTES || totalBytes > TTS_SPEAK_BYTES) throw new PluginError('limit');
             for (let offset = 0; offset < bytes.byteLength; offset += 64_000) {
               opts.signal.throwIfAborted();
               yield Uint8Array.from(bytes.subarray(offset, offset + 64_000));

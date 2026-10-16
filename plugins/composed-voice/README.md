@@ -43,33 +43,33 @@ the same pacing cursor, so the lookahead hides synthesis latency at boundaries.
 One `speaking` event starts the continuous reply; fragment dispatch does not add
 control polls at sentence boundaries that could delay PCM delivery.
 
-The enforced per-fragment duration allowance is `fragmentCharacters / 4` seconds.
-The source for the conservative rate is [W3C CSS Speech 1, voice-rate](https://www.w3.org/TR/css-speech-1/#voice-rate),
-which gives an illustrative English “x-slow” rate of 80 words/minute. Our explicit
-planning conversion of five characters/word gives 6.67 characters/second;
-**4 characters/second** allows a further 40% slowdown (48 words/minute). This is a
-memory policy, not a guarantee for every language, number expansion or provider.
-Slower or excessive output fails closed with `limit`; a fragment's generated PCM
-is capped even when its earlier bytes have already been relayed.
+The enforced per-fragment bound is **`F = 16,000,000 B`** of generated PCM,
+matching the providers' existing per-speak ceiling. Both providers and the
+coordinator import `TTS_SPEAK_BYTES` from core. The count includes bytes already
+relayed. It is independent of text length, format and speaking rate: number
+expansion, lists of amounts, IBANs and spelled codes can take much longer to
+speak than ordinary prose without triggering a character-derived duration cap.
 
-For output byte rate `R = sampleRateHz × sampleBytes` (mono), a fragment's bound
-`F = ceil(fragmentCharacters / 4 × sampleRateHz) × sampleBytes` rounds up to a
-whole sample. The reply queue bound is **`2 × F + 64,000 B`**: two worst-case
-fragments plus a maximum pacer-held provider chunk. The byte counter includes
-that held chunk until all of its frames finish relaying, making the extra chunk
-reserve conservative. At the default 240 characters and 24 kHz, F = 60 seconds:
-2,880,000 B PCM16 or 5,760,000 B float32, with queue bounds **5,824,000 B PCM16**
-and **11,584,000 B float32**. At the validated maximum 1,000 characters, the
-24 kHz bounds are 24,064,000 B PCM16 and 48,064,000 B float32. Provider per-speak
-limits still apply independently. A **1,024-chunk ceiling**, including the held
-chunk, bounds tiny-chunk metadata. Either byte or chunk overflow is `limit`.
+The reply queue bound is **`2 × F + 64,000 B = 32,064,000 B`** in both formats:
+two worst-case fragments plus a maximum pacer-held provider chunk. The byte
+counter includes that held chunk until all of its frames finish relaying,
+making the extra chunk reserve conservative. One-fragment lookahead keeps
+legitimate retained PCM below this byte ceiling. `audioQueue` allocates as
+chunks arrive; it does not pre-allocate the ceiling, so actual retained PCM is
+at most two real fragments. A **1,024-chunk ceiling**, including the held chunk,
+bounds tiny-chunk metadata. A fragment above F, queue byte overflow or chunk
+overflow fails closed with `limit`; the call's absolute deadlines also apply.
 
 The fake-clock regression streams **30,000 characters at 10× real-time TTS**,
 using 12 spoken characters/second, in both default formats and with 1,000-character
 float32 fragments. Every N+2 dispatch observes N fully relayed, the retained PCM
-never exceeds two fragments or reaches the derived ceiling, all audio arrives in
+never exceeds two real fragments or reaches the queue ceiling, all audio arrives in
 order, and each speak is accounted once. The existing end-to-end three-sentence
 tests still assert a continuous player timeline with 1.5 s synthesis latency.
+Additional fake-clock tests complete a 240-character list of amounts taking
+120 seconds at two source characters/second in both formats, admit two full
+16,000,000 B fragments, and reject a single fragment's first aligned sample
+above that per-speak ceiling.
 Queue memory is bounded per call by the pending-turn ceiling (four by default,
 sixteen maximum), independent of reply length.
 

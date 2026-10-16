@@ -4,7 +4,7 @@ import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { processingScope } from '../../../packages/core/src/presets.js';
 import { consentCoverage } from '@inspr/aithema-core';
-import { componentInvocation, boundedEvents } from '../../../packages/core/src/voice-components.js';
+import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES } from '../../../packages/core/src/voice-components.js';
 import { validateVoiceSettings } from './voice-settings.js';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
@@ -259,7 +259,7 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
           if (typeof event.audio !== 'string' || event.audio.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(event.audio)) throw new PluginError('invalid-output');
           if (event.audio.length > 4 * Math.ceil(TTS_MESSAGE_BYTES / 3)) throw new PluginError('limit');
           const bytes = Buffer.from(event.audio, 'base64'); total += bytes.byteLength;
-          if (!bytes.byteLength || bytes.byteLength % 2 || bytes.byteLength > TTS_MESSAGE_BYTES || total > 16_000_000) throw new PluginError('limit');
+          if (!bytes.byteLength || bytes.byteLength % 2 || bytes.byteLength > TTS_MESSAGE_BYTES || total > TTS_SPEAK_BYTES) throw new PluginError('limit');
           for (let offset = 0; offset < bytes.byteLength; offset += 64_000) {
             opts.signal.throwIfAborted();
             yield Uint8Array.from(bytes.subarray(offset, offset + 64_000));

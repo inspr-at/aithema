@@ -4,14 +4,9 @@ import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { createVoiceLifecycle, reduceVoiceLifecycle } from '@inspr/aithema-core/voice-lifecycle';
 import { recoverableVoiceEnd } from '@inspr/aithema-core/voice-lifecycle';
 import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
-import { audioQueue, boundedEvents } from '../../../packages/core/src/voice-components.js';
+import { audioQueue, boundedEvents, TTS_SPEAK_BYTES } from '../../../packages/core/src/voice-components.js';
 
-// W3C CSS Speech 1 gives an illustrative x-slow rate of 80 words/minute:
-// https://www.w3.org/TR/css-speech-1/#voice-rate
-// With a planning conversion of 5 characters/word that is 6.67 chars/s.
-// Budget at 4 chars/s (48 words/minute), allowing another 40% slowdown.
-// This is an enforced duration allowance, not a provider/language guarantee.
-const MIN_FRAGMENT_CHARACTERS_PER_SECOND = 4, REPLY_AUDIO_CHUNKS = 1024;
+const REPLY_AUDIO_CHUNKS = 1024;
 
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');
@@ -43,10 +38,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   }
   const sampleBytes = outputFormat === 'pcm_s16le' ? 2 : 4;
   const bytesPerSecond = outputAudioFormat.sampleRateHz * sampleBytes;
-  const fragmentAudioBytes = Math.ceil(fragmentCharacters / MIN_FRAGMENT_CHARACTERS_PER_SECOND * outputAudioFormat.sampleRateHz) * sampleBytes;
   // Two bounded fragments plus one maximum provider chunk held by the pacer.
   // bytes below also counts that held chunk, so this reserve is conservative.
-  const replyAudioBytes = 2 * fragmentAudioBytes + 64_000;
+  const replyAudioBytes = 2 * TTS_SPEAK_BYTES + 64_000;
   // L = 1 s at both real 24 kHz formats: 96,000 B float32 / 48,000 B
   // PCM16. Even counting a whole not-yet-completed 64,000 B player frame,
   // 160,000 B < each 256,000 B bound, leaving 96,000 B for polling/startup
@@ -195,7 +189,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       enqueue(value, fragment) {
         if (failure) throw failure;
         if (!valid()) return;
-        if (fragment.generated + value.byteLength > fragmentAudioBytes ||
+        if (fragment.generated + value.byteLength > TTS_SPEAK_BYTES ||
           bytes + value.byteLength > replyAudioBytes || chunks >= REPLY_AUDIO_CHUNKS) throw new PluginError('limit', 'Reply audio queue full');
         bytes += value.byteLength; chunks++; fragment.pending++; fragment.generated += value.byteLength;
         queue.push({ byteLength: value.byteLength, bytes: Uint8Array.from(value), fragment });
