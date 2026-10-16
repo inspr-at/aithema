@@ -584,7 +584,11 @@ for (const refused of [false, true]) test(`baseline terminal outcome fences inpu
     h.silence(h.audio, 2.1);
     assert.equal(h.probe.complete(), true); assert.deepEqual(order, ['input-fence', 'session-close', 'node-close']);
     for (const event of [{ type: 'waiting', reason: 'provider' }, { type: 'waiting', reason: 'not-admitted' },
-      { type: 'ended', reason: 'closure-uncertain' }]) await h.final(event);
+      { type: 'ended', reason: 'closure-uncertain' }]) {
+      // AudioRail renders waiting directly and maps ended:closure-uncertain to
+      // idle; SDK media lifecycle events do not use transcript persistence.
+      h.mode(event.type === 'ended' ? 'idle' : 'waiting');
+    }
     const result = h.probe.result();
     assert.equal(result.refusal, refused ? 'late-first-audio' : undefined);
     assert.equal(result.trace.filter(e => e.kind === 'post-measurement').length, 3);

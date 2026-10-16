@@ -38,12 +38,17 @@ export function installBaselineProbe() {
         if (record.attributeName !== 'data-state' || !record.target.matches('.audio-rail')) continue;
         const next = records.slice(index + 1).find(row => row.target === record.target && row.attributeName === 'data-state');
         const state = next ? next.oldValue : record.target.getAttribute('data-state');
-        if (['waiting', 'failed'].includes(state)) {
-          if (measured) emit({ kind: 'post-measurement' });
-          else failure ??= state === 'waiting' ? 'media-waiting' : 'media-ended';
+        if (measured) {
+          // Production maps ended:closed/closure-uncertain to idle, other
+          // terminal reasons to failed. Count either after the measurement.
+          if (['waiting', 'failed', 'idle'].includes(state)) emit({ kind: 'post-measurement' });
           continue;
         }
-        if (measured || speechStartAt !== undefined) continue;
+        if (['waiting', 'failed'].includes(state)) {
+          failure ??= state === 'waiting' ? 'media-waiting' : 'media-ended';
+          continue;
+        }
+        if (speechStartAt !== undefined) continue;
         if (state === 'speaking') { openerSpeaking = true; openerFinishedAt = openerDrainedAt = undefined; }
         else if (state === 'listening' && openerSpeaking) {
           openerSpeaking = false; openerFinishedAt = performance.now();
