@@ -61,8 +61,8 @@ test('compound voice reasons translate known codes and preserve unknown server t
 test('a German page names the demo catalog in German; product names stay (AIT-118, GUI-27 one language)', () => {
   const { models, voices, visuals } = demoPresets({}).best.choices, products = new Set(['ElevenLabs', 'OpenAI GPT Image 2']);
   for (const { label } of [...models, ...voices, ...visuals]) assert.ok(products.has(label) || Object.hasOwn(de.catalogLabels, label), label);
-  assert.equal(catalogLabel(de, 'Fake voice (local agent)'), 'Test-Sprache (lokaler Agent)');
-  assert.equal(catalogLabel(en, 'Fake voice (local agent)'), 'Fake voice (local agent)'); assert.equal(catalogLabel(de, 'ElevenLabs'), 'ElevenLabs');
+  assert.equal(catalogLabel(de, 'Fake voice (local agent)'), 'Nur Demo: simulierte Sprache');
+  assert.equal(catalogLabel(en, 'Fake voice (local agent)'), 'Demo only: simulated voice'); assert.equal(catalogLabel(de, 'ElevenLabs'), 'ElevenLabs');
   assert.deepEqual(Object.keys(de.gauges.operations), Object.keys(en.gauges.operations));
 });
 

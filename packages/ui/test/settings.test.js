@@ -233,12 +233,12 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   declared.click(); await tick();
   assert.equal(h.posts.length, 0, 'an unavailable option is never sent');
   assert.equal(h.q('.context-message').textContent, `Unavailable · ${en.reasons['not configured']}`);
-  button.click(); h.option('model', 'Deep (mock)').click(); await tick();
+  button.click(); h.option('model', 'Demo only: thorough replies').click(); await tick();
   assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0, confirm: true }]);
-  assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Mock reasoning/, 'the panel still shows the acknowledged choice');
+  assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Demo only: sample replies/, 'the panel still shows the acknowledged choice');
   assert.equal(h.q('.save-status').textContent, en.settings.saving); assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
   held.resolve(); await tick(6);
-  assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Deep \(mock\)/);
+  assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Demo only: thorough replies/);
   assert.equal(h.c.session.settings.model, 'mock/deep'); assert.equal(h.c.session.settings.origin, 'chosen');
   assert.equal(h.q('.save-status').textContent, en.settings.saved); assert.equal(h.dialog.dataset.saveState, 'saved');
   const effort = h.q('#settings-effort');
@@ -271,12 +271,12 @@ test('host refusals and conflicts never retry: the acknowledged choice stays and
     return Response.json({ error: 'settings-conflict', processingPreset: 'best', settings }, { status: 409 });
   } }));
   deliver = event => h.c.receive(event);
-  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Demo only: thorough replies').click(); await tick(6);
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.notAllowed.replace('{reason}', en.reasons['model not offered']));
-  assert.equal(h.q('[data-select="model"] .select__value').textContent, 'Mock reasoning'); assert.equal(h.q('.save-retry').dataset.visible, 'false');
-  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
+  assert.equal(h.q('[data-select="model"] .select__value').textContent, 'Demo only: sample replies'); assert.equal(h.q('.save-retry').dataset.visible, 'false');
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Demo only: thorough replies').click(); await tick(6);
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.conflict);
-  assert.equal(h.q('[data-select="model"] .select__value').textContent, 'Deep (mock)', 'the saved choice from the other window is shown');
+  assert.equal(h.q('[data-select="model"] .select__value').textContent, 'Demo only: thorough replies', 'the saved choice from the other window is shown');
   assert.equal(h.posts.length, 2);
 });
 
@@ -289,7 +289,7 @@ test('a running voice call keeps its choice until the visitor explicitly ends it
   h.root.querySelector('.voice-start').click(); await tick(6);
   assert.ok(h.root.querySelector('.voice-close').disabled === false, 'the call is running');
   await opened(h);
-  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Demo only: thorough replies').click(); await tick(6);
   assert.equal(h.posts.length, 0, 'no change is sent while the call runs');
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.callActive);
   const tallest = [en.settings.callActive, en.settings.toDevice, en.settings.fromDevice, en.settings.consentRequired, en.settings.running,
@@ -330,7 +330,7 @@ test('gauges are computed from the catalog facts of the draft and explain themse
   assert.deepEqual(['quality', 'speed', 'cost', 'privacy', 'voice', 'images'].map(value), ['Unverified', '5/5', 'None', 'Unverified', 'Unverified', 'Off']);
   assert.equal(h.q('[data-gauge="speed"] .gauge__level').style.getPropertyValue('--empty'), '0%');
   assert.equal(h.q('[data-gauge="voice"] .gauge__level').style.getPropertyValue('--empty'), '25%', 'one native and one emulated capability');
-  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Demo only: thorough replies').click(); await tick(6);
   assert.equal(value('speed'), '4/5');
   h.q('[data-select="voice"] .select__button').click(); h.option('voice', en.settings.voiceOff).click(); await tick(6);
   assert.equal(value('voice'), 'Off');
@@ -382,7 +382,7 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.deepEqual(h.posts, [{ processingPreset: 'best', baseRevision: 0, confirm: true, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off' }]);
   assert.equal(root.querySelector('.intro').dataset.mode, 'ready'); assert.equal(root.querySelector('.audio-rail').inert, true, 'the call waits for the explicit start');
   const rows = Object.fromEntries([...root.querySelectorAll('.ready__row')].map(row => [row.dataset.ready, [row.querySelector('dd').textContent.replace('✓', ''), row.dataset.state]]));
-  assert.deepEqual(rows, { model: ['Mock reasoning', 'selected'], consent: [en.ready.granted, 'confirmed'], microphone: [en.ready.checkOnStart, 'pending'],
+  assert.deepEqual(rows, { model: ['Demo only: sample replies', 'selected'], consent: [en.ready.granted, 'confirmed'], microphone: [en.ready.checkOnStart, 'pending'],
     speaker: [en.ready.onOnStart, 'selected'], visuals: [en.ready.off, 'off'] });
   assert.deepEqual(starts, [], 'the ready card starts no call');
   h.c.receive({ seq: h.c.session.seq + 1, type: 'turn.final', data: { id: 'first', role: 'user', content: 'Hello' } });
@@ -413,7 +413,7 @@ for (const action of ['reopen', 'navigate', 'tab', 'edit']) test(`AIT-237: held 
     h.c.openSettings();
   } else if (action === 'navigate') h.c.openSettings(undefined, { tab: 'general', anchor: '.general-new' });
   else if (action === 'tab') h.q('[data-tab=general]').click();
-  else { h.q('[data-select=model] .select__button').click(); h.option('model', 'Deep (mock)').click(); }
+  else { h.q('[data-select=model] .select__button').click(); h.option('model', 'Demo only: thorough replies').click(); }
   const body = h.q('.settings__body'); body.scrollTop = 123;
   held.resolve(); await tick(12);
   assert.equal(h.c.session.settings.origin, 'chosen', 'the explicit confirmation is still durable');
@@ -426,7 +426,7 @@ for (const action of ['reopen', 'navigate', 'tab', 'edit']) test(`AIT-237: held 
 for (const debounce of [false, true]) test(`AIT-237: Done awaiting ${debounce ? 'debounced' : 'in-flight'} edits cannot close reopened Settings`, async t => {
   const held = Promise.withResolvers(); t.after(() => held.resolve());
   const h = await opened(fixture(t, { origin: 'chosen', respond: async (body, n, ack) => { if (n === (debounce ? 2 : 1)) await held.promise; return ack(body); } }));
-  h.q('[data-select=model] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick();
+  h.q('[data-select=model] .select__button').click(); h.option('model', 'Demo only: thorough replies').click(); await tick();
   if (debounce) { const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true })); }
   h.q('.done').click(); await tick();
   assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
@@ -486,7 +486,7 @@ test('focus returns to a stable control when saving replaced the card that opene
   assert.ok(h.root.activeElement === h.root.querySelector('.settings-open'), 'focus falls back to the settings button');
   // Ready card path: the save updates the card in place, so its Change button keeps its node and focus.
   const change = h.root.querySelector('.ready__change'); change.click(); await tick();
-  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Mock reasoning').click(); await tick(6);
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Demo only: sample replies').click(); await tick(6);
   assert.equal(h.posts.length, 2); assert.equal(change.isConnected, true, 'the keyed Change button survives the save');
   h.q('.done').click(); await tick(6);
   assert.ok(h.root.activeElement === change, 'focus returns to the Change button');

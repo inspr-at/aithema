@@ -252,7 +252,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
         await page.click('aithema-session >>> [data-select="model"] .select__button');
         const swift = await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot
-          .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Swift (mock)'));
+          .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Demo only: quick replies'));
         const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
         assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
         // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
@@ -267,7 +267,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
         await waitForShadow(page, '.engine__value', { text: 'Custom' });
-        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test · Voice: Off' });
         // The effect: the next reply comes from the newly chosen model.
         await composer.type('What about our data?');
         const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
@@ -286,7 +286,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id, 'Reload must restore the same session');
         await waitForShadow(page, 'aside .summary-text', { text: `${content} What about our data?` });
         assert.equal(await page.$eval('#error', node => node.textContent), '');
-        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test · Voice: Off' });
 
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));

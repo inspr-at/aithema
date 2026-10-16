@@ -606,7 +606,7 @@ export class SettingsDialog {
     this.#q('.effort-note').style.visibility = adjustable ? 'hidden' : '';
     this.#q('.effort-note').textContent = !catalog ? (this.#loadFailed ? c.loadFailed : c.loading) : device ? c.deviceNote : c.fixedEffort;
     const optional = (name, list, off, offLabel, help) => [{ value: SETTINGS_OFF, label: offLabel, icon: name === 'voice' ? ICONS.text : ICONS.off, help: off },
-      ...list.map(o => ({ value: o.id, label: named(o.label), vendor: named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
+      ...list.map(o => ({ value: o.id, label: named(o.label), vendor: this.#copy.catalogDescriptions?.[o.label] ?? named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
         reason: o.status === 'available' ? '' : o.reason, help, feature: name === 'voice' ? 'voice' : o.kind === 'html' ? 'html' : 'images' }))];
     this.#renderSelect('voice', optional('voice', device ? [] : info?.voices ?? [], 'voiceOff', c.voiceOff, 'voice'), draft.voice ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });

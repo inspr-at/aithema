@@ -1478,3 +1478,64 @@ test('AIT-246 round 2 regressions: visible export reason, device preset destinat
     assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action'))), false);
   });
 });
+
+test('AIT-246 round 3: person-facing visual options and provider description, DE/EN light/dark 1440/1024/390', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-polish-round3-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_COMMIT: evidenceCommit });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.select('#theme', theme);
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ copy, session: c.session });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
+      c.shadowRoot.querySelector('.settings-open').click();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="visuals"] [data-value="claude-html"]'));
+    await shadow(page, c => {
+      const select = c.shadowRoot.querySelector('[data-select="visuals"]');
+      select.scrollIntoView({ block: 'center' });
+      select.querySelector('.select__button').click();
+    });
+    const actual = await shadow(page, c => [...c.shadowRoot.querySelectorAll('[data-select="visuals"] [role="option"]')].map(node => ({
+      id: node.dataset.value, label: node.querySelector('strong').textContent, description: node.querySelector('.option-label small')?.textContent ?? '',
+    })));
+    assert.deepEqual(actual.map(o => o.id), ['off', 'fake-html', 'claude-html', 'fake-images', 'openai-images']);
+    assert.deepEqual(actual.find(o => o.id === 'claude-html'), { id: 'claude-html', label: locale === 'de' ? 'Klickbarer Entwurf' : 'Clickable draft', description: locale === 'de' ? 'über Claude' : 'via Claude' });
+    assert.doesNotMatch(actual.map(o => `${o.label} ${o.description}`).join(' '), /dummy|\bfake\b|\bmock\b|\bHTML\b|\bPNG\b|\bagent\b|deterministi/iu);
+    await shadow(page, async c => {
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.mouse.move(-1, -1);
+    const visible = await shadow(page, c => {
+      const root = c.shadowRoot, option = root.querySelector('[data-select="visuals"] [data-value="claude-html"]');
+      const description = option.querySelector('.option-label small'), body = root.querySelector('.settings__body');
+      const r = description.getBoundingClientRect(), b = body.getBoundingClientRect();
+      return { menuOpen: !option.closest('[role="listbox"]').hidden, descriptionVisible: r.top >= b.top && r.bottom <= b.bottom && r.left >= 0 && r.right <= innerWidth,
+        focused: Boolean(root.activeElement), font: getComputedStyle(description).fontFamily };
+    });
+    assert.equal(visible.menuOpen, true); assert.equal(visible.descriptionVisible, true, `${locale}/${theme}/${width}: description in viewport`);
+    assert.equal(visible.focused, false, 'blur before viewport evidence');
+    const file = `ait246-${width}-${theme}-${locale}-visual-options.png`;
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+    checks.push({ head: evidenceCommit, locale, theme, width, file, options: actual, ...visible });
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+  }
+  assert.equal(checks.length, 12);
+  if (evidence) await writeFile(join(evidence, 'ait246-round3-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
+});
