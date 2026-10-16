@@ -214,6 +214,7 @@ async function handle(request, context) {
   if (url.pathname === '/demo/config') {
     const operator = operatorSessions?.session(request);
     return Response.json({
+    ...(process.env.AITHEMA_PAIMOS_IMPORT_URL ? { paimosImportUrl: process.env.AITHEMA_PAIMOS_IMPORT_URL, paimosImportVersion: 1 } : {}),
     ...(operatorSessions ? { operatorLogin: operatorSessions.entry() } : {}), ...(operator ? { operator: { name: operator.name } } : {}), label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
     voicePresentation: voiceHost?.voicePresentation ?? voicePlugin?.manifest.presentation,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',

@@ -34,8 +34,10 @@ export const bandStyles = `
 .audio-rail[data-moved] .pause:disabled { opacity:1; }
 .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
-.voice-wave { height:30px; --voice-label-half:0px;
-  mask-image:linear-gradient(to right,#000 calc(50% - var(--voice-label-half) - 8px),transparent calc(50% - var(--voice-label-half)),transparent calc(50% + var(--voice-label-half)),#000 calc(50% + var(--voice-label-half) + 8px)); }
+/* Leave 8px of fully clear space outside the text before each 8px fade.
+   The measured centre also follows off-centre consent and reconciliation copy. */
+.voice-wave { height:30px; --voice-label-half:0px; --voice-label-center:0px;
+  mask-image:linear-gradient(to right,#000 calc(50% + var(--voice-label-center) - var(--voice-label-half) - 16px),transparent calc(50% + var(--voice-label-center) - var(--voice-label-half) - 8px),transparent calc(50% + var(--voice-label-center) + var(--voice-label-half) + 8px),#000 calc(50% + var(--voice-label-center) + var(--voice-label-half) + 16px)); }
 .voice-wave[data-short-flanks] { visibility:hidden; }
 /* Keep the accepted phone baseline hidden; the observer also hides short flanks at wider sizes. */
 @container (width < 184px) { .voice-wave { visibility:hidden; } }
@@ -51,11 +53,10 @@ export const bandStyles = `
   left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
-.band-utilities { display:flex; align-items:center; }
 .header-actions > .settings-open { flex:none; }
-.conversations-toggle { width:auto; gap:var(--aithema-menu-gap,7px); white-space:nowrap; }
+.conversations-toggle { width:44px; min-width:44px; padding:0; justify-content:center; }
+.conversations-toggle span { display:none; }
 .conversations-toggle > svg:first-child { display:block; width:16px; height:16px; flex:none; }
-.conversations-toggle > svg:last-child { width:10px; height:10px; flex:none; }
 .conversations-menu { z-index:12; max-height:min(440px,70dvh); overflow-y:auto; }
 .header-actions > .host-account { flex:none; }
 .conversation > .head { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); }
@@ -160,7 +161,6 @@ export const bandStyles = `
   .band { grid-template-columns:44px minmax(0,1fr); gap:8px 16px; }
   .band .audio-rail { grid-column:1/-1; grid-row:2; width:min(100%,720px); }
   .header-actions { grid-column:2; grid-row:1; }
-  .conversations-menu { left:0; right:auto; }
   .edge-column { --band-height:142px; }
 }
 @media(900px <= width < 1024px) {
@@ -190,12 +190,8 @@ export const bandStyles = `
 }
 @media(max-width:599px) {
   .band { gap:6px 8px; padding-right:8px; }
-  .header-actions { gap:0; width:100%; } .conversations-toggle { gap:3px; font-size:12px; padding:0 3px; min-width:44px; max-width:100%; }
+  .header-actions { gap:0; }
   .conversations-wrap, .host-bar { min-width:0; }
-  .header-actions > .host-bar { flex:1; }
-  .conversations-wrap { width:100%; }
-  .conversations-toggle { width:100%; }
-  .band-utilities { flex:none; }
   .conversations-wrap { position:static; }
   .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
@@ -209,12 +205,6 @@ export const bandStyles = `
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }
-}
-/* Both platform font metrics fit from 448px; below that keep the 44px icon control. */
-@media(width < 448px) {
-  .conversations-toggle { min-width:44px; width:44px; padding:0; justify-content:center; }
-  .conversations-toggle > svg:first-child { display:block; }
-  .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }

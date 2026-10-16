@@ -80,8 +80,10 @@ export function normalizeChoices(config) {
   const model = pick(d.model, models, models.find(o => Object.values(o.bindings).some(Boolean))?.id ?? models[0]?.id ?? null);
   const defaultModel = models.find(o => o.id === model);
   if (d.effort !== undefined && !defaultModel?.efforts?.includes(d.effort)) throw new TypeError('Invalid default effort');
+  // A configured draft renderer is the default; an explicit host default still wins.
   return { legacy: false, models, voices, visuals, defaults: { model, effort: d.effort ?? defaultModel?.effort ?? null,
-    voice: pick(d.voice, voices, SETTINGS_OFF), visuals: pick(d.visuals, visuals, SETTINGS_OFF) } };
+    voice: pick(d.voice, voices, SETTINGS_OFF),
+    visuals: pick(d.visuals, visuals, visuals.find(o => o.kind === 'html' && o.binding)?.id ?? SETTINGS_OFF) } };
 }
 
 export function mockPresets() {
@@ -613,13 +615,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
      * Unset fields keep the current choice for the same preset, else its defaults.
      */
     async validate(session, body) {
-      const keys = ['processingPreset', 'model', 'effort', 'voice', 'visuals', 'baseRevision'];
+      const keys = ['processingPreset', 'model', 'effort', 'voice', 'visuals', 'baseRevision', 'confirm'];
       const invalid = { status: 400, error: 'invalid-settings' };
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !keys.includes(k))) return invalid;
       const preset = body.processingPreset ?? session.processingPreset ?? 'best';
       if (!PROCESSING_PRESETS.includes(preset) || ['model', 'voice', 'visuals'].some(k => body[k] !== undefined && body[k] !== null && !isOptionId(body[k])) ||
         body.effort !== undefined && body.effort !== null && !EFFORT_ORDER.includes(body.effort) ||
-        body.baseRevision !== undefined && (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 0)) return invalid;
+        body.baseRevision !== undefined && (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 0) ||
+        body.confirm !== undefined && typeof body.confirm !== 'boolean') return invalid;
       const refuse = (field, reason) => ({ status: 409, error: 'setting-not-allowed', field, reason });
       if (preset === 'device') {
         if (presets.device === false) return refuse('processingPreset', 'preset not configured');

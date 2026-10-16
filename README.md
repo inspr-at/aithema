@@ -345,8 +345,8 @@ zero movement and submission/voice checks, in `AITHEMA_EVIDENCE_DIR`.
 on the host surface inside `<aithema-session>`; each flag shows one part, and every
 fact comes from the routes above. Without `host` nothing changes.
 
-- **Host bar** in the component's top row: **Conversations** and the `account` slot,
-  alongside the host utilities and Settings. Credits appear in the footer.
+- **Host bar** in the component's top row: **Conversations**, the `account` slot,
+  and Settings. Host utilities are inside Settings; credits appear in the footer.
 - **Verification** (`verification: true`): while host policy locks the assessment,
   the understanding pane shows the email form in its place (START EmailLock).
   The optional entry is the last **E-Mail** section in **Settings → General**:

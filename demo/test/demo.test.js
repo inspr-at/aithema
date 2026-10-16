@@ -131,7 +131,7 @@ test('postJson sends the JSON content type the server requires', async t => {
     ['/api/sessions/s/turns', 'POST', 'application/json', '{"clientEventId":"c","content":"Hello"}'],
   ]);
 });
-test('client JavaScript mutations use postJson; operator logout uses its fixed native POST form', async () => {
+test('client JavaScript mutations use postJson except native operator logout and configured Paimos handoff', async () => {
   const { readFile } = await import('node:fs/promises');
   const files = await clientFiles();
   assert.ok(files.some(f => f.pathname.endsWith('/i18n/en.js')), 'nested client files are scanned');
@@ -144,6 +144,13 @@ test('client JavaScript mutations use postJson; operator logout uses its fixed n
       const nativeLogout = 'method="post" action="/api/operator/logout/"';
       assert.equal(source.split(nativeLogout).length, 2, 'exactly one fixed native logout form');
       source = source.replace(nativeLogout, '');
+    }
+    if (file.pathname.endsWith('/packages/ui/src/session-element.js')) {
+      // AIT-242 requires top-level navigation to the validated host destination.
+      // Allow exactly this form submission; keep scanning all other request methods.
+      const nativePaimos = "form.method = 'post'; form.action = action; form.target = '_blank'; form.rel = 'noopener';";
+      assert.equal(source.split(nativePaimos).length, 2, 'exactly one native new-tab Paimos form');
+      source = source.replace(nativePaimos, '');
     }
     assert.ok(!sendsMethod(source), `${file.pathname} sets a request method; use postJson`);
   }

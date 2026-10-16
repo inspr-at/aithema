@@ -28,6 +28,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings h2, .settings h3, .settings h4, .settings h5, .settings p, .settings figure { margin:0; }
 .settings details { border-top:0; padding:0; font-size:inherit; } .settings details p { padding:0; }
 .settings__header { flex:none; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:end; gap:0 2rem; padding:.6rem 1.6rem 0; }
+.settings-utilities { grid-column:1/-1; display:block; }
+.settings-utilities::slotted(*) { max-width:100%; }
 .settings__title { font:400 1.9rem/1.15 var(--aithema-display); letter-spacing:-.02em; padding-bottom:.45rem; }
 .settings__tabs { display:flex; gap:.4rem; border-bottom:1px solid var(--aithema-line); }
 /* GUI-27: the selected tab is marked by a check in a slot every tab keeps, ink text and an accent icon,

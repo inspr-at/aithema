@@ -422,3 +422,9 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
   .conversation-page .utility-theme { column-gap:1px; }
   .conversation-page .utility-theme .utility-chevron { margin-inline-start:3px; }
 }
+
+/* AIT-240: host preferences now sit first in Settings, with room for both languages. */
+.conversation-page .host-actions[slot="utilities"] { flex-wrap:wrap; justify-content:flex-start; gap:4px 16px; }
+.conversation-page .host-actions[slot="utilities"] .utility { gap:7px; padding:0 8px; min-width:44px; font-size:14px; }
+.conversation-page .host-actions[slot="utilities"] .utility-theme { column-gap:4px; }
+.conversation-page .host-actions[slot="utilities"] .utility-theme .utility-chevron { margin-inline-start:0; }

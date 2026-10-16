@@ -80,6 +80,7 @@ export class SettingsDialog {
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
+  #closeGeneration = 0;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
     if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => this.close() } });
@@ -102,7 +103,7 @@ export class SettingsDialog {
       <div class="select__menu" role="listbox" id="settings-options-${name}" hidden></div></div>`;
     // Static trusted markup only. Host, model and plugin text is assigned through textContent.
     this.#dialog.innerHTML = `<div class="settings__frame">
-      <header class="settings__header"><h2 class="settings__title" id="settings-title"></h2>
+      <header class="settings__header"><slot class="settings-utilities" name="utilities"></slot><h2 class="settings__title" id="settings-title"></h2>
         <div class="settings__tabs" role="tablist">${['general', 'model', 'local'].map(tab => `<button type="button" role="tab" id="settings-tab-${tab}"
           aria-controls="settings-panel-${tab}" data-tab="${tab}" data-help="${tab === 'model' ? 'processing' : tab}"><span class="tab-icon">${ICONS[tab]}</span><span class="tab-label"></span><span class="tab-check" aria-hidden="true">${ICONS.check}</span></button>`).join('')}</div></header>
       <div class="settings__body">
@@ -159,6 +160,7 @@ export class SettingsDialog {
     this.#wire();
   }
   setCopy(copy) {
+    this.#closeGeneration++;
     this.#consentEditor?.setCopy(copy);
     const old = this.#copy.settings;
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
@@ -229,7 +231,8 @@ export class SettingsDialog {
     effort.addEventListener('change', () => { if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; void this.#save(); } });
     this.#q('.done').addEventListener('click', () => void this.#done());
     this.#q('.save-retry').addEventListener('click', () => { this.#failed = false; void this.#save(true); });
-    this.#q('.notice-action').addEventListener('click', () => void this.#notice?.action?.());
+    // The hidden .notice-measure copy is prepended before .notice-body; scope to the visible notice (AIT-245).
+    this.#q('.notice-body .notice-action').addEventListener('click', () => void this.#notice?.action?.());
     for (const selector of ['.footer-consent', '.general-consent-manage']) this.#q(selector).addEventListener('click', () => this.#ports.consent('manage'));
     this.#q('.general-new').addEventListener('click', () => {
       const draft = this.#draft ?? this.#active;
@@ -293,6 +296,7 @@ export class SettingsDialog {
   }
   /** Opens on the AI model tab; Continue is the chooser's Custom path. */
   open(opener, { tab = 'model', continueLabel = false, preset } = {}) {
+    this.#closeGeneration++;
     if (this.#dialog.open) return;
     this.#opener = opener ?? null; this.#continue = continueLabel; this.#closing = false;
     this.#active = activeSelection(this.#ports.state().session);
@@ -344,6 +348,7 @@ export class SettingsDialog {
   }
   close() {
     if (!this.#dialog.open || this.#closing) return;
+    this.#closeGeneration++;
     this.#closing = true;
     clearTimeout(this.#timer); this.#timer = 0;
     for (const select of this.#all('.select')) this.#closeMenu(select);
@@ -370,14 +375,22 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
+    // Done owns this interaction only. Later navigation, edits or reopening
+    // cancel its close while the save still records the explicit confirmation.
+    const generation = ++this.#closeGeneration;
+    const current = () => this.#dialog.open && generation === this.#closeGeneration;
     clearTimeout(this.#timer);
     if (this.#timer) { this.#timer = 0; await this.#save(); }
+    if (!current()) return;
     if (this.#saving) { this.#status = this.#copy.settings.closePending; this.#render(); await this.#saving; }
-    if (this.#failed) return;
-    if (this.#pending() && !this.#notice?.explicit) { await this.#save(); if (this.#failed || this.#pending()) return; }
+    if (!current() || this.#failed) return;
+    if ((this.#pending() || this.#ports.state().session.settings?.origin !== 'chosen') && !this.#notice?.explicit) {
+      await this.#save(false, true); if (!current() || this.#failed || this.#pending() || this.#notice?.explicit) return;
+    }
     this.close();
   }
   #setTab(tab, focus = false) {
+    this.#closeGeneration++;
     this.#tab = tab;
     for (const select of this.#all('.select')) this.#closeMenu(select);
     for (const button of this.#all('[data-tab]')) {
@@ -418,6 +431,7 @@ export class SettingsDialog {
   }
   #change(patch, debounce = false) {
     if (!this.#draft) return;
+    this.#closeGeneration++;
     this.#draft = { ...this.#draft, ...patch }; this.#revision++; this.#failed = false;
     this.#notice = null; this.#status = this.#copy.settings.autosave;
     this.#render();
@@ -426,10 +440,11 @@ export class SettingsDialog {
     else void this.#save();
   }
   // One writer: edits made while a save runs are drained after its acknowledgement.
-  #save(retry = false) {
+  #save(retry = false, confirm = false) {
     if (this.#saving) return this.#saving.then(() => { if (this.#pending() && !this.#failed && !this.#timer) return this.#save(); });
     const drain = async () => {
-      while (this.#pending() && this.#dialog.open && !this.#closing) {
+      while ((this.#pending() || confirm) && this.#dialog.open && !this.#closing) {
+        confirm = false;
         if (this.#timer) break;
         const c = this.#copy.settings, state = this.#ports.state(), draft = { ...this.#draft }, revision = this.#revision;
         const crossing = (this.#active.processingPreset === 'device') !== (draft.processingPreset === 'device');
@@ -443,7 +458,7 @@ export class SettingsDialog {
         if (state.voiceActive) { this.#callNotice(); break; }
         this.#status = c.saving; this.#busy = true; this.#render();
         let result;
-        try { result = await this.#ports.save({ processingPreset: draft.processingPreset, ...this.#settingsOf(draft), baseRevision: this.#active.revision }); }
+        try { result = await this.#ports.save({ processingPreset: draft.processingPreset, ...this.#settingsOf(draft), baseRevision: this.#active.revision, confirm: true }); }
         finally { this.#busy = false; }
         if (result.ok) {
           const ack = result.ack;
@@ -601,9 +616,9 @@ export class SettingsDialog {
     for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind]);
     const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : null);
     this.#q('.notice-area').dataset.kind = notice ? 'notice' : '';
-    this.#q('.notice-text').textContent = notice?.text ?? '';
-    this.#q('.notice-action').hidden = !notice?.label;
-    this.#q('.notice-action').textContent = notice?.label ?? '';
+    this.#q('.notice-body .notice-text').textContent = notice?.text ?? '';
+    this.#q('.notice-body .notice-action').hidden = !notice?.label;
+    this.#q('.notice-body .notice-action').textContent = notice?.label ?? '';
     this.#q('.disclosure-processing').textContent = c.processingDetails[draft.processingPreset] ?? '';
     const consent = state.consent;
     this.#q('.general-consent').textContent = c.consentStates[consent] ?? '';

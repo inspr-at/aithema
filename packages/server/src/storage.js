@@ -960,25 +960,29 @@ export class SQLiteStorage {
     });
   }
   /**
-   * Durable visitor choice. A write based on any revision but the current one conflicts;
+   * Durable settings. Only an explicit confirmation records a visitor choice.
+   * A write based on any revision but the current one conflicts;
    * resending the current choice on the current revision is idempotent. Device
    * conversations stay in their tab, so a started conversation (even with every turn
    * withdrawn) cannot switch into or out of device processing.
    */
-  changeSettings(id, { processingPreset, settings }, { ownerToken, baseRevision, at = new Date().toISOString() } = {}) {
+  changeSettings(id, { processingPreset, settings }, { ownerToken, baseRevision, confirm = false, at = new Date().toISOString() } = {}) {
+    if (typeof confirm !== 'boolean') throw new TypeError('Invalid settings confirmation');
     if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) throw new TypeError('Settings base revision required');
     return this.transaction(() => {
       const session = this.get(id); this.#check(session, { ownerToken });
       const current = session.settings, preset = session.processingPreset ?? 'best';
       // Every write names the revision it was based on, so a stale write or a replay never lands.
       if (baseRevision !== current.revision) throw new SettingsConflictError('settings-conflict', session);
-      if (preset === processingPreset && sameSelection(current, settings) && current.origin === 'chosen') return { event: null, session };
+      // Equal values can still be the person's first confirmation of defaults or a last choice.
+      if (preset === processingPreset && sameSelection(current, settings) && (!confirm || current.origin === 'chosen')) return { event: null, session };
       // Each change is a durable event; a conversation's history of choices stays bounded.
       if (current.revision >= MAX_SETTINGS_REVISIONS) throw new RangeError('Settings limit');
       if ((preset === 'device') !== (processingPreset === 'device') && conversationStarted(session)) {
         throw new SettingsConflictError('new-conversation-required', session);
       }
-      const next = normalizeSettings({ ...settings, revision: current.revision + 1, origin: 'chosen', at });
+      const next = normalizeSettings({ ...settings, revision: current.revision + 1,
+        origin: confirm ? 'chosen' : current.origin, at: confirm ? at : current.at });
       const event = this.#append(session, 'settings.changed', { processingPreset, settings: next });
       return { event, session: this.get(id) };
     });

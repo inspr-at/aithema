@@ -514,6 +514,29 @@ facade secrets; joined tests carry authority in-process solely for conformance.
 `persistEvent(event)` writes final/heard events and late `reply` annotations durably with idempotent turn ids.
 Persistence failure ends the call rather than claiming a durable turn.
 Consume `session.events`; SDK activity signals are not transcript evidence.
+
+AIT-235 event finding (offline, SDK **1.17.0**): both user transcript events
+exist in `@elevenlabs/types/generated/types/asyncapi-types.ts` and are enabled
+in the owned agent's `client_events` (also recorded in the agent-readback fixture).
+`tentative_user_transcript` carries
+`tentative_user_transcription_event.user_transcript`; the SDK forwards it through
+`onDebug` and the adapter emits a non-durable user `partial`. Each hypothesis
+replaces the preceding text. `user_transcript` carries
+`user_transcription_event.{user_transcript,event_id}`; the SDK calls `onMessage`
+and the adapter persists a user `final` before exposing it. This is the start2
+Conversational AI path, independent of AIT-160's composed STT path. Offline
+inspection establishes support and wiring, not a fresh observation of a live call.
+The conversation shows hypotheses in a muted, labelled provisional user bubble,
+hidden from assistive technology. The saved final promotes the same row and
+keeps its position; final text uses normal bubble sizing and can grow. A provider
+final arriving before the saved turn stays in that row until persistence is attached.
+Completed turn ids and ordinals fence late partials. Because tentative events lack
+a provider turn id, the adapter admits a new hypothesis only after the next
+speaking-to-listening boundary. Speaking and assistant finals discard unfinished
+hypotheses.
+Pause, recovery, call end and invalidation discard provisional text. DE/EN labels
+belong to the UI; the transcript text always comes from provider events.
+
 After transport loss, fence old callbacks and reconcile the old attempt.
 SDK 1.17.0 `onError` supplies tool (`clientToolName`), server (`errorType`) or
 end-session error contexts; these preserve the active connection. It does not

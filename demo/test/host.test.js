@@ -105,9 +105,9 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     await wait('custom preset saved', () => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
     assert.equal(component.session.id, previousId);
     dialog.querySelector('.preset-option[data-preset="device"]').click();
-    await wait('device preset offers a new conversation', () => dialog.querySelector('.notice-action:not([hidden])'));
+    await wait('device preset offers a new conversation', () => dialog.querySelector('.notice-body .notice-action:not([hidden])'));
     assert.equal(component.session.processingPreset, 'custom', 'a started conversation never becomes a device conversation in place');
-    dialog.querySelector('.notice-action').click();
+    dialog.querySelector('.notice-body .notice-action').click();
     await wait('new device conversation created', () => component.session.processingPreset === 'device' && component.session.id !== previousId);
     assert.equal(component.shadowRoot.querySelector('.intro').dataset.mode, 'ready', 'the explicit device choice is confirmed');
     assert.equal(document.querySelector('#error').textContent, '');
