@@ -453,6 +453,7 @@ async function settlementFixture(t, { reason, refusal, countWriteFailure = false
       });
     } };
   const source = (await readFile(new URL('../ops/qualification-host-template.mjs', import.meta.url), 'utf8'))
+    .split('// Separate free CLI:')[0]
     .replace(/^import .*;\n/gmu, '').replace('export function createQualificationHost', 'function createQualificationHost');
   const factory = new Function(...Object.keys(ports), `${source}\nreturn createQualificationHost;`)(...Object.values(ports));
   const host = factory({ ...hostOptions(directory), launchBrowser(_settings, lifetime) {
