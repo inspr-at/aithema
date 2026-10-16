@@ -1822,6 +1822,11 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
       c.shadowRoot.querySelector('dialog.settings [data-preset="custom"]').click();
     });
     await until(page, () => window.customCatalog.reads > 0);
+    await until(page, () => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      return root.querySelector('dialog.settings').getAttribute('aria-busy') === 'true' &&
+        root.querySelectorAll('.select__spinner').length === 3;
+    });
     const settle = async () => {
       await page.mouse.move(-10, -10);
       await inShadow(page, async c => {
@@ -1859,13 +1864,22 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     assert.deepEqual(loadingControls.done, { disabled: true, opacity: '0.5', description: ({ de, en })[locale].settings.loading },
       'Done uses the shared disabled button style and describes the loading line');
     // Exercise reduced motion independently of the component's motion switch.
-    await inShadow(page, c => c.setAttribute('motion', 'on'));
-    const spinnerAnimation = () => inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.select__spinner')).animationName);
-    assert.equal(await spinnerAnimation(), 'none', 'system reduced motion stops loading animation');
-    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
-    assert.equal(await spinnerAnimation(), 'settings-loading', 'loading animates when motion is allowed');
-    await inShadow(page, c => c.setAttribute('motion', 'off'));
-    assert.equal(await spinnerAnimation(), 'none', 'component motion switch also stops loading animation');
+    const spinnerAnimation = async (preference, motion) => {
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: preference }]);
+      return inShadow(page, async (c, motion) => {
+        // Media emulation returns before rendering and the component's media-change
+        // listener have necessarily run. Set the independent switch after that turn.
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        c.setAttribute('motion', motion);
+        const spinner = c.shadowRoot.querySelector('.select__spinner');
+        spinner.getAnimations(); // Flush animation styles for the rendered loading state.
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        return getComputedStyle(spinner).animationName;
+      }, motion);
+    };
+    assert.equal(await spinnerAnimation('reduce', 'on'), 'none', 'system reduced motion stops loading animation');
+    assert.equal(await spinnerAnimation('no-preference', 'on'), 'settings-loading', 'loading animates when motion is allowed');
+    assert.equal(await spinnerAnimation('no-preference', 'off'), 'none', 'component motion switch also stops loading animation');
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await settle();
     if (evidence) await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-pending.png`), fullPage: false });
