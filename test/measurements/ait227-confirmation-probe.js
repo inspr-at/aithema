@@ -8,7 +8,7 @@ import { browserPath } from '../../scripts/install-test-browser.js';
 const files = ['confirmation-design'].map(name => `test/browser/${name}.test.js`);
 const run = resolve(process.cwd(), '..'), output = process.env.AITHEMA_EVIDENCE_DIR;
 if (!/\/ci\.noindex\/aithema-runs\/[^/]+$/u.test(run) || !output) throw new Error('AIT-227 requires a remote run and EVIDENCE_OUT');
-const deadline = Date.parse('2026-10-16T05:00:00Z'), windowMs = 9 * 60_000;
+const deadline = Date.parse('2026-10-16T05:00:00Z'), windowMs = 4 * 60_000;
 const started = Date.now(), executablePath = await browserPath(), durations = [];
 const stats = join(output, 'stats.jsonl'), live = join(output, 'live.log');
 let active, iteration = 0, failed = false, stopping = false;

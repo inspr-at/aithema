@@ -97,10 +97,7 @@ export default {
           env: { PATH: process.env.PATH, ...options.env, HOME: home, TMPDIR: temporary,
             XDG_CACHE_HOME: cache, XDG_CONFIG_HOME: config },
           signal: controller.signal, userDataDir: launcher.profile,
-          // HOME does not relocate Darwin's per-user Metal cache. Keep GPU
-          // compositing, but prevent this shared on-disk cache from coupling runs.
-          // Chromium sandbox/policy/switches.cc: kDisableMetalShaderCache.
-          args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu', '--disable-metal-shader-cache'] : [])],
+          args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
         });
         launcher.started = true;
         browser.once('disconnected', () => options.signal?.removeEventListener('abort', abort));

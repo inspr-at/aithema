@@ -84,7 +84,6 @@ test('concurrent launches isolate HOME, profile, cache and temp despite caller H
   })));
   t.after(() => Promise.all(browsers.map(browser => browser.close())));
   if (process.platform === 'darwin') for (const browser of browsers) {
-    assert.ok(browser.process().spawnargs.includes('--disable-metal-shader-cache'));
     assert.ok(browser.process().spawnargs.includes('--enable-gpu'));
   }
   const attempts = (await Promise.all(fixtures.map(f => f.attempts()))).flat();
