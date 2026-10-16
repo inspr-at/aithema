@@ -1,8 +1,13 @@
 import WebSocket from 'ws';
 import { PluginError } from '@inspr/aithema-core/invocation';
+import { TTS_WIRE_CHARACTERS } from '../../elevenlabs/src/components.js';
 
-// Same bounded wire size as components.js decode(); bounded retained backlog
-// follows relay.js's 256,000-byte queue. No socket/error/URL logging.
+// Carry the full component wire bound plus 16 KiB envelope headroom. Retain at
+// most two maximum messages: the eager reader normally leaves near one queued,
+// with room for one coalesced arrival. Relay/player bounds are independent.
+// Outbound bufferedAmount keeps its 256,000 B cap. No socket/error/URL logging.
+const MAX_PAYLOAD_BYTES = TTS_WIRE_CHARACTERS + 16_384;
+const MAX_BACKLOG_BYTES = 2 * MAX_PAYLOAD_BYTES;
 export function connectQualificationSocket({ url, headers, signal }) {
   return new Promise((resolve, reject) => {
     let socket, open = false, ended = false, failure, queuedBytes = 0, wake, requestId;
@@ -11,7 +16,7 @@ export function connectQualificationSocket({ url, headers, signal }) {
     const fail = () => { failure = new PluginError('provider'); reject(failure); socket?.terminate(); };
     const abort = () => { failure = new PluginError('cancelled'); socket?.terminate(); reject(failure); notify(); };
     if (signal?.aborted) { reject(new PluginError('cancelled')); return; }
-    try { socket = new WebSocket(url, { headers, followRedirects: false, maxPayload: 256_000, handshakeTimeout: 15_000 }); }
+    try { socket = new WebSocket(url, { headers, followRedirects: false, maxPayload: MAX_PAYLOAD_BYTES, handshakeTimeout: 15_000 }); }
     catch { reject(new PluginError('provider')); return; }
     signal?.addEventListener('abort', abort, { once: true });
     socket.on('error', fail);
@@ -23,7 +28,7 @@ export function connectQualificationSocket({ url, headers, signal }) {
     socket.on('close', () => { ended = true; signal?.removeEventListener('abort', abort); stopped.resolve(); notify();
       if (!open) reject(new PluginError('provider')); });
     socket.on('message', (bytes, binary) => {
-      if (binary || (queuedBytes += bytes.length) > 256_000) { fail(); return; }
+      if (binary || (queuedBytes += bytes.length) > MAX_BACKLOG_BYTES) { fail(); return; }
       queue.push(bytes); notify();
     });
     socket.once('open', () => {

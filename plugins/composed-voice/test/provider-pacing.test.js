@@ -10,8 +10,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const speech = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 const speakCeiling = 16_000_000, replyQueueCeiling = 2 * speakCeiling + 64_000;
 
-// Mirror qualification-live-transport: messages are independently arriving,
-// maxPayload and unread backlog are both 256,000 B; overflow is provider.
+// Synthetic stress transport: independently arriving messages with deliberately
+// tighter 256,000 B payload/backlog caps; overflow is provider. The qualification
+// socket carries full 1 MiB decoded TTS messages (qualification-live-transport.test.js).
 function boundedSocket(signal) {
   let bytes = 0, peak = 0, consumed = 0, failure, ended = false, wake, aborted = false;
   const messages = [];
