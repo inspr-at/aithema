@@ -221,7 +221,7 @@ test('AIT-246 visitor header has two icons for guest, pending and verified email
       await finishWorkspaceEntry(page);
       const header = await shadow(page, c => {
         const root = c.shadowRoot, band = root.querySelector('.band');
-        return { icons: [...band.querySelectorAll('button')].filter(n => n.checkVisibility()).map(n => n.className),
+        return { icons: [...band.querySelectorAll('.header-actions button')].filter(n => n.checkVisibility({ visibilityProperty: true })).map(n => n.className),
           accounts: root.querySelector('slot[name="account"]').assignedElements().length,
           emailInSettings: Boolean(root.querySelector('dialog.settings .host-verify')) };
       });
@@ -1555,9 +1555,10 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
         const visible = n => n.checkVisibility({ visibilityProperty: true });
         const parts = [];
         // Compare independent painted primitives, never an ancestor with its descendants.
+        const seen = new Set();
         for (const selector of ['.concept-scene', '.concept-request', '.drafts-settings-action', '.consent-action', '.concept-preview-glyph svg', '.concept-preview img', '.concept-progress']) {
           const n = rail.querySelector(selector);
-          if (n && visible(n)) parts.push({ name: selector, ...box(n.getBoundingClientRect()) });
+          if (n && visible(n) && !seen.has(n)) { seen.add(n); parts.push({ name: selector, ...box(n.getBoundingClientRect()) }); }
         }
         for (const selector of ['.concept-activity-text', '.concept-countdown', '.concept-preview-label']) {
           const n = rail.querySelector(selector); if (!n || !visible(n)) continue;
