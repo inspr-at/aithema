@@ -3171,6 +3171,30 @@ test('AIT-247 operator socket refuses an actual active voice call without revoki
   assert.equal((await adminRequest(socketPath, 'erase-session', { sessionId: h.session.id })).body.result, 'erased');
 });
 
+test('AIT-263: an active voice call admits the explicit selected reply through the reaction lane', async t => {
+  const mock = createMockReasoning(), requests = [];
+  const h = voiceFixture(t, { reasoning: { ...mock, async *stream(request, options) {
+    requests.push(request); yield* mock.stream(request, options);
+  } } });
+  const grant = await h.start('clarify-active');
+  assert.equal((await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+    event: { type: 'listening', callId: grant.callId, providerSessionId: grant.providerSessionId } })).status, 200);
+  h.storage.postTurn(h.session.id, 'clarify-person', Buffer.from('website'), 'We need a website.');
+  const current = h.storage.get(h.session.id), revision = inputRevision(current);
+  h.storage.append(current.id, 'turn.final', { id: 'ordinary-cached', role: 'assistant', content: 'Who is it for?', inputRevision: revision });
+  h.storage.append(current.id, 'understanding.updated', { ...current.understanding,
+    openQuestions: ['Who is it for?', 'When should it launch?'], inputRevision: revision, draft: false });
+  const item = core.openQuestionItems(h.storage.get(current.id))[1];
+  const response = await h.route('/focus-question', { questionId: item.id, inputRevision: revision });
+  assert.equal(response.status, 202); const accepted = await response.json();
+  await h.handlers.idle();
+  assert.equal(requests.length, 1); assert.match(requests[0].system, /When should it launch\?/u);
+  const after = h.storage.get(current.id);
+  assert.equal(after.transcript.at(-1).focusRequestId, accepted.event.data.requestId);
+  assert.equal(after.transcript.filter(turn => turn.role === 'user').length, 1);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='reaction'").get().n, 1);
+});
+
 // The parent spend deadline also bounds separately admitted voice components.
 // Periodic visitor turns/heartbeats cannot move the conversation's deadline.
 test('AIT-261 negative: periodic voice turns cannot run past the conversation hour; the call closes once', async t => {
@@ -3252,4 +3276,95 @@ test('AIT-261: dispatched voice keeps its duration hold at the hour until confir
   admitted.finish();
   assert.equal(h.runtime.budget.get(id).outcome, 'completed'); assert.equal(h.runtime.budget.get(id).settled_micro, 1000);
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 1000);
+});
+
+for (const stage of ['pending', 'speaking', 'after-availability']) test(`AIT-263 focus refuses a voice reply ${stage} without a second assistant final`, async t => {
+  const gate = Promise.withResolvers(), entered = Promise.withResolvers(), mock = createMockReasoning(), requests = [];
+  const h = voiceFixture(t, { reasoning: { ...mock, async *stream(request, options) {
+    requests.push(request); entered.resolve();
+    if (stage === 'pending') await gate.promise;
+    yield* mock.stream(request, options);
+  } } });
+  t.after(gate.resolve);
+  const grant = await h.start('focus-busy'), identity = { providerSessionId: grant.providerSessionId };
+  h.storage.postTurn(h.session.id, 'focus-person', Buffer.from('website'), 'We need a website.');
+  const current = h.storage.get(h.session.id), revision = inputRevision(current);
+  h.storage.append(current.id, 'turn.final', { id: 'previous-reply', role: 'assistant', content: 'Audience?', inputRevision: revision });
+  h.storage.append(current.id, 'understanding.updated', { ...current.understanding,
+    openQuestions: ['Audience?', 'Launch date?'], inputRevision: revision, draft: false });
+  const command = { questionId: core.openQuestionItems(h.storage.get(current.id))[1].id, inputRevision: revision };
+  const activity = type => h.route(`/voice/${grant.callId}/events`, { ...identity,
+    event: { ...identity, callId: grant.callId, type } });
+  const secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
+  let callback;
+  if (stage === 'pending') {
+    await activity('listening');
+    callback = h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
+      method: 'POST', headers: { authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ aithema_call: grant.callId, messages: [{ role: 'user', content: 'We need a website.' }] }),
+    }));
+    await entered.promise;
+    assert.ok(h.storage.voiceTurnStore.list(current.id).some(operation => operation.state === 'pending'));
+  } else if (stage === 'speaking') assert.equal((await activity('speaking')).status, 200);
+  else {
+    assert.equal((await activity('listening')).status, 200);
+    const check = h.runtime.checkReply;
+    h.runtime.checkReply = async (...args) => { const reason = await check(...args); await activity('speaking'); return reason; };
+  }
+  const before = h.storage.get(current.id).seq;
+  const response = await h.route('/focus-question', command);
+  gate.resolve();
+  if (callback) { assert.equal((await callback).status, 200); await (await callback).json(); }
+  await h.handlers.idle();
+  assert.equal(response.status, 409); assert.equal((await response.json()).reason, 'reply-in-flight');
+  assert.equal(h.storage.read(current.id, before).some(event => event.type === 'question.focused'), false);
+  assert.equal(h.storage.get(current.id).transcript.some(turn => turn.focusRequestId), false);
+  assert.equal(requests.length, stage === 'pending' ? 1 : 0);
+});
+
+test('AIT-263: voice starting after focus acceptance fences the final and retry waits for listening', async t => {
+  const entered = Promise.withResolvers(), gate = Promise.withResolvers(), mock = createMockReasoning(), requests = [];
+  const h = voiceFixture(t, { reasoning: { ...mock, async *stream(request, options) {
+    requests.push(request); entered.resolve(); await gate.promise; yield* mock.stream(request, options);
+  } } });
+  t.after(gate.resolve);
+  const grant = await h.start('focus-accepted'), identity = { providerSessionId: grant.providerSessionId };
+  const activity = type => h.route(`/voice/${grant.callId}/events`, { ...identity, event: { ...identity, callId: grant.callId, type } });
+  assert.equal((await activity('listening')).status, 200);
+  h.storage.postTurn(h.session.id, 'focus-person', Buffer.from('website'), 'We need a website.');
+  const current = h.storage.get(h.session.id), revision = inputRevision(current);
+  h.storage.append(current.id, 'turn.final', { id: 'previous-reply', role: 'assistant', content: 'Audience?', inputRevision: revision });
+  h.storage.append(current.id, 'understanding.updated', { ...current.understanding,
+    openQuestions: ['Audience?', 'Launch date?'], inputRevision: revision, draft: false });
+  const response = await h.route('/focus-question', { questionId: core.openQuestionItems(h.storage.get(current.id))[1].id, inputRevision: revision });
+  assert.equal(response.status, 202); await entered.promise;
+  assert.equal((await activity('speaking')).status, 200);
+  gate.resolve(); await h.handlers.idle();
+  assert.equal(h.storage.get(current.id).transcript.some(turn => turn.focusRequestId), false);
+  assert.equal(h.storage.laneFailures(current.id)[0]?.reason, 'reply-in-flight');
+  assert.equal((await h.route('/retry')).status, 202); await h.handlers.idle();
+  assert.equal(requests.length, 1, 'Retry cannot override a busy voice turn');
+  const stream = await h.handlers.handle(new Request(`http://host/api/sessions/${current.id}/events?after=${h.storage.get(current.id).seq}`,
+    { headers: { 'x-aithema-session-token': 'voice-owner' } }));
+  await stream.body.cancel(); await h.handlers.idle();
+  assert.equal(requests.length, 1, 'Reconnect cannot override the voice exclusion');
+  assert.equal((await activity('listening')).status, 200);
+  await h.route('/retry'); await h.handlers.idle();
+  assert.equal(requests.length, 2); assert.equal(h.storage.get(current.id).transcript.filter(turn => turn.focusRequestId).length, 1);
+});
+
+test('AIT-263: paused playback acknowledgements keep the call and still fence revoked or stale activity', async t => {
+  const h = voiceFixture(t), grant = await h.start('focus-pause-activity'), identity = { providerSessionId: grant.providerSessionId };
+  const activity = (type, providerSessionId = grant.providerSessionId) => h.route(`/voice/${grant.callId}/events`, {
+    providerSessionId, event: { providerSessionId, callId: grant.callId, type } });
+  assert.equal((await activity('speaking')).status, 200);
+  assert.equal((await h.route(`/voice/${grant.callId}/pause`, identity)).status, 200);
+  const before = h.storage.get(h.session.id).seq;
+  assert.equal((await activity('listening')).status, 200, 'stopping playback while paused is state acknowledgement');
+  assert.equal(h.storage.get(h.session.id).seq, before, 'activity is never transcript input');
+  assert.equal(h.storage.get(h.session.id).paused, true);
+  assert.equal((await activity('listening', 'stale-generation')).status, 404);
+  assert.equal((await h.route(`/voice/${grant.callId}/resume`, identity)).status, 200);
+  h.coverage(false);
+  assert.equal((await activity('listening')).status, 403, 'revoked coverage cannot update activity');
 });

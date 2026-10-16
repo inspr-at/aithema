@@ -10,6 +10,15 @@ const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]
   !['content', 'question_short', 'options', 'origin', 'model', 'provider', 'engine'].includes(key)));
 export const inputRevision = session => `${session.inputRevision}:${session.conversationConsentRevision ?? session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
+/** IDs belong to one assessment, including replacements at the same input revision. */
+export function openQuestionItems(session) {
+  if (session.tombstone || session.consentWithdrawn || session.understanding.draft ||
+    session.understanding.inputRevision !== inputRevision(session)) return [];
+  return (session.understanding.openQuestions ?? []).map((question, index) => ({
+    id: `q-${session.questionRevision ?? 0}-${index}`, question,
+  }));
+}
+
 function latestReply(session) {
   if (session.tombstone || session.consentWithdrawn) return null;
   const turn = activeTurns(session).at(-1);
@@ -80,7 +89,11 @@ export function applyEvent(session, event) {
   } else if (event.type === 'question.focused') {
     // Focus is derived from understanding, so it does not invalidate that input.
     next.focusedQuestion = event.data.erased ? null : event.data.question;
+    next.questionFocus = !event.data.erased && event.data.chosenBy === 'user'
+      ? { questionId: event.data.questionId, requestId: event.data.requestId,
+        inputRevision: event.data.inputRevision, chosenBy: 'user' } : null;
   } else if (event.type === 'understanding.updated') {
+    next.questionRevision = event.seq;
     next.understanding = event.data.erased ? emptyUnderstanding(next) : withAITextOrigin(event.data);
     next.actor = event.data.erased ? null : event.data.actor;
   } else if (event.type === 'session.locale-changed') {
@@ -151,6 +164,7 @@ export function applyEvent(session, event) {
   } else if (event.type === 'concept.archived') {
     next.concepts = (next.concepts ?? []).map(c => c.id === event.data.artifactId ? { ...c, archived: true } : c);
   } else if (event.type !== 'session.created') throw new TypeError('Unknown durable event');
+  if (next.focusedQuestion === null) next.questionFocus = null;
   if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
     const all = event.type === 'session.erased' || event.type === 'consent.revised' && !event.data.granted;
     next.concepts = (next.concepts ?? []).filter(c => !all && !c.turnIds.includes(event.data.turnId));
@@ -169,5 +183,7 @@ export function applyEvent(session, event) {
     next.conceptIntent = intent;
   }
   next.seq = event.seq;
+  // Snapshot-only convenience data must never retain stale or withdrawn text.
+  if ('openQuestionItems' in next) next.openQuestionItems = openQuestionItems(next);
   return next;
 }

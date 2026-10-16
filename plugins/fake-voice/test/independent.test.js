@@ -177,3 +177,57 @@ for (const completed of [false, true]) test(`AIT-190 r2: fake replay completed=$
   assert.equal(notices.button.hidden, completed);
   assert.equal(notices.readText.hidden, completed);
 });
+
+test('AIT-263: local voice speaks a persisted focus reply without creating a person turn', async t => {
+  const now = Date.now(), requests = [], persisted = [], greeting = Promise.withResolvers();
+  const control = {
+    start: () => ({ callId: 'focus-call', providerSessionId: 'segment', spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 }),
+    close: () => ({ closureConfirmed: true }), pause: () => ({ acknowledged: true, paused: true }),
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat: () => ({ acknowledged: true, browserLivenessDeadlineAt: now + 30_000 }),
+    speakText: async request => { requests.push(request); return { kind: 'audio', audio: {} }; },
+  };
+  const f = createFakeVoice({ control, persistEvent: event => { persisted.push(event); if (event.type === 'final') greeting.resolve(); },
+    document: undefined, copy: { fakeVoiceGreeting: 'Greeting.' },
+    playAudio: async () => ({ stop() {}, finished: new Promise(() => {}) }) });
+  const session = await f.client.start({ callId: 'focus-call' });
+  const reading = (async () => { for await (const event of session.events) { /* drain simulator events */ } })();
+  t.after(async () => { await session.close(); await reading; });
+  await greeting.promise;
+  const before = persisted.length;
+  const { deliverFocusedReply } = await import('../../../packages/ui/src/focused-reply.js');
+  const result = await deliverFocusedReply({ session, paused: false, output: true },
+    { id: 'focused-final', role: 'assistant', content: 'Launch date?', focusRequestId: 'focus' });
+  assert.equal(result.kind, 'audio'); assert.equal(requests[0].turnId, 'focused-final');
+  assert.equal(persisted.length, before); assert.equal(persisted.some(event => event.role === 'user'), false);
+});
+
+test('AIT-263: simulator reports playback activity without adding transcript input', async t => {
+  const now = Date.now(), activity = [], persisted = [];
+  const control = { start: () => ({ callId: 'activity', providerSessionId: 'segment', presentation: 'continuation',
+    spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 }),
+    close: () => ({ closureConfirmed: true }), pause: () => ({ acknowledged: true, paused: true }),
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat: () => ({ acknowledged: true }),
+    reportActivity: event => activity.push(event),
+  };
+  const f = createFakeVoice({ control, persistEvent: event => persisted.push(event), document: undefined, copy: {} });
+  const session = await f.client.start({ callId: 'activity' });
+  const reader = session.events[Symbol.asyncIterator](); t.after(() => session.close());
+  assert.equal((await reader.next()).value.type, 'listening');
+  assert.equal(activity[0].type, 'listening'); assert.equal(activity[0].providerSessionId, 'segment');
+  assert.deepEqual(persisted, []);
+});
+
+test('AIT-263: simulator persists captured finals while playback acknowledgement is pending', async t => {
+  const now = Date.now(), acknowledged = Promise.withResolvers(), entered = Promise.withResolvers(), persisted = [];
+  const control = { start: () => ({ callId: 'activity-pending', providerSessionId: 'segment',
+    spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 }),
+    close: () => ({ closureConfirmed: true }), pause: () => ({ acknowledged: true, paused: true }),
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat: () => ({ acknowledged: true }),
+    reportActivity: async () => { entered.resolve(); await acknowledged.promise; },
+  };
+  const f = createFakeVoice({ control, persistEvent: event => persisted.push(event), document: undefined, copy: { fakeVoiceGreeting: 'Greeting.' } });
+  const session = await f.client.start({ callId: 'activity-pending' });
+  t.after(async () => { acknowledged.resolve(); await session.close(); });
+  await entered.promise; await new Promise(setImmediate);
+  assert.equal(persisted[0]?.type, 'final'); assert.equal(persisted[0]?.role, 'assistant');
+});

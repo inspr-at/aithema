@@ -1,4 +1,6 @@
-import { inputRevision, activeTurns } from './session.js';
+import { inputRevision, activeTurns, openQuestionItems } from './session.js';
+import { PluginError } from './invocation.js';
+import { pendingQuestionFocus } from './question-focus.js';
 import { reduceUnderstanding, understandingSchema } from './understanding.js';
 import { reasoningRequest } from './prompts.js';
 import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
@@ -16,10 +18,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, focusReplyAvailable = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, focusReplyAvailable, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -54,6 +56,8 @@ export class SessionLanes {
       running.controller.abort(new DOMException('Selection superseded', 'AbortError'));
     }
     const revision = inputRevision(session);
+    const focus = lane === 'reaction' ? pendingQuestionFocus(session) : null;
+    const focusData = focus ? { focusRequestId: focus.requestId } : {};
     const controller = new AbortController();
     const abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort();
@@ -62,8 +66,16 @@ export class SessionLanes {
     const scope = operationScope({ signal: controller.signal, deadlineAt });
     const current = () => {
       const latest = this.getSession(id);
-      return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
-        this.selection(latest, lane) === selection;
+      const valid = !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
+        this.selection(latest, lane) === selection && (!focus ||
+          !latest.paused && pendingQuestionFocus(latest)?.requestId === focus.requestId);
+      // Accepted focus owns the question text, while assessment IDs are ephemeral.
+      // A replacement may reorder that question; removing it must fail visibly.
+      if (valid && focus && !openQuestionItems(latest).some(item => item.question === session.focusedQuestion)) {
+        throw new PluginError('not-admitted', 'focused-question-removed');
+      }
+      if (valid && focus && !this.focusReplyAvailable(id)) throw new PluginError('not-admitted', 'reply-in-flight');
+      return valid;
     };
     const options = { signal: scope.signal, deadlineAt };
 
@@ -123,13 +135,13 @@ export class SessionLanes {
         }
       } else {
         if (!hasConversationInput(session)) return 'deferred';
-        if (this.purposePolicy && this.scopeKnown ? this.scopeKnown(id, revision) :
-          activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision)) return 'cached';
+        if (!focus && (this.purposePolicy && this.scopeKnown ? this.scopeKnown(id, revision) :
+          activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision))) return 'cached';
         if (this.getSession(id).paused) return 'paused';
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
         if (this.purposePolicy) {
-          const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy, offTopicTurns: this.offTopicTurns(id) });
+          const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy, offTopicTurns: this.offTopicTurns(id), focusQuestion: focus ? session.focusedQuestion : undefined });
           let admitted;
           const self = this;
           // Supersession is a lane outcome, never an empty provider reply.
@@ -151,7 +163,7 @@ export class SessionLanes {
               scope.signal.throwIfAborted();
               if (!current()) throw superseded;
             }
-          }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
+          }, { guardDirection: reply => current() && !focus ? this.guardDirection(id, reply) : reply,
             onDiagnostic: event => { if (current()) this.onReplyDiagnostic({ lane, ...event }); } }).catch(error => {
             const latest = this.getSession(id);
             if (flight.revoked || error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
@@ -163,19 +175,19 @@ export class SessionLanes {
           const { scope: classification, ...visible } = reply;
           // A non-delegating simulator already owns its normal spoken reply.
           // Classify privately without adding a duplicate assistant turn.
-          if (!this.replyVisible(session) && classification !== 'off') {
+          if (!focus && !this.replyVisible(session) && classification !== 'off') {
             this.onScope(id, classification, revision, { reply: false });
             return 'completed';
           }
-          if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, content: guarded.text,
+          if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, ...focusData, content: guarded.text,
             ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date().toISOString(), inputRevision: revision,
             ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision, classification)) return 'stale';
-          this.onScope(id, classification, revision);
+          if (!focus) this.onScope(id, classification, revision);
           return 'completed';
         }
         const turnId = crypto.randomUUID();
         const reply = new ReplyStream(), opener = new ReplyOpenerStream(session.locale); let decoded = '', shown = '', draftProducer;
-        const request = reasoningRequest(session, lane, false, this.hostPrompt);
+        const request = reasoningRequest(session, lane, false, this.hostPrompt, { focusQuestion: focus ? session.focusedQuestion : undefined });
         const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'stream', request, options });
         let failed = false;
         try { for await (const delta of cancellableStream((admitted?.plugin ?? this.reasoning).stream(request, admitted?.options ?? options), scope.signal)) {
@@ -190,7 +202,7 @@ export class SessionLanes {
           this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...draftProducer,
             inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         } } catch (error) { failed = true; throw error; }
-        finally { admitted?.finish({ failed }); }
+        finally { await admitted?.finish({ failed }); }
         if (!current()) return 'stale';
         const { content: rawContent, question_short, options: answers } = reply.finish();
         if (!rawContent.trim()) throw new TypeError('Empty reasoning stream');
@@ -202,7 +214,7 @@ export class SessionLanes {
         const content = shown + tail;
         if (opener.stripped) this.onOpenerStripped();
         // The admitted public choice labels which model and effort produced this reply.
-        if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content, question_short, options: answers,
+        if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content, question_short, options: answers, ...focusData,
           ...producer(admitted, admitted?.plugin ?? this.reasoning),
           at: new Date().toISOString(), inputRevision: revision, ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision)) return 'stale';
       }

@@ -96,7 +96,7 @@ export function createElevenLabsClient(ports = {}) {
       const events = voiceEvents();
       const playback = document?.defaultView?.MutationObserver && document.body
         ? watchVoicePlayback(document, () => options.onPlaybackBlocked?.(() => playback.retry())) : undefined;
-      let conversation, capture, grant, generation = 0, ended = false, closing, delivery = Promise.resolve(), commands = Promise.resolve();
+      let conversation, capture, grant, generation = 0, ended = false, closing, delivery = Promise.resolve(), persistence = Promise.resolve(), commands = Promise.resolve();
       let inputOn = true, outputOn = true, paused = false, transportBlocked = false, playbackInterrupted = false, sequence = 0, checkpointSequence = 0, pauseRevision = 0, persistenceFailed = false;
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const persistenceCancellation = new AbortController();
@@ -155,9 +155,20 @@ export function createElevenLabsClient(ports = {}) {
         const captured = ++checkpointSequence;
         if (['speaking', 'listening'].includes(value.type)) lifecycle.dispatch({ type: 'playback', active: value.type === 'speaking' });
         if (value.type === 'partial') lifecycle.dispatch({ type: 'partial', sequence: captured });
+        // Playback acknowledgements must not hold captured finals behind a
+        // network round trip: Pause can reach the server while they wait.
+        const saved = ['final', 'heard', 'reply'].includes(value.type)
+          ? (persistence = persistence.then(() => persist(value))) : null;
+        saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
-          if (['final', 'heard', 'reply'].includes(value.type)) await persist(value);
+          if (['speaking', 'listening'].includes(value.type) && control.reportActivity) {
+            await voiceOperation({ signal: persistenceCancellation.signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => control.reportActivity(value, opts));
+            // A mode can enable Pause immediately. Persist finals already
+            // captured by this point before exposing that mode to the host.
+            await persistence;
+          }
+          if (saved) await saved;
           if (value.type === 'final' && value.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: value.turnId, sequence: captured });
           if (value.type === 'final' && value.role === 'assistant') {
             lastReply = { turnId: value.turnId, text: value.text };
@@ -651,6 +662,16 @@ export function createElevenLabsClient(ports = {}) {
           },
           get replaying() { return replay.active; },
           stopReplay() { if (replay.active) silenceReply(); return replay.stop() ?? Promise.resolve(); },
+          // Server finals already exist in the transcript. Speak them through
+          // replay admission, without sendText or another provider conversation turn.
+          speakReply(reply, opts) {
+            return command('speakReply', bounded => {
+              if (!reply?.turnId || typeof reply.text !== 'string') throw new TypeError('Reply required');
+              lastReply = { turnId: reply.turnId, text: reply.text };
+              lastPlaybackTurnId = reply.turnId;
+              return replay.replay(lastReply, bounded);
+            })(opts);
+          },
           replayLastReply(opts) {
             const reply = lastReply && { ...lastReply }, revision = replay.revision;
             return command('replayLastReply', bounded => {

@@ -871,7 +871,15 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     const problems = [];
     const watch = page => {
       page.on('pageerror', error => problems.push(`pageerror ${error.message}`));
-      page.on('response', response => { if (response.status() >= 400) problems.push(`${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`); });
+      page.on('response', response => {
+        if (response.status() < 400) return;
+        const request = response.request(), path = new URL(response.url()).pathname;
+        let eventType = '';
+        if (path.includes('/voice/') && path.endsWith('/events')) {
+          try { eventType = ` (${JSON.parse(request.postData()).event?.type})`; } catch { /* Keep status for malformed requests. */ }
+        }
+        problems.push(`${response.status()} ${request.method()} ${path}${eventType}`);
+      });
     };
 
     // D2: the hovered element itself is anchored, padding never accumulates, and spare space works.
