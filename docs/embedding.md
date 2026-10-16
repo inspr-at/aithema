@@ -538,8 +538,8 @@ A private binding's `legal.countries` lists the **recipients' seat**, using ISO
 or guarantee a processing location. For qualified bindings the public catalog
 exposes these countries as `facts.hostCountries`; the host-countries privacy
 gauge says “Providers based in …” and explains that processing may occur
-elsewhere. The EU preset's admission/enforcement semantics are under review
-with LEAD; this wording change does not alter them. Existing enforced country
+elsewhere. The `eu` preset requires a separate contractual guarantee in
+`legal.processingCountries`, as described above. Existing enforced country
 policies retain their separate restriction wording.
 
 The gauge localizes country names with `Intl.DisplayNames` and joins them with
