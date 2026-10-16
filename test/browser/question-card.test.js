@@ -102,6 +102,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             turnGap: parseFloat(getComputedStyle(shell.querySelector('ol')).rowGap),
             shell: [shell.getBoundingClientRect().top, shell.getBoundingClientRect().bottom, shell.clientHeight, shell.scrollHeight, shell.scrollTop],
             reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
+            cardHeight: r.querySelector('.qcard').getBoundingClientRect().height, compact: r.querySelector('.qcard').hasAttribute('data-compact'),
+            optionsFloor: r.querySelector('.qcard').style.getPropertyValue('--question-options-floor'),
             limit: r.querySelector('.qcard').style.getPropertyValue('--question-card-limit'),
             notices: [r.querySelector('.voice-notices').getBoundingClientRect().height, r.querySelector('.voice-notices').style.minHeight],
             startVisible: bubble.top >= shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop) - 1 };

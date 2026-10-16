@@ -184,32 +184,32 @@ export class QuestionCard {
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
         - conceptHeight - expandedGap - 32
       : shell.getBoundingClientRect().height + (this.height ?? 0);
-    // Include the 12px fade within the 28px clearance above the reply.
-    // Very long replies retain a bounded reading pane and open in the full-text dialog.
-    const latest = shell.querySelector('.turn:last-child');
-    // The two-row phone rail reserves another action target. Take that space
-    // from the transcript's spare minimum before collapsing a short question.
-    const replyFloor = phone ? Math.max(84, 128 - Math.max(0, conceptHeight - 44)) : 128;
-    const replyRoom = Math.max(replyFloor, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - 150));
-    const limit = Math.max(0, available - replyRoom);
-    if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
     const wasCompact = this.card.hasAttribute('data-compact');
     let compact = phone && short && !this.card.hidden;
     // Short viewports need no expanded measurement. Changing display here
     // would clamp a chip that native keyboard focus has just scrolled into view.
     if (!compact) this.card.removeAttribute('data-compact');
+    let minimum = 150;
     if (phone && !this.card.hidden && !short) {
       const style = this.view.getComputedStyle(this.card);
       const rows = [...this.card.querySelectorAll('.qopt')];
       // A bounded list needs room for one complete option and its scroll cue.
-      // The tallest translated label must not force every full phone into chips.
+      // Measure the translated card before allocating the remaining reply room.
       const floor = Math.max(66, Math.min(...rows.map(row => row.getBoundingClientRect().height + 22)));
       this.card.style.setProperty('--question-options-floor', `${floor}px`);
-      const minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
+      minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
         + this.card.querySelector('.qhint').getBoundingClientRect().height
         + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2 * parseFloat(style.rowGap) + 2;
-      compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
     }
+    // Include the 12px fade within the 28px clearance above the reply.
+    // The two-row rail takes space from the transcript's spare minimum first.
+    // Longer replies retain a bounded reading pane and the full-text dialog.
+    const latest = shell.querySelector('.turn:last-child');
+    const replyFloor = phone ? Math.max(84, 128 - Math.max(0, conceptHeight - 44)) : 128;
+    const replyRoom = Math.max(replyFloor, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - minimum));
+    const limit = Math.max(0, available - replyRoom);
+    if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
+    if (phone && !this.card.hidden && !short) compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);
     this.positionOptions(!wasCompact);
