@@ -537,14 +537,42 @@ module. Missing or malformed money settings refuse construction.
 | Binding field | Required value / source |
 | --- | --- |
 | `stt` | Processing binding for ElevenLabs `scribe_v2_realtime`, plus explicit integer `microPerSecond >= 0`. |
-| `tts` | Processing binding for ElevenLabs `eleven_flash_v2_5`, plus saved `voiceId` and explicit integer `microPerCharacter >= 0`. |
+| `tts` | Processing binding for fixed ElevenLabs `eleven_flash_v2_5`, plus saved `voiceId`, required `voiceSettings` (below), and explicit integer `microPerCharacter >= 0`. |
+| `tts.voiceSettings` | Required complete object `{ stability, similarity_boost, style, use_speaker_boost, speed }`. First three are finite numbers in `[0, 1]`, speaker boost is boolean, speed is a finite number in `[0.7, 1.2]`. Missing, extra, or invalid fields refuse before provider setup. Read the saved start2 agent as described below; no provider defaults. |
 | `reasoning` | Existing OpenRouter private binding: `plugin`, `model`, `effort`, `endpoint`, `accountRef`, `secretRef`, `maxMicro`, `maxTokens`, `maxInputTokens`, `rates: { inputMicro, outputMicro }` and `legal`; optional `routing`. Rates are integer micro-USD per token. No model/routing fallback. |
 | `baselineOrigin` | Required canonical HTTPS production origin, without path, credentials, query or trailing slash. Loopback/localhost refuse; no default. Chrome runs production's normal visitor/consent/voice flow there. |
 | `baselineAuthFile` | Optional binding field, but required to run the baseline behind start2's basic-auth gate; missing refuses before admission. Absolute mba-owned 0600 regular non-symlink file containing JSON `{ "username": "...", "password": "..." }`. Inode, owner, mode and 16 KiB bound use the same checks as `loadQualificationKeys`. |
 | `baseline` | ElevenLabs processing binding whose `model` equals its existing `agentId`, plus explicit integer `microPerMinute >= 0`; proof must cover the whole agent conversation, including its provider-managed reasoning/STT/TTS. |
+| `baseline.tts` | Required saved-agent snapshot `{ model, voiceId, voiceSettings }` from the same GET. `model` is the agent TTS `model_id`, separate from the processing binding's agent ID. Voice ID and all five settings must match candidate `tts`; the TTS model may differ. |
 | `baselineReasoningCeilingMicro` | Required explicit nonnegative safe integer micro-USD ceiling for **all start2 facade OpenRouter reasoning** in one baseline conversation, including opener, replies, interruptions and retries. No default; OPS attests it together with the ElevenLabs ceiling. |
 | `maxDurationSeconds` | Explicit positive integer, at most 120 (`MAX_SAMPLE_SECONDS`); no default. Determines the paid baseline ceiling and sample deadline. The relay's 60-second connection grant is separate from the paid lifetime. |
-| `reasoningAttempts` | Explicit 1 or 2 (`MAX_REASONING_ATTEMPTS`); retries are new admissions with `retryOf`, within the same Rule C operation. Only a transport/provider failure before any text permits retry. |
+| `reasoningAttempts` | Defaults to 1; optional explicit 2 (`MAX_REASONING_ATTEMPTS`). The bound covers all reasoning dispatches, including transport and guarded-output retries. Each retry needs a new admission with `retryOf`, within the same Rule C operation. Transport retry requires failure before any text. Effort must stay `none`, matching production's voice reaction binding. |
+
+Before the paid run, OPS reads **GET `/v1/convai/agents/<start2 agent>`** and
+retains its non-secret `conversation_config.tts` snapshot with the run evidence.
+Copy `voice_id` to `tts.voiceId` and `baseline.tts.voiceId`, and `model_id` to
+`baseline.tts.model`. Copy the five settings from `conversation_config.tts` to
+both `tts.voiceSettings` and `baseline.tts.voiceSettings`; if the saved agent
+returns them under `conversation_config.tts.voice_settings`, use those values
+for the corresponding keys (nested values take precedence). Do not invent
+missing settings or copy other agent configuration into the binding.
+The candidate model remains `eleven_flash_v2_5`; each synthesis connection sends
+the validated settings as `voice_settings` in its initialization message.
+
+The candidate uses the same exported `buildVoiceReplyRequest` as production's
+voice reply lane, bound by the host handlers to their purpose policy, host
+prompt and safeguard state. Canonical session history, withdrawals, current
+understanding/focus and the latest person input receive the same shaping.
+The purpose-policy JSON is buffered and decoded by the production guard before
+TTS; the default single reasoning attempt cannot hide extra paid retries.
+
+`observations.json` records `ttsConfig: { model, voiceId, voiceSettings }` per
+sample. `report.json.tts.candidate` and `.baseline` list those same configurations
+in corpus order, including both TTS model IDs and all settings. The private
+`ops-answer-key.json` also associates each audio file with its source TTS
+configuration. These OPS files disclose the fixed-model difference; `blind.json`
+and the A/B WAV labels retain no lane or settings information. Keep the report
+and answer key private until the blind preference is recorded.
 
 Each processing binding supplies `plugin`, `model`, `endpoint`, `accountRef`,
 `secretRef`, optional `routing` and `legal: { purpose, consentVersion: 1,
@@ -720,6 +748,13 @@ OPS still supplies exactly:
 - the short-lived, mba-owned 0600 provider keys file;
 - `binding.baselineOrigin` (the real HTTPS start2 origin) and
   `binding.baselineAuthFile` (absolute mba-owned 0600 basic-auth JSON for this gate);
+- a fresh GET `/v1/convai/agents/<start2 agent>` → `conversation_config.tts`
+  snapshot: saved `voice_id`, `model_id`, and all five voice settings; supply
+  `binding.tts.voiceSettings` and `binding.baseline.tts: { model, voiceId,
+  voiceSettings }` with matching voice/settings, keeping candidate
+  `binding.tts.model: "eleven_flash_v2_5"`;
+- production's OpenRouter speech binding with `reasoning.effort: "none"` and
+  `reasoningAttempts: 1` by default (an explicit 2 remains separately admitted);
 - the verified whole-conversation `binding.baseline.microPerMinute` tariff and
   explicit `binding.maxDurationSeconds` hard bound of 1–120 seconds, with account-specific rounding;
 - corpus WAVs generated by the coordinator with **at least 20,000 ms of zero

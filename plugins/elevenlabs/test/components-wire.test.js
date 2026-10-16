@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElevenLabsSTT, createElevenLabsTTS, STT_FORMAT, TTS_FORMAT } from '../src/components.js';
-import { fixtureSocket, fixtureBinding, fixtureConsent, fixtureConfig as config, sttWire, ttsWire, unverified } from './component-fixtures.js';
+import { fixtureSocket, fixtureBinding, fixtureConsent, fixtureConfig as config, fixtureVoiceSettings, sttWire, ttsWire, unverified } from './component-fixtures.js';
 import { createQualificationBudget, runOfflineQualification } from '../../composed-voice/src/qualification.js';
 
 const collect = async source => { const result = []; for await (const item of source) result.push(item); return result; };
@@ -49,6 +49,18 @@ test('AIT-160: ElevenLabs TTS streams explicit PCM16/24k and includes trailing w
   assert.equal(reports[0].chargedMicro, 14); assert.equal(tts.estimateCost({ text: 'Hallo' }), 14);
   assert.ok(unverified.length);
   assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, 'tts-provider-identity-not-observed');
+});
+
+test('AIT-249: TTS validates and snapshots explicit voice settings and sends them for each synthesis', async () => {
+  const sent = [], voiceSettings = { ...fixtureVoiceSettings };
+  const tts = setup('tts', { config: { ...config, voiceSettings },
+    connect: () => fixtureSocket({ role: 'tts', onSend: frame => sent.push(frame) }) });
+  voiceSettings.speed = 1.1;
+  for (let i = 0; i < 2; i++) await run('tts', tts, options([]));
+  assert.deepEqual(sent.filter(frame => frame.text === ' '), Array.from({ length: 2 }, () => ({ text: ' ', voice_settings: fixtureVoiceSettings })));
+  for (const voiceSettings of [null, {}, { ...fixtureVoiceSettings, speed: 2 }, { ...fixtureVoiceSettings, stability: '0.5' }]) {
+    assert.throws(() => setup('tts', { config: { ...config, voiceSettings } }), /voice settings/);
+  }
 });
 
 for (const role of ['stt', 'tts']) test(`AIT-248: ${role} preserves a returned upgrade request-id and no invalid ID`, async () => {

@@ -170,6 +170,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     return response;
   }
   return {
+    streamRequest: request => payloadFor(request, streamExtra(request)),
     id: manifest.id, billable, label: `${label} — ${binding.model}`, manifest, binding, providerOptions,
     ...(authoritativeCost ? { estimateCost: (request, operation) => spendCeiling(payloadFor(request, operation === 'stream' ? streamExtra(request) : structuredExtra(request))) } : {}),
     ...(uncertainCeiling ? { estimateUncertainCost: (request, operation) => uncertainCeiling(payloadFor(request, operation === 'stream' ? streamExtra(request) : structuredExtra(request))) } : {}),

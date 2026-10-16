@@ -1,7 +1,7 @@
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
 import { validateConsentDocument, ConsentDocumentError } from '../../core/src/consent-document.js';
 import { createConceptHandlers } from './concept-handlers.js';
-import { createVoiceHandlers } from './voice-handlers.js';
+import { createVoiceHandlers, buildVoiceReplyRequest } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
@@ -625,7 +625,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }
     try { return await handle(request, context); } finally { release?.(); }
   }
-  return { handle: retainedHandle, lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
+  return { handle: retainedHandle,
+    buildVoiceReplyRequest: (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, hostPrompt, purposePolicy,
+      offTopicTurns: storage.safeguards(session.id).offTopicTurns }),
+    lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
     async withdrawConsent(id) {
       const event = storage.reviseConsent(id, false); await invalidate(id, event, 'consent-withdrawn');
       return event;

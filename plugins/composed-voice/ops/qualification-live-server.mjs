@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
-import { createBinding, consentCoverage, processingScope, deepFreeze } from '@inspr/aithema-core';
+import { createBinding, consentCoverage, processingScope, deepFreeze, collectPurposeReply, stripThanksOpener } from '@inspr/aithema-core';
 import { PluginError } from '@inspr/aithema-core/invocation';
 import { generationId } from '@inspr/aithema-core/cost';
 import { createVoiceReplyExecutor, createVoiceTurnOperations } from '@inspr/aithema-server';
-import { createOpenRouterReasoning, manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
+import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createElevenLabsSTT, createElevenLabsTTS, TTS_FORMAT } from '../../elevenlabs/src/components.js';
+import { validateVoiceSettings, VOICE_SETTING_KEYS } from '../../elevenlabs/src/voice-settings.js';
 import { createComposedVoice } from '../src/server.js';
 import { normalizeQualificationEntity } from '../src/qualification.js';
 import { loopbackOrigin } from './qualification-server.mjs';
@@ -27,6 +28,7 @@ const invalidBinding = () => { throw new TypeError('Explicit valid qualification
 export function validateQualificationBinding(raw) {
   try {
     const b = structuredClone(raw);
+    if (b && b.reasoningAttempts === undefined) b.reasoningAttempts = 1;
     if (!b || Object.keys(b).some(key => !['stt', 'tts', 'reasoning', 'baseline', 'baselineOrigin', 'baselineAuthFile', 'baselineReasoningCeilingMicro', 'maxDurationSeconds', 'reasoningAttempts'].includes(key)) ||
       !Number.isSafeInteger(b.maxDurationSeconds) || b.maxDurationSeconds < 1 || b.maxDurationSeconds > MAX_SAMPLE_SECONDS ||
       !Number.isSafeInteger(b.reasoningAttempts) || b.reasoningAttempts < 1 || b.reasoningAttempts > MAX_REASONING_ATTEMPTS) invalidBinding();
@@ -43,18 +45,24 @@ export function validateQualificationBinding(raw) {
         !Array.isArray(part.legal.processors) || part.legal.processors.some(value => typeof value !== 'string' || !value) ||
         !Array.isArray(part.legal.dataCategories) || !part.legal.dataCategories.length || part.legal.dataCategories.some(value => typeof value !== 'string' || !value)) invalidBinding();
       const common = ['plugin', 'model', 'effort', 'endpoint', 'routing', 'accountRef', 'secretRef', 'legal'];
-      const extra = role === 'stt' ? ['microPerSecond'] : role === 'tts' ? ['voiceId', 'microPerCharacter']
-        : role === 'baseline' ? ['agentId', 'microPerMinute'] : ['maxMicro', 'maxTokens', 'maxInputTokens', 'rates'];
+      const extra = role === 'stt' ? ['microPerSecond'] : role === 'tts' ? ['voiceId', 'voiceSettings', 'microPerCharacter']
+        : role === 'baseline' ? ['agentId', 'microPerMinute', 'tts'] : ['maxMicro', 'maxTokens', 'maxInputTokens', 'rates'];
       if (Object.keys(part).some(key => ![...common, ...extra].includes(key))) invalidBinding();
       processingScope(part, operation);
     }
     if (b.stt.model !== 'scribe_v2_realtime' || !amount(b.stt.microPerSecond) ||
       b.tts.model !== 'eleven_flash_v2_5' || !id(b.tts.voiceId) || !amount(b.tts.microPerCharacter) ||
       !id(b.baseline.agentId) || b.baseline.model !== b.baseline.agentId || !amount(b.baseline.microPerMinute) ||
-      !b.reasoning.model?.includes('/') || !openRouterManifest.models[0].efforts.includes(b.reasoning.effort) || !amount(b.reasoning.maxMicro) ||
+      !b.reasoning.model?.includes('/') || b.reasoning.effort !== 'none' || !amount(b.reasoning.maxMicro) ||
       !Number.isSafeInteger(b.reasoning.maxTokens) || b.reasoning.maxTokens < 1 ||
       !Number.isSafeInteger(b.reasoning.maxInputTokens) || b.reasoning.maxInputTokens < 1 ||
       ![b.reasoning.rates?.inputMicro, b.reasoning.rates?.outputMicro].every(amount)) invalidBinding();
+    b.tts.voiceSettings = validateVoiceSettings(b.tts.voiceSettings);
+    const baselineTTS = b.baseline.tts;
+    if (!baselineTTS || Object.keys(baselineTTS).some(key => !['model', 'voiceId', 'voiceSettings'].includes(key)) ||
+      !id(baselineTTS.model) || baselineTTS.voiceId !== b.tts.voiceId) invalidBinding();
+    baselineTTS.voiceSettings = validateVoiceSettings(baselineTTS.voiceSettings);
+    if (VOICE_SETTING_KEYS.some(key => baselineTTS.voiceSettings[key] !== b.tts.voiceSettings[key])) invalidBinding();
     // Existing OpenRouter binding validation, including routing/effort/ceilings.
     createBinding(b.reasoning);
     for (const value of [b.stt.microPerSecond * MAX_SAMPLE_SECONDS, b.tts.microPerCharacter * 242,
@@ -95,7 +103,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
   loopbackOrigin(relayOrigin);
   if (!keys || !Object.isFrozen(keys) || !['ELEVENLABS_API_KEY', 'OPENROUTER_API_KEY'].every(name =>
     typeof keys[name] === 'string' && keys[name] && !/[\r\n]/u.test(keys[name])) ||
-    ![authenticateRelay, storage?.authorize, handlers?.consent?.coverage, transports.connect, transports.fetch].every(fn => typeof fn === 'function')) {
+    ![authenticateRelay, storage?.authorize, handlers?.consent?.coverage, handlers?.buildVoiceReplyRequest, transports.connect, transports.fetch].every(fn => typeof fn === 'function')) {
     throw new TypeError('Frozen file-only keys and authoritative qualification server ports required');
   }
   const resolveSecret = ref => keys[ref];
@@ -185,7 +193,8 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
           }
           if (!hypothesis || !pcmBytes) answer.reject(new PluginError('invalid-output', 'Missing qualification audio or transcript'));
           else answer.resolve({ hypothesis, entities: matchQualificationEntities(hypothesis, item.expectedEntities),
-            ttsPCM: Uint8Array.from(Buffer.concat(chunks)), ttsFormat: sample.format });
+            ttsPCM: Uint8Array.from(Buffer.concat(chunks)), ttsFormat: sample.format,
+            ttsConfig: { model: binding.tts.model, voiceId: binding.tts.voiceId, voiceSettings: binding.tts.voiceSettings } });
         })().then(() => {
           if (active?.close === close) active = undefined;
           done.resolve();
@@ -199,6 +208,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
         revision = storage.authorize(sessionId, owner).consentRevision;
         await authorize();
         const ports = { binding, storage, sessionId, owner, deadlineAt, signal: sampleSignal, authorize, admission,
+          buildVoiceReplyRequest: handlers.buildVoiceReplyRequest,
           relayOrigin, authenticateRelay, consent: handlers.consent, connect: transports.connect, fetchImpl: transports.fetch, resolveSecret, capture,
           transcript(text) { hypothesis ??= text; }, track };
         sample = await startCandidateSample(ports);
@@ -228,39 +238,55 @@ async function startCandidateSample(p) {
     fetchImpl: async (...args) => { await authorize(); return p.fetchImpl(...args); } });
   const replyExecutor = createVoiceReplyExecutor({ execute(envelope, options) {
     return turns.run(envelope.payload, worker => {
-      const request = { messages: envelope.payload.callbackBody.messages };
-      return { replyId: `chatcmpl-${randomUUID()}`, created: Math.floor(Date.now() / 1000), events: (async function* () {
-        let text = '', retryOf;
-        for (let index = 0; index < binding.reasoningAttempts; index++) {
-          worker.beforeAdmission();
-          const wireRequest = { model: binding.reasoning.model,
-            messages: [{ role: 'system', content: '' }, ...request.messages], max_tokens: binding.reasoning.maxTokens,
-            ...reasoning.providerOptions(true), stream: true };
-          const opts = await admission('reasoning', wireRequest, reasoning.estimateUncertainCost(request, 'stream'), retryOf);
-          if (retryOf) worker.retry('qualification-transport-retry');
-          const originalConsume = opts.attempt.consume;
-          opts.attempt.consume = async () => {
-            worker.beforeAdmission(); await originalConsume();
-            if (!retryOf) worker.admitted(opts.attempt.attemptId);
-          };
-          try {
-            for await (const delta of reasoning.stream(request, { ...options, ...opts,
-              signal: AbortSignal.any([signal, worker.signal]) })) {
-              text += delta; yield { type: 'delta', text: delta };
+      const { callId, providerSessionId, callbackBody } = envelope.payload;
+      const request = p.buildVoiceReplyRequest(storage.authorize(sessionId, owner), callbackBody.messages, { callId, providerSessionId });
+      if (!request.purposePolicy) throw new PluginError('not-admitted', 'Production purpose policy required');
+      const replyId = `chatcmpl-${randomUUID()}`;
+      return { replyId, created: Math.floor(Date.now() / 1000), events: (async function* () {
+        let attempts = 0, retryOf, admitted = false;
+        async function* invoke(input) {
+          if (attempts >= binding.reasoningAttempts) throw new PluginError('invalid-output');
+          for (;;) {
+            let text = '';
+            worker.beforeAdmission();
+            const opts = await admission('reasoning', reasoning.streamRequest(input), reasoning.estimateUncertainCost(input, 'stream'), retryOf);
+            attempts++;
+            if (retryOf) worker.retry('qualification-retry');
+            const originalConsume = opts.attempt.consume;
+            opts.attempt.consume = async () => {
+              worker.beforeAdmission(); await originalConsume();
+              if (!admitted) { worker.admitted(opts.attempt.attemptId); admitted = true; }
+            };
+            try {
+              for await (const delta of reasoning.stream(input, { ...options, ...opts,
+                signal: AbortSignal.any([signal, worker.signal]) })) {
+                text += delta; yield delta;
+              }
+              retryOf = opts.attempt.attemptId; return;
+            } catch (error) {
+              await opts.finish();
+              if (text || signal.aborted || !['provider', 'rate-limit'].includes(error.code) || attempts >= binding.reasoningAttempts) throw error;
+              retryOf = opts.attempt.attemptId;
             }
-            yield { type: 'completion', text }; return;
-          } catch (error) {
-            await opts.finish();
-            if (text || signal.aborted || !['provider', 'rate-limit'].includes(error.code) || index + 1 >= binding.reasoningAttempts) throw error;
-            retryOf = opts.attempt.attemptId;
           }
         }
+        // Production's purpose policy requests JSON. Buffer and validate it
+        // through the same decoder before any text can reach candidate TTS.
+        const safe = await collectPurposeReply(request, invoke, { guardDirection: reply => storage.guardPurposeDirection(sessionId, reply,
+          request.purposePolicy, request.safeguardRevision ? undefined : JSON.stringify(['voice', callId, callbackBody.messages.filter(m => m.role === 'user').length])) });
+        const text = stripThanksOpener(safe.content, request.locale).text;
+        await authorize();
+        storage.postVoiceEvent(sessionId, callId, providerSessionId, { type: 'final', role: 'assistant', callId,
+          turnId: `${providerSessionId}:${replyId}`, text }, { ownerToken: owner, replyId, userTurnOrdinal: worker.ordinal,
+          model: binding.reasoning.model, provider: binding.reasoning.plugin, provenance: 'facade-produced' });
+        yield { type: 'delta', text };
+        yield { type: 'completion', text };
       })() };
     }, options);
   } });
   const component = role => {
     const part = binding[role];
-    return { enabled: true, config: { secretRef: part.secretRef, voiceId: binding.tts.voiceId,
+    return { enabled: true, config: { secretRef: part.secretRef, voiceId: binding.tts.voiceId, voiceSettings: binding.tts.voiceSettings,
       sttMicroPerSecond: binding.stt.microPerSecond, ttsMicroPerCharacter: binding.tts.microPerCharacter },
       consent: { session: storage.get(sessionId), binding: part, port: p.consent }, resolveSecret,
       connect: async request => { await authorize(); return p.connect(request); } };
@@ -271,7 +297,13 @@ async function startCandidateSample(p) {
   } };
   const factory = createComposedVoice({ enabled: true, storage, relayOrigin: p.relayOrigin, authenticateRelay: p.authenticateRelay,
     config: { maxDurationSeconds: binding.maxDurationSeconds, voice: binding.tts.voiceId }, stt, tts, replyExecutor, authorize,
-    commitUtterance: async envelope => { await authorize(); p.transcript(envelope.payload.callbackBody.messages.find(message => message.role === 'user').content); },
+    commitUtterance: async envelope => {
+      await authorize();
+      const { callId, providerSessionId, callbackBody } = envelope.payload, text = callbackBody.messages.at(-1).content;
+      storage.postVoiceEvent(sessionId, callId, providerSessionId, { type: 'final', role: 'user', callId,
+        turnId: `${providerSessionId}:${callbackBody.metadata.utteranceId}`, text, userTurnOrdinal: callbackBody.metadata.sequence }, { ownerToken: owner });
+      p.transcript(text);
+    },
     admitComponent: async ({ role, request, signal: componentSignal }) => ({
       ...await admission(role, request, (role === 'stt' ? stt : tts).estimateCost(request)), signal: componentSignal,
     }) });

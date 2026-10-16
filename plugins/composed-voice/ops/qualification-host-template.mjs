@@ -172,7 +172,7 @@ export function createQualificationHost(options = {}) {
         // No wall-clock remapping, fixture offset or reconstructed timestamp.
         for (const event of trace) onTiming(event);
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
-          ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat };
+          ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat, ttsConfig: answer.ttsConfig };
       } finally {
         try {
           try { kill(); } finally { lifetime.abort(new Error('Qualification sample ended')); }
