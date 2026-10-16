@@ -108,7 +108,7 @@ test('AIT-228 manual copy evidence: 12 viewport/theme/locale combinations', { ti
     };
     page.on('request', intercept);
     await page.evaluate(({ locale, theme }) => { localStorage.setItem('aithema-demo-locale', locale); localStorage.setItem('aithema-theme', theme); }, { locale, theme });
-    await page.goto(`${demo.url}/consent.html?session=${session.id}`, { waitUntil: 'networkidle0' });
+    await page.goto(`${demo.url}/consent/?session=${session.id}`, { waitUntil: 'networkidle0' });
     await until(page, () => document.querySelector('#consent-status')?.dataset.state === 'ready');
     const intro = await page.$eval('#consent-text', n => n.textContent);
     assert.ok(intro.endsWith(locale === 'de' ? 'Nicht ausgewählte Punkte sind nicht freigegeben.' : "Items you don't select are not allowed."));
