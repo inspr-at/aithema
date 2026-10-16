@@ -30,9 +30,9 @@ test('CI artifacts keep deterministic width rotation; full evidence retains ever
 test('nightly runs every browser shard with CI unset and an evidence directory', () => {
   const workflow = parse(readFileSync(new URL('../.github/workflows/nightly.yml', import.meta.url), 'utf8'));
   const job = workflow.jobs.browser;
-  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4]);
+  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4, 5, 6]);
   const step = job.steps.find(step => step.name === 'Full browser matrix with evidence');
-  assert.equal(step.run, 'env -u CI npm run test:browser -- --shard ${{ matrix.shard }}/4');
+  assert.equal(step.run, 'env -u CI npm run test:browser -- --shard ${{ matrix.shard }}/6');
   assert.equal(step.env.AITHEMA_EVIDENCE_DIR, '${{ runner.temp }}/evidence');
   assert.ok(job.steps.some(step => step.uses?.startsWith('actions/upload-artifact@') && step.if === 'always()'));
 });
@@ -56,7 +56,7 @@ test('executed case guard rejects a dropped state or width in CI and full eviden
 
 test('Tick width-specific DOM pass lines retain every original width in PR CI', () => {
   for (const [file, widths] of [
-    ['tick-followups.test.js', '[390, 393, 400, 412, 430, 440, 447, 448, 460, 480, 500, 550, 1024, 1440]'],
+    ['tick-followups.test.js', '[390, 393, 400, 412, 430, 440, 447, 448, 460, 479, 480, 500, 550, 1024, 1440]'],
     ['pause-phone.test.js', '[390, 393]'],
   ]) {
     const source = readFileSync(new URL(`./browser/${file}`, import.meta.url), 'utf8');

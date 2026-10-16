@@ -3,13 +3,41 @@ import { inputRevision, PluginError, operationScope } from '@inspr/aithema-core'
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
-import { ConflictError } from './storage.js';
 
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 // Shared by handler instances in this deployment's server process.
 const requestsPerSession = new Map();
 let requestsInDeployment = 0;
+// Reserve before body reads, and retain the reservation until every file in the
+// request finishes. Acknowledging HTTP 202 must not open an unbounded job queue.
+const MAX_PENDING_UPLOAD_REQUESTS = 3; // one running request, two pending
+let pendingUploadRequests = 0;
+const releasePendingRequest = () => { pendingUploadRequests--; };
+// Process-wide FIFO: waiting jobs retain IDs/metadata only, never stored bytes.
+// This covers runtime admission as well as the single isolated extractor slot.
+const extractionWaiters = [];
+let extracting = false;
+function releaseExtraction() { extracting = false; extractionWaiters.shift()?.(); }
+function acquireExtraction(signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      const index = extractionWaiters.indexOf(start);
+      if (index >= 0) extractionWaiters.splice(index, 1);
+      signal.removeEventListener('abort', abort);
+      reject(signal.reason);
+    };
+    const start = () => {
+      signal.removeEventListener('abort', abort);
+      extracting = true;
+      resolve(releaseExtraction);
+    };
+    if (signal.aborted) { reject(signal.reason); return; }
+    if (!extracting) { start(); return; }
+    extractionWaiters.push(start);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
 const extensions = { pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx, xlsx: EXTRACTOR_MEDIA_TYPES.xlsx,
   pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', xml: 'application/xml' };
 export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
@@ -24,16 +52,20 @@ export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS
 export function createUploadHandlers({ storage, runtime, ownership, readBody, publish, onInput, onWithdraw, signal, limits: configured }) {
   const limits = normalizeUploadLimits(configured), jobs = new Map();
   function start(id, uploadId) {
-    if (jobs.has(uploadId) || signal.aborted) return;
+    if (jobs.has(uploadId)) return jobs.get(uploadId).promise;
+    if (signal.aborted) return;
     const controller = new AbortController(), job = { id, controller, promise: null };
     jobs.set(uploadId, job);
     job.promise = Promise.resolve().then(async () => {
-      const session = storage.get(id), upload = session.uploads.find(u => u.id === uploadId);
-      if (!upload || upload.state !== 'pending' || session.tombstone) return;
+      const upload = storage.get(id).uploads.find(u => u.id === uploadId);
+      if (!upload || upload.state !== 'pending') return;
       const scope = operationScope({ signal: AbortSignal.any([signal, controller.signal]), deadlineAt: upload.deadlineAt });
-      let result;
+      let result, release;
       try {
+        release = await acquireExtraction(scope.signal);
         scope.signal.throwIfAborted();
+        const session = storage.get(id);
+        if (session.tombstone || !session.uploads.some(u => u.id === uploadId && u.state === 'pending')) return;
         const bytes = storage.uploadBytes(id, uploadId);
         if (!bytes) result = { status: 'unreadable', reason: 'unavailable', truncated: false };
         else {
@@ -45,7 +77,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       } catch (error) {
         result = { status: 'unreadable', reason: scope.signal.aborted ? scope.signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'
           : error instanceof PluginError && ['deadline', 'limit'].includes(error.code) ? error.code : 'unavailable', truncated: false };
-      } finally { scope.dispose(); }
+      } finally { release?.(); scope.dispose(); }
       if (signal.aborted) return; // shutdown keeps durable pending work for restart
       const current = storage.get(id);
       if (current.tombstone || !current.uploads.some(u => u.id === uploadId && u.state === 'pending')) return;
@@ -53,6 +85,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       if (event) { publish(id, event); onInput(id); }
     }).finally(() => jobs.delete(uploadId));
     job.promise.catch(() => {});
+    return job.promise;
   }
   async function cancelSession(id) {
     const pending = [...jobs.values()].filter(j => j.id === id);
@@ -86,7 +119,10 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       if (length && /^\d+$/u.test(length) && Number(length) > limits.maxRequestBytes) throw new RangeError('Upload request limit');
       const active = requestsPerSession.get(id) ?? 0;
       if (active >= limits.maxConcurrentRequestsPerSession || requestsInDeployment >= limits.maxConcurrentRequestsPerDeployment) return json({ error: 'upload-rate-limit' }, 429);
+      if (pendingUploadRequests >= MAX_PENDING_UPLOAD_REQUESTS) return json({ error: 'upload-rate-limit' }, 429);
+      pendingUploadRequests++;
       requestsPerSession.set(id, active + 1); requestsInDeployment++;
+      let retained = false;
       try {
         const deadlineAt = Date.now() + limits.requestBudgetMs;
         const bytes = await readBody(request, limits.maxRequestBytes);
@@ -116,23 +152,35 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt });
         storage.authorize(id, ownerToken);
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
-        if (inputRevision(storage.get(id)) !== guard.revision) throw new ConflictError('Upload admission changed');
+        // An earlier file can finish during admission of the next batch. No receipt exists yet:
+        // let the client retry against fresh admission rather than reporting a byte conflict.
+        if (inputRevision(storage.get(id)) !== guard.revision) return json({ error: 'upload-rate-limit' }, 429);
         if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
         const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });
         if (!result.replayed) {
           for (const event of result.events) publish(id, event);
           onInput(id, { pending: true });
-          for (const event of result.events) start(id, event.data.id);
+          const pending = result.events.map(event => start(id, event.data.id));
+          // This callback captures no request body or multipart byte views.
+          Promise.allSettled(pending).then(releasePendingRequest);
+          retained = true;
         }
         return json({ accepted: true, ...result, uploads: result.events.map(e => e.data), limits }, result.replayed ? 200 : 202);
       } finally {
         const remaining = requestsPerSession.get(id) - 1;
         if (remaining) requestsPerSession.set(id, remaining); else requestsPerSession.delete(id);
         requestsInDeployment--;
+        if (!retained) releasePendingRequest();
       }
     },
     resume() {
-      for (const id of storage.list()) for (const upload of storage.get(id).uploads) if (upload.state === 'pending') start(id, upload.id);
+      for (const id of storage.list()) for (const upload of storage.get(id).uploads) {
+        if (upload.state !== 'pending' || jobs.has(upload.id) || signal.aborted) continue;
+        // Old durable backlogs may exceed today's admission budget. Drain their
+        // metadata through the same FIFO and refuse new bodies until it clears.
+        pendingUploadRequests++;
+        Promise.resolve(start(id, upload.id)).finally(releasePendingRequest).catch(() => {});
+      }
     },
     idle: () => Promise.allSettled([...jobs.values()].map(j => j.promise)),
     close: () => Promise.allSettled([...jobs.values()].map(j => { j.controller.abort(); return j.promise; })),

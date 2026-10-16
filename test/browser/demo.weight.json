@@ -1,4 +1,4 @@
 {
-  "seconds": 90,
-  "evidence": "AIT-199 latest max 67.766s, CI 38770896962-1; historical floor 90s"
+  "seconds": 60,
+  "evidence": "AIT-219 split remainder: CI 38860512464-1, 46.704s rounded up + 10s"
 }

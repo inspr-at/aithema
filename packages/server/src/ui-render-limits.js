@@ -24,7 +24,7 @@ export function createUIRenderLimiter({ storage, perSession = 20, perDay = 200, 
   const day = () => new Date(now()).toISOString().slice(0, 10);
   const reason = (sessionId, date = day()) => {
     if (db.prepare('SELECT COUNT(*) AS n FROM ui_render_claims WHERE session_id=?').get(sessionId).n >= perSession) return UI_RENDER_SESSION_REASON;
-    if (db.prepare('SELECT COUNT(*) AS n FROM ui_render_claims WHERE day=?').get(date).n >= perDay) return UI_RENDER_DAY_REASON;
+    if (db.prepare('SELECT (SELECT COUNT(*) FROM ui_render_claims WHERE day=?)+COALESCE((SELECT count FROM retired_ui_renders WHERE day=?),0) AS n').get(date, date).n >= perDay) return UI_RENDER_DAY_REASON;
     return null;
   };
   return { reason,

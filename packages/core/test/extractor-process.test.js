@@ -103,7 +103,13 @@ async function linuxSampler(t, suffix) {
   childProcess.execFile = commands;
   syncBuiltinESMExports();
   t.after(() => { childProcess.execFile = original; t.mock.restoreAll(); syncBuiltinESMExports(); });
-  const { residentBytes } = await import(`../src/extractor-process.js?${suffix}`);
+  const { residentBytes } = await ({
+    'linux-status': () => import('../src/extractor-process.js?linux-status'),
+    'linux-recovery': () => import('../src/extractor-process.js?linux-recovery'),
+    'linux-zombie': () => import('../src/extractor-process.js?linux-zombie'),
+    'linux-exiting': () => import('../src/extractor-process.js?linux-exiting'),
+    'linux-invalid': () => import('../src/extractor-process.js?linux-invalid'),
+  })[suffix]();
   return { sample: (pid, readProc) => residentBytes(pid, { platform: 'linux', readProc }), commands };
 }
 

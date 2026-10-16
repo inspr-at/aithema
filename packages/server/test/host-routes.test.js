@@ -13,7 +13,8 @@ function fixture(t, options = {}) {
   const host = createDemoHost({ storage, demoBypass: false, verificationRequired: true, now: () => time,
     identityPolicy: { resendCooldownMs: 100, verificationTtlMs: 500 }, ...options });
   const runtime = createPluginRuntime({ storage, consent: mockConsent, presets: options.presets });
-  const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, deadlineMs: options.deadlineMs ?? 30_000 });
+  const handlers = createHandlers({ storage, consent: mockConsent, pluginRuntime: runtime, host, ownership: options.ownership,
+    deadlineMs: options.deadlineMs ?? 30_000 });
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await handlers.close(); storage.close(); };
   t.after(close);
@@ -25,6 +26,47 @@ function fixture(t, options = {}) {
   const message = async id => (await (await call(`/api/sessions/${id}/demo/outbox`)).json()).messages.at(-1);
   return { storage, host, runtime, handlers, call, create, message, close, at: value => { time = value; } };
 }
+
+for (const route of ['sessions', 'library', 'reset']) test(`AIT-217: ${route} creation renews ownership once on the 201 response`, async t => {
+  const created = t.mock.fn((response, token) => {
+    assert.equal(response.status, 201);
+    assert.equal(response.bodyUsed, false);
+    response.headers.set('set-cookie', `owner=${token}; HttpOnly`);
+  });
+  const f = fixture(t, { ownership: { token: request => request.headers.get('x-aithema-session-token'), created } });
+  const previous = route === 'reset' ? await f.create() : null;
+  created.mock.resetCalls();
+  const path = previous ? `/api/library/${previous.id}/reset` : `/api/${route}`;
+  const request = new Request(`http://local${path}`, {
+    method: 'POST', headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' }, body: '{}',
+  });
+  const response = await f.handlers.handle(request);
+  assert.equal(response.status, 201);
+  assert.equal(created.mock.callCount(), 1);
+  const [hookResponse, token, hookRequest] = created.mock.calls[0].arguments;
+  assert.equal(hookResponse, response);
+  assert.equal(token, owner);
+  assert.equal(hookRequest, request);
+  assert.equal(response.headers.get('set-cookie'), `owner=${owner}; HttpOnly`);
+  const entry = await response.json();
+  assert.equal(f.storage.authorize(entry.id, token).id, entry.id);
+  if (previous) assert.notEqual(entry.id, previous.id);
+});
+
+for (const route of ['library', 'reset']) test(`AIT-217: failed ${route} creation never renews ownership`, async t => {
+  const created = t.mock.fn();
+  const f = fixture(t, { ownership: { token: request => request.headers.get('x-aithema-session-token'), created } });
+  const previous = route === 'reset' ? await f.create() : null;
+  created.mock.resetCalls();
+  const path = previous ? `/api/library/${previous.id}/reset` : '/api/library';
+  const invalid = previous ? { unexpected: true } : { title: 'x'.repeat(201) };
+  assert.equal((await f.call(path, invalid)).status, 400);
+  assert.equal((await f.call(path, {}, null)).status, 401);
+  if (previous) assert.equal((await f.call(path, {}, foreign)).status, 404);
+  t.mock.method(f.storage, previous ? 'erase' : 'create', () => { throw new Error('storage unavailable'); });
+  assert.equal((await f.call(path, {})).status, 500);
+  assert.equal(created.mock.callCount(), 0);
+});
 
 const sessionRoutes = [
   ['identity', undefined], ['identity/request', { address: 'owner@example.test' }], ['identity/resend', {}],

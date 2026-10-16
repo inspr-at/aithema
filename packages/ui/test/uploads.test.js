@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import { Session } from 'node:inspector';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-import { UPLOAD_LIMITS, planUploads, refusalText, formatBytes, uploadStateText, uploadStateTexts, filePartBytes, formBytes, limitsText, dropText, uploadsPossible } from '../src/uploads.js';
+import { UPLOAD_LIMITS, uploadRetryDelay, planUploads, refusalText, formatBytes, uploadStateText, uploadStateTexts, filePartBytes, formBytes, limitsText, dropText, uploadsPossible } from '../src/uploads.js';
 // Node's own FormData and File encode a real multipart body; the component tests below use the window's.
 const { FormData: NodeFormData, File: NodeFile } = globalThis;
 const window = new Window({ url: 'http://localhost/' });
@@ -18,7 +19,7 @@ const at = second => new Date(Date.UTC(2026, 9, 10, 12, 0, second)).toISOString(
 const pending = (id, extra = {}) => ({ id, state: 'pending', filename: `${id}.txt`, mediaType: 'text/plain', bytes: 2048, at: at(10), ...extra });
 
 // A connected component on a fixture server: owner routes answer like the B1 handlers.
-function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feature = { available: true, reason: null }, limits = UPLOAD_LIMITS, post, withdraw } = {}) {
+function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feature = { available: true, reason: null }, limits = UPLOAD_LIMITS, get, post, withdraw } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.transcript = transcript; session.uploads = uploads; session.inputRevision = transcript.length;
   session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, uploads: feature } };
@@ -26,9 +27,13 @@ function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feat
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
-    if (url.endsWith('/uploads') && !options.method) return Response.json({ uploads: c.session.uploads, limits });
+    if (url.endsWith('/locale') && options.method === 'POST') return Response.json({ event: {
+      sessionId: c.session.id, seq: c.session.seq + 1, type: 'session.locale-changed', data: { locale: JSON.parse(options.body).locale },
+    } });
+    if (url.endsWith('/uploads') && !options.method) return get ? get() : Response.json({ uploads: c.session.uploads, limits });
     if (url.endsWith('/uploads') && options.method === 'POST') {
-      if (post) return post(options.body);
+      const response = await post?.(options.body, options);
+      if (response) return response;
       const events = options.body.getAll('files').map((f, i) => ({ sessionId: c.session.id, seq: c.session.seq + 1 + i, type: 'upload.state',
         data: { id: `u-${f.name}`, state: 'pending', filename: f.name, bytes: f.size, at: at(30 + i) } }));
       return Response.json({ accepted: true, uploads: events.map(e => e.data), events, replayed: false, limits }, { status: 202 });
@@ -40,7 +45,7 @@ function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feat
     }
     return Response.json(c.session);
   });
-  c.configure({ copy, session, sessionToken: 'owner-fixture', baseUrl }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', baseUrl }); document.body.append(c); t.after(() => c.remove());
   return { c, root: c.shadowRoot, calls };
 }
 const choose = async (root, files) => {
@@ -70,7 +75,7 @@ test('client limits: type and size refused per file, count and session totals pe
   // The default ceilings, in plain words in both languages.
   assert.equal(formatBytes(UPLOAD_LIMITS.maxBytes, 'en'), '20 MB'); assert.equal(formatBytes(1536, 'de'), '1,5 KB'); assert.equal(formatBytes(820, 'en'), '820 B');
   const packed = planUploads(Array.from({ length: 4 }, (_, i) => file(`p${i}.pdf`, 20 * 1024 * 1024 - 4096)));
-  assert.deepEqual(packed.batches.map(batch => batch.length), [3, 1], 'four 20 MB files go in two requests under 64 MB');
+  assert.deepEqual(packed.batches.map(batch => batch.length), [1, 1, 1, 1], 'each 20 MiB document needs its own request under 21 MiB');
 });
 
 // The real body, as Node's fetch encodes it (the same HTML multipart/form-data algorithm as a browser).
@@ -246,9 +251,8 @@ test('client-side refusals in plain words before sending, with the host limits; 
   assert.equal(root.querySelector('.composer-reason').textContent, 'Nicht angehängt: bild.png (Dateityp wird nicht angenommen).');
 });
 
-test('server refusals say what happened: limits, a busy route and an unavailable feature', async t => {
+test('server refusals say what happened: limits and an unavailable feature', async t => {
   for (const [response, words] of [[Response.json({ error: 'size-limit' }, { status: 413 }), en.uploads.overLimit],
-    [Response.json({ error: 'upload-rate-limit' }, { status: 429 }), en.uploads.busy],
     [Response.json({ error: 'uploads-unavailable', reason: 'extractor unhealthy' }, { status: 403 }), 'Files cannot be attached: Document extractor is not responding'],
     [new Response('nope', { status: 500 }), en.uploads.failed]]) {
     const { c, root } = setup(t, { post: () => response });
@@ -256,6 +260,312 @@ test('server refusals say what happened: limits, a busy route and an unavailable
     assert.equal(root.querySelector('.composer-reason').textContent, words); assert.equal(root.querySelectorAll('.upload').length, 0);
     c.remove();
   }
+});
+
+test('four 11 MiB files succeed without manual retry after a failed limits GET and a busy fourth request', async t => {
+  let attempts = 0;
+  const { root, calls } = setup(t, { get: () => new Response(null, { status: 503 }), post: () => {
+    if (++attempts === 4) return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+  } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, Array.from({ length: 4 }, (_, i) => file(`large-${i}.txt`, 11 * 1024 * 1024)));
+  assert.equal(attempts, 4); assert.equal(root.querySelectorAll('.upload').length, 3);
+  assert.notEqual(root.querySelector('.composer-reason').textContent, en.uploads.busy);
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'true');
+  t.mock.timers.tick(4999); await tick(); assert.equal(attempts, 4);
+  t.mock.timers.tick(1); await tick(); await tick();
+  assert.equal(attempts, 5); assert.equal(root.querySelectorAll('.upload').length, 4);
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  assert.notEqual(root.querySelector('.composer-reason').textContent, en.uploads.busy);
+  const posts = calls.filter(call => call.options.method === 'POST');
+  assert.ok(posts.every(call => call.options.body.getAll('files').length === 1), 'the fallback splits under 21 MiB');
+  assert.equal(posts[3].options.body.get('clientEventId'), posts[4].options.body.get('clientEventId'), 'retry keeps the receipt ID');
+});
+
+test('the truthful retry line appears only after three failed attempts, honoring Retry-After', async t => {
+  let attempts = 0;
+  const { root } = setup(t, { post: () => {
+    attempts++;
+    return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '7' } });
+  } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, [file('a.txt')]);
+  t.mock.timers.tick(6999); await tick(); assert.equal(attempts, 1);
+  assert.notEqual(root.querySelector('.composer-reason').textContent, en.uploads.busy);
+  t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 2);
+  t.mock.timers.tick(9999); await tick(); assert.equal(attempts, 2);
+  t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 3);
+  assert.equal(root.querySelector('.composer-reason').textContent, '1 file not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard');
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  t.mock.timers.tick(60_000); await tick(); assert.equal(attempts, 3, 'no fourth attempt');
+});
+
+for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219: ${copy.display.locale} exhausted ${count} file(s) retry the retained files without picking again`, async t => {
+  let failing = true;
+  const { c, root, calls } = setup(t, { copy, post: () => failing ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : undefined });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const files = Array.from({ length: count }, (_, i) => file(`retained-${i}.txt`, 10 + i));
+  const descriptors = files => files.map(f => ({ name: f.name, size: f.size }));
+  const posts = () => calls.filter(call => call.options.method === 'POST');
+  await choose(root, files);
+  assert.equal(root.querySelector('.upload-retry'), null, 'no exhausted action during the first attempt');
+  t.mock.timers.tick(5000); await tick(); await tick();
+  assert.equal(root.querySelector('.upload-retry'), null, 'no exhausted action during the second attempt');
+  t.mock.timers.tick(10000); await tick(); await tick();
+  const expected = copy === de
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet\u00a0· Erneut versuchen\u00a0· Verwerfen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard`;
+  assert.equal(root.querySelector('.composer-reason').textContent, expected);
+  assert.equal(posts().length, 3); assert.equal(c.session.uploads.length, 0);
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  root.querySelector('textarea').dispatchEvent(new window.Event('input'));
+  assert.equal(root.querySelector('.composer-reason').textContent, expected, 'typing keeps the retained-file action available');
+  failing = false;
+  root.querySelector('.upload-retry').click(); await tick(); await tick();
+  assert.equal(posts().length, 4);
+  assert.deepEqual(descriptors(posts().at(-1).options.body.getAll('files')), descriptors(files));
+  assert.deepEqual(await Promise.all(posts().at(-1).options.body.getAll('files').map(f => f.text())), await Promise.all(files.map(f => f.text())));
+  assert.equal(c.session.uploads.length, count); assert.equal(root.querySelector('.upload-retry'), null);
+});
+
+test('AIT-219: retry retains only unsent batches after an earlier batch succeeds', async t => {
+  let attempts = 0, failing = true;
+  const { c, root, calls } = setup(t, { limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 1 }, post: () => {
+    if (++attempts > 1 && failing) return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+  } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, [file('accepted.txt'), file('refused.txt', 8), file('unsent.txt', 12)]);
+  t.mock.timers.tick(5000); await tick(); await tick();
+  t.mock.timers.tick(10000); await tick(); await tick();
+  assert.equal(c.session.uploads.length, 1);
+  assert.equal(root.querySelector('.composer-reason').textContent, '2 files not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard');
+  failing = false;
+  root.querySelector('.upload-retry').click(); await tick(); await tick();
+  assert.deepEqual(calls.filter(call => call.options.method === 'POST').slice(4).map(call => call.options.body.getAll('files').map(f => f.name)), [['refused.txt'], ['unsent.txt']]);
+  assert.equal(c.session.uploads.length, 3);
+});
+
+// Inspect private storage without exposing a production getter or keeping extra File references.
+async function retainedFiles(c) {
+  const inspector = new Session(); inspector.connect();
+  const post = (method, params) => new Promise((resolve, reject) => inspector.post(method, params, (error, result) => error ? reject(error) : resolve(result)));
+  globalThis.ait219Probe = c;
+  try {
+    const { result } = await post('Runtime.evaluate', { expression: 'globalThis.ait219Probe' });
+    const { privateProperties } = await post('Runtime.getProperties', { objectId: result.objectId });
+    const files = privateProperties.find(property => property.name === '#retryFiles');
+    assert.ok(files, 'inspect the actual retained File list');
+    const value = await post('Runtime.callFunctionOn', { objectId: files.value.objectId,
+      functionDeclaration: 'function() { return this.map(file => file.name); }', returnByValue: true });
+    return value.result.value;
+  } finally { delete globalThis.ait219Probe; inspector.disconnect(); }
+}
+async function exhaust(t, root, files = [file('retained.txt')]) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, files);
+  t.mock.timers.tick(5000); await tick(); await tick();
+  t.mock.timers.tick(10000); await tick(); await tick();
+}
+for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: ${copy.display.locale} ${count} retained file(s) keep a complete retry line across locale changes`, async t => {
+  const { c, root, calls } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  const files = Array.from({ length: count }, (_, i) => file(`retained-${i}.txt`));
+  const source = copy === de ? 'de' : 'en', target = source === 'de' ? 'en' : 'de';
+  const busy = locale => locale === 'de'
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet\u00a0· Erneut versuchen\u00a0· Verwerfen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard`;
+  const line = () => root.querySelector('.composer-reason').textContent;
+  const shortcut = line();
+  await exhaust(t, root, files);
+  assert.equal(line(), busy(source));
+  assert.equal(await c.changeLocale(target), true);
+  assert.equal(line(), busy(target));
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'a pause removes retry without a refused click');
+  assert.equal(await c.changeLocale(source), true);
+  assert.equal(line(), copy === de
+    ? 'Dateien können nicht angehängt werden: Gespräch pausiert\u00a0· Verwerfen'
+    : 'Files cannot be attached: Conversation paused\u00a0· Discard');
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  assert.equal(await c.changeLocale(target), true);
+  assert.equal(line(), busy(target), 'a resolved refusal returns to the full retained-file count');
+  assert.deepEqual(await retainedFiles(c), files.map(f => f.name));
+  assert.equal(calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST').length, 3, 'locale changes never resend files');
+  root.querySelector('.upload-discard').click();
+  assert.equal(await c.changeLocale(source), true);
+  assert.equal(line(), shortcut, 'no retry fragment remains after discard');
+  assert.equal(root.querySelector('.upload-retry'), null);
+  assert.equal(root.querySelector('.upload-discard'), null);
+  assert.deepEqual(await retainedFiles(c), []);
+});
+for (const copy of [de, en]) {
+  test(`AIT-219 round 8: ${copy.display.locale} pause keeps files with Discard only; resume restores manual retry`, async t => {
+    const { c, root, calls } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await exhaust(t, root);
+    const busy = root.querySelector('.composer-reason').textContent;
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+    const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
+    assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'no retry while paused');
+    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal}\u00a0· ${copy.uploads.discard}`);
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    const discard = root.querySelector('.upload-discard');
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+    assert.equal(root.querySelector('.composer-reason').textContent, busy);
+    assert.ok(root.querySelector('.upload-retry'), 'resume makes a manual retry available');
+    assert.equal(root.querySelector('.upload-discard'), discard, 'the shared action survives repaint');
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3, 'resume never uploads automatically');
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    discard.click();
+    assert.deepEqual(await retainedFiles(c), []);
+    assert.equal(root.querySelector('.upload-retry'), null);
+  });
+  for (const ceiling of ['count', 'session']) test(`AIT-219 round 8: ${copy.display.locale} ${ceiling} limit keeps files with Discard only until room returns`, async t => {
+    const limits = { ...UPLOAD_LIMITS, ...(ceiling === 'count' ? { maxDocumentsPerSession: 1 } : { maxSessionBytes: 4 }) };
+    const { c, root, calls } = setup(t, { copy, limits, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await exhaust(t, root);
+    const busy = root.querySelector('.composer-reason').textContent;
+    state(c, pending('takes-last-slot', { bytes: 4 }));
+    const refusal = ceiling === 'count' ? copy.uploads.tooMany.replace('{files}', '1')
+      : copy.uploads.sessionFull.replace('{size}', '4 B');
+    assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'no retry while over limits');
+    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal}\u00a0· ${copy.uploads.discard}`);
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    state(c, { id: 'takes-last-slot', state: 'withdrawn', withdrawn: true, erased: true });
+    assert.equal(root.querySelector('.composer-reason').textContent, busy);
+    assert.ok(root.querySelector('.upload-retry'), 'freeing room restores manual retry');
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3, 'freeing room never uploads automatically');
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    root.querySelector('.upload-discard').click();
+    assert.deepEqual(await retainedFiles(c), []);
+  });
+  test(`AIT-219 round 6: ${copy.display.locale} mixed batch keeps refusal and exhaustion facts together`, async t => {
+    const { c, root } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await exhaust(t, root, [file('retained.txt'), file('tool.exe')]);
+    const refused = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'tool.exe'));
+    assert.equal(root.querySelector('.composer-reason').textContent,
+      `${refused}\u00a0· ${copy.uploads.notUploaded.one}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy === de ? 'Verwerfen' : 'Discard'}`);
+    root.querySelector('textarea').dispatchEvent(new window.Event('input'));
+    assert.ok(root.querySelector('.composer-reason').textContent.startsWith(refused), 'typing cannot swallow a refusal while files are retained');
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+  });
+}
+for (const copy of [de, en]) test(`AIT-219 round 6: ${copy.display.locale} a busy new pick names the replacement and keeps only its own files`, async t => {
+  const { c, root } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  await exhaust(t, root);
+  await choose(root, [file('new-a.txt'), file('new-b.txt')]);
+  assert.deepEqual(await retainedFiles(c), [], 'the previous retained list is released as soon as the new pick starts');
+  t.mock.timers.tick(5000); await tick(); await tick();
+  t.mock.timers.tick(10000); await tick(); await tick();
+  assert.deepEqual(await retainedFiles(c), ['new-a.txt', 'new-b.txt']);
+  const replacement = copy === de ? 'Die zuvor nicht hochgeladenen Dateien wurden durch die neue Auswahl ersetzt.'
+    : 'The previously unuploaded files were replaced by the new selection.';
+  assert.equal(root.querySelector('.composer-reason').textContent,
+    `${replacement}\u00a0· ${copy.uploads.notUploaded.other.replace('{count}', '2')}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy === de ? 'Verwerfen' : 'Discard'}`);
+  root.querySelector('.upload-discard').click();
+  assert.deepEqual(await retainedFiles(c), []);
+});
+for (const action of ['discard', 'configure', 'disconnect', 'new pick']) test(`AIT-219 round 6: ${action} releases exhausted files from internal storage`, async t => {
+  let failing = true;
+  const { c, root, calls } = setup(t, { post: () => failing ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : undefined });
+  await exhaust(t, root);
+  assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+  if (action === 'discard') {
+    root.querySelector('.upload-discard').click();
+    assert.equal(root.querySelector('.composer-reason').textContent.includes(en.uploads.notUploaded.one), false);
+    assert.equal(root.querySelector('.upload-discard'), null);
+  } else if (action === 'configure') c.configure({ copy: en, session: c.session });
+  else if (action === 'disconnect') c.remove();
+  else {
+    failing = false;
+    await choose(root, [file('replacement.txt')]);
+    assert.equal(root.querySelector('.composer-reason').textContent, 'The previously unuploaded files were replaced by the new selection.');
+    assert.deepEqual(calls.filter(call => call.options.method === 'POST').at(-1).options.body.getAll('files').map(f => f.name), ['replacement.txt']);
+  }
+  assert.deepEqual(await retainedFiles(c), [], 'no exhausted File references remain');
+});
+
+test('busy retry delays handle Retry-After seconds and HTTP dates, with backoff for missing or invalid headers', () => {
+  const now = Date.UTC(2026, 9, 16), delay = (value, attempt = 0) => uploadRetryDelay(new Response(null,
+    { headers: value === null ? {} : { 'Retry-After': value } }), attempt, now);
+  assert.equal(delay(null), 5000); assert.equal(delay('invalid', 1), 10000);
+  assert.equal(delay('7'), 7000); assert.equal(delay('0'), 5000);
+  assert.equal(delay(new Date(now + 12_000).toUTCString()), 12000);
+  assert.equal(delay(new Date(now - 1000).toUTCString()), 5000);
+  assert.equal(delay('3600'), 30000);
+  assert.equal(delay(new Date(Date.UTC(2099, 0, 1)).toUTCString(), 1), 30000);
+  assert.equal(delay('-3600'), 5000); assert.equal(delay('-9999', 1), 10000);
+});
+
+test('an hour or a distant HTTP date in Retry-After waits 30 seconds before the next POST', async t => {
+  for (const header of ['3600', 'Thu, 01 Jan 2099 00:00:00 GMT']) await t.test(header, async t => {
+    let attempts = 0;
+    const { root } = setup(t, { post: () => {
+      if (++attempts === 1) return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': header } });
+    } });
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    await choose(root, [file('a.txt')]);
+    t.mock.timers.tick(29999); await tick(); assert.equal(attempts, 1);
+    t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 2);
+    assert.equal(root.querySelectorAll('.upload').length, 1);
+    assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  });
+});
+
+test('removing the element during busy backoff stops all remaining POSTs and leaves its messages alone', async t => {
+  const { c, root, calls } = setup(t, { limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 1 },
+    post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, [file('a.txt'), file('b.txt')]);
+  c.remove();
+  const messages = () => ['.composer-reason', '.status__label'].map(selector => root.querySelector(selector).textContent);
+  const before = messages();
+  t.mock.timers.tick(60000); await tick(); await tick();
+  const posts = calls.filter(call => call.options.method === 'POST');
+  assert.equal(posts.length, 1, 'neither retries nor later batches are sent');
+  assert.equal(posts[0].options.signal?.aborted, true);
+  assert.deepEqual(messages(), before, 'no failure or busy message is painted while detached');
+  document.body.append(c); await tick();
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false', 'a cancelled batch releases Attach on reconnect');
+  t.mock.timers.tick(60000); await tick(); assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+});
+
+test('removing the element while limits load sends no POST and leaves its messages alone', async t => {
+  let release;
+  const { c, root, calls } = setup(t, { get: () => new Promise(resolve => { release = resolve; }) });
+  await choose(root, [file('a.txt')]);
+  c.remove();
+  const before = root.querySelector('.status__label').textContent;
+  release(Response.json({ limits: UPLOAD_LIMITS })); await tick(); await tick();
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 0);
+  assert.equal(root.querySelector('.status__label').textContent, before);
+});
+
+test('removal or reconfiguration aborts an in-flight upload without painting a failure', async t => {
+  for (const action of ['remove', 'configure']) await t.test(action, async t => {
+    let signal, aborted = false;
+    const { c, root, calls } = setup(t, { post: (_form, options) => new Promise((_resolve, reject) => {
+      signal = options.signal;
+      signal?.addEventListener('abort', () => { aborted = true; reject(signal.reason); }, { once: true });
+    }) });
+    await choose(root, [file('a.txt')]);
+    if (action === 'remove') c.remove();
+    else c.configure({ copy: en, session: c.session, sessionToken: 'new-owner' });
+    const before = root.querySelector('.composer-reason').textContent;
+    await tick(); await tick();
+    assert.equal(aborted, true); assert.equal(signal.aborted, true);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+    assert.equal(root.querySelector('.composer-reason').textContent, before);
+    assert.notEqual(before, en.uploads.failed);
+  });
+});
+
+test('a new session during busy backoff receives no retry of the old files', async t => {
+  const { c, root, calls } = setup(t, { post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, [file('a.txt')]);
+  c.configure({ copy: en, session: createSession({ demo: true }), sessionToken: 'new-owner' });
+  assert.equal(calls.find(call => call.options.method === 'POST').options.signal?.aborted, true);
+  t.mock.timers.tick(5000); await tick(); await tick();
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
 });
 
 test('gating: unavailable uploads keep Attach focusable, say the server reason and never open the picker or send', async t => {
@@ -277,7 +587,7 @@ test('gating: unavailable uploads keep Attach focusable, say the server reason a
   // A pause closes uploading with its own reason.
   const paused = setup(t, { feature: { available: true, reason: null } });
   paused.c.receive({ sessionId: paused.c.session.id, seq: paused.c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(paused.root.querySelector('.attach').title, 'Files cannot be attached: Session paused');
+  assert.equal(paused.root.querySelector('.attach').title, 'Files cannot be attached: Conversation paused');
 });
 
 test('dropping files on the conversation uploads them; the overlay is absolutely placed and leaves on drop', async t => {

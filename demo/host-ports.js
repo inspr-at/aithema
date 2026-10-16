@@ -47,7 +47,8 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   storage.db.exec(`CREATE TABLE IF NOT EXISTS owner_wallet_reservations (
     attempt_id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, fingerprint TEXT NOT NULL,
     max_micro INTEGER NOT NULL, released INTEGER NOT NULL DEFAULT 0);
-    CREATE INDEX IF NOT EXISTS wallet_owner ON owner_wallet_reservations(owner_hash);`);
+    CREATE INDEX IF NOT EXISTS wallet_owner ON owner_wallet_reservations(owner_hash);
+    CREATE INDEX IF NOT EXISTS wallet_session ON owner_wallet_reservations(CASE WHEN json_valid(fingerprint) THEN json_extract(fingerprint,'$[0]') END);`);
   const walletForHash = ownerHash => {
     if (!wallets.has(ownerHash)) {
       visitorCredits.visitor(ownerHash);
@@ -255,7 +256,24 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     eraseVisitor(ownerToken) { visitorCredits.eraseVisitor(hash(ownerToken)); purgeMail(); },
     retainVisitors(options) { const result = visitorCredits.retain(options); purgeMail(); return result; },
     outbox,
+    async retired({ sessionId }) {
+      await host.erased({ sessionId });
+      storage.transaction(() => {
+        // The demo chooses to discard consent history with its session.
+        for (const table of ['processing_consent_events', 'processing_consents']) {
+          if (storage.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) {
+            storage.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+          }
+        }
+      });
+    },
     async erased({ sessionId }) {
+      sink.erased(sessionId);
+      storage.transaction(() => {
+        storage.db.prepare('DELETE FROM visitor_mail_deliveries WHERE token_hash IN (SELECT token_hash FROM visitor_confirmation_tokens WHERE session_id=?)').run(sessionId);
+        storage.db.prepare('DELETE FROM visitor_confirmation_tokens WHERE session_id=?').run(sessionId);
+        storage.db.prepare("DELETE FROM owner_wallet_reservations WHERE CASE WHEN json_valid(fingerprint) THEN json_extract(fingerprint,'$[0]') END=?").run(sessionId);
+      });
       for (let i = mail.length - 1; i >= 0; i--) if (mail[i].sessionId === sessionId) mail.splice(i, 1);
     },
     wallet: ownerToken => walletForHash(hash(ownerToken)),

@@ -1,0 +1,280 @@
+{
+  "ticket": "AIT-215",
+  "classificationBasis": "classification records pre-fix exposure; finalState records the final rendering. Hidden sites remain inaccessible or cannot receive a consent reason. All reachable consent reasons use featureConsentText; saved-selection notice is separate existing copy.",
+  "sites": [
+    {
+      "site": "packages/ui/src/i18n/de.js:428",
+      "file": "packages/ui/src/i18n/de.js",
+      "line": 428,
+      "classification": "hidden",
+      "exposure": "Translation dictionary only; no DOM or accessibility exposure by itself.",
+      "resolution": "Kept for machine-reason compatibility; every UI consumer supplies its feature.",
+      "finalState": "hidden; unchanged generic copy permitted"
+    },
+    {
+      "site": "packages/ui/src/i18n/en.js:436",
+      "file": "packages/ui/src/i18n/en.js",
+      "line": 436,
+      "classification": "hidden",
+      "exposure": "Translation dictionary only; no DOM or accessibility exposure by itself.",
+      "resolution": "Kept for machine-reason compatibility; every UI consumer supplies its feature.",
+      "finalState": "hidden; unchanged generic copy permitted"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:649",
+      "file": "packages/ui/src/session-element.js",
+      "line": 649,
+      "classification": "exposed",
+      "exposure": "The ended/withdrawn verdict feeds status text and AT-only availability rows.",
+      "resolution": "Feature-specific visitor reason; preserve decision semantics.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:658",
+      "file": "packages/ui/src/session-element.js",
+      "line": 658,
+      "classification": "exposed",
+      "exposure": "Shared visitor verdict source for all feature consumers.",
+      "resolution": "reasonText(copy, rawReason, feature) reuses the C1 helper.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:870",
+      "file": "packages/ui/src/session-element.js",
+      "line": 870,
+      "classification": "visible",
+      "exposure": "Composer refusal: visible role=status, title, textarea aria-describedby.",
+      "resolution": "paintConsentLine with feature text opens Settings at the targeted consent item; save refreshes composer availability in place.",
+      "finalState": "feature-specific C1 copy and action; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:911",
+      "file": "packages/ui/src/session-element.js",
+      "line": 911,
+      "classification": "exposed",
+      "exposure": ".features is visually clipped, not hidden/inert; every unavailable row is exposed to AT.",
+      "resolution": "Same feature sentence as visible C1 copy for all seven features.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1038",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1038,
+      "classification": "visible",
+      "exposure": "Overview role=status; C1 renderer already replaces consent refusal.",
+      "resolution": "Existing C1 action; sentence now shared with AT/hover consumers.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1280",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1280,
+      "classification": "hidden",
+      "exposure": "Chooser rejects only non-dynamic reasons; consent is dynamic and cannot reach this branch.",
+      "resolution": "Pass text feature defensively; chooser descriptions contain static localized copy.",
+      "finalState": "hidden; unchanged generic copy permitted"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1299",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1299,
+      "classification": "hidden",
+      "exposure": "Consent is filtered by #presetRefusal; cannot produce a consent tooltip.",
+      "resolution": "Pass text feature defensively; exercise every option on hover/focus.",
+      "finalState": "hidden; unchanged generic copy permitted"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1327",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1327,
+      "classification": "visible",
+      "exposure": "Chooser alert can show a server refusal after save.",
+      "resolution": "Pass text feature to shared reason renderer.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1414",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1414,
+      "classification": "exposed",
+      "exposure": "Ready-card voice option title on hover/focus.",
+      "resolution": "Voice sentence from shared visitor verdict.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1553",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1553,
+      "classification": "visible",
+      "exposure": "Drop overlay hidden at rest, visible while dragging files.",
+      "resolution": "Upload feature sentence in existing refusal template.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1563",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1563,
+      "classification": "exposed",
+      "exposure": "Attach refusal becomes visible/live composer feedback on activation or drop.",
+      "resolution": "Upload feature sentence from shared visitor verdict.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1573",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1573,
+      "classification": "exposed",
+      "exposure": "Attach title and #attach-limits visually hidden description, referenced by aria-describedby.",
+      "resolution": "Both consume the identical upload sentence.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/session-element.js:1642",
+      "file": "packages/ui/src/session-element.js",
+      "line": 1642,
+      "classification": "visible",
+      "exposure": "Upload server refusal in the live composer status.",
+      "resolution": "Pass uploads feature to shared reason renderer.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/audio-rail.js:184",
+      "file": "packages/ui/src/audio-rail.js",
+      "line": 184,
+      "classification": "visible",
+      "exposure": "Voice status and action aria-describedby.",
+      "resolution": "Existing C1 renderer uses the shared sentence helper.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/concept-view.js:25",
+      "file": "packages/ui/src/concept-view.js",
+      "line": 25,
+      "classification": "visible",
+      "exposure": "Generation failure status may carry the machine consent reason.",
+      "resolution": "Pass html or images feature to shared reason renderer.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/concept-view.js:191",
+      "file": "packages/ui/src/concept-view.js",
+      "line": 191,
+      "classification": "visible",
+      "exposure": "Visual generation status and consent action.",
+      "resolution": "Existing C1 renderer and failure renderer use the same feature sentence.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/concept-view.js:379",
+      "file": "packages/ui/src/concept-view.js",
+      "line": 379,
+      "classification": "visible",
+      "exposure": "Visual request server refusal feeds status.",
+      "resolution": "Pass html or images feature to shared reason renderer.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/settings-dialog.js:153",
+      "file": "packages/ui/src/settings-dialog.js",
+      "line": 153,
+      "classification": "hidden",
+      "exposure": "Sizing-only .notice-measure has aria-hidden=true, visibility:hidden; saved-selection copy is distinct from the generic reason.",
+      "resolution": "Fine unchanged.",
+      "finalState": "hidden; unchanged generic copy permitted"
+    },
+    {
+      "site": "packages/ui/src/settings-dialog.js:169",
+      "file": "packages/ui/src/settings-dialog.js",
+      "line": 169,
+      "classification": "hidden",
+      "exposure": "Locale repaint of the same inaccessible sizing copy.",
+      "resolution": "Fine unchanged.",
+      "finalState": "hidden; unchanged generic copy permitted"
+    },
+    {
+      "site": "packages/ui/src/settings-dialog.js:452",
+      "file": "packages/ui/src/settings-dialog.js",
+      "line": 452,
+      "classification": "visible",
+      "exposure": "Saved-selection notice uses settings.consentRequired, a distinct existing sentence, never the generic machine-reason translation.",
+      "resolution": "Fine unchanged; retain saved-selection wording and Review consent action.",
+      "finalState": "visible; existing saved-selection sentence and Review consent action"
+    },
+    {
+      "site": "packages/ui/src/settings-dialog.js:470",
+      "file": "packages/ui/src/settings-dialog.js",
+      "line": 470,
+      "classification": "visible",
+      "exposure": "Settings server-refusal notice inside an open dialog.",
+      "resolution": "Pass text feature to shared reason renderer.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "site": "packages/ui/src/settings-dialog.js:493",
+      "file": "packages/ui/src/settings-dialog.js",
+      "line": 493,
+      "classification": "exposed",
+      "exposure": "Open Settings context help on hover/focus. Closed dialog and closed menus are hidden; consent status normally used separate generic help, unavailable/limited statuses could interpolate the generic reason.",
+      "resolution": "Reuse C1 sentence plus the localized safe-choice explanation for text, voice, html or images, independent of option status; keep feature metadata on controls.",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "file": "packages/ui/src/audio-rail.js",
+      "line": 152,
+      "classification": "visible",
+      "exposure": "Retained voice admission error bypassed the visitor verdict and directly translated copy.reasons; status is a live region.",
+      "resolution": "The error getter reuses the voice C1 sentence, including delegated consent and locale repaints.",
+      "site": "packages/ui/src/audio-rail.js:152",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "file": "packages/ui/src/audio-rail.js",
+      "line": 201,
+      "classification": "exposed",
+      "exposure": "Unavailable voice Start button has a native title on hover/focus.",
+      "resolution": "Voice C1 sentence from shared visitor verdict.",
+      "site": "packages/ui/src/audio-rail.js:201",
+      "finalState": "feature-specific C1 copy; no generic reason exposed"
+    },
+    {
+      "file": "demo/host.js",
+      "line": 54,
+      "classification": "hidden",
+      "exposure": "Host provider status translates only boot-time voice binding configuration failures, never the session consent verdict; unreachable for the generic consent reason.",
+      "resolution": "Fine unchanged; configuration is separate from session processing consent.",
+      "site": "demo/host.js:54",
+      "finalState": "hidden; unchanged generic copy permitted"
+    }
+  ],
+  "helper": {
+    "file": "packages/ui/src/consent-line.js",
+    "line": 5,
+    "export": "featureConsentText",
+    "transcriptionUses": "voice"
+  },
+  "genericReasons": {
+    "de": "Einwilligung zur Verarbeitung erforderlich",
+    "en": "Processing consent required"
+  },
+  "copyDecision": {
+    "authority": "Tick",
+    "date": "2026-10-16",
+    "text": {
+      "de": "Nachrichten brauchen Ihre Einwilligung",
+      "en": "Messages need your consent"
+    },
+    "uploads": {
+      "de": "Dateien brauchen Ihre Einwilligung",
+      "en": "Files need your consent"
+    },
+    "transcriptionUses": "voice",
+    "round3": "Composer text action; nonbreaking space before C1 separator; Settings help uses C1 followed by the safe-choice explanation (b)."
+  },
+  "summary": {
+    "sites": 27,
+    "hidden": 7,
+    "featureSpecific": 19,
+    "savedSelection": 1,
+    "exposedGenericReasons": 0
+  }
+}

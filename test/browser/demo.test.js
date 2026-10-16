@@ -8,6 +8,10 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
+import {
+  waitTimeout, content, waitForShadow, shadowFocus, startDemo, stopDemo, preparePage,
+  inShadow, box, until, uploadChooser, startTyping, sendTurn, revealed,
+} from './demo-helpers.js';
 import { FEATURES } from '../../packages/core/src/presets.js';
 import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
@@ -17,34 +21,7 @@ import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '
 import { pdf } from '../extractor-fixtures.js';
 import { formatBytes } from '../../packages/ui/src/uploads.js';
 import { AI_NOTICE } from '../../packages/core/src/ai-notice.js';
-
-const waitTimeout = 45_000;
-const content = 'operations: hosted; data: public; systems: API; reach: international';
-
 import { browserPath } from '../../scripts/install-test-browser.js';
-
-// Observe the shadow root itself: document MutationObservers cannot see its updates.
-async function waitForShadow(page, selector, expected = {}) {
-  await page.evaluate(async (selector, expected, timeout) => {
-    await customElements.whenDefined('aithema-session');
-    const root = document.querySelector('aithema-session').shadowRoot;
-    await new Promise((resolve, reject) => {
-      const observer = new MutationObserver(check);
-      const timer = setTimeout(() => {
-        observer.disconnect(); reject(new Error(`Demo UI did not become ready: ${selector}`));
-      }, timeout);
-      function check() {
-        const node = root.querySelector(selector);
-        if (!node || (expected.text !== undefined && node.textContent !== expected.text)
-          || (expected.enabled !== undefined && !node.disabled !== expected.enabled)
-          || (expected.states !== undefined && !expected.states.includes(node.dataset.state))) return;
-        observer.disconnect(); clearTimeout(timer); resolve();
-      }
-      observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
-      check();
-    });
-  }, selector, expected, waitTimeout);
-}
 
 function waitForDownload(cdp, signal) {
   return new Promise((resolve, reject) => {
@@ -110,10 +87,6 @@ const shadowRect = (page, selector, { document: absolute = false } = {}) => page
 }, selector, absolute);
 const shadowRects = (page, selector) => page.$eval('aithema-session', (component, selector) =>
   [...component.shadowRoot.querySelectorAll(selector)].map(node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }), selector);
-const shadowFocus = page => page.$eval('aithema-session', component => {
-  const active = component.shadowRoot.activeElement; return active ? active.className || active.id || active.tagName : null;
-});
-
 test('demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export',
   { timeout: 120_000 }, async t => {
     // Fail before starting the host if the browser is missing.
@@ -402,21 +375,6 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
     }
   });
 
-async function startDemo(directory, port = '0') {
-  const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
-    // The demo default: fake clickable HTML drafts (AIT-113), shown in the concept viewer.
-    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite') }, silent: true,
-  });
-  child.stdout.resume(); child.stderr.resume();
-  const [message] = await Promise.race([once(child, 'message'),
-    once(child, 'exit').then(([code]) => { throw new Error(`Demo host exited before ready (code ${code})`); })]);
-  return { child, url: message.url };
-}
-async function stopDemo(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, 'exit'), timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
-  try { child.kill('SIGTERM'); await exited; } finally { clearTimeout(timer); }
-}
 test('AIT-117: a German processing-consent page contains START German copy and no English server reasons',
   { timeout: 120_000 }, async t => {
     const executablePath = await browserPath();
@@ -476,7 +434,7 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     }
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await waitForShadow(page, '.composer textarea');
-    await waitForShadow(page, '.composer-reason', { text: de.reasons['current processing consent required'] });
+    await waitForShadow(page, '.composer-reason', { text: `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}` });
     // Exercise every grepped reason through actual feature rows, including HTML and uploads,
     // delegated voice reasons and the bounded agent API status-code family.
     const codes = [...FEATURE_REASON_CODES, ...VOICE_REASON_CODES,
@@ -500,7 +458,8 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
       assert.deepEqual(rendered[index].labels, FEATURES.map(feature => de.features[feature]), code);
       assert.equal(rendered[index].reasons.length, FEATURES.length, code);
-      assert.ok(rendered[index].reasons.every(text => text === expected), code);
+      assert.deepEqual(rendered[index].reasons, FEATURES.map(feature => inner === 'current processing consent required'
+        ? de.featureConsent[feature === 'transcription' ? 'voice' : feature] : expected), code);
       const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
       assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
@@ -508,25 +467,6 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.deepEqual(problems, []); assert.deepEqual(external, []);
     t.diagnostic(`START German consent plus optional drafts: 3 items and intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);
   });
-async function preparePage(page, languages) {
-  await page.setViewport({ width: 1440, height: 1000 });
-  page.setDefaultTimeout(waitTimeout);
-  await page.evaluateOnNewDocument(languages => {
-    // Puppeteer injects this into srcdoc policy probes and draft sandboxes too.
-    if (window !== window.top) return;
-    Object.defineProperty(navigator, 'languages', { get: () => languages });
-    Object.defineProperty(navigator, 'language', { get: () => languages[0] });
-    try { localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en'); } catch { /* Storage can be denied. */ }
-    document.addEventListener('DOMContentLoaded', () => {
-      const icon = document.createElement('link'); icon.rel = 'icon'; icon.href = 'data:,'; document.head.append(icon);
-    }, { once: true });
-  }, languages);
-}
-const inShadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
-const box = (page, selector) => inShadow(page, (c, selector) => {
-  const rect = c.shadowRoot.querySelector(selector).getBoundingClientRect();
-  return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-}, selector);
 function sameBox(before, after, label) {
   for (const key of ['x', 'y', 'width', 'height']) {
     assert.ok(Math.abs(before[key] - after[key]) <= .5, `${label} moved under the pointer: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
@@ -637,41 +577,6 @@ async function unreadableThenWithdrawn(page, path, width, shot, shotName) {
   sameRow(before, await rowBoxes(page, selector), `unreadable → withdrawn at ${width}`);
   assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.dataset.state), 'withdrawn', `unreadable → withdrawn at ${width}: focus stays on the row`);
 }
-const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: waitTimeout }, arg);
-async function uploadChooser(page, timeout = waitTimeout) {
-  // The input is deliberately hidden behind Attach. Wait for its attachment
-  // and the visible, available button, then keep focus through geometry probes.
-  await page.waitForSelector('aithema-session >>> .attach-input');
-  await page.waitForSelector('aithema-session >>> .attach', { visible: true });
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
-  await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus({ preventScroll: true }));
-  assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.attach')), true, 'Attach owns keyboard focus');
-  // waitForFileChooser starts interception asynchronously. Its own CDP session
-  // must acknowledge interception before Enter can open the native picker.
-  await page._client().send('Page.setInterceptFileChooserDialog', { enabled: true });
-  const [chooser] = await Promise.all([page.waitForFileChooser({ timeout }), page.keyboard.press('Enter')]);
-  return chooser;
-}
-// AIT-128: the composer opens with START's explicit start: Continue (from the entrance), Text input, Start.
-async function startTyping(page) {
-  const stage = () => inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage);
-  if (await stage() === 'live') return;
-  if (await stage() === 'entrance') {
-    await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
-  }
-  await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="type"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
-}
-const sendTurn = (page, text) => inShadow(page, (c, text) => {
-  c.shadowRoot.querySelector('textarea').value = text; c.shadowRoot.querySelector('form').requestSubmit();
-}, text);
-// AIT-128: the first input opens the understanding with START's one-time reveal (the column slides in over
-// ~560 ms). It is the visitor's own action, not a live update; checks under a resting pointer start after it.
-const revealed = page => until(page, () => {
-  const workspace = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
-  return workspace.dataset.understanding === 'present' && !workspace.hasAttribute('data-reveal');
-});
 const voiceState = page => inShadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.state);
 // Start call; before the conversation has started, through START's explicit voice start (Continue, Speak, Start).
 async function startCall(page) {
@@ -1079,7 +984,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await until(page, key => sessionStorage.getItem(key) === null, journalKey);
     await waitForShadow(page, '.status__label', { text: 'Connected' });
-    await waitForShadow(page, '.composer-reason', { text: 'Session paused' });
+    await waitForShadow(page, '.composer-reason', { text: 'Conversation paused' });
     await new Promise(resolve => setTimeout(resolve, 1000));
     assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts the pause');
     assert.deepEqual(pauses, [], 'no pause change without the person');
@@ -1427,8 +1332,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       return { label: a.querySelector('.attach__label').textContent, disabled: a.getAttribute('aria-disabled'), title: a.title,
         described: a.getAttribute('aria-describedby').split(' ').map(id => c.shadowRoot.getElementById(id).textContent) }; });
     // Its own description first, then the AI notice (AIT-119).
-    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: 'Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich',
-      described: ['Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich', `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
+    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads),
+      described: [de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads), `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
@@ -1531,6 +1436,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     });
 
     // Withdraw upload under the pointer: the chip stays where it is, focus stays on it, the understanding rebuilds.
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), true,
+      'upload anchoring also holds when there is no question-card reservation');
     const chipSelector = textChip;
     // The pointer rests on the button and the keyboard presses it, so both anchoring and focus are checked.
     const rowBefore = await restOnRow(page, chipSelector, '.upload-withdraw');

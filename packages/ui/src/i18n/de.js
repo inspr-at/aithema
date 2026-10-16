@@ -144,7 +144,7 @@ export const de = {
     visuals: 'Visuelle Entwürfe · Ergänzt den schriftlichen Entwurf um generierte Oberflächenskizzen.',
     visualsOff: 'Visuelle Entwürfe aus · Es werden keine Bilder erzeugt.',
     unavailable: 'Nicht verfügbar · {reason}',
-    consentNeeded: 'Einwilligung nötig · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.',
+    consentNeeded: '{reason} · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.',
     limited: 'Derzeit nicht verfügbar · {reason}. Sie können sie trotzdem wählen; sie startet, sobald das behoben ist.',
     consent: 'Einwilligung · Die Wahl eines Modells erteilt nie eine Einwilligung. Der Host fragt gesondert danach.',
     providers: 'Anbieter und Datenverarbeitung · Details zu Ihrer Auswahl und dazu, wie die Anzeigen berechnet werden.',
@@ -273,7 +273,7 @@ export const de = {
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',
-  composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht\u00a0…', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', placeholderFullHold: 'Sprechen Sie einfach weiter.', send: 'Senden',
+  composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht\u00a0…', placeholderCompact: 'Ihre Nachricht …', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', placeholderFullHold: 'Sprechen Sie einfach weiter.', send: 'Senden',
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Zusammenfassung', signals: 'Was wir konkret gesehen haben', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
   export: 'Gesprächsdaten herunterladen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
@@ -412,6 +412,9 @@ export const de = {
     refused: 'Nicht angehängt: {list}.', tooLarge: '{name} (zu groß, höchstens {size} pro Datei)', type: '{name} (Dateityp wird nicht angenommen)',
     tooMany: 'In diesem Gespräch können keine weiteren Dateien hinzugefügt werden (höchstens {files}).', sessionFull: 'Diese Dateien passen nicht mehr in dieses Gespräch (höchstens {size} insgesamt).',
     overLimit: 'Diese Dateien überschreiten die Grenzen für Dateien in diesem Gespräch.', failed: 'Die Datei konnte nicht übernommen werden.',
+    notUploaded: { one: '1 Datei nicht hochgeladen: Der Server ist gerade ausgelastet', other: '{count} Dateien nicht hochgeladen: Der Server ist gerade ausgelastet' },
+    tryAgain: 'Erneut versuchen', discard: 'Verwerfen',
+    replaced: 'Die zuvor nicht hochgeladenen Dateien wurden durch die neue Auswahl ersetzt.',
     busy: 'Es werden noch Dateien hochgeladen. Versuchen Sie es gleich noch einmal.', impossible: 'Dateien können nicht hochgeladen werden: Die Upload-Grenzen dieses Hosts lassen keinen Platz für eine Datei.',
     reasons: { unsupported: 'Dateityp wird nicht angenommen', empty: 'die Datei enthält keinen Text', malformed: 'die Datei ist beschädigt oder hat nicht das erwartete Format',
       encrypted: 'die Datei ist passwortgeschützt', limit: 'die Datei ist zu groß oder zu lang zum Auslesen', deadline: 'das Auslesen hat zu lange gedauert',
@@ -511,7 +514,7 @@ export const de = {
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
   // Legal copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
-  featureConsent: { images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
+  featureConsent: { text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
     // START src/lib/i18n.ts:2739 (consentCopy.de.intro).

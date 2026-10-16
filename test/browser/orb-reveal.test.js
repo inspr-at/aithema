@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
@@ -212,7 +212,7 @@ async function assertCalmUnderline(page, label) {
 
 test('AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect', { timeout: 60_000 }, async t => {
   const url = await server(t), browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    env: { PATH: process.env.PATH }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(() => browser.close());
   const page = await browser.newPage(); await page.setViewport({ width: 1440, height: 900 });
   await page.goto(`${url}/?locale=en&theme=light`); await page.waitForFunction(() => window.ready);
@@ -236,7 +236,7 @@ test('AIT-153: contrast waits for delayed entry and still rejects a settled cont
 for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: ${locale}, light/dark, 1440/1024/390`, { timeout: 240_000 }, async t => {
   const url = await server(t), evidence = process.env.AITHEMA_EVIDENCE_DIR, executablePath = await browserPath();
   const directory = await mkdtemp(join(tmpdir(), 'aithema-orb-'));
-  const browser = await puppeteer.launch({ executablePath, headless: true, userDataDir: directory, env: { PATH:process.env.PATH, HOME:homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await puppeteer.launch({ executablePath, headless: true, userDataDir: directory, env: { PATH:process.env.PATH }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(() => browser.close()); if (evidence) await mkdir(evidence, {recursive:true});
   const page = await browser.newPage(), problems = [], colours = [], frames = [], metrics = [], client = await page.createCDPSession();
   page.on('pageerror', error => problems.push(error.message)); page.setDefaultTimeout(30_000);
@@ -304,7 +304,7 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
 });
 
 test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab and existing component', {timeout:90_000}, async t=>{
-  const url=await server(t), browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH,HOME:homedir()},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
+  const url=await server(t), browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
   const page=await browser.newPage(), problems=[]; page.on('pageerror',error=>problems.push(error.message));
   await page.setViewport({width:1440,height:900}); await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await page.goto(`${url}/?locale=en&theme=light&component=1`); await page.waitForFunction(()=>window.ready&&window.component?.shadowRoot); await wait(250);
@@ -327,7 +327,7 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
 
 test('AIT-140: early leave holds the circle; live exit colour samples every 50ms', {timeout:60_000}, async t=>{
   const url=await server(t), evidence=process.env.AITHEMA_EVIDENCE_DIR;
-  const browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH,HOME:homedir()},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
+  const browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
   const page=await browser.newPage(), records=[];
   for(const theme of ['light','dark']) for(const width of [1440,390]) {
     await page.setViewport({width,height:900,deviceScaleFactor:1}); await page.goto(`${url}/?locale=de&theme=${theme}`); await page.waitForFunction(()=>window.ready); await wait(100);

@@ -529,7 +529,7 @@ Missing/erased records hydrate as tombstones, including on receipt replay,
 restart and export. SQLite secure deletion and WAL checkpointing run before
 erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
 hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
-The demo applies a twelve-month turn retention cutoff each minute.
+The demo retires whole sessions after twelve months of inactivity, checking each minute.
 
 Assistant replies, including assistant voice transcripts, and generated
 understanding objects carry `origin: "ai-generated"` in API snapshots, durable
@@ -1218,7 +1218,7 @@ CSV and JSON remain literal untrusted source content, including foreign approval
 claims from Gen-2 handover JSON; XML entities are never resolved.
 
 All three plugins parse in child processes, with one active parser across kinds.
-Queue time counts against the wall-clock deadline. A file is capped at 2 MiB,
+Queue time counts against the wall-clock deadline. A file is capped at 20 MiB,
 60,000 output UTF-16 code units including segment separators, 100 PDF pages or
 Office sheets/slides, 10 seconds and a 128 MiB V8 old-space heap. Separately,
 the parent samples child RSS every 25 ms and SIGKILLs/reaps it above `maxRssMb`
@@ -1274,8 +1274,8 @@ Part B wiring points, still pending:
 
 | Surface | Required integration |
 | --- | --- |
-| `packages/server/src/handlers.js`, HTTP adapter | Owner-authenticated `POST /api/sessions/:id/uploads` using the existing `x-aithema-session-token`/ownership port, and `DELETE /api/sessions/:id/uploads/:uploadId`. Bound streamed request bytes before multipart buffering: 8 MiB/request, 4 files/request, 8 documents/session. Apply one shared `deadlineAt = now + 25_000` to a batch, connected to disconnect, withdrawal and erasure signals. Return sanitized accepted/unreadable records; re-read ownership, consent revision, tombstone and available slots after extraction before durable publication. Byte-bound idempotency must reject reuse with different bytes. |
-| Preset configuration / plugin registration | `best` and `eu` may explicitly admit these host-local plugins with the same maximum 2 MiB/file, 60,000 characters/file and 100 pages/sheets/slides; `custom` selects them and may lower every ceiling. `device` must leave server upload extraction unavailable until a browser extractor is implemented and admitted. No server plugin claims device placement or provider residency. Hosts enforce allowed sniffed formats, request/session quotas and consent before dispatch. |
+| `packages/server/src/handlers.js`, HTTP adapter | Owner-authenticated `POST /api/sessions/:id/uploads` using the existing `x-aithema-session-token`/ownership port, and `DELETE /api/sessions/:id/uploads/:uploadId`. Bound streamed request bytes before multipart buffering: 21 MiB/request (hosts may only lower it), 8 files/request, 8 documents/session. Reserve at most three requests per server process through extraction; excess requests receive a retryable 429 busy response before body reads. See [extractor limits and memory](docs/extractor-limits.md#pending-jobs-and-resident-memory-round-2). Apply one shared `deadlineAt = now + 25_000` to a batch, connected to disconnect, withdrawal and erasure signals. Return sanitized accepted/unreadable records; re-read ownership, consent revision, tombstone and available slots after extraction before durable publication. Byte-bound idempotency must reject reuse with different bytes. |
+| Preset configuration / plugin registration | `best` and `eu` may explicitly admit these host-local plugins with the same maximum 20 MiB/file, 60,000 characters/file and 100 pages/sheets/slides; `custom` selects them and may lower every ceiling. `device` must leave server upload extraction unavailable until a browser extractor is implemented and admitted. No server plugin claims device placement or provider residency. Hosts enforce allowed sniffed formats, request/session quotas and consent before dispatch. |
 | `packages/server/src/storage.js`, core source/lane hydration and export | Persist accepted extracted text/segments as erasable upload sources with a host upload ID, sniffed type, bounded display filename and truncation/limit metadata. Namespace `segment:N` by immutable upload/content revision for citations; never cite unreadable records or import document approval as authority. Treat excerpts as untrusted evidence in reaction/understanding prompts and enforce the 16,000-character provider document context ceiling. Raw document bytes need not be retained. Acknowledge only after persistence and owner/consent revalidation. |
 | `packages/ui/src/*` | Upload affordance and accessible chips for accepted, truncated and unreadable files, with honest reason and paste-text guidance; safe filename/text rendering, page/segment citations and an owner-authenticated remove action. Client limits are hints; server limits remain authoritative. |
 | Withdrawal, consent withdrawal, erasure and expiry | Abort pending upload work and wait for child reaping; persist source tombstones and invalidate dependent understanding, working-spec citations, concept inputs and cached exports before acknowledgement. Erase extracted text, quotes and any retained bytes; replay/restart/export hydrate tombstones without resurrecting sources. Rebuild from remaining inputs through normal lanes. Retain only allowed IDs, hashes, timestamps and tombstone metadata. |
@@ -1557,15 +1557,24 @@ extractors, policy/consent refusal, pause, device unavailability and health.
 The runtime admits a single-use zero-cost extractor attempt with cancellation,
 deadline and one terminal report; it has no implicit plugin fallback.
 
-START defaults apply at the route: 20 MiB/file, 64 MiB/request, eight files per
-request and session, and a 25-second batch budget. The added per-session source
-byte ceiling defaults to 160 MiB (eight times START's file ceiling); pending and
-unreadable uploads reserve capacity, withdrawal releases it. Hosts can lower
-these ceilings through `createHandlers({uploads:{limits}})`. Part A's hard parser
-ceilings remain stricter: 2 MiB input, 60,000 extracted characters, 100 pages,
-10 seconds/parser, and the existing archive/heap/RSS caps. Larger admitted
-documents become unreadable with `reason:'limit'`. Binary signatures and Office
-structure plus the extension select media type; client MIME is ignored.
+The route and parser allow 20 MiB per document. The multipart request ceiling
+is 21 MiB, including framing; hosts may only lower it. The route allows eight
+files per request and session, a 160 MiB active source-byte total per session,
+and a 25-second batch budget. Pending and unreadable uploads reserve session
+capacity; withdrawal releases it. Hosts can lower the route ceilings through
+`createHandlers({uploads:{limits}})`. Parser bounds remain 60,000 extracted
+characters, 100 pages, 10 seconds/parser, and the existing archive/heap/RSS caps.
+Binary signatures and Office structure plus the extension select media type;
+client MIME is ignored.
+
+A process-wide reservation admits at most three requests (one running, two
+pending), held from before body reads until every file in the request is terminal.
+A full reservation returns retryable HTTP 429 busy (`upload-rate-limit`). The UI
+sends batches sequentially and retries busy responses up to three total attempts,
+waiting 5 then 10 seconds, or longer when `Retry-After` requires it. Busy is shown
+only after those attempts fail. At the default ceilings the conservative payload
+and worker allowance is **570 MiB**, plus fixed/service overhead, GC/allocator
+slack and watchdog overshoot; see the [memory formula and extractor limits](docs/extractor-limits.md#pending-jobs-and-resident-memory-round-2).
 
 Original bytes are erasable SQLite content while pending and discarded after
 extraction, matching START's document-original retention policy. Text/names
@@ -2847,8 +2856,8 @@ Readiness of voice is separately visible in
 | `AITHEMA_HTML_MODEL` | Optional Claude ID or `~anthropic/claude-*-latest` alias; defaults to a Claude `OPENROUTER_MODEL`, otherwise `anthropic/claude-opus-5.5`; exact ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
 | `AITHEMA_UI_RENDERS_PER_SESSION` | Persistent lifetime limit shared by HTML and images; default `20`; `0` disables generation |
 | `AITHEMA_UI_RENDERS_PER_DAY` | Persistent deployment-wide UTC-day limit shared by HTML and images; default `200`; `0` disables generation |
-| `AITHEMA_UPLOAD_MAX_BYTES` | Document route file ceiling; default `20971520` (20 MiB), lowering only; parser input remains capped at 2 MiB |
-| `AITHEMA_UPLOAD_MAX_REQUEST_BYTES` | Multipart streaming body ceiling; default `67108864` (64 MiB), lowering only |
+| `AITHEMA_UPLOAD_MAX_BYTES` | Document route and parser input ceiling; default `20971520` (20 MiB), lowering only |
+| `AITHEMA_UPLOAD_MAX_REQUEST_BYTES` | Multipart streaming body ceiling; default `22020096` (21 MiB), hosts may only lower it; larger settings fail startup |
 | `AITHEMA_UPLOAD_MAX_FILES` | Active document count per session, including pending/unreadable; default `8`, lowering only |
 | `AITHEMA_UPLOAD_MAX_SESSION_BYTES` | Active source-byte count per session; default `167772160` (160 MiB), lowering only; withdrawal releases capacity |
 | `AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS_PER_SESSION` | Concurrent upload requests per session; default `2`, lowering only; excess requests receive `429` before their bodies are read |

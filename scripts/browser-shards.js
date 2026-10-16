@@ -35,7 +35,8 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 
 export const browserTestWeights = readBrowserTestWeights();
 
-export const browserShardCount = 4;
+// AIT-219: six bins keep 2,280s of measured planning work below 7 min each.
+export const browserShardCount = 6;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');

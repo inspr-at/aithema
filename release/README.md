@@ -37,8 +37,15 @@ in that directory on the build runner. It contains no workspace links.
 PR CI also retains a `reset-candidate` artifact for 90 days, with canonical GNU
 archives and the same consumer proof; this is artifact storage, not registry or
 forge publication.
-The remote evidence copy is placed under ignored `dist/ait105/`; the committed
-`release/evidence.json` records a historical BSD candidate, not shipped bytes.
+Round 6 retains the remote evidence copy under ignored
+`dist/ait105-r6-final/candidate/`. Its `candidate-evidence.json` and
+`first/release-set.json` bind the exact final branch head. The committed
+`release/evidence.json` records the preceding implementation checkpoint: evidence
+cannot contain the SHA of the commit that contains itself. After that evidence
+commit, run the candidate command again and retain the final-head evidence
+without another evidence-only commit. Hand OPS that exact head and final manifest
+digest together. The committed and final BSD candidates are preparation evidence,
+not shipped bytes.
 BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
 and retention evidence for that CI source commit, not a promise that a later tag
 build has the same digests.

@@ -1,4 +1,4 @@
 {
-  "seconds": 60,
-  "evidence": "AIT-199 latest max 42.284s, CI 38770896962-1; historical floor 60s"
+  "seconds": 80,
+  "evidence": "AIT-223 expanded matrix: CI 38840992859-1, 62.878s rounded up + 10s"
 }

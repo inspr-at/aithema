@@ -149,7 +149,7 @@ export const en = {
     visuals: 'Visual concepts · Add generated interface sketches to the written concept.',
     visualsOff: 'Visual concepts off · No images are generated.',
     unavailable: 'Unavailable · {reason}',
-    consentNeeded: 'Consent needed · You can choose this option. It processes nothing until the host has your consent for it.',
+    consentNeeded: '{reason} · You can choose this option. It processes nothing until the host has your consent for it.',
     limited: 'Currently unavailable · {reason}. You can still choose it; it starts once this clears.',
     consent: 'Consent · Choosing a model never grants consent. The host asks for it separately.',
     providers: 'Providers & data processing · Details about your selection and how the gauges are computed.',
@@ -277,9 +277,9 @@ export const en = {
   purposeDirection: 'Is this more about a new solution, about how you work, or both?',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'AI assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
-  paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
+  paused: 'Conversation paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',
-  composer: 'Your message', placeholder: 'Type your next message here\u00a0…', placeholderVoice: 'Just start talking – or type.', placeholderFullHold: 'Just keep talking.', send: 'Send',
+  composer: 'Your message', placeholder: 'Type your next message here\u00a0…', placeholderCompact: 'Your message …', placeholderVoice: 'Just start talking – or type.', placeholderFullHold: 'Just keep talking.', send: 'Send',
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Summary', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
   export: 'Export conversation', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',
@@ -419,6 +419,9 @@ export const en = {
     refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)',
     tooMany: 'No more files fit in this conversation (up to {files}).', sessionFull: 'These files do not fit in this conversation (up to {size} in total).',
     overLimit: 'These files exceed the upload limits of this conversation.', failed: 'The file could not be added.',
+    notUploaded: { one: '1 file not uploaded: the server is busy right now', other: '{count} files not uploaded: the server is busy right now' },
+    tryAgain: 'Try again', discard: 'Discard',
+    replaced: 'The previously unuploaded files were replaced by the new selection.',
     busy: 'Files are still uploading. Try again in a moment.', impossible: 'Files cannot be uploaded: the upload limits of this host leave no room for a file.',
     reasons: { unsupported: 'file type not accepted', empty: 'the file contains no text', malformed: 'the file is damaged or not in the expected format',
       encrypted: 'the file is password-protected', limit: 'the file is too large or too long to read', deadline: 'reading took too long',
@@ -433,7 +436,7 @@ export const en = {
   // Server feature verdicts are stable machine reasons; show them in the page language.
   reconcilingLong: "The call's costs aren't confirmed yet. Your text is kept.",
   reasons: {
-    'session paused': 'Session paused', 'current processing consent required': 'Processing consent required',
+    'session paused': 'Conversation paused', 'current processing consent required': 'Processing consent required',
     'consent port unavailable': 'Consent check unavailable', 'not configured': 'Not configured',
     'unavailable on device': 'Not available on this device', 'plugin not registered': 'Provider not installed',
     'plugin not in preset': 'Provider not part of this processing choice', 'preset not configured': 'Not set up by this host',
@@ -521,7 +524,7 @@ export const en = {
   },
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
   // Kept identical to the server's English legal fallback.
-  featureConsent: { images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
+  featureConsent: { text: 'Messages need your consent', uploads: 'Files need your consent', images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
     action: 'Give consent…', save: 'Save consent', withdraw: 'Withdraw and end conversation' },
   processingConsent: {
     intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',

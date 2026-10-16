@@ -2,7 +2,7 @@ import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets, createLocalImages, localImageBinding, createLocalHTML, localHTMLBinding,
   normalizeChoices, mockPresets } from '../src/index.js';
-import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../src/dev/local-voice.js';
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { mockConsent, temporaryDb, unzip } from '../../../test/helpers.js';

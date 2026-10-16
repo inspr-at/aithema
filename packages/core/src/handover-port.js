@@ -81,9 +81,13 @@ export function reduceHandover(state, event) {
  * reject on failure. Persist idempotency receipts across restarts in real hosts.
  * A host must reject a key reused for another session/revision. */
 export function createFakeHandoverHost() {
-  const receipts = new Map();
+  const receipts = new Map(), sessions = new Map();
   let failures = 0, count = 0;
   return { failNext() { failures += 1; }, deliveryCount: () => count,
+    erased(sessionId) {
+      for (const key of sessions.get(sessionId) ?? []) receipts.delete(key);
+      sessions.delete(sessionId);
+    },
     port: { async deliver(request) {
       if (!request || request.idempotencyKey !== handoverKey(request.sessionId, request.revision)) throw new TypeError('Handover key conflict');
       const previous = receipts.get(request.idempotencyKey);
@@ -92,6 +96,8 @@ export function createFakeHandoverHost() {
       if (failures > 0) { failures -= 1; throw new Error('Fake delivery failed'); }
       const receipt = { status: 'sent', receiptId: `delivery-${count}` };
       receipts.set(request.idempotencyKey, receipt);
+      const keys = sessions.get(request.sessionId) ?? new Set();
+      keys.add(request.idempotencyKey); sessions.set(request.sessionId, keys);
       return structuredClone(receipt);
     } }
   };
