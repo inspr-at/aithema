@@ -727,7 +727,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
     // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
-    assert.equal(await german.$eval('#provider', node => node.textContent), 'Lokale Demo, ohne KI-Anbieter · Nur Demo: klickbarer Entwurf');
+    assert.equal(await german.$eval('#provider', node => node.textContent), 'Lokale Demo, ohne KI-Anbieter\u00a0· Nur Demo: klickbarer Entwurf');
     // AIT-118: at 400 px every English and German voice message, the longest German recovery and closure
     // messages included, is whole in the rail's reserved lines and moves no control.
     const voiceMessages = [en, de].flatMap(copy => Object.entries(copy).filter(([key, value]) => /^voice[A-Z]/u.test(key) && typeof value === 'string'
