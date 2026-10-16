@@ -26,19 +26,27 @@ export function hostSettingsGauges(input) {
   const hasCountries = option => Array.isArray(option.facts?.hostCountries) && option.facts.hostCountries.length > 0;
   if (selected.some(hasCountries)) {
     // Keep the least private selected lane; one approved model cannot qualify voice/visuals.
-    const rank = ['unverified', 'declared', 'restricted', 'eu', 'device'];
+    const rank = ['unverified', 'declared', 'hostCountries', 'restricted', 'eu', 'device'];
     const privacy = selected.map(option => {
       const base = settingsGauges({ preset: input.preset, info: input.info, model: option }).privacy;
       // Host countries can strengthen a lane, but never weaken its existing privacy claim.
-      return hasCountries(option) && rank.indexOf(base.state) < rank.indexOf('restricted')
-        ? { state: 'restricted', fill: 55, enforced: true, countries: option.facts.hostCountries } : base;
+      return hasCountries(option) && rank.indexOf(base.state) < rank.indexOf('hostCountries')
+        ? { state: 'hostCountries', fill: 55, enforced: false, countries: option.facts.hostCountries } : base;
     })
       .reduce((a, b) => rank.indexOf(a.state) <= rank.indexOf(b.state) ? a : b);
-    gauges.privacy = { ...privacy, countries: privacy.state === 'restricted'
-      ? [...new Set(selected.flatMap(option => option.facts?.hostCountries ?? input.info?.policy?.countries ?? []))] : privacy.countries };
+    gauges.privacy = { ...privacy, countries: privacy.state === 'hostCountries'
+      ? [...new Set(selected.flatMap(option => option.facts?.hostCountries ?? []))] : privacy.countries };
   }
   return gauges;
 }
+// Provider seats use localized region names, with the approved US names instead
+// of CLDR's default "United States" / "Vereinigte Staaten".
+const countryNames = (countries, locale) => {
+  const regions = new Intl.DisplayNames(locale, { type: 'region' });
+  const us = new Intl.Locale(locale).language === 'de' ? 'USA' : 'the US';
+  return new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' })
+    .format(countries.map(code => code === 'US' ? us : regions.of(code)));
+};
 const helpMeasurements = copy => {
   const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => featureConsentText(copy, feature))
     .reduce((longest, text) => text.length > longest.length ? text : longest, '');
@@ -561,7 +569,26 @@ export class SettingsDialog {
       : term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason, term?.dataset.feature ?? 'text') })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;
-    this.#q('.context-message').textContent = text;
+    const message = this.#q('.context-message');
+    // Keep the policy link reachable when the pointer leaves the gauge, and
+    // preserve the actual focused node when focus moves into the help line.
+    if (message.contains(this.#focused()) || !term && message.querySelector('a[data-aithema-privacy]')) return;
+    message.textContent = text;
+    if (term?.dataset.gauge !== 'privacy' || term.dataset.state !== 'hostCountries') return;
+    const host = this.#dialog.getRootNode().host;
+    const marked = [...(host?.children ?? [])].filter(node => node.slot === 'legal')
+      .flatMap(node => node.matches('a[data-aithema-privacy][href]') ? [node] : [...node.querySelectorAll('a[data-aithema-privacy][href]')]);
+    const label = this.#copy.gauges.privacyPolicy, index = text.lastIndexOf(label);
+    if (index < 0) return;
+    for (const source of marked) {
+      let url;
+      try { url = new URL(source.getAttribute('href'), source.baseURI); } catch { continue; }
+      if (!['http:', 'https:'].includes(url.protocol)) continue;
+      const link = document.createElement('a'); link.dataset.aithemaPrivacy = ''; link.href = url.href; link.textContent = label;
+      if (source.target === '_blank') { link.target = '_blank'; link.rel = 'noopener noreferrer'; }
+      message.replaceChildren(document.createTextNode(text.slice(0, index)), link, document.createTextNode(text.slice(index + label.length)));
+      break;
+    }
   }
   #optionStatus(option, kind) {
     const c = this.#copy.settings;
@@ -613,7 +640,7 @@ export class SettingsDialog {
   #paintGauge(kind, gauge) {
     const g = this.#copy.gauges, node = this.#q(`[data-gauge="${kind}"]`), level = node.querySelector('.gauge__level');
     const value = fill(g.values[gauge.state] ?? gauge.state, gauge);
-    const details = { ...gauge, source: gauge.source?.name, asOf: gauge.source?.asOf, countries: gauge.countries?.join(', '),
+    const details = { ...gauge, source: gauge.source?.name, asOf: gauge.source?.asOf, countries: gauge.state === 'hostCountries' ? countryNames(gauge.countries, this.#copy.display.locale) : gauge.countries?.join(', '),
       operations: gauge.operations?.map(operation => g.operations?.[operation] ?? operation).join(', ') || g.values.none };
     const detail = fill(g.details[kind]?.[gauge.state] ?? '', details);
     node.querySelector('.gauge__value').textContent = value;
@@ -621,6 +648,7 @@ export class SettingsDialog {
     node.dataset.help = 'gauge'; node.dataset.helpText = `${g.labels[kind]}${reasonSeparator}${value}${detail ? `: ${detail}` : ''}`;
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
+    if (kind === 'privacy' && gauge.state === 'hostCountries') node.tabIndex = 0; else node.removeAttribute('tabindex');
     const key = String(gauge.fill), changed = level.dataset.fill !== undefined && level.dataset.fill !== key;
     level.dataset.fill = key; level.style.setProperty('--empty', `${100 - gauge.fill}%`);
     const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
