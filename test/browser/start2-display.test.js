@@ -548,7 +548,10 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
       const label = `${locale}/${theme}/${width}`;
       await scene(locale, theme, width);
-      await shadow(page, c => c.configure({ session: c.session, host: { library: true } }));
+      await shadow(page, async (c, locale) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        c.configure({ copy, session: c.session, host: { library: true } });
+      }, locale);
       const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
       const before = await boxes(page, selectors);
       await page.click('aithema-session >>> .conversations-toggle');
