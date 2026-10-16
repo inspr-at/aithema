@@ -219,6 +219,9 @@ test('AIT-268: a manual pause carries over New/reset and restart, then follows i
   assert.equal((await restarted.create()).paused, true);
   const record = JSON.parse(restarted.storage.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).record);
   assert.deepEqual(record, { sessionId: source.id, paused: true });
+  assert.equal(restarted.storage.creditState(source.id), null, 'a pause preference is never migrated as a deadline');
+  restarted.storage.transitionCredits(source.id, owner, { type: 'start', now: epoch });
+  assert.equal(restarted.storage.creditState(source.id).endsAt, epoch + HOUR);
   assert.equal((await restarted.call(`/api/sessions/${source.id}/erase`, {})).status, 200);
   assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).n, 0);
   assert.equal((await restarted.create()).paused, false);
@@ -241,6 +244,14 @@ test('AIT-268: startup binds legacy pause rows and removes orphaned or erased gu
   assert.equal((await restarted.create()).paused, true);
   assert.equal((await restarted.call(`/api/sessions/${live.id}/erase`, {})).status, 200);
   assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 0);
+});
+
+test('AIT-268: pause lifetime binding rejects a foreign or erased source session', t => {
+  const f = fixture(t), source = f.storage.create({ ownerToken: owner });
+  assert.throws(() => f.storage.setOwnerPaused('foreign-owner', true, source.id), /not found/iu);
+  f.storage.erase(source.id);
+  assert.throws(() => f.storage.setOwnerPaused(owner, true, source.id), /erased/iu);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 0);
 });
 
 test('AIT-261: inherited voice deadline also refuses separately admitted STT/TTS components', async t => {

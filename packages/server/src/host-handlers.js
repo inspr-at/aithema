@@ -125,7 +125,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const paused = storage.get(id).paused, guard = storage.creditState(id);
     if (host.credits?.ownerGuard !== false && host.wallet && ownerToken) {
       const ownerGuard = storage.ownerCreditState(ownerToken);
-      if (ownerGuard ? ownerGuard.paused !== paused : paused) storage.setOwnerPaused(ownerToken, paused);
+      if (ownerGuard ? ownerGuard.paused !== paused : paused) storage.setOwnerPaused(ownerToken, paused, id);
     }
     if (guard && guard.paused !== paused) conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
   }

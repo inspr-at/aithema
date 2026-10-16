@@ -84,11 +84,25 @@ export class SQLiteStorage {
     this.#migrate();
     // Preserve the original deadline of legacy guards, only on the conversation
     // they actually belong to. Never rebind one owner's deadline to New/reset.
-    this.db.exec(`INSERT OR IGNORE INTO conversation_credit_guards
-      SELECT s.id,g.record FROM owner_credit_guards g JOIN sessions s ON s.id=json_extract(g.record,'$.sessionId')
-      WHERE json_extract(s.snapshot,'$.tombstone') IS NULL;`);
+    const erasedGuards = this.transaction(() => {
+      this.db.exec(`INSERT OR IGNORE INTO conversation_credit_guards
+        SELECT s.id,g.record FROM owner_credit_guards g JOIN sessions s ON s.id=json_extract(g.record,'$.sessionId')
+        WHERE json_extract(s.snapshot,'$.tombstone') IS NULL AND json_extract(g.record,'$.status') IS NOT NULL;
+        UPDATE owner_credit_guards SET record=json_set(record,'$.sessionId',
+          (SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=owner_hash
+            AND json_extract(snapshot,'$.tombstone') IS NULL ORDER BY rowid DESC LIMIT 1))
+          WHERE json_extract(record,'$.sessionId') IS NULL;`);
+      // Repair AIT-261's unbound pause rows at startup, never in a retention sweep.
+      const owners = this.db.prepare(`DELETE FROM owner_credit_guards WHERE NOT EXISTS
+        (SELECT 1 FROM sessions WHERE id=json_extract(record,'$.sessionId')
+          AND json_extract(snapshot,'$.ownerHash')=owner_hash AND json_extract(snapshot,'$.tombstone') IS NULL)`).run().changes;
+      const conversations = this.db.prepare(`DELETE FROM conversation_credit_guards WHERE session_id IN
+        (SELECT id FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL)`).run().changes;
+      return owners + conversations;
+    });
     this.voiceTurnStore = createVoiceOperationStore(this);
     this.#retention();
+    if (erasedGuards) this.checkpointErasure();
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
   }
   transaction(fn) {
@@ -313,11 +327,15 @@ export class SQLiteStorage {
     return row ? JSON.parse(row.record) : null;
   }
   // Legacy deadlines migrate to conversation_credit_guards at startup. Only
-  // the owner's manual pause preference carries across New/reset afterwards.
-  setOwnerPaused(ownerToken, paused) {
-    if (!ownerToken || typeof paused !== 'boolean') throw new TypeError('Invalid owner pause');
-    this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
-      .run(hash(ownerToken), JSON.stringify({ paused }));
+  // the owner's manual pause preference carries across New/reset afterwards,
+  // until the session that recorded it is erased or retired.
+  setOwnerPaused(ownerToken, paused, sessionId) {
+    if (!ownerToken || typeof paused !== 'boolean' || typeof sessionId !== 'string') throw new TypeError('Invalid owner pause');
+    return this.transaction(() => {
+      const session = this.get(sessionId); this.#check(session, { ownerToken });
+      this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
+        .run(session.ownerHash, JSON.stringify({ sessionId, paused }));
+    });
   }
   /** Only trusted reducers enter here. State and its public events commit together. */
   transitionHost(id, update, guard = {}) {
@@ -859,6 +877,8 @@ export class SQLiteStorage {
       }
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
       this.clearLaneFailures(id);
+      this.db.prepare("DELETE FROM owner_credit_guards WHERE json_extract(record,'$.sessionId')=?").run(id);
+      this.db.prepare('DELETE FROM conversation_credit_guards WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_direction WHERE session_id=?').run(id);
