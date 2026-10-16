@@ -483,11 +483,10 @@ export async function displayMatrix(t, section) {
       const scrollBefore = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.transcript-shell,.analysis-content')].map(p => p.scrollTop));
       await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await settle();
       sameBoxes(foldBefore, await boxes(page, ['.fold', '.motion-toggle', '.band']), `${label}: fold control stays fixed`);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').hidden && c.shadowRoot.querySelector('.understanding').hidden), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').hidden || c.shadowRoot.querySelector('.understanding').hidden), false, `${label}: no-drafts host retains the transcript`);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.fold-question').hidden), false);
-      const canvas = (await boxes(page, ['.drafts-canvas']))[0];
-      assert.ok(canvas[2] >= width - 2 * Math.max(20, width * .04) - 2, `${label}: full-width canvas`);
-      await shot('folded-strip-canvas', width, theme);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.drafts-canvas').checkVisibility()), false, `${label}: no empty canvas promise`);
+      await shot('no-drafts-transcript', width, theme);
       await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click()); await settle();
       assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.transcript-shell,.analysis-content')].map(p => p.scrollTop)), scrollBefore, `${label}: restore pane scroll`);
       const footerStable = ['.display-foot', '.engine-info', '.connection-timer'], footerBefore = await boxes(page, footerStable);
