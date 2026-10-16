@@ -69,11 +69,6 @@ test('AIT-228 manual copy evidence: round 2 plural upper bound at 390 DE light a
       window.scrollTo(0, 0);
     }, { locale, micro });
     await finishWorkspaceEntry(page);
-    await shot(label, 'plural');
-    await shadow(page, c => {
-      c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' });
-      window.scrollBy(0, -c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom - 12);
-    });
     const geometry = await shadow(page, c => {
       const request = c.shadowRoot.querySelector('.concept-request'), text = request.firstChild;
       const phrase = request.textContent.split('· ')[1];
@@ -87,8 +82,9 @@ test('AIT-228 manual copy evidence: round 2 plural upper bound at 390 DE light a
     });
     assert.equal(geometry.text, locale === 'de' ? 'Entwurf anfordern\u00a0· bis\u00a0zu\u00a0100\u00a0Credits' : 'Request a draft\u00a0· up\u00a0to\u00a0100\u00a0credits');
     assert.equal(geometry.phraseLines, 1, 'the complete cost phrase never splits');
-    assert.equal(geometry.visible, true); assert.equal(geometry.contained, true);
-    await shot(label, 'plural-overview');
+    assert.equal(geometry.visible, true, JSON.stringify(geometry));
+    assert.equal(geometry.contained, true, JSON.stringify(geometry));
+    await shot(label, 'plural');
     rows.at(-1).request = geometry;
   }
   await writeFile(join(evidence, 'manifest.json'), JSON.stringify({ head: evidenceCommit, viewportOnly: true, baselineFontsPinned: true, combinations: 2, rows }, null, 2));
