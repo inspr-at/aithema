@@ -6,7 +6,7 @@ import { installBaselineProbe } from './qualification-baseline-probe.js';
 
 export function baselineOrigin(value) {
   try {
-    const url = new URL(value), host = url.hostname.toLowerCase();
+    const url = new URL(value), host = url.hostname.toLowerCase().replace(/\.$/u, '');
     if (url.protocol !== 'https:' || url.origin !== value || url.username || url.password ||
       host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || host === '[::]' ||
       host.startsWith('[::ffff:') || /^(?:127\.|0\.)/u.test(host)) throw new Error();
