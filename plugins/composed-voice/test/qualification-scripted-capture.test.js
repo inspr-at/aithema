@@ -82,7 +82,7 @@ test('late observed onset refuses scheduling instead of playing an unanchored se
 // Execute the real page harness with fake media ports, so refusal returned from
 // page.evaluate retains the trace rather than throwing past the run coordinator.
 async function pageFixture(reason, { type = 'waiting', firstAudio = false, bargeIn = false, sourceRefusal, sourceFailure,
-  missingDiagnostics = false, closeError = false, productStop = false, productError = false } = {}) {
+  missingDiagnostics = false, closeError = false, productStop = false, productError = false, stopBeforeSource = false, errorAfterStop = false } = {}) {
   const source = (await readFile(new URL('../ops/qualification-page.js', import.meta.url), 'utf8'))
     .replace(/^import .*;\n/gmu, '');
   let onTiming, sourceTiming, started = false, connected = false, closed = false, interrupts = 0, inputChanges = 0;
@@ -92,13 +92,17 @@ async function pageFixture(reason, { type = 'waiting', firstAudio = false, barge
     createComposedBrowserMedia: () => ({ async connect() {
       connected = true;
       return { events: (async function* () {
+        if (stopBeforeSource) onTiming({ kind: 'playback-stop', stoppedAt: 910 });
         if (bargeIn) {
           sourceTiming({ kind: 'capture', captureAt: 810, voiced: true, durationMs: 64 });
           assert.equal(interrupts, 0, 'source observation cannot interrupt');
           assert.equal(inputChanges, 0, 'capture stays open for product VAD');
         }
         if (productError) throw new Error('product event exception');
-        if (productStop) onTiming({ kind: 'playback-stop', stoppedAt: 910 });
+        if (productStop) {
+          onTiming({ kind: 'playback-stop', stoppedAt: 910 });
+          if (errorAfterStop) yield { type: 'ended', reason: 'closure-uncertain' };
+        }
         else yield { type, reason };
       })(), async interrupt() { interrupts++; }, async setInput() { inputChanges++; },
         async close() { if (closeError) throw new Error('close failed'); } };
@@ -143,7 +147,7 @@ test('source refusal reaches candidate immediately rather than falling through t
   assert.equal((await h.run()).refusal, 'late-first-audio');
 });
 
-for (const options of [{ missingDiagnostics: true }, { sourceFailure: 'start-failed' }, { productError: true }, { closeError: true }])
+for (const options of [{ missingDiagnostics: true }, { sourceFailure: 'start-failed' }, { productError: true }, { closeError: true }, { errorAfterStop: true }])
 test(`candidate errors abort even with complete timing: ${JSON.stringify(options)}`, async t => {
   const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true, productStop: true, ...options });
   await assert.rejects(h.run());
@@ -151,8 +155,8 @@ test(`candidate errors abort even with complete timing: ${JSON.stringify(options
   await assertFailureDiagnostic(t, persisted.run);
 });
 
-test('candidate waits for product stop; bargeInAt uses the same source clock as the baseline', async () => {
-  const h = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true });
+for (const stopBeforeSource of [false, true]) test(`candidate waits for product stop; source-clock onset survives reversed callback delivery (${stopBeforeSource})`, async () => {
+  const h = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true, stopBeforeSource });
   const result = await h.run(), probe = createQualificationMediaProbe();
   result.trace.forEach(probe.onTiming);
   assert.equal(result.refusal, undefined);

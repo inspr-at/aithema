@@ -46,7 +46,7 @@ const FAILURE_MESSAGES = new Set([
   'Qualification refusal limit reached',
 ]);
 const TIMING_KINDS = new Set(['capture', 'playback-start', 'playback-stop', 'playback-scheduled',
-  'opener-finished', 'opener-drained', 'opener-final', 'user-final', 'invalid-evidence']);
+  'opener-finished', 'opener-drained', 'opener-final', 'user-final', 'invalid-evidence', 'capture-outcome']);
 const TIMING_FIELDS = ['at', 'captureAt', 'receivedAt', 'durationMs', 'captureFrame', 'contextSampleRate',
   'firstAudioAt', 'scheduledAt', 'contextStart', 'requestedAt', 'stoppedAt', 'speechEndAt'];
 function traceSummary(trace = []) {
@@ -88,7 +88,7 @@ async function writeFailure(outputDirectory, context, error) {
 export class IncompleteMediaEvidence extends Error {
   constructor(reason) {
     super('Real capture/output/barge-in evidence required');
-    if (!['late-first-audio', 'barge-in-before-first-audio', 'media-wait-limit', 'missing-first-audio', 'missing-speech-end', 'missing-barge-in', 'missing-playback-stop'].includes(reason)) {
+    if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
       throw new TypeError('Unknown qualification media refusal');
     }
     this.reason = reason;
@@ -120,9 +120,9 @@ export function createQualificationMediaProbe() {
       const speechEndAt = Math.max(...voiced.filter(e => e.captureAt < firstAudioAt).map(e => e.captureAt + e.durationMs));
       const bargeInAt = Math.min(...voiced.filter(e => e.captureAt >= firstAudioAt).map(e => e.captureAt));
       const stoppedAt = Math.min(...trace.filter(e => e.kind === 'playback-stop' && e.stoppedAt >= bargeInAt).map(e => e.stoppedAt));
-      if (!Number.isFinite(firstAudioAt)) throw new IncompleteMediaEvidence('missing-first-audio');
-      if (!Number.isFinite(speechEndAt)) throw new IncompleteMediaEvidence('missing-speech-end');
-      if (!Number.isFinite(bargeInAt)) throw new IncompleteMediaEvidence('missing-barge-in');
+      // Missing observations cannot establish a timing miss. Lane runners may
+      // explicitly refuse a healthy sample at their evidence deadline.
+      if (![firstAudioAt, speechEndAt, bargeInAt].every(Number.isFinite)) throw new Error('Incomplete qualification evidence');
       if (!Number.isFinite(stoppedAt)) throw new IncompleteMediaEvidence('missing-playback-stop');
       return { speechEndAt, firstAudioAt, bargeInAt, stoppedAt, trace: structuredClone(trace) };
     },

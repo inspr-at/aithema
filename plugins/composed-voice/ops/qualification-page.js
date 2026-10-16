@@ -8,7 +8,8 @@ window.composedQualification = {
     const trace = [], done = Promise.withResolvers();
     done.promise.catch(() => {});
     const scripted = window.qualificationScriptedCapture;
-    let session, firstAudioAt, bargeInAt;
+    let session, eventsTask, finished = false, firstAudioAt, bargeInAt, mediaFailure, stoppedAt = -Infinity;
+    const fail = error => { mediaFailure ??= error; done.reject(error); };
     const refuse = reason => {
       if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
         throw new Error('Unknown qualification media refusal');
@@ -29,9 +30,10 @@ window.composedQualification = {
         if (status.started && firstAudioAt === undefined && trace.some(event => event.kind === 'capture' && event.voiced)) refuse('late-first-audio');
         else if (Number.isFinite(bargeInAt)) refuse('missing-playback-stop');
         else throw new Error('Incomplete scripted capture evidence');
-      } catch (error) { done.reject(error); }
+      } catch (error) { fail(error); }
     };
     const onTiming = event => {
+      if (finished) return;
       try {
         if (trace.length >= 100_000) throw new Error('Timing evidence bound exceeded');
         trace.push(event);
@@ -47,37 +49,42 @@ window.composedQualification = {
         // Both lanes use the injected stream's onset in the SOURCE clock. Only
         // the product's own capture/VAD/turn logic may interrupt its playback.
         if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt) bargeInAt ??= event.captureAt;
-        if (event.kind === 'playback-stop' && event.stoppedAt >= bargeInAt) done.resolve({});
-      } catch (error) { done.reject(error); }
+        if (event.kind === 'playback-stop') stoppedAt = Math.max(stoppedAt, event.stoppedAt);
+        if (stoppedAt >= bargeInAt) done.resolve({});
+      } catch (error) { fail(error); }
     };
     const player = createPCMPlayer({ onTiming });
-    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: done.reject }),
+    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: fail }),
       openRelay: createNetworkRelayClient({ headers }) });
     const timer = setTimeout(finishTiming, 50_000);
     const unsubscribe = scripted.subscribe(onTiming);
     try {
       session = await media.connect(grant);
       scripted.startUtterance(); sourceStatus();
-      void (async () => {
+      eventsTask = (async () => {
         for await (const event of session.events) {
           if (event.type === 'ended' && event.reason === 'closed') finishTiming();
           else if (event.type === 'waiting' || event.type === 'ended') {
             // Only the normal end of an otherwise healthy sample is eligible
             // for timing classification. Every failure reason remains an abort.
-            done.reject(new Error(`Qualification media ${event.type}: ${event.reason}`));
+            fail(new Error(`Qualification media ${event.type}: ${event.reason}`));
           }
         }
-      })().catch(done.reject);
+      })().catch(fail);
       const result = await done.promise;
       sourceStatus();
+      if (mediaFailure) throw mediaFailure;
       return { trace, ...result };
     } catch (error) {
       const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
       counts.voiced = trace.filter(event => event.kind === 'capture' && event.voiced).length;
       throw new Error(`${error.message}; device evidence ${JSON.stringify(counts)}`, { cause: error });
     } finally {
-      clearTimeout(timer); unsubscribe();
-      try { await session?.close(); }
+      finished = true; clearTimeout(timer); unsubscribe();
+      try {
+        await session?.close(); await eventsTask;
+        if (mediaFailure) throw mediaFailure;
+      }
       finally { try { await player.close(); } finally { await scripted.close(); } }
     }
   },
