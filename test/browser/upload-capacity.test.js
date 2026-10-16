@@ -158,18 +158,10 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
             if (window.failUploads || window.uploadAttempts.length === 4) {
               if (window.failUploads) window.exhaustedAttempts++;
               else window.forcedBusy = true;
+              if (window.holdUploadResponse) await window.holdUploadResponse;
               return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '1' } });
             }
           }
-        }
-        // Accepted requests still use the real route and extractor. Serialise
-        // those fixture batches through extraction completion: an earlier
-        // pending upload can otherwise change inputRevision while the next
-        // multipart body is being parsed, legitimately producing another 429.
-        // Real backoff used to conceal that race with a five-second sleep.
-        if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
-          const c = document.querySelector('aithema-session');
-          while (c.session.uploads.some(upload => upload.state === 'pending')) await new Promise(resolve => setTimeout(resolve, 10));
         }
         const response = await original(url, options);
         if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
@@ -321,6 +313,9 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       };
       c.configure({ copy: german ? de : en, session });
       window.failUploads = true;
+      // Hold the real pending-upload UI while measuring its toast. Fast retry
+      // clocks can otherwise exhaust all attempts before the next CDP poll.
+      window.holdUploadResponse = new Promise(resolve => { window.releaseUploadResponse = resolve; });
     });
     await settle();
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), false);
@@ -329,6 +324,8 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status__label').parentNode.matches('.composer-dock'));
     const questionToast = await toastGeometry(); await shot('question-toast');
     await sameControls(cardControls, 'toast with question card');
+    await page.evaluate(() => window.releaseUploadResponse());
+    await waitForShadow(page, '.upload-retry');
     if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, refusal, baseline, toast, questionToast, resent, transcript, actionRecords }, null, 2));
     assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(5000), 'production upload backoff reached the controlled clock');
     assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(10000), 'production second retry reached the controlled clock');
