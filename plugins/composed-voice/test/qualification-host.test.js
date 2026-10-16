@@ -105,3 +105,26 @@ test('remote sample cannot dispatch until persisted consume acknowledgement; ref
   const { event: failure } = await post({ action: 'poll', sampleId });
   assert.equal(failure.type, 'failure'); assert.equal(dispatched, 0);
 });
+
+test('remote close acknowledgement and next sample wait for confirmed OPS shutdown', async t => {
+  const stopped = Promise.withResolvers(), answer = Promise.withResolvers();
+  let signal;
+  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+    authenticateRelay: () => 'owner', networkRelay: { handle() {} },
+    async createSample(options) {
+      signal = options.signal;
+      return { grant: {}, result: answer.promise, async close() { await stopped.promise; answer.reject(new Error('Stopped')); } };
+    },
+  });
+  t.after(() => mount.close());
+  const post = input => mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+    headers: { host: '127.0.0.1:4567' }, body: JSON.stringify(input) }));
+  const input = { action: 'start', lane: 'candidate', runId: 'stop-proof', item: { id: 'one' } };
+  const { sampleId } = await (await post(input)).json();
+  let acknowledged = false;
+  const closing = post({ action: 'close', sampleId }).then(response => { acknowledged = true; return response; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(signal.aborted, true); assert.equal(acknowledged, false);
+  assert.equal((await post(input)).status, 400);
+  stopped.resolve(); assert.equal((await closing).status, 200);
+});
