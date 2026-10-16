@@ -77,6 +77,28 @@ function fixture(t, { origin = 'default', model = 'mock', turns = 0, voiceClient
 }
 async function opened(h) { h.c.openSettings(); await tick(); return h; }
 
+for (const [locale, copy] of Object.entries({ de, en })) {
+  for (const [reason, text] of [
+    ['processing residency unverified', locale === 'de' ? 'Verarbeitungsort nicht geprüft' : 'Processing location not verified'],
+    ['processing residency denied', locale === 'de' ? 'Verarbeitungsort nicht erlaubt' : 'Processing location not allowed'],
+    ['processing countries missing', locale === 'de' ? 'Verarbeitungsländer fehlen (legal.processingCountries)' : 'Processing countries missing (legal.processingCountries)'],
+    ['recipient seat outside eu', locale === 'de' ? 'Empfängersitz außerhalb der EU' : 'Recipient seat outside the EU'],
+  ]) {
+    test(`AIT-271 ${locale}: unavailable eu preset shows ${reason} without changing the selection`, async t => {
+      const h = await opened(fixture(t, { copy, loadCatalog(catalog) {
+        catalog.presets.eu = { ...catalog.presets.eu, reason }; return catalog;
+      } }));
+      const row = h.q('.preset-option[data-preset="eu"]');
+      assert.equal(row.getAttribute('aria-disabled'), 'true');
+      row.click(); await tick();
+      assert.equal(h.q('.context-message').textContent,
+        `${locale === 'de' ? 'Nicht verfügbar' : 'Unavailable'}\u00a0· ${text}`);
+      assert.equal(h.posts.length, 0, 'unavailable eu never sends a preset change');
+      assert.equal(h.c.session.processingPreset, 'best');
+    });
+  }
+}
+
 for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-215 ${locale}: consent help keeps C1 and the safe-choice explanation on hover and focus`, async t => {
   const h = await opened(fixture(t, { copy }));
   const row = h.q('.preset-option[data-preset="custom"]');

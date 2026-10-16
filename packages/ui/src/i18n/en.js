@@ -471,6 +471,8 @@ export const en = {
     'binding evidence mismatch': 'Provider contract does not match', 'binding evidence not yet valid': 'Provider contract not yet valid',
     'binding evidence expired': 'Provider contract expired', 'binding invalid': 'Provider setup invalid',
     'processing scope invalid': 'Processing scope invalid', 'processing residency unverified': 'Processing location not verified',
+    'processing countries missing': 'Processing countries missing (legal.processingCountries)',
+    'recipient seat outside eu': 'Recipient seat outside the EU',
     'processing residency denied': 'Processing location not allowed', 'training policy denied': 'Provider may train on data',
     'endpoint not allowed': 'Provider address not allowed', 'plugin binding mismatch': 'Provider setup does not match',
     'plugin kind unsupported': 'Provider cannot do this', 'operation unsupported': 'Provider cannot do this',

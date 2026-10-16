@@ -52,12 +52,29 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
       return Response.json(catalog);
     };
   });
+  const hoverEngineDetail = async copy => {
+    // configure() replaces the shadow tree. Hover its settled geometry, then
+    // observe the popup itself: completed animations alone do not prove hover.
+    await page.mouse.move(-1, -1);
+    await settle(page);
+    await page.hover('aithema-session >>> .engine-info');
+    await page.waitForFunction(expected => {
+      const detail = document.querySelector('aithema-session')?.shadowRoot.querySelector('.engine__detail');
+      if (!detail) return false;
+      const style = getComputedStyle(detail), lines = detail.textContent.split('\n');
+      return style.visibility === 'visible' && style.opacity === '1' &&
+        lines[1] === expected[0] && lines[2] === expected[1];
+    }, { polling: 'raf', timeout: 5_000 }, [
+      `${copy.display.reply}: ${copy.display.modelUnknown}`,
+      `${copy.display.understanding}: ${copy.display.modelUnknown}`,
+    ]);
+  };
   const shot = async (locale, state, hover = false) => {
     if (!evidenceDirectory) return;
     await mkdir(evidenceDirectory, { recursive: true });
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
     await page.mouse.move(-1, -1);
-    if (hover) await page.hover('aithema-session >>> .engine-info');
+    if (hover) await hoverEngineDetail({ de, en }[locale]);
     await settle(page);
     const selector = state === 'ready' ? '[data-ready="model"] dd > span:last-child'
       : hover ? '.engine__detail' : '[data-select="model"] .select__value';
@@ -99,7 +116,7 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     }, locale);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-ready="model"] dd > span:last-child').textContent), expected);
     await shot(locale, 'ready');
-    await page.hover('aithema-session >>> .engine-info'); await settle(page);
+    await hoverEngineDetail(copy);
     const footer = await shadow(page, c => {
       const detail = c.shadowRoot.querySelector('.engine__detail');
       return { visibility: getComputedStyle(detail).visibility, lines: detail.textContent.split('\n') };
