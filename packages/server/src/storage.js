@@ -270,9 +270,10 @@ export class SQLiteStorage {
       const session = this.get(id);
       if (session.tombstone || inputRevision(session) !== failure.inputRevision) return false;
       // Do not persist provider diagnostics or request content.
+      const reason = ['budget reconciling', 'focused-question-removed', 'reply-in-flight'].includes(failure.reason) ? failure.reason : null;
       const record = { inputRevision: failure.inputRevision, lane: failure.lane,
-        error: 'reasoning-unavailable', retryable: true,
-        ...(failure.reason === 'budget reconciling' ? { reason: failure.reason } : {}) };
+        error: 'reasoning-unavailable', retryable: reason !== 'focused-question-removed',
+        ...(reason ? { reason } : {}) };
       this.db.prepare('INSERT INTO lane_failures VALUES (?,?,?) ON CONFLICT(session_id,lane) DO UPDATE SET failure=excluded.failure')
         .run(id, record.lane, JSON.stringify(record));
       return true;
