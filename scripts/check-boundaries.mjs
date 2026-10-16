@@ -22,6 +22,8 @@ export const edgeExceptions = [
 ];
 // #173's unpublished proof composes adapters that are deliberately not packed.
 export const proofEdges = [
+  { from: 'plugins/composed-voice/ops/qualification-live-server.mjs', target: 'plugins/elevenlabs/src/components.js', reason: 'AIT-160: source-only live qualification components' },
+  { from: 'plugins/composed-voice/ops/qualification-live-baseline.mjs', target: 'plugins/elevenlabs/src/options.js', reason: 'AIT-160: source-only baseline production overrides' },
   { from: 'demo/server.js', target: 'plugins/composed-voice/ops/qualification-server.mjs', reason: 'AIT-160: explicitly flagged source-only qualification host' },
   { from: 'plugins/composed-voice/src/server.js', target: 'packages/server/src/composed-voice.js' },
   { from: 'plugins/composed-voice/src/qualification.js', target: 'packages/server/src/composed-voice.js' },

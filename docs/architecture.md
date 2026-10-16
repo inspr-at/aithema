@@ -39,6 +39,8 @@ The browser-facing core root does not import these Node artifact constructors.
 | Source | Exact exception | Owner / reason |
 | --- | --- | --- |
 | `packages/server/elevenlabs-compat.js` | `plugins/elevenlabs/src/provider.js`, `plugins/elevenlabs/src/callbacks.js` | #173: frozen legacy root exports |
+| `plugins/composed-voice/ops/qualification-live-server.mjs` | `plugins/elevenlabs/src/components.js` | AIT-160: source-only live qualification components |
+| `plugins/composed-voice/ops/qualification-live-baseline.mjs` | `plugins/elevenlabs/src/options.js` | AIT-160: source-only baseline production overrides |
 | `demo/server.js` | `plugins/composed-voice/ops/qualification-server.mjs` | AIT-160: explicitly flagged source-only qualification host |
 | `plugins/composed-voice/src/server.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/qualification.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
