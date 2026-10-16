@@ -302,6 +302,15 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
     }
     const page = await browser.newPage(), logs = [], reports = [], identities = [], refusals = [], probe = createQualificationMediaProbe();
     if (!overlap) await page.evaluateOnNewDocument(installScriptedCapture, clips);
+    for (const method of ['goto', 'waitForSelector', 'click']) {
+      const original = page[method].bind(page);
+      page[method] = async (...args) => {
+        console.log('AIT-272 fixture await', method, method === 'goto' ? 'navigation' : args[0]);
+        const result = await original(...args);
+        console.log('AIT-272 fixture completed', method);
+        return result;
+      };
+    }
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
     const abort = new AbortController(); let watchdog;
     const expired = new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
@@ -317,6 +326,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
         preflight: async () => ({ fixtureOnly: true, verified: false }), recordIdentity: async identity => identities.push(identity), recordEvidence: async evidence => refusals.push(evidence),
         boundConversation: async deadline => { watchdog = setTimeout(() => abort.abort(new Error('fixture duration watchdog')), deadline - Date.now()); },
         admit: async spec => {
+          console.log('AIT-272 fixture admission');
           assert.equal(production.dispatches.length, 0, 'durable admission precedes production conversation');
           // Synthetic tariff: 600 micro/min * 28 s / 60 + 25 reasoning micro.
           assert.equal(spec.maxMicro, 305);
@@ -374,7 +384,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       }
     } catch (error) {
       error.message += `; fixture logs: ${JSON.stringify(logs)}; probe: ${JSON.stringify(await page.evaluate(() => window.qualificationBaselineProbe?.diagnostics()).catch(() => null))}`; throw error;
-    } finally { clearTimeout(watchdog); await page.close(); await browser.defaultBrowserContext().clearPermissionOverrides(); await production.close(); }
+    } finally { clearTimeout(watchdog); console.log('AIT-272 fixture closing page'); await page.close(); console.log('AIT-272 fixture clearing permissions'); await browser.defaultBrowserContext().clearPermissionOverrides(); console.log('AIT-272 fixture closing origin'); await production.close(); console.log('AIT-272 fixture closed'); }
   });
 });
 
