@@ -297,7 +297,7 @@ export class HostSurface {
     // Retained slot for the demo's host-owned end notice; never a minute countdown.
     const deadline = line.querySelector('.host-credits__deadline'); deadline.hidden = true; setText(deadline, '');
   }
-  // Legal and footer slots: the hairline row shows only when the host filled one of them.
+  // Host footer content stays in the info popup; legal links have their own standing bar slot.
   #mountFoot() {
     const foot = this.#root.querySelector('.host-foot');
     const sync = () => { foot.hidden = ![...foot.querySelectorAll('slot')].some(slot => slot.assignedNodes?.({ flatten: true }).length); };

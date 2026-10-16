@@ -417,6 +417,8 @@ heading; without it the default brand keeps its previous hidden presentation.
 Legal links in `slot="legal"` stand at the right of the footer bar on the entrance
 and in conversation. `slot="footer"` stays in the info popup. On phones (under
 600 px), the connection timer moves into that popup to leave room for legal links.
+Footers with legal links use the existing compact details below 1100 px; phone
+footers retain the short AI label and omit the decorative credit track.
 
 The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
