@@ -677,9 +677,11 @@ export function createQualificationHost(cli) {
    Puppeteer's default `--mute-audio` is removed. The hook disables echo
    cancellation/noise suppression. Include utterance, endpoint silence and a
    later voiced segment for barge-in; timestamps are never synthesized/shifted.
-6. From the PR 4d implementation checkout (immutable SHA recorded below), run:
+6. From an OPS checkout of PR 4d implementation SHA
+   `f382891ad76458d7a8affbbc4d63e59ad7ae9ed7`, run:
 
    ```sh
+   git checkout --detach f382891ad76458d7a8affbbc4d63e59ad7ae9ed7
    node scripts/composed-qualification.js --operator-approved --initialize \
      --budget /absolute/run/budget.sqlite
    node scripts/composed-qualification.js --operator-approved \
