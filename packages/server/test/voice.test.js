@@ -3352,3 +3352,19 @@ test('AIT-263: voice starting after focus acceptance fences the final and retry 
   await h.route('/retry'); await h.handlers.idle();
   assert.equal(requests.length, 2); assert.equal(h.storage.get(current.id).transcript.filter(turn => turn.focusRequestId).length, 1);
 });
+
+test('AIT-263: paused playback acknowledgements keep the call and still fence revoked or stale activity', async t => {
+  const h = voiceFixture(t), grant = await h.start('focus-pause-activity'), identity = { providerSessionId: grant.providerSessionId };
+  const activity = (type, providerSessionId = grant.providerSessionId) => h.route(`/voice/${grant.callId}/events`, {
+    providerSessionId, event: { providerSessionId, callId: grant.callId, type } });
+  assert.equal((await activity('speaking')).status, 200);
+  assert.equal((await h.route(`/voice/${grant.callId}/pause`, identity)).status, 200);
+  const before = h.storage.get(h.session.id).seq;
+  assert.equal((await activity('listening')).status, 200, 'stopping playback while paused is state acknowledgement');
+  assert.equal(h.storage.get(h.session.id).seq, before, 'activity is never transcript input');
+  assert.equal(h.storage.get(h.session.id).paused, true);
+  assert.equal((await activity('listening', 'stale-generation')).status, 404);
+  assert.equal((await h.route(`/voice/${grant.callId}/resume`, identity)).status, 200);
+  h.coverage(false);
+  assert.equal((await activity('listening')).status, 403, 'revoked coverage cannot update activity');
+});
