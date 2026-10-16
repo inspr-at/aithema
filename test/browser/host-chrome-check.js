@@ -70,6 +70,14 @@ export async function hostChromeCheck(t) {
       c.querySelectorAll('[slot="brand"]').forEach(n => n.remove());
       const brand = document.createElement('h1'); brand.slot = 'brand';
       brand.textContent = brandMode === 'long' ? 'START · Augmentoring — a deliberately very long host brand for truncation' : 'START'; c.append(brand);
+      // Match the existing host matrix's legal slot rather than the demo's long license footer.
+      c.querySelectorAll('[slot="legal"], [slot="footer"]').forEach(n => n.remove());
+      const legal = document.createElement('nav'); legal.slot = 'legal'; legal.style.cssText = 'display:flex;gap:0';
+      for (const [href, text] of [['/imprint', locale === 'de' ? 'Impressum' : 'Imprint'], ['/privacy', locale === 'de' ? 'Datenschutz' : 'Privacy']]) {
+        const a = document.createElement('a'); a.href = href; a.textContent = text;
+        a.style.cssText = 'display:inline-flex;align-items:center;min-height:44px;padding:0 8px;color:inherit;text-decoration:underline;text-underline-offset:3px'; legal.append(a);
+      }
+      c.append(legal);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       c.setAttribute('motion', 'off'); c.configure({ copy, session, voiceClient: voice ? {} : undefined, host: { library: true } });
@@ -153,6 +161,7 @@ export async function hostChromeCheck(t) {
           overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
       });
       assert.ok(fit.rail.width >= 208, `${brandMode}/${width}: rail minimum 208 px`);
+      assert.equal(fit.overflowPx, 0, `${brandMode}/${width}: no horizontal overflow`);
       assert.ok(fit.rail.left >= 0 && fit.rail.right <= width, `${brandMode}/${width}: rail stays in viewport ${JSON.stringify(fit)}`);
       for (const b of fit.others) assert.ok(fit.rail.right <= b.left || fit.rail.left >= b.right || fit.rail.bottom <= b.top || fit.rail.top >= b.bottom,
         `${brandMode}/${width}: rail intersects brand/action ${JSON.stringify(fit)}`);
