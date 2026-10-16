@@ -512,7 +512,7 @@ export async function displayMatrix(t, section) {
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), copy.display.draftsOff);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').hidden), true); await shot('drafts-off', width, theme);
       await scene('conversation', 'on');
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), `${copy.display.draftsOn}\u00a0· 40 ${copy.display.credits}`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), `${copy.display.draftsOn}\u00a0· ${copy.display.creditUpperBound.replace('{cost}', `40 ${copy.display.credits}`).replaceAll(' ', '\u00a0')}`);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').disabled), false); await shot('drafts-on', width, theme);
       await scene('conversation', 'low');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), copy.display.draftsLow);

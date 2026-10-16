@@ -34,7 +34,8 @@ export const formatCredits = (micro, locale) => new Intl.NumberFormat(locale, { 
 export function creditCost(micro, copy) {
   if (!Number.isSafeInteger(micro) || micro <= 0) return '';
   const amount = micro < 10_000 ? '< 1' : new Intl.NumberFormat(copy.display.locale).format(Math.ceil(micro / 10_000));
-  return `${amount} ${micro <= 10_000 ? copy.display.credit : copy.display.credits}`;
+  const cost = `${amount} ${micro <= 10_000 ? copy.display.credit : copy.display.credits}`;
+  return (micro < 10_000 ? cost : copy.display.creditUpperBound.replace('{cost}', cost)).replaceAll(' ', '\u00a0');
 }
 
 /** One sentence in the rail. A missing quote cannot offer paid work; feature verdicts still gate consent. */

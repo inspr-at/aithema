@@ -335,12 +335,34 @@ test('AIT-228: rendered overview, locale flag and all draft actions retain their
     assert.equal(root.querySelector('.concept-tab').textContent, copy.conceptTab);
     assert.equal(root.querySelector('.engine__flag').dataset.kind, copy.display.locale);
     const request = root.querySelector('.concept-request'), regenerate = root.querySelector('.concept-regenerate');
-    for (const [micro, label] of [[0, ''], [1, `< 1 ${copy.display.credit}`], [10000, `1 ${copy.display.credit}`], [20000, `2 ${copy.display.credits}`]]) {
+    for (const [micro, label] of [[0, ''], [1, `<\u00a01\u00a0${copy.display.credit}`], [10000, copy.display.creditUpperBound.replace('{cost}', `1 ${copy.display.credit}`).replaceAll(' ', '\u00a0')], [20000, copy.display.creditUpperBound.replace('{cost}', `2 ${copy.display.credits}`).replaceAll(' ', '\u00a0')]]) {
       await refresh({ available: true }, { maxMicro: micro });
       assert.equal(root.querySelector('.concept-request'), request);
       assert.equal(root.querySelector('.concept-regenerate'), regenerate);
       assert.equal(request.textContent, [copy.conceptRetry, label].filter(Boolean).join('\u00a0· '));
       assert.equal(regenerate.textContent, [copy.conceptRegenerate, label].filter(Boolean).join('\u00a0· '));
+    }
+  }
+});
+
+test('AIT-228: fractional quotes gate Retry and Regenerate exactly like missing quotes', async t => {
+  for (const copy of [de, en]) {
+    const { c, root, refresh } = fixture(t, { copy, cost: { maxMicro: 10000 } });
+    const request = root.querySelector('.concept-request'), regenerate = root.querySelector('.concept-regenerate');
+    for (const phase of ['idle', 'failed', 'ready']) {
+      receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase } });
+      await refresh({ available: true }, null);
+      const missingLine = root.querySelector('.concept-activity-text').textContent;
+      await refresh({ available: true }, { maxMicro: 1234.5 });
+      assert.equal(root.querySelector('.concept-activity-text').textContent, missingLine);
+      assert.equal(request.textContent, `${copy.display.draftsQuote}\u00a0· ${copy.display.draftsRetry}`);
+      for (const button of [request, regenerate]) {
+        assert.equal(button.disabled, true, `${phase}: unpriced paid action is disabled`);
+        assert.equal(button.hidden, true, `${phase}: unpriced paid action is hidden`);
+      }
+      await refresh({ available: true }, { maxMicro: 10000 });
+      assert.equal(request.disabled, false, `${phase}: a valid quote restores the action`);
+      assert.equal(regenerate.disabled, false);
     }
   }
 });

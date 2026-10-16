@@ -34,18 +34,18 @@ test('AIT-131 drafts line: exactly one sentence/action for off, policy quote and
     const off = draftsLine({ copy, feature: { available: false, reason: 'not configured' }, cost: null });
     assert.deepEqual(off, { state: 'off', text: copy.display.draftsOff, action: false });
     assert.deepEqual(draftsLine({ copy, feature: { available: true }, cost: { maxMicro: 400_000 } }),
-      { state: 'on', text: `${copy.display.draftsOn}${reasonSeparator}40 ${copy.display.credits}`, action: true });
+      { state: 'on', text: `${copy.display.draftsOn}${reasonSeparator}${copy.display.creditUpperBound.replace('{cost}', `40 ${copy.display.credits}`).replaceAll(' ', '\u00a0')}`, action: true });
     for (const reason of ['owner credits exhausted', 'spend cap reached', 'Ausgabenlimit für OpenRouter erreicht']) {
       assert.deepEqual(draftsLine({ copy, feature: { available: false, reason }, cost: { maxMicro: 400_000 } }),
         { state: 'low', text: copy.display.draftsLow, action: false });
     }
-    for (const cost of [null, {}, { maxMicro: -1 }, { maxMicro: NaN }, { maxMicro: Infinity }]) {
+    for (const cost of [null, {}, { maxMicro: -1 }, { maxMicro: 1234.5 }, { maxMicro: NaN }, { maxMicro: Infinity }]) {
       const line = draftsLine({ copy, feature: { available: true }, cost });
       assert.equal(line.action, false); assert.equal(line.text, `${copy.display.draftsQuote}${reasonSeparator}${copy.display.draftsRetry}`);
       assert.doesNotMatch(line.text, /Kosten unbekannt|Cost unknown/u);
     }
     assert.equal(draftsLine({ copy, feature: { available: true }, cost: { maxMicro: 0 } }).text, copy.display.draftsOn);
-    assert.equal(draftsLine({ copy, feature: { available: true }, cost: { maxMicro: 400_001 } }).text, `${copy.display.draftsOn}${reasonSeparator}41 ${copy.display.credits}`);
+    assert.equal(draftsLine({ copy, feature: { available: true }, cost: { maxMicro: 400_001 } }).text, `${copy.display.draftsOn}${reasonSeparator}${copy.display.creditUpperBound.replace('{cost}', `41 ${copy.display.credits}`).replaceAll(' ', '\u00a0')}`);
   }
 });
 

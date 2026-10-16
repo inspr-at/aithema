@@ -27,7 +27,7 @@ export const de = {
     draftsTimeout: 'Entwürfe konnten gerade nicht geprüft werden',
     draftsChoose: 'Andere Auswahl…', draftsRetry: 'Erneut versuchen',
     draftsUnavailable: 'Visuelle Entwürfe sind gerade nicht verfügbar.',
-    draftsOn: 'Entwurf anfordern', credit: 'Credit', credits: 'Credits',
+    draftsOn: 'Entwurf anfordern', creditUpperBound: 'bis zu {cost}', credit: 'Credit', credits: 'Credits',
     draftsLow: 'Für einen weiteren Entwurf sind gerade nicht genug Credits verfügbar.',
     newConversation: 'Neues Gespräch', manageConversations: 'Alle Gespräche verwalten', currentConversation: 'jetzt',
     withdraw: 'Diesen Beitrag entfernen. Wirkt ab der nächsten Antwort.',

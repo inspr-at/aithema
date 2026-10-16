@@ -26,7 +26,7 @@ export const en = {
     draftsTimeout: 'Drafts could not be checked right now',
     draftsChoose: 'Choose another option…', draftsRetry: 'Try again',
     draftsUnavailable: 'Visual drafts are not available right now.',
-    draftsOn: 'Request a draft', credit: 'credit', credits: 'credits',
+    draftsOn: 'Request a draft', creditUpperBound: 'up to {cost}', credit: 'credit', credits: 'credits',
     draftsLow: 'There are not enough credits available for another draft right now.',
     newConversation: 'New conversation', manageConversations: 'Manage all conversations', currentConversation: 'now',
     withdraw: 'Remove this contribution. Applies from the next reply.',
