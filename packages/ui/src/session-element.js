@@ -627,6 +627,7 @@ export class AithemaSession extends HTMLElement {
     if (label.parentNode !== parent) parent.append(label);
     if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
     setText(label, words); status.title = words;
+    setText(root.querySelector('.phone-status__label'), this.#connection || this.#copy.connecting);
     status.toggleAttribute('data-connected', connected);
     status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
@@ -1313,7 +1314,7 @@ export class AithemaSession extends HTMLElement {
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
     setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
     if (this.#voiceBound) setText(root.querySelector('.ai-notice__voice'), this.#copy.layout.syntheticVoice);
-    setText(root.querySelector('.phone-status__label'), this.#copy.connected);
+    setText(root.querySelector('.phone-status__label'), this.#connection || this.#copy.connecting);
   }
   // Replies can be spoken here: voice is available now, or once consent, a resume or the provider allows it.
   #voiceOffered() {

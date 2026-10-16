@@ -114,7 +114,7 @@ export const bandStyles = `
 .engine-info .engine__value { position:absolute; right:calc(100% + 2px); white-space:nowrap; opacity:0; transform:translateX(8px); pointer-events:none;
   font:400 12.5px/1.4 var(--aithema-font); color:var(--aithema-muted); background:var(--aithema-paper); transition:opacity .18s,transform .18s; }
 .engine-info:hover .engine__value, .engine-info:focus-visible .engine__value { opacity:1; transform:translateX(0); }
-.status { display:grid; grid-template-columns:auto minmax(8ch,max-content); align-items:center; gap:10px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
+.status { display:grid; grid-template-columns:auto minmax(8ch,max-content); align-items:center; gap:6px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
 .status[data-connected]::before { content:none; }
 .status__label { display:block; grid-area:1/1; white-space:nowrap; }
 .status__sizer { display:grid; grid-area:1/1; visibility:hidden; pointer-events:none; }
@@ -239,7 +239,8 @@ slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit; color:in
 .conversations-toggle > svg:first-child { display:block; }
 .conversations-toggle > svg:last-child { display:block; width:10px; height:10px; color:var(--aithema-muted); }
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
-.footer-right { grid-column:3; min-width:0; gap:14px; }
+.footer-right { grid-column:3; min-width:0; }
+.display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
 .host-legal { display:flex; align-items:center; min-width:0; margin-left:10px; font:inherit; color:inherit; }
 slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
 slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-height:44px; padding:0 8px; text-decoration:underline; text-underline-offset:3px; }
@@ -278,7 +279,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
   .conversations-toggle > svg:first-child { display:block; }
   .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; gap:8px; }
-  .footer-right { gap:0; }
+  .footer-right, .display-foot:has(.host-credits[hidden]) .footer-right { gap:0; }
   .footer-right .status { display:none; }
   .ai-notice { min-width:44px; font-size:12.5px; }
   .ai-notice .speaker-sign { display:block; }

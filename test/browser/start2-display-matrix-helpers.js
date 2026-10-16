@@ -325,7 +325,8 @@ export async function displayMatrix(t, section) {
         });
         const name = locale === 'de' ? 'Gespräche' : 'Conversations';
         assert.equal(menu.name, name); assert.equal(menu.title, name); assert.equal(menu.label, name); assert.equal(menu.icon, 16);
-        assert.equal(menu.visible, false); assert.notEqual(menu.overflow, 'ellipsis');
+        // AIT-260 restores the approved desktop label; phones keep the menu glyph.
+        assert.equal(menu.visible, width >= 600); assert.notEqual(menu.overflow, 'ellipsis');
         if (menu.visible) assert.equal(menu.fits, true, `${width}/${locale}: ${JSON.stringify(menu)}`);
         await shot('r2-band', width, 'light');
       }

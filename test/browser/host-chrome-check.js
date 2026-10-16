@@ -93,6 +93,7 @@ export async function hostChromeCheck(t) {
             };
           }, voice);
           heights.push(metrics.height);
+          assert.equal(metrics.height, width < 600 ? voice ? 124 : 68 : 90, `${label}/${stage}: approved header height`);
           assert.equal(metrics.h1, brandMode === 'none' ? 0 : 1, `${label}/${stage}: only the host page h1`); assert.equal(metrics.brand, brandMode !== 'none'); assert.ok(metrics.brandHeight <= 44, `${label}/${stage}: brand uses existing wordmark typography`);
           assert.equal(metrics.brandLabel, brandMode === 'none' ? 'Host' : brandMode === 'start' ? 'START' : 'START · Augmentoring — a deliberately very long host brand for truncation');
           assert.equal(metrics.brandFont, width < 600 ? '16.5px' : '18px'); assert.equal(metrics.brandWeight, '400');
@@ -140,5 +141,5 @@ export async function hostChromeCheck(t) {
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, checks }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, checks }, null, 2));
 }
