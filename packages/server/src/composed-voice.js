@@ -7,10 +7,11 @@ import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
 import { audioQueue, boundedEvents } from '../../../packages/core/src/voice-components.js';
 
 // Both TTS components cap one speak at 16,000,000 decoded PCM bytes. Reserve
-// that entire response (including the chunk held by the pacer), then drain it
-// before opening the next fragment's provider stream. No speaking-rate guess
-// is needed. A separate chunk ceiling bounds metadata for tiny provider chunks.
-const REPLY_AUDIO_BYTES = 16_000_000, REPLY_AUDIO_CHUNKS = 1024;
+// two entire responses (2 * 16,000,000 B, including the pacer's held chunk)
+// so the next provider can finish while the previous fragment still plays.
+// Further overlap fails closed at the same bound; no speaking-rate guess is
+// needed. A separate chunk ceiling bounds metadata for tiny provider chunks.
+const REPLY_AUDIO_BYTES = 2 * 16_000_000, REPLY_AUDIO_CHUNKS = 1024;
 
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');
@@ -162,9 +163,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   function createPlayback(revision, turnSignal, replyId) {
     const queue = audioQueue(REPLY_AUDIO_BYTES), controller = new AbortController();
     const signal = AbortSignal.any([turnSignal, controller.signal]), opts = options(signal);
-    let bytes = 0, chunks = 0, drained, endAt, speaking = false, failure;
+    let bytes = 0, chunks = 0, endAt, speaking = false, failure;
     const valid = () => !signal.aborted && revision === playbackRevision && output && current();
-    const clear = () => { queue.clear(); bytes = 0; chunks = 0; drained?.resolve(); drained = undefined; };
+    const clear = () => { queue.clear(); bytes = 0; chunks = 0; };
     signal.addEventListener('abort', clear, { once: true });
     const playback = {
       signal,
@@ -174,11 +175,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         if (failure) throw failure;
         if (!valid()) return;
         if (bytes + value.byteLength > REPLY_AUDIO_BYTES || chunks >= REPLY_AUDIO_CHUNKS) throw new PluginError('limit', 'Reply audio queue full');
-        if (!bytes) drained = Promise.withResolvers();
         bytes += value.byteLength; chunks++;
         queue.push(Uint8Array.from(value));
       },
-      async drain() { if (drained) await drained.promise; if (failure) throw failure; },
       async finish() { queue.end(); await pacer; if (failure) throw failure; },
     };
     playbacks.add(playback);
@@ -204,7 +203,6 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           }
           if (!valid()) return;
           bytes -= chunk.byteLength; chunks--;
-          if (!bytes) { drained?.resolve(); drained = undefined; }
         }
       } catch (error) { if (!signal.aborted) failure = error; }
       finally {
@@ -247,10 +245,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             if (boundary) end = boundary.index + 2;
             if (/[\uD800-\uDBFF]/u.test(pending[end - 1])) end--;
             const fragment = pending.slice(0, end); pending = pending.slice(end);
+            // Await only the provider terminal and accounting. The next speak
+            // opens while earlier audio plays, enqueuing behind it on the same
+            // cursor. There is still only one open provider stream per reply.
             await speak(fragment, revision, signal, playback);
-            // The provider has reached its terminal and finished accounting before
-            // this wait. Never keep a live socket unread while playback drains.
-            await playback.drain();
           }
         } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
           complete = true;

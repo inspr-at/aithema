@@ -33,16 +33,19 @@ Including a whole unfinished 64,000 B player frame gives at most 160,000 B,
 below each 256,000 B relay/player bound, with 96,000 B left for polling/startup
 and control frames. Higher rates cap lead bytes at 96,000 B as before.
 
-The server queue has a **16,000,000 B PCM bound, including the chunk held by
+The server queue has a **32,000,000 B PCM bound, including the chunk held by
 the pacer**, plus a **1,024-chunk bound** to limit tiny-chunk metadata. This is
 derived directly from both components' existing 16,000,000 B per-speak ceiling:
-reserve room for one entire permitted response, regardless of text length or
-speaking rate. At 24 kHz this is 333⅓ s PCM16 or 166⅔ s float32. Fragments remain
-sequential (default 240 characters); the next speak opens only after the previous
-speak's terminal has been consumed, accounting has finished, and its audio has
-drained. No live provider is held unread by that between-fragment wait. The
-normal 64,000 B component chunks need at most 250 slots for a maximum response;
-1,024 also permits provider chunk boundaries without unlimited metadata. Either
+reserve room for two entire permitted responses (2 × 16,000,000 B), regardless of
+text length or speaking rate. At 24 kHz this is 666⅔ s PCM16 or 333⅓ s float32.
+Fragments remain sequential (default 240 characters); the next speak opens as
+soon as the previous speak's terminal has been consumed and accounting has
+finished, while its audio is still playing. Only one TTS provider stream per
+reply is open at a time; queued fragments share the same ordered pacing cursor.
+There is no between-fragment playback wait. Further overlap must fit the same
+fixed bound or fail closed. Normal 64,000 B component chunks need 500 slots for
+two maximum responses; 1,024 also permits provider chunk boundaries without
+unlimited metadata. Either
 server ceiling fails closed with `limit`. With at most four default pending turns
 (the validated host maximum is sixteen), queue memory is bounded per call too.
 
@@ -76,10 +79,13 @@ the larger component ceiling preserves the round-1 generic-transport fixtures;
 it cannot raise the qualification socket's payload or backlog allowance.
 
 `test/provider-pacing.test.js` covers bounded arrival, ordering and L, eager final
-accounting, byte/chunk overflow, and a full 16 MB queue interrupted by barge-in,
+accounting, dispatch before the preceding fragment's last paced frame, byte/chunk
+overflow, and two fragments filling the 32 MB queue interrupted by barge-in,
 explicit interruption, output-off, pause, close, lease expiry and spend expiry.
 The round-1 `egress.test.js` continues to cover both formats, sentence ordering,
-provider gaps, HTTP relay/player traversal and stale-frame fencing.
+provider gaps, HTTP relay/player traversal and stale-frame fencing. Three-sentence
+tests add 1.5 s provider latency per fragment in both formats and verify that only
+the first fragment delays playback, with no gaps at subsequent sentence boundaries.
 
 `src/client.js` accepts host `capture`, `player`, and `openRelay` ports. `player.play`
 must schedule audio in order and support synchronous `player.stop`. The player
