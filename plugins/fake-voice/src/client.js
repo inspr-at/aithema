@@ -241,6 +241,11 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           })(opts),
           get replaying() { return replay.active; },
           stopReplay() { if (replay.active) interrupted = true; replay.stop(); return Promise.resolve(); },
+          speakReply: (reply, opts) => command(bounded => {
+            if (!reply?.turnId || typeof reply.text !== 'string') throw new TypeError('Reply required');
+            lastAssistant = { turnId: reply.turnId, text: reply.text };
+            return replay.replay(lastAssistant, bounded);
+          })(opts),
           replayLastReply: opts => {
             const reply = lastAssistant && { ...lastAssistant }, revision = replay.revision;
             return command(bounded => { if (revision !== replay.revision) throw new PluginError('cancelled'); return replay.replay(reply, bounded); })(opts);

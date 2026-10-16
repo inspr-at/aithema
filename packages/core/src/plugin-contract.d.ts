@@ -87,6 +87,8 @@ export interface VoiceSession {
   interrupt(options: VoiceCommandOptions): Promise<void>;
   retryPlayback?(options: VoiceCommandOptions): Promise<void>;
   readonly replaying?: boolean;
+  /** Speak an already persisted assistant final through ordinary speech admission. */
+  speakReply?(reply: { turnId: string; text: string }, options?: VoiceCommandOptions): Promise<{ kind: 'text' | 'audio' | 'busy'; text?: string }>;
   replayLastReply?(options?: VoiceCommandOptions): Promise<{ kind: 'text' | 'audio'; text: string }>;
   stopReplay?(): Promise<void>;
   heartbeat(options: VoiceCommandOptions): Promise<{ acknowledged: true; browserLivenessDeadlineAt: number }>;

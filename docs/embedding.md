@@ -181,9 +181,11 @@ invalidates the selection and prevents publication of its late reply.
 The element exposes `openQuestionItems` and `focusQuestion(questionId)` without
 adding controls, markup or CSS. This method resolves on 202, and throws the
 structured refusal on failure. Text replies follow normal SSE delivery. With
-an active, audible ElevenLabs call, focused assistant finals use the existing
+an active, audible ElevenLabs or local simulator call, focused assistant finals use the existing
 call replay/speech path and its TTS admission, output mute, pause and lifetime
-holds. No synthetic SDK user message or transcript turn triggers speech.
+holds. Voice adapters expose the optional `VoiceSession.speakReply({turnId, text})`
+port for already persisted replies. No synthetic SDK user message or transcript
+turn triggers speech.
 
 Tick's future controls need these states:
 
