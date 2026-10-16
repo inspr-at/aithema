@@ -16,14 +16,14 @@ const bytes = new TextEncoder().encode('<!doctype html><html><head><title>Popula
 const artifact = (mediaType = 'text/html') => ({ id: 'draft1', mediaType, turnIds: ['source'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } });
 
-function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse, visuals = { available: true }, kind = 'html' } = {}) {
+function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse, visuals = { available: true }, kind = 'html', cost } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.settings = { ...session.settings, origin: 'chosen', model, effort: 'none', voice: 'off', visuals: 'off' };
   if (label !== undefined) session.engine = { preset: 'best', model: { id: model, label, offered } };
   session.transcript = concepts.length ? [{ id: 'source', role: 'user', content: 'A populated interactive draft' }] : [];
-  session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = kind;
+  session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = kind; session.conceptCost = cost;
   session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: kind === 'html' ? visuals : { available: true }, images: kind === 'image' ? visuals : { available: true } } };
-  const calls = [];
+  const calls = []; let snapshot;
   t.mock.method(URL, 'createObjectURL', () => 'blob:canvas-regression');
   t.mock.method(URL, 'revokeObjectURL', () => {});
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
@@ -37,13 +37,20 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, concept
     if (url.endsWith('/settings')) return Response.json({ processingPreset: 'best', settings: session.settings, engine: session.engine,
       presets: { best: { offered: true, status: 'available', models: offered ? [{ id: model, label, status: 'available' }] : [], voices: [], visuals: [] } } });
     if (String(url).startsWith('/api/library')) return Response.json({ items: [], total: 0 });
-    return Response.json(c.session);
+    return Response.json(snapshot ?? c.session);
   });
   const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP;
   if (!document.head.querySelector('meta[http-equiv]')) document.head.append(meta);
   c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, host }); document.body.append(c);
   t.after(() => c.remove());
-  return { c, root: c.shadowRoot, calls };
+  const refresh = async (visuals, cost = { maxMicro: 400_000 }) => {
+    snapshot = c.session; snapshot.featureMatrix.best[kind === 'html' ? 'html' : 'images'] = visuals;
+    snapshot.conceptCost = cost; snapshot.seq += 1;
+    const refreshed = new Promise(resolve => c.addEventListener('aithema-features', resolve, { once: true }));
+    receive(c, 'session.paused', { paused: false });
+    await refreshed;
+  };
+  return { c, root: c.shadowRoot, calls, refresh };
 }
 async function ready(preview) {
   await tick(); await tick();
@@ -264,14 +271,11 @@ for (const copy of [de, en]) for (const [name, reason, cost] of [
   ['credits-low', 'budget denied', { maxMicro: 400_000 }],
   ['future-temporary-reason', 'new transient restriction', { maxMicro: 400_000 }],
 ]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} ${name} keeps an empty fold and blocks requests`, async t => {
-  const { c, root, calls } = fixture(t, { copy, concepts: [] });
+  const { c, root, calls, refresh } = fixture(t, { copy, concepts: [], cost: { maxMicro: 400_000 } });
   receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
-  c.session.conceptCost = { maxMicro: 400_000 };
   root.querySelector('.fold').click();
   assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
-  c.session.conceptCost = cost;
-  c.session.featureMatrix.best.html = reason ? { available: false, reason } : { available: true };
-  receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'idle' } });
+  await refresh(reason ? { available: false, reason } : { available: true }, cost);
   assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true, 'temporary restriction keeps the fold');
   assert.equal(root.querySelector('.conversation').hidden, true);
   assert.equal(root.querySelector('.concept-request').disabled, true);
@@ -294,12 +298,11 @@ for (const copy of [de, en]) for (const [name, reason, cost] of [
 
 for (const reason of ['not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device', 'plugin not in preset']) {
   test(`AIT-229: ${reason} capability loss unfolds an empty canvas and blocks refolding`, async t => {
-    const { c, root, calls } = fixture(t, { concepts: [] });
+    const { c, root, calls, refresh } = fixture(t, { concepts: [] });
     receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
     root.querySelector('.fold').click();
     assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
-    c.session.featureMatrix.best.html = { available: false, reason };
-    receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'idle' } });
+    await refresh({ available: false, reason });
     assert.equal(root.querySelector('.conversation').hidden, false);
     assert.equal(root.querySelector('.fold-view').hidden, true);
     root.querySelector('.fold').click(); root.querySelector('.concept-request').click(); await tick();
@@ -310,11 +313,10 @@ for (const reason of ['not configured', 'not offered', 'visuals not offered', 'p
 }
 
 for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} preset-excluded cached draft stays readable with a working choice action`, async t => {
-  const { c, root, calls } = fixture(t, { copy });
+  const { root, calls, refresh } = fixture(t, { copy });
   root.querySelector('.fold').click();
   const canvas = root.querySelector('.canvas-html'), frame = await ready(canvas);
-  c.session.featureMatrix.best.html = { available: false, reason: 'plugin not in preset' };
-  receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'idle' } }); await tick();
+  await refresh({ available: false, reason: 'plugin not in preset' });
   assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
   assert.ok(canvas.shadowRoot.querySelector('iframe') === frame, 'cached draft remains readable');
   assert.equal(root.querySelector('.concept-request').disabled, true);
