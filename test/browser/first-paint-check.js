@@ -12,10 +12,18 @@ export async function firstPaintCheck(t) {
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, results = [];
   if (evidence) await mkdir(evidence, { recursive: true });
+  let failureMode = null;
   await page.setRequestInterception(true);
   page.on('request', request => {
     const url = new URL(request.url());
-    if (url.pathname === '/demo/host.js' && !url.search) void request.respond({ status: 200, contentType: 'application/javascript',
+    if (url.pathname === '/demo/host.js' && !url.search && failureMode) {
+      const body = failureMode === 'undefined' ? '' : `
+        import { AithemaSession } from '/packages/ui/src/session-element.js';
+        AithemaSession.prototype.configure = () => { throw new Error('AIT-210 forced mount failure'); };
+        await import('/demo/host.js?forced-mount-failure');`;
+      void request.respond({ status: 200, contentType: 'application/javascript', body });
+    }
+    else if (url.pathname === '/demo/host.js' && !url.search) void request.respond({ status: 200, contentType: 'application/javascript',
       body: "window.releaseAithema = () => import('/demo/host.js?ait-210-upgrade');" });
     else void request.continue();
   });
@@ -27,6 +35,14 @@ export async function firstPaintCheck(t) {
     localStorage.clear();
     localStorage.setItem('aithema-demo-locale', state.get('locale'));
     localStorage.setItem('aithema-theme', state.get('theme'));
+    // Exercise the real definition deadline without adding 15 seconds to CI.
+    if (state.get('failure') === 'undefined') {
+      const schedule = window.setTimeout;
+      window.setTimeout = (callback, delay, ...args) => {
+        if (delay === 15_000) { window.fireDefinitionDeadline = callback; return 0; }
+        return schedule(callback, delay, ...args);
+      };
+    }
     window.paintFrames = [];
     window.paintGeometry = () => {
       const component = document.querySelector('aithema-session');
@@ -89,5 +105,39 @@ export async function firstPaintCheck(t) {
     await settle();
     assert.deepEqual(await page.evaluate(() => window.paintGeometry()), loaded.boxes, `${name}: reattachment never restores the loading shell`);
     console.log(`AIT-210 ${name}: header, rail and controls 0 px; no unstyled title; reattachment stable`);
+  }
+  // Reuse this page and browser; failures add no browser process or test file.
+  for (const failure of ['mount', 'undefined']) for (const locale of ['de', 'en']) {
+    failureMode = failure;
+    await page.setViewport({ width: 390, height: 844 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
+    await page.goto(`${demo.url}?theme=light&locale=${locale}&failure=${failure}`, { waitUntil: 'domcontentloaded' });
+    if (failure === 'undefined') await page.evaluate(() => window.fireDefinitionDeadline());
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-unavailable'));
+    const fallback = await page.evaluate(() => {
+      const title = document.querySelector('h1'), error = document.querySelector('#error'), button = error.querySelector('button');
+      return { title: title.textContent, titleVisible: title.checkVisibility(),
+        skeleton: Boolean(document.querySelector('.aithema-first-paint')),
+        alert: error.getAttribute('role'), message: error.querySelector('span')?.textContent,
+        button: button?.textContent, buttonVisible: button?.checkVisibility(), type: button?.type,
+        defined: Boolean(customElements.get('aithema-session')) };
+    });
+    assert.deepEqual(fallback, { title: 'Aithema', titleVisible: true, skeleton: false, alert: 'alert',
+      message: locale === 'de' ? 'Die Seite konnte nicht geladen werden.' : 'The page could not be loaded.',
+      button: locale === 'de' ? 'Seite neu laden' : 'Reload page', buttonVisible: true, type: 'button', defined: failure === 'mount' });
+    await settle();
+    if (evidence && failure === 'mount' && locale === 'de') await page.screenshot({
+      path: join(evidence, 'mount-failure-390-de-light.png'), fullPage: false, captureBeyondViewport: false });
+    // The native fallback changes language without depending on the failed graph.
+    await page.select('#locale', locale === 'de' ? 'en' : 'de');
+    assert.equal(await page.$eval('#error button', n => n.textContent), locale === 'de' ? 'Reload page' : 'Seite neu laden');
+    // A real button reload must navigate and allow a working host to mount.
+    failureMode = null;
+    await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.click('#error button')]);
+    await page.evaluate(() => { void window.releaseAithema(); });
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
+    assert.equal(await page.$eval('#error', n => n.textContent), '');
+    assert.equal(await page.$eval('h1', n => n.parentElement.localName), 'aithema-session');
+    console.log(`AIT-210 ${failure} ${locale}: visible title, no skeleton, localized alert, reload recovers`);
   }
 }

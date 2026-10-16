@@ -19,8 +19,7 @@ document.addEventListener('change', event => {
   if (label) label.textContent = control.selectedOptions[0].textContent;
 });
 
-// Only an actual script failure exposes fallback. Network and session latency
-// are unbounded: elapsed time is never evidence that the host failed.
+// Keep startup recovery independent of the module graph it replaces.
 function paintFallback() {
   const language = document.querySelector('#locale'), theme = document.querySelector('#theme');
   if (!language || !theme) return;
@@ -39,6 +38,15 @@ function paintFallback() {
   document.querySelector('#theme-icon').innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${glyphs[theme.value]}</svg>`;
   document.querySelector('#language-label').textContent = en ? 'Language' : 'Sprache';
   document.querySelector('#theme-label').textContent = en ? 'Appearance' : 'Darstellung';
+  const error = document.querySelector('#error');
+  if (error) {
+    const message = document.createElement('span'), reload = document.createElement('button');
+    message.textContent = en ? 'The page could not be loaded.' : 'Die Seite konnte nicht geladen werden.';
+    reload.type = 'button';
+    reload.textContent = en ? 'Reload page' : 'Seite neu laden';
+    reload.addEventListener('click', () => location.reload());
+    error.replaceChildren(message, reload);
+  }
 }
 function exposeFallback() {
   if (document.documentElement.hasAttribute('data-host-ready')) return;
@@ -51,7 +59,12 @@ function exposeFallback() {
   } catch { /* Native defaults work without storage. */ }
   // A partially defined component may have no utilities slot yet.
   const component = document.querySelector('aithema-session'), actions = document.querySelector('.host-actions');
-  if (component && actions) component.before(actions);
+  if (component) {
+    const title = component.querySelector('h1[slot="brand"]');
+    if (title) component.before(title);
+    if (actions) component.before(actions);
+    document.querySelector('.aithema-first-paint')?.remove();
+  }
   paintFallback();
 }
 document.addEventListener('aithema-host-failed', exposeFallback);
@@ -79,3 +92,9 @@ document.defaultView?.addEventListener('unhandledrejection', event => {
 document.addEventListener('DOMContentLoaded', () => {
   if (document.documentElement.hasAttribute('data-host-unavailable')) exposeFallback();
 }, { once: true });
+// Start before DOMContentLoaded: a stalled module graph can itself hold that event.
+// Definition cancels the deadline; slow session/configuration requests do not count.
+const definitionDeadline = setTimeout(() => {
+  if (document.querySelector('aithema-session') && !customElements.get('aithema-session')) exposeFallback();
+}, 15_000);
+customElements.whenDefined('aithema-session').then(() => clearTimeout(definitionDeadline));

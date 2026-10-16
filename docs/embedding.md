@@ -293,7 +293,12 @@ same header, rail and 44px controls through definition, session fetch and
 mount; the CSS then replaces the decorative, inert shell. Do not use `:defined`
 as a readiness signal: definition can precede configuration. Keep the stylesheet
 render-blocking so slotted titles never paint without their final styling.
-Serve any startup failure message outside the hidden component.
+This shell uses CSS `:has()` and targets evergreen browsers only; older browsers
+without `:has()` support need a host-provided CSS fallback.
+On startup failure, move the host title outside the hidden component, remove
+`.aithema-first-paint`, and show an alert with a reload button there. The demo
+also uses a 15-second deadline if `aithema-session` never defines; definition
+cancels that deadline so session/network latency does not trigger it.
 
 The default host geometry uses the component's 1520px shell, responsive gutters,
 and a 96px desktop actions column. If the host customizes `--aithema-shell-max`,
