@@ -510,12 +510,12 @@ export const de = {
     'agent-create-invalid': 'Sprachagent konnte nicht eingerichtet werden',
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
-  // Legal copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
+  // Item copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
   featureConsent: { text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
-    // START src/lib/i18n.ts:2739 (consentCopy.de.intro).
-    intro: 'Legen Sie einmal fest, welche Verarbeitung Sie freigeben. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange die gewählte Verarbeitung hier freigegeben ist, können Sie Einstellungen ändern, ohne erneut zuzustimmen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
+    // Host-neutral defaults; embedding hosts supply their actual consent terms.
+    intro: 'Wählen Sie, welche Verarbeitung Sie freigeben. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {

@@ -1,5 +1,14 @@
-// These statements describe this demo's local, memory-only ledger. They are not
-// defaults for embedding hosts, whose ledgers can persist across restarts.
+// This demo supplies its own consent terms: the mock ledger is memory-only,
+// while real processing keeps the existing START twelve-month introduction.
+// Neither describes the ledgers of embedding hosts.
+const processingCopy = {
+  de: {
+    intro: 'Legen Sie einmal fest, welche Verarbeitung Sie freigeben. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange die gewählte Verarbeitung hier freigegeben ist, können Sie Einstellungen ändern, ohne erneut zuzustimmen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
+  },
+  en: {
+    intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
+  },
+};
 const hostCopy = {
   de: {
     consentTitle: 'Einwilligung für das Mock-Gespräch',
@@ -30,5 +39,5 @@ const hostCopy = {
 };
 export function withDemoConsentCopy(copy) {
   const host = hostCopy[copy.display.locale];
-  return { ...copy, host: { ...copy.host, ...host, consentPage: { ...copy.host.consentPage, ...host.consentPage } } };
+  return { ...copy, processingConsent: { ...copy.processingConsent, ...processingCopy[copy.display.locale] }, host: { ...copy.host, ...host, consentPage: { ...copy.host.consentPage, ...host.consentPage } } };
 }

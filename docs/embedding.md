@@ -328,6 +328,7 @@ ledger, never a grant from the browser.
 | `mock` | Optional boolean; absent and `false` mean a real document. `true` adds mock labelling. It never removes or replaces described items or changes their feature mapping. |
 | `intro`, `withdrawal` | Optional non-empty strings for a host consent page's introduction and withdrawal terms. Settings uses the configured, localized `copy.processingConsent.intro`/`withdrawal`, or the mock host copy described below. |
 | `optional` | Optional array of unique known item IDs, for host consent-page presentations. Settings displays all items. |
+| `features` | Optional object (not null or an array). Every value must be an array of unique known item IDs; empty arrays are valid. The validator does not restrict its keys. Invalid supplied values fail closed, even though the server replaces a valid supplied map with its own derived map. |
 
 For example, a host using the local processing scope can return:
 
@@ -344,7 +345,8 @@ For provider bindings, an item's `id` matches the binding's processing-scope
 `purpose`. The local `mock-conversation` scope also accepts the established
 `mock-processing` item ID, for both real and mock documents. The server derives
 `features` from the session's actual processing scopes and known item IDs;
-hosts cannot override this map by supplying `features` in `describe()`. The
+a supplied `features` map must pass the validation above, then the server replaces
+it with the derived map. Hosts cannot override this mapping. The
 consent GET response adds `features: { [feature]: string[] }` for `text`,
 `analysis`, `voice`, `transcription`, `images`, `html` and `uploads`. Empty arrays
 mean no matching described processing. Settings requires a non-empty mapping
@@ -355,12 +357,22 @@ the ledger must validate the contract, IDs and current revision authoritatively.
 The existing one-item mock shorthand `{ mock: true, selected: [] }` remains
 supported: `selected` may contain only `mock-processing`, and `contract` is
 optional. Its item version is 1 and its visible item comes from the host copy.
+For real documents, hosts **must** override the localized
+`copy.processingConsent.intro` and `copy.processingConsent.withdrawal` with their
+actual consent and withdrawal terms, including where consent is stored and how
+long it applies. Settings reads these copy keys, not the optional `intro` and
+`withdrawal` fields in `describe()`. The default intro describes the selection,
+recipients and purposes; the default withdrawal explains how to withdraw and
+that past transfers cannot be undone. Neither states where consent is stored
+or how long it applies.
+
 A mock consent document uses `copy.host.*`; override it to match your ledger.
 In particular, override `consentTitle`, `consentUse` (`off`, `html`, `images`)
 and `consentPage.mockRecipients`, `mockConsequence`, `mockTerms`;
 `consentPage.mockNotice` labels a full mock document. Defaults promise no ledger
-duration or persistence. The demo overlays its own memory-only/restart wording
-in `demo/consent-copy.js`, used by both its host and consent page.
+duration or persistence. The demo overlays its existing twelve-month real
+processing intro and memory-only/restart mock wording in `demo/consent-copy.js`,
+used by both its host and consent page.
 
 Invalid shapes fail closed before any editable items are exposed. The server
 and UI share `validateConsentDocument` from

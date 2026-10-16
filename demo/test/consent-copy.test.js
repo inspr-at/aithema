@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { withDemoConsentCopy } from '../consent-copy.js';
+import { CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../processing-consent.js';
+import { START_GERMAN_CONSENT } from '../../test/fixtures/german-server-texts.js';
 
 // Visible strings frozen from the assigned base 75cb5385, before extraction.
 const previous = {
@@ -34,8 +36,11 @@ for (const bundle of [de, en]) test(`AIT-231 ${bundle.display.locale}: demo cons
   const visible = { consentTitle: host.consentTitle, mockRecipients: host.consentPage.mockRecipients,
     mockConsequence: host.consentPage.mockConsequence, mockTerms: host.consentPage.mockTerms, consentUse: host.consentUse };
   assert.deepEqual(Buffer.from(JSON.stringify(visible)), Buffer.from(JSON.stringify(previous[bundle.display.locale])));
+  const previousProcessing = bundle.display.locale === 'de' ? START_GERMAN_CONSENT : { intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL };
+  for (const key of ['intro', 'withdrawal']) assert.deepEqual(Buffer.from(demo.processingConsent[key]), Buffer.from(previousProcessing[key]), key);
   assert.deepEqual(bundle, before, 'the demo never mutates the shipped defaults');
-  const defaults = JSON.stringify({ title: bundle.host.consentTitle, use: bundle.host.consentUse,
-    recipients: bundle.host.consentPage.mockRecipients, terms: bundle.host.consentPage.mockTerms });
-  assert.doesNotMatch(defaults, /memory|restart|twelve months|Arbeitsspeicher|Serverneustart|zwölf Monate|local demo|lokalen Demo|fake voice|Test-Sprache/iu);
+  const defaults = JSON.stringify({ intro: bundle.processingConsent.intro, withdrawal: bundle.processingConsent.withdrawal, title: bundle.host.consentTitle, use: bundle.host.consentUse,
+    mockIntro: bundle.host.consentPage.intro, recipients: bundle.host.consentPage.mockRecipients,
+    consequence: bundle.host.consentPage.mockConsequence, terms: bundle.host.consentPage.mockTerms });
+  assert.doesNotMatch(defaults, /twelve|zwölf|Monat|month|browser|stored|gespeichert|until|bis|memory|restart|Arbeitsspeicher|Serverneustart|local demo|lokalen Demo|fake voice|Test-Sprache/iu);
 });

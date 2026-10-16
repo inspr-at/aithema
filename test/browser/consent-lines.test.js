@@ -96,6 +96,22 @@ async function scene(page, locale, theme, width, missing) {
   page.state.snapshot = await shadow(page, c => structuredClone(c.session));
   await frame(page);
 }
+async function consentEvidenceReady(page) {
+  await shadow(page, c => {
+    c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+    c.shadowRoot.querySelector('.settings__body').scrollTop = 0;
+  });
+  await page.mouse.move(-10, -10); await frame(page);
+  await shadow(page, async c => {
+    await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+  });
+  return shadow(page, c => {
+    const r = c.shadowRoot, intro = r.querySelector('.consent-intro').getBoundingClientRect(), body = r.querySelector('.settings__body').getBoundingClientRect();
+    return { reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      blurred: !r.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]'),
+      introVisible: intro.top >= body.top && intro.bottom <= body.bottom };
+  });
+}
 async function pauseHeader(page, locale) {
   const header = await page.evaluate(() => {
     const control = document.querySelector('aithema-session').shadowRoot.querySelector('.conversations-toggle');
@@ -204,11 +220,14 @@ for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settin
     await page.keyboard.press('Enter');
     const target = mock ? 'mock-processing' : 'models-international';
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
-    const state = await shadow(page, async (c, { target }) => {
+    const state = await shadow(page, async (c, { target, mock }) => {
       const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
       const r = c.shadowRoot, editor = r.querySelector('.consent-editor'), body = r.querySelector('.settings__body');
       globalThis.ait231Focus = r.activeElement;
       return { target: r.activeElement?.value, checked: [...editor.querySelectorAll('input')].filter(n => n.checked).map(n => n.value),
+        intro: editor.querySelector('.consent-intro').textContent, withdrawal: editor.querySelector('.consent-withdrawal').textContent,
+        expectedIntro: mock ? copy.host.consentPage.intro : copy.processingConsent.intro,
+        expectedWithdrawal: mock ? copy.host.consentPage.mockTerms : copy.processingConsent.withdrawal,
         rows: editor.querySelectorAll('input').length, status: editor.querySelector('.consent-status').textContent,
         enabled: !r.querySelector('.consent-save').disabled,
         mockLabel: editor.textContent.includes(copy.host.consentTitle),
@@ -218,15 +237,11 @@ for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settin
     assert.equal(state.target, target); assert.equal(state.rows, mock ? 1 : CONSENT_ITEMS.length);
     assert.deepEqual(state.checked, selected); assert.equal(state.status, ''); assert.equal(state.enabled, true);
     assert.equal(state.horizontalOverflow, false); assert.equal(state.mockLabel, mock);
+    assert.equal(state.intro, state.expectedIntro); assert.equal(state.withdrawal, state.expectedWithdrawal);
+    assert.doesNotMatch(state.intro, /twelve|zwölf|Monat|month|browser|stored|gespeichert|until|bis/iu);
     const before = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
-    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-    await page.mouse.move(-10, -10); await frame(page);
-    await shadow(page, async c => {
-      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
-    });
-    const ready = await shadow(page, c => ({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-      blurred: !c.shadowRoot.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]') }));
-    assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true);
+    const ready = await consentEvidenceReady(page);
+    assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true);
     const label = `${locale}-${theme}-${width}-${mock ? 'mock' : 'real'}`;
     if (process.env.AITHEMA_EVIDENCE_DIR) {
       const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-231'); await mkdir(dir, { recursive: true });
@@ -249,6 +264,32 @@ for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settin
       await writeFile(join(dir, `pass-lines-${locale}.json`), JSON.stringify(passes, null, 2));
       await writeFile(join(dir, `index-${locale}.json`), JSON.stringify({ head: evidenceCommit, shots: passes.map(p => `${p.label}.png`) }, null, 2));
     }
+  }
+});
+
+test('AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light', async t => {
+  const page = await fixture(t); await scene(page, 'de', 'light', 1440, ['analysis']);
+  // Use the demo's real mock-consent endpoint and its host copy overlay.
+  page.state = null;
+  await shadow(page, async c => {
+    const { de } = await import('/packages/ui/src/i18n/de.js');
+    const { withDemoConsentCopy } = await import('/demo/consent-copy.js');
+    c.configure({ copy: withDemoConsentCopy(de) });
+  });
+  await page.locator('aithema-session >>> .notice button').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
+  const wording = await shadow(page, c => ({ intro: c.shadowRoot.querySelector('.consent-intro').textContent,
+    terms: c.shadowRoot.querySelector('.consent-withdrawal').textContent }));
+  assert.equal(wording.intro, 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.');
+  assert.equal(wording.terms, 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.');
+  const ready = await consentEvidenceReady(page);
+  assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true);
+  const label = 'de-light-1440-demo', pass = { head: evidenceCommit, label, ...wording, ...ready, viewportOnly: true, baselineFonts: true, pass: true };
+  t.diagnostic(`PASS AIT-231 ${JSON.stringify(pass)}`);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-231'); await mkdir(dir, { recursive: true });
+    await page.screenshot({ path: join(dir, label + '.png'), fullPage: false, captureBeyondViewport: false });
+    await writeFile(join(dir, label + '.json'), JSON.stringify(pass, null, 2));
   }
 });
 
