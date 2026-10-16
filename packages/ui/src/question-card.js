@@ -117,10 +117,13 @@ export class QuestionCard {
       this.followOnResize ??= this.followsTranscript();
       this.scheduleReserve();
     };
-    this.endScroll = () => {
+    this.endScroll = event => {
+      if (event.type === 'wheel' && event.deltaY <= 0) return;
+      if (event.type === 'keydown' && (event.shiftKey || !['End', 'PageDown', 'ArrowDown', ' '].includes(event.key))) return;
       const shell = this.root.querySelector('.transcript-shell');
       // An explicit return to the end finishes a reading hold, even with the
-      // pointer still in the pane and no further incoming content.
+      // pointer still in the pane and no further incoming content. Wheel/keys
+      // also cover an attempt to scroll down when already at the old bottom.
       if (this.held && shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 1) {
         this.releaseAtEnd = true;
         this.scheduleReserve();
@@ -136,7 +139,7 @@ export class QuestionCard {
     }
     this.view?.addEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.addEventListener('resize', this.viewportResize);
-    this.root.querySelector('.transcript-shell').addEventListener('scroll', this.endScroll, { passive: true });
+    for (const type of ['scroll', 'wheel', 'keydown']) this.root.querySelector('.transcript-shell').addEventListener(type, this.endScroll, { passive: true });
   }
   reserve() {
     if (this.root.querySelector('.conversation').hidden) return;
@@ -235,7 +238,7 @@ export class QuestionCard {
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.removeEventListener('resize', this.viewportResize);
-    this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.endScroll);
+    for (const type of ['scroll', 'wheel', 'keydown']) this.root.querySelector('.transcript-shell').removeEventListener(type, this.endScroll);
     if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
     this.frame = null;
   }

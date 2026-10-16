@@ -316,13 +316,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         const bottomBefore = await boxes(page, ['.turn:last-child']);
         await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
         assert.deepEqual(await boxes(page, ['.turn:nth-last-child(2)']), bottomBefore, 'closing at the reading bottom preserves visible text');
-        await shadow(page, c => {
-          const shell = c.shadowRoot.querySelector('.transcript-shell');
-          shell.scrollTop = shell.scrollHeight; shell.dispatchEvent(new Event('scroll'));
-        });
-        await nextFrame(page); await nextFrame(page);
+        await page.mouse.wheel({ deltaY: 10_000 });
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height') === '0px');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'reaching the bottom releases the obsolete gap while the pointer stays in the transcript');
-        await nextFrame(page); await nextFrame(page);
+        await page.evaluate(async () => { for (let frame = 0; frame < 12; frame++) await new Promise(resolve => requestAnimationFrame(resolve)); });
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the bottom gap stays released without new content or pointer movement');
         await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click()); await nextFrame(page);

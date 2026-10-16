@@ -237,9 +237,18 @@ test('AIT-225: returning to the bottom releases a reading hold without waiting f
   frames[0]();
   assert.equal(reserved(), '0px', 'there is no obsolete gap at the reading bottom');
   card.reserve(); assert.equal(reserved(), '0px', 'the gap stays released while the reader remains there');
+  for (const event of [new view.WheelEvent('wheel', { deltaY: 100 }), new view.KeyboardEvent('keydown', { key: 'End' })]) {
+    following = true; card.update({ turnId: 'next', question_short: 'Choose?', options }, en, false);
+    following = false; card.update(null, en, false);
+    const count = frames.length;
+    shell.dispatchEvent(event); assert.equal(frames.length, count + 1, `${event.type} releases even at an unchanged scroll offset`);
+    frames.at(-1)(); assert.equal(reserved(), '0px');
+  }
   card.destroy();
   shell.dispatchEvent(new view.Event('scroll'));
-  assert.equal(frames.length, 1, 'disconnect removes the end-scroll listener');
+  shell.dispatchEvent(new view.WheelEvent('wheel', { deltaY: 100 }));
+  shell.dispatchEvent(new view.KeyboardEvent('keydown', { key: 'End' }));
+  assert.equal(frames.length, 3, 'disconnect removes the end-scroll listeners');
 });
 
 test('AIT-225: desktop reservations do not inspect phone layout styles', t => {
