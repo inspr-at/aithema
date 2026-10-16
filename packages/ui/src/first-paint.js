@@ -26,7 +26,7 @@ ${selector} > .header-actions { min-width:0; height:44px; }
 // :defined alone is too early because session loading may still be pending.
 export const firstPaintStyles = `${headerGeometry('.aithema-first-paint')}
 .aithema-shell > aithema-session:not([data-aithema-mounted]) { display:none; }
-.aithema-shell > aithema-session[data-aithema-mounted] + .aithema-first-paint { display:none; }
+.aithema-shell:has(> aithema-session[data-aithema-mounted]) > .aithema-first-paint { display:none; }
 .aithema-first-paint { position:sticky; top:0; max-width:var(--aithema-shell-max,1520px); margin-inline:auto;
   background:linear-gradient(to bottom,color-mix(in srgb,var(--accent,#0e6f6c) 7%,var(--paper,#fbf7ef)),color-mix(in srgb,var(--accent,#0e6f6c) 4%,transparent) 70%,transparent); }
 .aithema-first-paint::after { content:''; position:absolute; inset:auto 0 0; height:1px;

@@ -83,6 +83,11 @@ export async function firstPaintCheck(t) {
     assert.equal(loaded.locale, locale);
     assert.deepEqual(initial.boxes, loaded.boxes, `${name}: first paint → loaded geometry moves 0 px`);
     for (const frame of loaded.frames) assert.deepEqual(frame, loaded.boxes, `${name}: every startup frame moves 0 px`);
-    console.log(`AIT-210 ${name}: header, rail and controls 0 px; no unstyled title`);
+    // Hosts can detach/reinsert the element (the question-card fixture does so
+    // during keyboard recovery). Readiness must survive a new sibling order.
+    await page.evaluate(() => { const c = document.querySelector('aithema-session'); c.parentElement.append(c); });
+    await settle();
+    assert.deepEqual(await page.evaluate(() => window.paintGeometry()), loaded.boxes, `${name}: reattachment never restores the loading shell`);
+    console.log(`AIT-210 ${name}: header, rail and controls 0 px; no unstyled title; reattachment stable`);
   }
 }
