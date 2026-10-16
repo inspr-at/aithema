@@ -315,14 +315,18 @@ session_id }` (the embedding page's host, including any port), `language`,
 It uses the same current understanding and active, unerased/unwithdrawn turns
 as the conversation ZIP: summary is the current assessment, facts are the
 observed signals and open points are the open questions. The title uses the
-first summary line (up to 200 characters), falling back to the overview heading;
+first summary line (up to 200 code points), falling back to the overview heading;
 turn timestamps retain their RFC3339 values. Artifacts and uploads are not part
 of this contract.
 
-The serialized JSON is capped at **512 KiB in UTF-8**, including a short localized
-note appended to the summary when the oldest transcript turns must be dropped.
-The newest turns and overview remain intact; an overview that cannot fit on its
-own fails without submitting. Paimos stores a single-use draft for 30 minutes,
+Contract v1 (AEON-1441) limits the summary to **4,000 code points**, facts and open
+points to **50 items each**, each item to **500 code points**, and the transcript
+to **2,000 turns**. Overlong summary and item text ends with a counted `…`;
+later items beyond the cap are dropped. The serialized JSON is capped at
+**512 KiB in UTF-8**. Both transcript caps keep the newest whole turns, dropping
+the oldest first. A localized omitted-turn note stays complete inside the summary
+limit by shortening the summary body. Oversized metadata fails without submitting.
+Paimos stores a single-use draft for 30 minutes,
 then redirects to `/new-project?draft=<id>`; the person signs in normally to claim
 it (AEON-1441 / r136).
 
