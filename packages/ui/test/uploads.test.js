@@ -380,11 +380,11 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: 
   assert.equal(await c.changeLocale(target), true);
   assert.equal(line(), busy(target));
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  root.querySelector('.upload-retry').click(); await tick();
+  assert.equal(root.querySelector('.upload-retry'), null, 'a pause removes retry without a refused click');
   assert.equal(await c.changeLocale(source), true);
   assert.equal(line(), copy === de
-    ? 'Dateien können nicht angehängt werden: Gespräch pausiert · Erneut versuchen · Verwerfen'
-    : 'Files cannot be attached: Session paused · Try again · Discard');
+    ? 'Dateien können nicht angehängt werden: Gespräch pausiert · Verwerfen'
+    : 'Files cannot be attached: Session paused · Discard');
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
   assert.equal(await c.changeLocale(target), true);
   assert.equal(line(), busy(target), 'a resolved refusal returns to the full retained-file count');
@@ -398,27 +398,43 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: 
   assert.deepEqual(await retainedFiles(c), []);
 });
 for (const copy of [de, en]) {
-  test(`AIT-219 round 6: ${copy.display.locale} Try again while paused shows the refusal and still permits discard`, async t => {
+  test(`AIT-219 round 8: ${copy.display.locale} pause keeps files with Discard only; resume restores manual retry`, async t => {
     const { c, root, calls } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
     await exhaust(t, root);
+    const busy = root.querySelector('.composer-reason').textContent;
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-    root.querySelector('.upload-retry').click(); await tick();
     const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
-    assert.equal(root.querySelector('.composer-reason span').textContent, `${refusal} · `);
-    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3);
+    assert.equal(root.querySelector('.upload-retry'), null, 'no retry while paused');
+    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal} · ${copy.uploads.discard}`);
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
-    root.querySelector('.upload-discard').click();
+    const discard = root.querySelector('.upload-discard');
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+    assert.equal(root.querySelector('.composer-reason').textContent, busy);
+    assert.ok(root.querySelector('.upload-retry'), 'resume makes a manual retry available');
+    assert.equal(root.querySelector('.upload-discard'), discard, 'the shared action survives repaint');
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3, 'resume never uploads automatically');
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    discard.click();
     assert.deepEqual(await retainedFiles(c), []);
     assert.equal(root.querySelector('.upload-retry'), null);
   });
-  test(`AIT-219 round 6: ${copy.display.locale} Try again over session limits shows the refusal`, async t => {
-    const limits = { ...UPLOAD_LIMITS, maxDocumentsPerSession: 1 };
+  for (const ceiling of ['count', 'session']) test(`AIT-219 round 8: ${copy.display.locale} ${ceiling} limit keeps files with Discard only until room returns`, async t => {
+    const limits = { ...UPLOAD_LIMITS, ...(ceiling === 'count' ? { maxDocumentsPerSession: 1 } : { maxSessionBytes: 4 }) };
     const { c, root, calls } = setup(t, { copy, limits, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
     await exhaust(t, root);
-    state(c, pending('takes-last-slot'));
-    root.querySelector('.upload-retry').click(); await tick(); await tick();
-    assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.tooMany.replace('{files}', '1'));
-    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3);
+    const busy = root.querySelector('.composer-reason').textContent;
+    state(c, pending('takes-last-slot', { bytes: 4 }));
+    const refusal = ceiling === 'count' ? copy.uploads.tooMany.replace('{files}', '1')
+      : copy.uploads.sessionFull.replace('{size}', '4 B');
+    assert.equal(root.querySelector('.upload-retry'), null, 'no retry while over limits');
+    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal} · ${copy.uploads.discard}`);
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    state(c, { id: 'takes-last-slot', state: 'withdrawn', withdrawn: true, erased: true });
+    assert.equal(root.querySelector('.composer-reason').textContent, busy);
+    assert.ok(root.querySelector('.upload-retry'), 'freeing room restores manual retry');
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3, 'freeing room never uploads automatically');
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    root.querySelector('.upload-discard').click();
     assert.deepEqual(await retainedFiles(c), []);
   });
   test(`AIT-219 round 6: ${copy.display.locale} mixed batch keeps refusal and exhaustion facts together`, async t => {

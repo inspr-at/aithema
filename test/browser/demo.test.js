@@ -1382,6 +1382,40 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });
 
+// Verify the real accessibility tree as well as the DOM and painted action style at every state shot.
+async function uploadActions(page, expected, state) {
+  const actions = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-reason button')].map(button => {
+    const style = getComputedStyle(button);
+    return { tag: button.tagName, className: button.className, text: button.textContent,
+      decoration: { line: style.textDecorationLine, style: style.textDecorationStyle,
+        thickness: style.textDecorationThickness, offset: style.textUnderlineOffset } };
+  }));
+  assert.deepEqual(actions.map(a => a.text), expected, `${state}: exactly the expected actions`);
+  for (const action of actions) {
+    assert.equal(action.tag, 'BUTTON', `${state}: native button element`);
+    assert.match(action.className, /(?:^| )consent-action(?: |$)/u, `${state}: shared reason-line action class`);
+    assert.deepEqual(action.decoration, { line: 'underline', style: 'solid', thickness: 'auto', offset: '3px' },
+      `${state}: same computed underline at every width, locale and paint`);
+  }
+  const cdp = await page.createCDPSession();
+  try {
+    const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".composer-reason")' });
+    const { node } = await cdp.send('DOM.describeNode', { objectId: result.objectId });
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+    await cdp.send('Runtime.releaseObject', { objectId: result.objectId });
+    const root = nodes.find(n => n.backendDOMNodeId === node.backendNodeId), byId = new Map(nodes.map(n => [n.nodeId, n]));
+    assert.equal(root?.role?.value, 'status', `${state}: reason keeps its status role`);
+    const buttons = [];
+    const visit = n => {
+      if (n.role?.value === 'button') buttons.push({ role: n.role.value, name: n.name?.value });
+      for (const id of n.childIds ?? []) if (byId.has(id)) visit(byId.get(id));
+    };
+    visit(root);
+    assert.deepEqual(buttons, expected.map(name => ({ role: 'button', name })), `${state}: exact accessible names and roles`);
+    return { state, actions, accessible: buttons, role: root.role.value };
+  } finally { await cdp.detach(); }
+}
+
 for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'], [390, 'en', 'dark']])
   test(`AIT-219: ${width} ${locale} ${theme} retained-file retry, refusal, discard and toast above question card`,
   { timeout: 120_000 }, async t => {
@@ -1439,7 +1473,11 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       await settle(); const after = await geometry();
       controls.forEach((selector, i) => assert.deepEqual(after[i], before[i], `${label} ${selector}: 0 px movement`));
     };
-    const shot = async name => {
+    const actionRecords = [];
+    const copy = locale === 'de' ? de : en;
+    const retryActions = [copy.uploads.tryAgain, copy.uploads.discard];
+    const shot = async (name, expected = []) => {
+      actionRecords.push(await uploadActions(page, expected, name));
       if (!process.env.AITHEMA_EVIDENCE_DIR) return;
       await inShadow(page, c => {
         c.evidenceFocus = c.shadowRoot.activeElement;
@@ -1498,7 +1536,7 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     const failedAttempts = await page.evaluate(() => window.uploadAttempts.slice(-3));
     assert.ok(failedAttempts.every(a => JSON.stringify(a.files) === JSON.stringify(failedAttempts[0].files)), 'all three attempts send the same first batch');
     await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').focus({ preventScroll: true }));
-    await sameControls(baseline, 'busy after three attempts'); await shot('busy-exhausted');
+    await sameControls(baseline, 'busy after three attempts'); await shot('busy-exhausted', retryActions);
     assert.equal(await shadowFocus(page), 'consent-action upload-retry', 'mid-sequence evidence restores focus');
     const actionVisible = await inShadow(page, c => {
       const r = c.shadowRoot, outer = r.querySelector('.composer-reason').getBoundingClientRect();
@@ -1509,15 +1547,21 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     });
     assert.equal(actionVisible, true, 'both actions are visible inside the fixed reason slot');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-discard').textContent), locale === 'de' ? 'Verwerfen' : 'Discard');
-    // A paused retry must replace stale busy copy with the actual refusal; files stay withdrawable.
+    // A live refusal suppresses retry immediately; resuming only restores the manual action.
+    const beforePause = await page.evaluate(() => window.uploadAttempts.length);
     await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
     await until(page, () => document.querySelector('aithema-session').session.paused);
-    await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').click());
-    const refusal = (locale === 'de' ? de : en).uploads.unavailable.replace('{reason}', (locale === 'de' ? de : en).reasons['session paused']);
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason span').textContent), `${refusal} · `);
-    await shot('retry-refused');
+    const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), `${refusal} · ${copy.uploads.discard}`);
+    await sameControls(baseline, 'paused refusal');
+    if (width === 400) await shot('retry-refused', [copy.uploads.discard]);
+    await shot('paused', [copy.uploads.discard]);
     await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
     await until(page, () => !document.querySelector('aithema-session').session.paused);
+    await until(page, words => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === words, exhausted);
+    await sameControls(baseline, 'resumed with kept files');
+    await shot('resumed', retryActions);
+    assert.equal(await page.evaluate(() => window.uploadAttempts.length), beforePause, 'pause and resume never upload automatically');
     await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').focus({ preventScroll: true }));
     await page.evaluate(() => { window.failUploads = false; });
     const retryStart = await page.evaluate(() => window.uploadAttempts.length);
@@ -1564,9 +1608,9 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status__label').parentNode.matches('.composer-dock'));
     const questionToast = await toastGeometry(); await shot('question-toast');
     await sameControls(cardControls, 'toast with question card');
-    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, refusal, baseline, toast, questionToast, resent, transcript }, null, 2));
+    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, refusal, baseline, toast, questionToast, resent, transcript, actionRecords }, null, 2));
     assert.deepEqual(problems, []);
-    t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; paused Try again shows its refusal with Discard; toast gap 8 px above dock and question card, no card/composer/button intersection; one DOM row per turn.`);
+    t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; paused offers Discard only; resume restores retry with no upload; every shot has exact accessible button names/roles and shared computed underlines; toast gap 8 px above dock and question card, no card/composer/button intersection; one DOM row per turn.`);
   });
 
 for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390, 'en', 'de', 'dark']])
@@ -1625,29 +1669,34 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
       // A refused retry must not leave a stale flag after resume and a locale change.
       await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
       await until(page, () => document.querySelector('aithema-session').session.paused);
-      await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').click());
+      await uploadActions(page, [(source === 'de' ? de : en).uploads.discard], 'locale fixture paused');
       await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
       await until(page, () => !document.querySelector('aithema-session').session.paused);
       for (const locale of [target, source, target]) {
         assert.equal(await inShadow(page, (c, locale) => c.changeLocale(locale), locale), true);
         assert.equal(await line(), busy(locale));
+        const copy = locale === 'de' ? de : en;
+        await uploadActions(page, [copy.uploads.tryAgain, copy.uploads.discard], `locale repaint ${locale}`);
         await settle(); const after = await geometry();
         controls.forEach((selector, i) => assert.deepEqual(after[i], baseline[i], `${count} file(s), ${locale}, ${selector}: 0 px movement`));
       }
       assert.equal(await page.evaluate(() => window.retryAttempts.length) - attempts, 3, 'locale changes never resend files');
       const shot = `ait-219-r7-${width}-${source}-to-${target}-${theme}-${count}-file.png`;
+      const copy = target === 'de' ? de : en;
+      const actions = await uploadActions(page, [copy.uploads.tryAgain, copy.uploads.discard], shot);
       if (process.env.AITHEMA_EVIDENCE_DIR) {
-        await inShadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await inShadow(page, c => { c.evidenceFocus = c.shadowRoot.activeElement; c.evidenceFocus?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle();
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, shot), fullPage: false });
+        try { await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, shot), fullPage: false }); }
+        finally { await inShadow(page, c => { c.evidenceFocus?.focus({ preventScroll: true }); delete c.evidenceFocus; }); }
       }
-      records.push({ count, line: await line(), baseline, after: await geometry(), shot });
+      records.push({ count, line: await line(), baseline, after: await geometry(), actions, shot });
       await inShadow(page, c => c.shadowRoot.querySelector('.upload-discard').click());
       assert.equal(await inShadow(page, (c, locale) => c.changeLocale(locale), source), true);
       assert.equal(await line(), shortcut, 'discard leaves no retry fragment after a locale change');
       assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry') === null && c.shadowRoot.querySelector('.upload-discard') === null), true);
-      t.diagnostic(`PASS ${width} ${source.toUpperCase()}→${target.toUpperCase()} ${theme}, ${count} file(s): exact full retry line; 0 px movement; three attempts, no resend; discard removes the line.`);
+      t.diagnostic(`PASS ${width} ${source.toUpperCase()}→${target.toUpperCase()} ${theme}, ${count} file(s): exact full retry line; 0 px movement; three attempts, no resend; exact accessible buttons and shared computed underlines; discard removes the line.`);
     }
     if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-r7-${width}-${source}-to-${target}-${theme}-assertions.json`), JSON.stringify({ width, source, target, theme, records }, null, 2));
     assert.deepEqual(problems, []);
