@@ -5,7 +5,7 @@ import { PluginError } from '@inspr/aithema-core/invocation';
 // follows relay.js's 256,000-byte queue. No socket/error/URL logging.
 export function connectQualificationSocket({ url, headers, signal }) {
   return new Promise((resolve, reject) => {
-    let socket, open = false, ended = false, failure, queuedBytes = 0, wake;
+    let socket, open = false, ended = false, failure, queuedBytes = 0, wake, requestId;
     const queue = [], stopped = Promise.withResolvers();
     const notify = () => { wake?.(); wake = undefined; };
     const fail = () => { failure = new PluginError('provider'); reject(failure); socket?.terminate(); };
@@ -15,6 +15,11 @@ export function connectQualificationSocket({ url, headers, signal }) {
     catch { reject(new PluginError('provider')); return; }
     signal?.addEventListener('abort', abort, { once: true });
     socket.on('error', fail);
+    // Retain only the documented provider request-id, never all upgrade headers.
+    socket.once('upgrade', response => {
+      const value = response.headers['request-id'];
+      if (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value)) requestId = value;
+    });
     socket.on('close', () => { ended = true; signal?.removeEventListener('abort', abort); stopped.resolve(); notify();
       if (!open) reject(new PluginError('provider')); });
     socket.on('message', (bytes, binary) => {
@@ -24,6 +29,7 @@ export function connectQualificationSocket({ url, headers, signal }) {
     socket.once('open', () => {
       open = true;
       resolve({
+        requestId: requestId ?? null,
         send(wire) { return new Promise((sent, refused) => {
           if (signal?.aborted || socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 256_000) { refused(new PluginError('unavailable')); return; }
           socket.send(wire, error => error ? refused(new PluginError('provider')) : sent());

@@ -61,16 +61,16 @@ test('compound voice reasons translate known codes and preserve unknown server t
 test('a German page names the demo catalog in German; product names stay (AIT-118, GUI-27 one language)', () => {
   const { models, voices, visuals } = demoPresets({}).best.choices, products = new Set(['ElevenLabs', 'OpenAI GPT Image 2']);
   for (const { label } of [...models, ...voices, ...visuals]) assert.ok(products.has(label) || Object.hasOwn(de.catalogLabels, label), label);
-  assert.equal(catalogLabel(de, 'Fake voice (local agent)'), 'Test-Sprache (lokaler Agent)');
-  assert.equal(catalogLabel(en, 'Fake voice (local agent)'), 'Fake voice (local agent)'); assert.equal(catalogLabel(de, 'ElevenLabs'), 'ElevenLabs');
+  assert.equal(catalogLabel(de, 'Fake voice (local agent)'), 'Nur Demo: simulierte Sprache');
+  assert.equal(catalogLabel(en, 'Fake voice (local agent)'), 'Demo only: simulated voice'); assert.equal(catalogLabel(de, 'ElevenLabs'), 'ElevenLabs');
   assert.deepEqual(Object.keys(de.gauges.operations), Object.keys(en.gauges.operations));
 });
 
 test('the demo header and mock consent name each visual kind in both languages; the local plugin labels are translated (AIT-118)', async () => {
   const { createLocalHTML } = await import('../../server/src/local-html.js'), { createLocalImages } = await import('../../server/src/local-images.js');
   const labels = { html: createLocalHTML().label, images: createLocalImages().label };
-  assert.deepEqual([en.host.labels[labels.html], en.host.labels[labels.images], en.host.visualsOff], ['Test drafts (local click-dummy)', 'Test images (local PNG)', 'No visual concepts']);
-  assert.deepEqual([de.host.labels[labels.html], de.host.labels[labels.images], de.host.visualsOff], ['Testentwürfe (lokaler Klick-Entwurf)', 'Testbilder (lokales PNG)', 'Keine visuellen Entwürfe']);
+  assert.deepEqual([en.host.labels[labels.html], en.host.labels[labels.images], en.host.visualsOff], ['Demo only: clickable draft', 'Test images (local PNG)', 'No visual concepts']);
+  assert.deepEqual([de.host.labels[labels.html], de.host.labels[labels.images], de.host.visualsOff], ['Nur Demo: klickbarer Entwurf', 'Testbilder (lokales PNG)', 'Keine visuellen Entwürfe']);
   for (const copy of [en, de]) {
     assert.deepEqual(Object.keys(copy.host.consentUse).sort(), ['html', 'images', 'off']);
     assert.match(copy.host.consentUse.html, /draft clickable concepts|klickbare Entwürfe zu erstellen/u);
@@ -80,7 +80,7 @@ test('the demo header and mock consent name each visual kind in both languages; 
   }
   for (const copy of [en, de].map(withDemoConsentCopy)) {
     assert.deepEqual(Object.keys(copy.host.consentUse).sort(), ['html', 'images', 'off']);
-    assert.match(copy.host.consentUse.html, /test drafts \(local click-dummy\)|Testentwürfe \(lokaler Klick-Entwurf\)/u);
+    assert.match(copy.host.consentUse.html, /clickable demo drafts|Testentwürfe \(lokaler Klick-Entwurf\)/u);
     assert.match(copy.host.consentUse.images, /test images \(local PNG\)|Testbilder \(lokales PNG\)/u);
     assert.doesNotMatch(copy.host.consentUse.html, /image|bild/iu); assert.doesNotMatch(copy.host.consentUse.off, /image|bild|draft|entw/iu);
   }
@@ -123,5 +123,13 @@ test('AIT-215: each C1 feature uses one consent sentence in both locales', async
       assert.equal(reasonText(copy, reason, feature), featureConsentText(copy, feature));
     }
     assert.equal(reasonText(copy, 'not configured', feature), copy.reasons['not configured']);
+  }
+});
+
+// Legacy lookup keys and internal ids may keep their names; visitor-facing values may not.
+test('AIT-246 DE/EN visitor copy uses plain demo language throughout', () => {
+  const strings = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
+  for (const copy of [en, de, withDemoConsentCopy(en), withDemoConsentCopy(de)]) {
+    for (const text of strings(copy)) assert.doesNotMatch(text, /Klick-Dummy|click-dummy|\bfake\b|\bmock\b|Mock-/iu);
   }
 });

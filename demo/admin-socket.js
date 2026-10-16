@@ -8,7 +8,7 @@ import { readAdminSettings, readAdminMailCap, readProviderCap } from './admin-re
 export { CAP_RECOVERY } from './admin-read.js';
 
 /** Dedicated local transport. It is never mounted on the public host listener. */
-export async function listenAdmin({ host, spendCap, socketPath, reconcileUncertain }) {
+export async function listenAdmin({ host, spendCap, socketPath, reconcileUncertain, eraseSession }) {
   if (!host?.visitorCredits || !isAbsolute(socketPath)) throw new TypeError('Invalid admin socket');
   if (Buffer.byteLength(socketPath) > (process.platform === 'linux' ? 107 : 103)) {
     throw new TypeError('Admin socket path is too long; set AITHEMA_ADMIN_SOCKET to a shorter absolute path');
@@ -50,6 +50,36 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
         const after = Number(url.searchParams.get('after') ?? 0);
         const items = spendCap.audit({ after, limit: Number(url.searchParams.get('limit') ?? 100) });
         return send({ items, nextAfter: items.at(-1)?.id ?? after });
+      }
+      if (url.pathname === '/erase-session' && req.method === 'POST') {
+        let sessionId = null, visitor = null, result = 'erasure-failed', body, status = 200;
+        try {
+          let size = 0; const chunks = [];
+          for await (const chunk of req) {
+            size += chunk.length;
+            if (size > 16_384) throw new RangeError('Erase request too large');
+            chunks.push(chunk);
+          }
+          const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if (typeof input?.sessionId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(input.sessionId)) sessionId = input.sessionId;
+          if (input?.visitor === undefined || typeof input.visitor === 'boolean') visitor = input?.visitor ?? false;
+          if (!input || typeof input !== 'object' || Array.isArray(input) || sessionId === null || visitor === null ||
+            Object.keys(input).some(key => !['sessionId', 'visitor'].includes(key)) || url.search) throw new TypeError('Invalid erase request');
+          if (!eraseSession) { result = 'erasure-unavailable'; status = 503; body = { error: result }; }
+          else { body = await eraseSession({ sessionId, visitor }); result = body.result; }
+        } catch (error) {
+          status = 503;
+          if (error instanceof TypeError || error instanceof SyntaxError || error instanceof RangeError) {
+            result = 'invalid-admin-command'; status = error instanceof RangeError ? 413 : 400;
+          } else if (error.status === 404) { result = 'not-found'; status = 404; }
+          else if (error.status === 409 && ['voice-call-active', 'pending-dispatch'].includes(error.message)) {
+            result = error.message; status = 409;
+          }
+          body = { error: result, ...(result === 'not-found' ? { message: 'Session not found' } : {}) };
+        }
+        // Never acknowledge success before its content-free audit entry commits.
+        host.visitorCredits.auditErasure({ sessionId, visitor, result }, { actor });
+        return send(body, status);
       }
       if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/set-provider-cap', '/reset-provider-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
@@ -93,7 +123,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
 /** Client has no database dependency or direct-storage fallback. */
 export function adminRequest(socketPath, command, payload) {
   return new Promise((resolve, reject) => {
-    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reset-provider-cap', 'reconcile-uncertain'].includes(command);
+    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reset-provider-cap', 'reconcile-uncertain', 'erase-session'].includes(command);
     const query = ['audit', 'provider-cap-audit'].includes(command) && payload ? `?${new URLSearchParams(payload)}` : '';
     const bytes = set ? Buffer.from(JSON.stringify(payload)) : null;
     const req = request({ socketPath, path: `/${command}${query}`, method: set ? 'POST' : 'GET',

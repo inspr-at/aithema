@@ -212,7 +212,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           await page.click('aithema-session >>> .chooser-option[data-preset="best"]');
         }
         await page.setViewport({ width: 800, height: 600 });
-        assert.match(await page.$eval('#provider', node => node.textContent), /Mock reasoning/u);
+        assert.match(await page.$eval('#provider', node => node.textContent), /Local demo, no AI provider/u);
 
         for (const [selector, enabled] of [['#grant', true], ['#revoke', false], ['#grant', true]]) {
           const consent = page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/consent`
@@ -252,7 +252,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
         await page.click('aithema-session >>> [data-select="model"] .select__button');
         const swift = await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot
-          .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Swift (mock)'));
+          .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Demo only: quick replies'));
         const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
         assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
         // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
@@ -267,7 +267,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
         await waitForShadow(page, '.engine__value', { text: 'Custom' });
-        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test · Voice: Off' });
         // The effect: the next reply comes from the newly chosen model.
         await composer.type('What about our data?');
         const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
@@ -286,7 +286,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id, 'Reload must restore the same session');
         await waitForShadow(page, 'aside .summary-text', { text: `${content} What about our data?` });
         assert.equal(await page.$eval('#error', node => node.textContent), '');
-        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test · Voice: Off' });
 
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));
@@ -366,7 +366,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.local__messages').textContent.includes('Hello from loopback-large'));
         assert.deepEqual(local.chats.map(chat => [chat.model, chat.stream, chat.messages]), [['loopback-large', true, [{ role: 'system', content: '' }, { role: 'user', content: 'Are you there?' }]]]);
         await page.keyboard.press('Escape');
-        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Mock processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, settings (preset, model and effort acknowledged; next reply from Swift), reload, ZIP download, 400 px dialog layout/focus and a loopback local model (handshake, model choice, streamed test chat) passed.`);
+        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Demo processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, settings (preset, model and effort acknowledged; next reply from Swift), reload, ZIP download, 400 px dialog layout/focus and a loopback local model (handshake, model choice, streamed test chat) passed.`);
       })()]);
     } finally {
       controller.abort();
@@ -727,7 +727,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
     // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
-    assert.equal(await german.$eval('#provider', node => node.textContent), 'Mock-Auswertung: deterministische Demo · Testentwürfe (lokaler Klick-Entwurf)');
+    assert.equal(await german.$eval('#provider', node => node.textContent), 'Lokale Demo, ohne KI-Anbieter · Nur Demo: klickbarer Entwurf');
     // AIT-118: at 400 px every English and German voice message, the longest German recovery and closure
     // messages included, is whole in the rail's reserved lines and moves no control.
     const voiceMessages = [en, de].flatMap(copy => Object.entries(copy).filter(([key, value]) => /^voice[A-Z]/u.test(key) && typeof value === 'string'
@@ -1162,7 +1162,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     assert.deepEqual(await draftView(page), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Draft revision 1', count: '1 of 1',
       label: 'Draft — generated', image: false });
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-download').textContent), 'Download draft');
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Fake draft — local deterministic click-dummy, no AI or provider network');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Demo only: clickable draft, local demo, no AI provider');
     await shot(page, 'en-light-1440-viewer');
 
     // A refresh after new turns arrives while the pointer rests on Like: the shown revision stays

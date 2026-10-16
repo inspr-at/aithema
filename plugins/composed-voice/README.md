@@ -543,7 +543,7 @@ module. Missing or malformed money settings refuse construction.
 | `baselineAuthFile` | Optional binding field, but required to run the baseline behind start2's basic-auth gate; missing refuses before admission. Absolute mba-owned 0600 regular non-symlink file containing JSON `{ "username": "...", "password": "..." }`. Inode, owner, mode and 16 KiB bound use the same checks as `loadQualificationKeys`. |
 | `baseline` | ElevenLabs processing binding whose `model` equals its existing `agentId`, plus explicit integer `microPerMinute >= 0`; proof must cover the whole agent conversation, including its provider-managed reasoning/STT/TTS. |
 | `baselineReasoningCeilingMicro` | Required explicit nonnegative safe integer micro-USD ceiling for **all start2 facade OpenRouter reasoning** in one baseline conversation, including opener, replies, interruptions and retries. No default; OPS attests it together with the ElevenLabs ceiling. |
-| `maxDurationSeconds` | Explicit positive integer, at most 60 (`MAX_SAMPLE_SECONDS`, within the composed grant window). Determines the paid baseline ceiling and sample deadline. |
+| `maxDurationSeconds` | Explicit positive integer, at most 120 (`MAX_SAMPLE_SECONDS`); no default. Determines the paid baseline ceiling and sample deadline. The relay's 60-second connection grant is separate from the paid lifetime. |
 | `reasoningAttempts` | Explicit 1 or 2 (`MAX_REASONING_ATTEMPTS`); retries are new admissions with `retryOf`, within the same Rule C operation. Only a transport/provider failure before any text permits retry. |
 
 Each processing binding supplies `plugin`, `model`, `endpoint`, `accountRef`,
@@ -598,6 +598,15 @@ user capture. If they do not, the sample terminates as `opener-overlap`, with
 no retry inside that attempt and no PCM/metric result. The private
 `baseline-invalid-<sample-hash>.json` records the refusal and session labels;
 the consumed attempt remains uncertain until authenticated combined receipts.
+If speech resumes over a buffered reply before ordinal-1 final arrives, the
+sample is refused as `barge-in-before-user-final`; it cannot fold that speech
+into corpus speech end. The same value-free refusal record is written once,
+without transcript or PCM and without a retry. A final can still arrive after
+reply onset when no barge-in has begun. The candidate commits its user transcript
+before executing the reply, so this ordering cannot occur in that lane.
+Trace and pending-output limits report `trace-bound` and `output-queue-bound`.
+Failures before dispatch use `setup-failed` or `not-admitted`, rather than
+claiming that admitted media was invalid.
 Missing ordinal-1 final cannot release buffered output: the existing duration,
 wall-clock, trace and PCM bounds stop it and retain uncertain exposure.
 Barge-in remains the next voiced capture at or after the original reply onset.
@@ -659,6 +668,36 @@ pending setup, media/work stop and terminal reports before acknowledging consent
 pause, settings, withdrawal, session erasure **or visitor-wide erasure**. The
 qualification operations mapping preserves HTML's `generate` / `edit` scopes.
 
+OPS receives these provider-observed accounting identities; local attempt IDs,
+claim IDs, voice IDs and trace IDs never substitute for a provider billing identity:
+
+| Attempt | Terminal / persisted attempt fields available to OPS | Wire evidence and receipt lookup |
+| --- | --- | --- |
+| Candidate reasoning (each retry separately) | `generationId` and `identity: { generationId }` when present; otherwise `identity: null`, `identityReason: 'provider-identity-not-observed'` | OpenRouter response `id`, accepted only by core `generationId` (`gen-` plus 1–124 ASCII alphanumerics/hyphens). Shared `chat-completions.js` parses SSE events and non-streamed JSON, including error responses. OPS authenticates the matching OpenRouter generation receipt. |
+| Candidate STT (each utterance attempt) | `identity: { sessionId, requestId? }`; a returned request ID alone may survive a missing/invalid session message. If neither is observed: `identity: null`, `identityReason: 'stt-provider-identity-not-observed'` | ElevenLabs realtime `session_started.session_id`; optional upgrade response `request-id`. IDs are bounded to 1–128 ASCII alphanumerics/underscore/hyphen. OPS must authenticate attempt-bound STT billing evidence; a session ID itself is no cost receipt. |
+| Candidate TTS (each fragment attempt) | `identity: { requestId }` if returned; otherwise `identity: null`, `identityReason: 'tts-provider-identity-not-observed'` | Optional WebSocket upgrade `request-id`. The current TTS audio/final messages have no request/history item ID. No history ID is invented or inferred from voice/model/text. |
+| Baseline (one combined attempt) | `baselineSessions` / private baseline-session file: `attemptId`, `visitorSessionId`, `providerSessionId` (ElevenLabs conversation ID), `callId`, run/sample labels | Existing production visitor-to-conversation mapping plus OPS's start2 session-to-OpenRouter-generation mapping; both billing sides must be complete. Baseline IDs stay in `baselineSessions`, not candidate terminal `identity`. |
+
+Candidate terminals pass through the acknowledged control port; the durable ledger
+retains only `generationId`, `identity`, `identityReason` and validated `servedModel`
+as accounting metadata. These fields survive restart in `snapshot.records` passed
+to `reconcile` and in `storedAttempt` passed to `verifyReceipt`. Missing terminal
+evidence on early shutdown also yields explicit null/reason. Every consumed
+candidate terminal remains **uncertain**, even with an ID or streamed usage;
+only an authenticated matching receipt releases its reserved ceiling. OPS must
+retain uncertain exposure/orphan handling when no lookup identity is available.
+
+Sources: the synthetic [component wire fixtures](../elevenlabs/test/component-fixtures.js)
+(`sttWire.session`, `ttsWire.audio`, `ttsWire.done`), ElevenLabs
+[realtime STT SessionStarted](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime),
+[TTS WebSocket AudioOutput/FinalOutput](https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input),
+and [Tracking generation costs](https://elevenlabs.io/docs/api-reference/introduction/)
+(`request-id` response header). The last source demonstrates HTTP metadata;
+it does **not** guarantee that a WebSocket upgrade returns that header. The
+transport records it only if actually present; the existing no-header TTS fixture
+therefore records null. These sources establish identity shape, not a verified
+STT/TTS billing API or guaranteed receipt availability.
+
 `ops/qualification-live-host.mjs` exports `launchQualificationHost(options)` and
 `createQualificationHost(options)`. The former starts the flagged demo on the
 explicit loopback origin, creates a visitor through `/api/sessions`, retains its
@@ -676,12 +715,13 @@ OPS still supplies exactly:
 
 - `verifyCeiling(spec)` with enforceable tariff proofs for every attempt and retry;
 - `verifyReceipt(receipt, storedAttempt)` and `reconcile({ snapshot, reconcile, baselineSessions })`
-  using authenticated ElevenLabs conversation GET / OpenRouter generation receipts;
+  using authenticated receipts matched to the per-attempt identities above (baseline
+  requires ElevenLabs conversation GET plus all facade OpenRouter generation receipts);
 - the short-lived, mba-owned 0600 provider keys file;
 - `binding.baselineOrigin` (the real HTTPS start2 origin) and
   `binding.baselineAuthFile` (absolute mba-owned 0600 basic-auth JSON for this gate);
 - the verified whole-conversation `binding.baseline.microPerMinute` tariff and
-  explicit `binding.maxDurationSeconds` hard bound, with account-specific rounding;
+  explicit `binding.maxDurationSeconds` hard bound of 1–120 seconds, with account-specific rounding;
 - corpus WAVs generated by the coordinator with **at least 20,000 ms of zero
   PCM leading silence**, declared as `leadingSilenceMs: 20000` (or a longer
   explicit integer duration) on **every** `plan.corpus` item. Use the same

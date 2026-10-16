@@ -234,10 +234,10 @@ async function probeFixture() {
   const capture = contexts[0];
   const audio = new Context(), other = new Context();
   new Node(audio).connect(audio.destination); new Node(other).connect(other.destination);
-  const emit = (context, time, level) => {
+  const emit = (context, time, level, sampleCount = 1024) => {
     // Synthetic device timestamps test graph attribution, never qualify audio.
     now = time * 1000; context.currentTime = time + .1;
-    const samples = new Float32Array(1024).fill(level);
+    const samples = new Float32Array(sampleCount).fill(level);
     context.processors[0].onaudioprocess({ playbackTime: time + samples.length / context.sampleRate,
       inputBuffer: { duration: samples.length / context.sampleRate, getChannelData: () => samples } });
   };
@@ -388,4 +388,68 @@ test('opener overlap is recorded as invalid, closes once and retains uncertain e
   assert.equal(h.evidence[0].reason, 'opener-overlap');
   assert.equal(h.evidence[0].providerSessionId, 'conv_fake');
   assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
+});
+
+
+for (const stoppedBeforeFinal of [false, true]) test(`probe refuses barge-in before user final (${stoppedBeforeFinal ? 'stopped' : 'playing'})`, async t => {
+  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  t.after(() => probe.close());
+  await opener();
+  emit(capture, .5, .2); emit(capture, .7, 0);
+  emit(audio, 1, .2); emit(audio, 1.2, .1);
+  emit(capture, 2, .2); emit(capture, 2.1, 0);
+  if (stoppedBeforeFinal) emit(audio, 2.2, 0);
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'PRIVATE_CORPUS_SENTINEL' });
+  assert.equal(probe.complete(), true, 'refusal must terminate rather than fold barge-in into speech end');
+  assert.equal(probe.diagnostics().failure, 'barge-in-before-user-final');
+  assert.equal(probe.diagnostics().hasHypothesis, false);
+  assert.throws(() => probe.result(), /Invalid production media evidence: barge-in-before-user-final/);
+  assert.doesNotMatch(JSON.stringify(probe.diagnostics()), /PRIVATE_CORPUS_SENTINEL/);
+});
+
+for (const reason of ['trace-bound', 'output-queue-bound']) test(`probe names ${reason} failure`, async t => {
+  const { probe, capture, audio, emit } = await probeFixture();
+  t.after(() => probe.close());
+  if (reason === 'trace-bound') {
+    for (let i = 0; i <= 100_000; i++) emit(capture, i / 16000, 0, 1);
+  } else {
+    // A stalled device clock leaves > 8 seconds pending (browser-audio.js bound).
+    audio.getOutputTimestamp = () => ({ contextTime: 0, performanceTime: 0 });
+    for (let i = 0; i < 377; i++) emit(audio, 1 + i * 1024 / 48000, .2);
+  }
+  assert.equal(probe.complete(), true);
+  assert.equal(probe.diagnostics().failure, reason);
+  assert.throws(() => probe.result(), new RegExp(`Invalid production media evidence: ${reason}`));
+});
+
+test('barge-in-before-user-final refusal records once without content or retry', async t => {
+  const h = await productionFixture(t, { invalidEvidence: 'barge-in-before-user-final' });
+  await assert.rejects(h.run(), /invalid evidence \(barge-in-before-user-final\)/);
+  assert.equal(h.evidence.length, 1);
+  assert.equal(h.evidence[0].status, 'invalid');
+  assert.equal(h.evidence[0].reason, 'barge-in-before-user-final');
+  assert.doesNotMatch(JSON.stringify(h.evidence), /hypothesis|ttsPCM|text|FAKE_BASIC_AUTH/);
+  assert.equal(h.order.filter(step => step === 'admit').length, 1);
+  assert.equal(h.order.filter(step => step === 'conversation').length, 1);
+  assert.equal(h.order.filter(step => step === 'stop').length, 1);
+  assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
+});
+
+for (const refusal of ['admit', 'consume']) test(`production ${refusal} refusal is not invalid media`, async t => {
+  const h = await productionFixture(t, { refusal });
+  await assert.rejects(h.run(), /Production baseline failed; not-admitted/);
+  assert.equal(h.evidence.length, 1);
+  assert.equal(h.evidence[0].status, 'not-admitted');
+  assert.equal(h.evidence[0].reason, 'not-admitted');
+});
+
+test('production navigation failure is setup-failed rather than invalid media', async t => {
+  const h = await productionFixture(t);
+  h.page.goto = async () => { throw new Error('PRIVATE_SETUP_SENTINEL'); };
+  await assert.rejects(h.run(), /Production baseline failed; setup-failed/);
+  assert.equal(h.evidence.length, 1);
+  assert.equal(h.evidence[0].status, 'setup-failed');
+  assert.equal(h.evidence[0].reason, 'setup-failed');
+  assert.doesNotMatch(JSON.stringify(h.evidence), /PRIVATE_SETUP_SENTINEL|hypothesis|ttsPCM/);
+  assert.equal(h.reports.length, 0);
 });

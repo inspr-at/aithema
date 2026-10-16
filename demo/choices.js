@@ -15,9 +15,9 @@ export function providerMode(value, live) {
 const mock = (model, effort) => ({ plugin: 'mock', model, effort, endpoint: 'https://example.test', accountRef: 'demo',
   secretRef: 'none', maxMicro: 0, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } });
 export const demoModels = Object.freeze({
-  mock: { id: 'mock', label: 'Mock reasoning', binding: mock('mock', 'none'), efforts: ['none'] },
-  swift: { id: 'mock/swift', label: 'Swift (mock)', binding: mock('mock/swift', 'none'), efforts: ['none', 'low'], effort: 'none' },
-  deep: { id: 'mock/deep', label: 'Deep (mock)', binding: mock('mock/deep', 'medium'), efforts: ['low', 'medium', 'high'], effort: 'medium' },
+  mock: { id: 'mock', label: 'Demo only: sample replies', binding: mock('mock', 'none'), efforts: ['none'] },
+  swift: { id: 'mock/swift', label: 'Demo only: quick replies', binding: mock('mock/swift', 'none'), efforts: ['none', 'low'], effort: 'none' },
+  deep: { id: 'mock/deep', label: 'Demo only: thorough replies', binding: mock('mock/deep', 'medium'), efforts: ['low', 'medium', 'high'], effort: 'medium' },
 });
 
 /**
@@ -29,11 +29,11 @@ export const demoModels = Object.freeze({
 export function demoPresets({ provider = 'mock', reaction, understanding = reaction, voicePlugin, voiceBinding, imagePlugin, imageBinding,
   htmlPlugin, htmlBinding, htmlDemo = false, policy }) {
   const option = (id, label, plugin, binding, kind) => ({ id, label, ...(kind ? { kind } : {}), ...(plugin?.manifest.id === id ? { binding } : {}) });
-  let voices = [option('fake-voice', 'Fake voice (local agent)', voicePlugin, voiceBinding), option('elevenlabs', 'ElevenLabs', voicePlugin, voiceBinding)];
+  let voices = [option('fake-voice', 'Demo only: simulated voice', voicePlugin, voiceBinding), option('elevenlabs', 'ElevenLabs', voicePlugin, voiceBinding)];
   // One Visuals control: HTML click-dummies and image concepts are alternatives of one choice.
-  let visuals = [option('fake-html', 'Fake HTML (local click-dummy)', htmlPlugin, htmlBinding, 'html'),
-    option('claude-html', 'Claude HTML click-dummy', htmlPlugin, htmlBinding, 'html'),
-    option('fake-images', 'Fake images (local PNG)', imagePlugin, imageBinding), option('openai-images', 'OpenAI GPT Image 2', imagePlugin, imageBinding)];
+  let visuals = [option('fake-html', 'Demo only: clickable draft', htmlPlugin, htmlBinding, 'html'),
+    option('claude-html', 'Clickable draft', htmlPlugin, htmlBinding, 'html'),
+    option('fake-images', 'Demo only: sample images', imagePlugin, imageBinding), option('openai-images', 'OpenAI GPT Image 2', imagePlugin, imageBinding)];
   const extras = [voicePlugin, imagePlugin, htmlPlugin].filter(Boolean).map(plugin => plugin.manifest.id);
   if (provider !== 'mock') {
     // START-consented concrete models begin with openai, anthropic or x-ai.
@@ -46,7 +46,7 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
     // Only configured live providers; the operator's explicit fake HTML is labelled a demo.
     const live = o => o.binding && (!o.id.startsWith('fake-') || htmlDemo && o.id === 'fake-html');
     voices = voices.filter(live);
-    visuals = visuals.filter(live).map(o => o.id === 'fake-html' ? { ...o, label: 'Demo only: fake HTML click-dummy (no provider)' } : o);
+    visuals = visuals.filter(live).map(o => o.id === 'fake-html' ? { ...o, label: 'Demo only: clickable draft (no provider)' } : o);
     const offered = new Set([...voices, ...visuals].map(o => o.binding.plugin));
     return {
       best: { plugins: [provider, ...extras.filter(id => offered.has(id))], policy, choices: { models: [route], voices, visuals,

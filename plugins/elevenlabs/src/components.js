@@ -93,6 +93,21 @@ function speechText(text) {
   return text.endsWith(' ') ? text : `${text} `;
 }
 
+// Only bounded provider-returned IDs enter accounting, never a generated label.
+// STT session_started.session_id and TTS's identity-free messages are sourced in
+// test/component-fixtures.js. Optional request-id response header:
+// https://elevenlabs.io/docs/api-reference/introduction/ (Tracking generation costs).
+// That HTTP example does not promise a WebSocket upgrade header; absence is explicit.
+async function identifiedInvocation(options, spec) {
+  if (typeof options?.report !== 'function') throw new PluginError('not-admitted');
+  let identity = null;
+  const invocation = await componentInvocation({ ...options, report: terminal => options.report({ ...terminal, identity,
+    ...(identity === null ? { identityReason: `${spec.role}-provider-identity-not-observed` } : {}) }) }, spec);
+  return { ...invocation, identify(field, value) {
+    if (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value)) identity = { ...identity, [field]: value };
+  } };
+}
+
 /** Fixture transport only: no WebSocket implementation or secret default is installed. */
 export function createElevenLabsSTT({ enabled = false, config: raw, consent, resolveSecret, connect, reconcileReceipt } = {}) {
   const config = configuration(raw);
@@ -100,7 +115,7 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
     if (!enabled || typeof connect !== 'function') throw new PluginError('unavailable');
     if (format !== STT_FORMAT.encoding || !audio?.[Symbol.asyncIterator]) throw new TypeError('PCM16 mono 16 kHz stream required');
     cost(0, config.sttMicroPerSecond);
-    const invocation = await componentInvocation(options, { role: 'stt', unit: 'seconds', model: STT_MODEL });
+    const invocation = await identifiedInvocation(options, { role: 'stt', unit: 'seconds', model: STT_MODEL });
     const cleanup = new AbortController();
     const opts = { ...options, signal: AbortSignal.any([invocation.signal, cleanup.signal]) }, iterator = audio[Symbol.asyncIterator]();
     let socket, stop, pump, pumpError, completed = false, started = false, committed = false, bytes = 0;
@@ -113,12 +128,14 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
       await coverage(consent, STT_MODEL, config, 'stream', opts); invocation.dispatch();
       try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
       catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
+      invocation.identify('requestId', socket.requestId);
       stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
       for await (const wire of boundedEvents(socket.events, opts)) {
         const event = decode(wire);
         if (event.message_type === 'session_started') {
           if (started || typeof event.session_id !== 'string' || event.config?.audio_format !== 'pcm_16000' || event.config?.sample_rate !== 16000) throw new PluginError('invalid-output');
           started = true;
+          invocation.identify('sessionId', event.session_id);
           pump = (async () => {
             for (;;) {
               const item = await voiceOperation(opts, () => iterator.next()); if (item.done) break;
@@ -173,7 +190,7 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
       const wireText = speechText(text), characters = [...wireText].length + 1, amount = cost(characters, config.ttsMicroPerCharacter);
       if (typeof voice !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(voice) || format !== TTS_FORMAT.encoding) throw new TypeError('Saved voice and PCM16 24 kHz required');
       if (amount > options?.attempt?.maxMicro) throw new PluginError('not-admitted');
-      const invocation = await componentInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL });
+      const invocation = await identifiedInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL });
       const opts = { ...options, signal: invocation.signal }; let socket, stop, completed = false, total = 0;
       try {
         await coverage(consent, TTS_MODEL, config, 'speak', opts);
@@ -183,6 +200,7 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
         await coverage(consent, TTS_MODEL, config, 'speak', opts); invocation.dispatch();
         try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
         catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
+        invocation.identify('requestId', socket.requestId);
         stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
         for (const message of [{ text: ' ' }, { text: wireText, flush: true }, { text: '' }]) {
           await voiceOperation(opts, () => socket.send(JSON.stringify(message)));

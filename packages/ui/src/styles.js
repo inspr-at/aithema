@@ -186,7 +186,9 @@ svg { display:block; flex:none; }
 .concept-scene { grid-area:1/1; width:22px; height:22px; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
 .concept-scene i { background:var(--aithema-line-strong); border-radius:2px; }
 .concept-activity { grid-area:1/2; min-width:0; display:grid; gap:.2rem; }
-.concept-activity-text { font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
+.concept-activity-text, .drafts-reason-reserve { grid-area:1/1; font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
+.drafts-reason-reserve { display:grid; visibility:hidden; pointer-events:none; }
+.drafts-reason-reserve > span { grid-area:1/1; }
 .concept-progress, .concept-countdown { display:none; }
 .concept-rail[data-phase="pending"] :is(.concept-progress,.concept-countdown) { display:block; }
 .concept-request { grid-area:1/2; justify-self:start; min-height:44px; padding:.4rem 0; font-size:.8125rem; line-height:1.4; text-align:left; }
@@ -260,6 +262,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-actions small { font-size:.72rem; color:var(--aithema-muted); }
 /* A long reason wraps to a second line rather than ending in "…"; a longer upload refusal scrolls in its two lines. */
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
+@media(pointer:coarse) { .composer-reason[data-shortcut] { visibility:hidden; } }
 /* Leave paint room for the shared action's 3px underline offset inside the scroll port. */
 .composer-reason:has(.upload-discard) { max-height:44px; line-height:1.25; padding-bottom:3px; }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
@@ -341,8 +344,20 @@ details[open] summary::after { transform:rotate(225deg); }
 summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,transparent); }
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
 .overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
-.understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
+.understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:1rem; row-gap:0; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export, .create-project { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
+.understanding > .foot > .export { grid-area:1/1; justify-self:start; }
+.understanding > .foot > :is(.create-project,.retry) { grid-area:1/2; justify-self:end; }
+/* Invisible in server modes, but always measured so mode switches move nothing. */
+.export-reason { grid-column:1/-1; font-size:.72rem; line-height:1.4; color:var(--aithema-muted); }
+.export[href] { text-decoration:underline; }
+.export[aria-disabled="true"] { text-decoration:none; cursor:help; }
+@media(width < 480px) {
+  .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem auto 2.75rem; gap:0; }
+  .understanding > .foot > .export { grid-area:1/1; white-space:nowrap; }
+  .understanding > .foot > .export-reason { grid-area:2/1; }
+  .understanding > .foot > :is(.create-project,.retry) { grid-area:3/1; justify-self:start; margin-inline-start:0; white-space:nowrap; }
+}
 .create-project { margin-inline-start:auto; padding:0; border-radius:0; text-align:start; text-decoration:underline; }
 /* Retry owns the existing action space during recovery; never add another footer row. */
 .understanding > .foot:has(> .retry:not([hidden])) > .create-project { display:none; }

@@ -253,7 +253,13 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     touchVisitor: session => visitorCredits.touch(session.ownerHash),
     saveEmail(ownerToken, input) { const result = visitorCredits.saveEmail(hash(ownerToken), input); purgeMail(); return result; },
     deleteEmail(ownerToken) { const result = visitorCredits.deleteEmail(hash(ownerToken)); purgeMail(); return result; },
-    eraseVisitor(ownerToken) { visitorCredits.eraseVisitor(hash(ownerToken)); purgeMail(); },
+    pendingDispatchForSession(id) {
+      return Boolean(storage.db.prepare(`SELECT 1 FROM owner_wallet_reservations w LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id
+        WHERE CASE WHEN json_valid(w.fingerprint) THEN json_extract(w.fingerprint,'$[0]') END=?
+        AND w.released=0 AND b.attempt_id IS NULL LIMIT 1`).get(id));
+    },
+    eraseVisitor(ownerToken) { host.eraseVisitorForOwnerHash(hash(ownerToken)); },
+    eraseVisitorForOwnerHash(ownerHash) { visitorCredits.eraseVisitor(ownerHash); purgeMail(); },
     retainVisitors(options) { const result = visitorCredits.retain(options); purgeMail(); return result; },
     outbox,
     async retired({ sessionId }) {
@@ -284,7 +290,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         AND NOT EXISTS (SELECT 1 FROM budget_attempts b WHERE b.attempt_id=owner_wallet_reservations.attempt_id)`).run();
     },
     handover(ownerToken) { return {
-      async offer({ sessionId }) { storage.authorize(sessionId, ownerToken); return { available: demo, label: 'Demo only: fake handover sink' }; },
+      async offer({ sessionId }) { storage.authorize(sessionId, ownerToken); return { available: demo, label: 'Demo only: local test recipient' }; },
       async deliver(request, options) {
         storage.authorize(request.sessionId, ownerToken);
         if (!demo || request.idempotencyKey !== handoverKey(request.sessionId, request.revision)) throw new TypeError('Demo handover unavailable');

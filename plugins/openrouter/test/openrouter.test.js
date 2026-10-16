@@ -65,6 +65,23 @@ const options = (extra = {}) => {
     attempt: { attemptId: crypto.randomUUID(), claimId: crypto.randomUUID(), consume() { assert.equal(consumed, false); consumed = true; } }, report() {}, ...extra };
 };
 
+for (const operation of ['stream', 'structured']) test(`AIT-248: ${operation} terminal carries only a validated response generation ID`, async () => {
+  for (const id of ['gen-fixture', undefined, 'invalid-id', 'gen-' + 'x'.repeat(125), 'gen-private\nvalue']) {
+    const reports = [], writes = [];
+    const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+      fetchImpl: async () => operation === 'stream'
+        ? new Response(`data: ${JSON.stringify({ id, choices: [{ delta: { content: 'Known' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
+        : Response.json({ id, choices: [{ message: { content: '{"summary":"Known"}' }, finish_reason: 'stop' }] }) });
+    const opts = options({ report: terminal => reports.push(terminal) });
+    opts.attempt.observeCost = evidence => writes.push(evidence);
+    if (operation === 'stream') { for await (const delta of plugin.stream(request, opts)) assert.equal(delta, 'Known'); }
+    else assert.deepEqual(await plugin.structured(request, opts), { summary: 'Known' });
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+    assert.equal(reports[0].generationId, id === 'gen-fixture' ? id : undefined);
+    assert.deepEqual(writes.filter(value => value.generationId).map(value => value.generationId), id === 'gen-fixture' ? [id] : []);
+  }
+});
+
 for (const operation of ['stream', 'structured']) test(`AIT-163 fix2: ${operation} encrypted reasoning blobs do not enter the byte estimate`, async () => {
   const floors = [];
   const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',

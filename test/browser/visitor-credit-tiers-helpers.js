@@ -165,12 +165,12 @@ export async function visitorCreditMatrix(t, locales) {
           uiChecks.push({ locale, theme, width, state, pass: true, ...popup });
         }
         const language = await page.evaluate(() => ({ picker: document.querySelector('#locale').value,
-          language: document.documentElement.lang, account: document.querySelector('#demo-account-label').textContent,
+          language: document.documentElement.lang, accounts: document.querySelectorAll('[slot="account"]').length,
           limitNote: document.querySelector('#demo-credits-limit').textContent,
           heading: document.querySelector('aithema-session').shadowRoot.querySelector('#email-heading').textContent }));
         assert.equal(language.picker, locale); assert.equal(language.language, locale);
         assert.equal(language.heading, locale === 'en' ? 'Email' : 'E-Mail');
-        assert.match(language.account, locale === 'en' ? /^Account/u : /^Konto/u);
+        assert.equal(language.accounts, 0, 'email identity never adds a person icon');
         assert.match(language.limitNote, locale === 'en' ? /^Demo only/u : /^Nur Demo/u);
         if (locale === 'en') assert.doesNotMatch(await page.evaluate(() => {
           const c = document.querySelector('aithema-session'); return c.shadowRoot.textContent + c.textContent;

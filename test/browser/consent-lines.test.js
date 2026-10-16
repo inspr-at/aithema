@@ -88,9 +88,6 @@ async function scene(page, locale, theme, width, missing) {
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     globalThis.c1Nodes = [...c.shadowRoot.querySelectorAll('.concept-activity-text, .voice-state, .notice, textarea')];
     globalThis.c1Document = globalThis.documentToken;
-    for (const [selector, text] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) {
-      const node = document.querySelector(selector); if (node) node.textContent = text;
-    }
     scrollTo(0, 0);
   }, { locale, matrix: page.state.matrix });
   page.state.snapshot = await shadow(page, c => structuredClone(c.session));
@@ -151,8 +148,8 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     if (feature === 'analysis') {
       await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
     }
-    const account = await page.$eval('#demo-account-label', n => n.textContent);
-    assert.equal(account, locale === 'de' ? 'Konto (Demo)' : 'Account (demo)', 'host slot uses the screen language');
+    assert.equal(await page.$('[slot="account"]'), null, 'no person icon for visitors');
+    assert.equal(await page.$eval('#theme-label', n => n.textContent), locale === 'de' ? 'Darstellung' : 'Appearance', 'host utilities use the screen language');
     if (feature === 'voice') {
       const ink = await shadow(page, c => {
         const r = c.shadowRoot, range = document.createRange(); range.selectNodeContents(r.querySelector('.voice-state'));
@@ -301,7 +298,7 @@ test('AIT-231: a full mock document preserves described items and an invalid one
   await page.locator('aithema-session >>> .notice button').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
   assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.consent-editor input')].map(n => n.value)), CONSENT_ITEMS.map(i => i.id));
-  assert.match(await shadow(page, c => c.shadowRoot.querySelector('.consent-intro').textContent), /^This is mock processing\./u);
+  assert.match(await shadow(page, c => c.shadowRoot.querySelector('.consent-intro').textContent), /^This is demo processing\./u);
   await page.keyboard.press('Escape');
   page.state.document = { contract: 'fixture-contract', items: [{ ...CONSENT_ITEMS[0], text: '' }], features, selected: [] };
   await page.locator('aithema-session >>> .notice button').click();

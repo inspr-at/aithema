@@ -1,3 +1,5 @@
+import { generationId } from './cost.js';
+
 export const PLUGIN_ERROR_CODES = Object.freeze(['cancelled', 'deadline', 'not-admitted', 'already-claimed',
   'unavailable', 'auth', 'rate-limit', 'provider', 'invalid-output', 'limit']);
 export class PluginError extends Error {
@@ -16,7 +18,7 @@ export function normalizedError(error, signal) {
 }
 // The claim authority is an in-process closure, never a browser-supplied id.
 export async function beginInvocation(options, { billable = true, authoritativeCost = false } = {}) {
-  let terminal = false, dispatched = false, usage = null, cancelled = false, servedModel, chargedMicro;
+  let terminal = false, dispatched = false, usage = null, cancelled = false, servedModel, chargedMicro, observedGenerationId;
   if (billable && (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' || typeof options.report !== 'function')) {
     throw new PluginError('not-admitted');
   }
@@ -31,6 +33,7 @@ export async function beginInvocation(options, { billable = true, authoritativeC
       if (value && Number.isSafeInteger(value.inputTokens) && value.inputTokens >= 0 && Number.isSafeInteger(value.outputTokens) && value.outputTokens >= 0) usage = value;
     },
     cost(value) { if (Number.isSafeInteger(value) && value >= 0) chargedMicro = value; },
+    generationId(value) { const id = generationId(value); if (id) observedGenerationId = id; },
     servedModel(value) {
       if (typeof value === 'string' && value.length > 0 && value.length <= 128 && !/[^A-Za-z0-9._:/~-]/u.test(value)) servedModel = value;
     },
@@ -44,6 +47,7 @@ export async function beginInvocation(options, { billable = true, authoritativeC
           : { outcome: 'uncertain' }
         : usage ? { outcome: completed ? 'completed' : 'cancelled', usage } : { outcome: 'uncertain' };
       await options?.report?.({ attemptId: options.attempt?.attemptId, ...report,
+        ...(dispatched && observedGenerationId ? { generationId: observedGenerationId } : {}),
         ...(dispatched && servedModel ? { servedModel } : {}) });
     },
   };

@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { createBinding, consentCoverage, processingScope, deepFreeze } from '@inspr/aithema-core';
 import { PluginError } from '@inspr/aithema-core/invocation';
+import { generationId } from '@inspr/aithema-core/cost';
 import { createVoiceReplyExecutor, createVoiceTurnOperations } from '@inspr/aithema-server';
 import { createOpenRouterReasoning, manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
 import { createElevenLabsSTT, createElevenLabsTTS, TTS_FORMAT } from '../../elevenlabs/src/components.js';
@@ -13,9 +14,9 @@ import { connectQualificationSocket } from './qualification-live-transport.mjs';
 import { baselineOrigin, baselineAttemptCeiling } from './qualification-production-baseline.mjs';
 
 // Source: qualification-server.mjs bounds sample PCM to 16 MB and sample life
-// to two minutes; relay.js grants expire within the coordinator's 60 s window.
+// to two minutes. The relay's 60 s connection grant is separate from paid life.
 export const MAX_SAMPLE_PCM_BYTES = 16_000_000;
-export const MAX_SAMPLE_SECONDS = 60;
+export const MAX_SAMPLE_SECONDS = 120;
 // Explicit operator choice, bounded to one initial attempt plus one retry.
 export const MAX_REASONING_ATTEMPTS = 2;
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value);
@@ -152,10 +153,14 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
         const row = { attemptId: spec.attemptId, consumed: false }; rows.push(row);
         const report = terminal => {
           if (row.reporting) throw new PluginError('already-claimed');
+          const generation = role === 'reasoning' ? generationId(terminal.generationId) : null;
+          const identity = role === 'reasoning' ? generation ? { generationId: generation } : null : terminal.identity ?? null;
           // Tariff estimates/stream usage never substitute for OPS receipts.
           row.reporting = track(Promise.resolve().then(() => granted.report({ attemptId: spec.attemptId,
             outcome: row.consumed ? 'uncertain' : 'cancelled',
             ...(!row.consumed ? { chargedMicro: 0 } : {}),
+            ...(generation ? { generationId: generation } : {}), identity,
+            ...(identity === null ? { identityReason: terminal.identityReason ?? 'provider-identity-not-observed' } : {}),
             ...(terminal.servedModel ? { servedModel: terminal.servedModel } : {}) })));
           return row.reporting;
         };

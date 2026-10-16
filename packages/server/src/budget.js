@@ -387,6 +387,9 @@ export class SQLiteBudgetLedger {
       return this.get(attemptId);
     });
   }
+  hasPendingDispatch(sessionId) {
+    return Boolean(this.db.prepare("SELECT 1 FROM budget_attempts WHERE session_id=? AND state!='settled' LIMIT 1").get(sessionId));
+  }
   get(attemptId) { return this.db.prepare('SELECT * FROM budget_attempts WHERE attempt_id=?').get(attemptId); }
   recover(sessionId) {
     return this.storage.transaction(() => {

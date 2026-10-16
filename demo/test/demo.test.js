@@ -209,7 +209,7 @@ test('the demo exposes a realistic operator allowlist and serves the settings mo
   const created = await post(running.url + '/api/sessions', {}), session = await created.json();
   const cookie = created.headers.get('set-cookie').split(';')[0], headers = { cookie };
   assert.deepEqual([session.processingPreset, session.settings.model, session.settings.voice, session.settings.visuals, session.settings.origin],
-    ['best', 'mock', 'fake-voice', 'fake-html', 'default'], 'the HTML click-dummy leads when both visual kinds are bound');
+    ['best', 'mock', 'fake-voice', 'fake-html', 'default'], 'the clickable draft leads when both visual kinds are bound');
   const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
   const ids = list => list.map(o => [o.id, o.status, o.reason]);
   assert.deepEqual(ids(catalog.presets.best.models), [['mock', 'consent', 'current processing consent required'],
@@ -261,7 +261,7 @@ test('a live provider host offers only its configured route: no mock, no fake vo
   running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...live, AITHEMA_HTML_MODE: 'fake' });
   const demo = await post(running.url + '/api/sessions', {}), demoSession = await demo.json();
   const demoCatalog = await fetch(running.url + `/api/sessions/${demoSession.id}/settings`, { headers: { cookie: demo.headers.get('set-cookie').split(';')[0] } }).then(r => r.json());
-  assert.deepEqual(demoCatalog.presets.best.visuals.map(o => [o.id, o.kind, o.label]), [['fake-html', 'html', 'Demo only: fake HTML click-dummy (no provider)']]);
+  assert.deepEqual(demoCatalog.presets.best.visuals.map(o => [o.id, o.kind, o.label]), [['fake-html', 'html', 'Demo only: clickable draft (no provider)']]);
   assert.deepEqual(demoCatalog.presets.best.voices, []);
 });
 

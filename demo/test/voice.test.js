@@ -49,7 +49,7 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     const voice = (type, predicate = () => true) => notice => notice.source === 'voice' && notice.event.type === type && predicate(notice.event);
     const session = (type, predicate = () => true) => notice => notice.source === 'session' && notice.event.type === type && predicate(notice.event);
     const rendered = predicate => notice => notice.source === 'render' && predicate(notice);
-    assert.match(document.querySelector('#fake-label').textContent, /Fake voice.*no provider network/);
+    assert.match(document.querySelector('#fake-label').textContent, /Demo only: simulated voice.*no AI provider/);
     await act(() => void reviseMockConsent(c), session('consent.revised'), rendered(n => !n.startDisabled));
     await act(() => root.querySelector('.voice-start').click(), voice('final', e => e.role === 'assistant'));
     assert.equal(root.querySelector('.audio-rail').dataset.state, 'speaking');

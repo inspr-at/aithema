@@ -3,6 +3,28 @@ import { accessSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createQualificationBudget, QUALIFICATION_THRESHOLDS } from './qualification.js';
 import { PluginError } from '../../../packages/core/src/invocation.js';
+import { generationId } from '../../../packages/core/src/cost.js';
+
+// Accounting evidence is a bounded allowlist, never the raw provider terminal.
+function terminalEvidence(terminal) {
+  const evidence = {}, generation = generationId(terminal.generationId);
+  if (generation) evidence.generationId = generation;
+  if (typeof terminal.servedModel === 'string' && /^[A-Za-z0-9._:/~-]{1,128}$/u.test(terminal.servedModel)) evidence.servedModel = terminal.servedModel;
+  if (terminal.identity === null) {
+    evidence.identity = null;
+    evidence.identityReason = typeof terminal.identityReason === 'string' && /^[a-z-]{1,128}$/u.test(terminal.identityReason)
+      ? terminal.identityReason : 'provider-identity-not-observed';
+  } else if (terminal.identity && typeof terminal.identity === 'object') {
+    const identity = {};
+    for (const key of ['generationId', 'sessionId', 'requestId']) {
+      const value = terminal.identity[key];
+      if (key === 'generationId' ? generationId(value) : typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value)) identity[key] = value;
+    }
+    evidence.identity = Object.keys(identity).length ? identity : null;
+    if (evidence.identity === null) evidence.identityReason = 'provider-identity-not-observed';
+  }
+  return evidence;
+}
 
 export const qualificationRequestDigest = request => createHash('sha256').update(JSON.stringify(request)).digest('hex');
 const read = db => {
@@ -121,6 +143,7 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
             if (Number.isSafeInteger(charge) && charge > row.exposureMicro) row.exposureMicro = charge;
             if (row.state === 'reserved') row.exposureMicro = 0;
             row.state = 'settled'; row.outcome = terminal.outcome; row.reportedAt = now();
+            Object.assign(row, terminalEvidence(terminal));
             return row.exposureMicro > row.maxMicro;
           });
           if (overrun) throw new PluginError('limit', 'Qualification spend overrun');

@@ -78,7 +78,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
   const origin = baselineOrigin(binding.baselineOrigin), base = binding.baseline;
   const maxMicro = baselineAttemptCeiling(binding);
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
-  const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure, durationBoundReached = false;
+  const jobs = new Set(); let admission, admitting = false, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure, durationBoundReached = false;
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
   const labels = () => Object.fromEntries(['lane', 'runId', 'sampleId', 'visitorSessionId', 'providerSessionId', 'attemptId', 'callId']
     .filter(key => identity[key] !== undefined).map(key => [key, identity[key]]));
@@ -155,6 +155,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       maxMicro,
       request: { baselineOrigin: origin, agentId: base.agentId, visitorSessionId: identity.visitorSessionId,
         maxDurationSeconds: binding.maxDurationSeconds, baselineReasoningCeilingMicro: binding.baselineReasoningCeilingMicro } };
+    admitting = true;
     admission = await bounded(admit(spec)); identity.attemptId = spec.attemptId; await save();
     const conversationDeadlineAt = Date.now() + binding.maxDurationSeconds * 1000;
     await bounded(boundConversation(conversationDeadlineAt));
@@ -183,13 +184,14 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       baselineSession: labels() };
   } catch {
     // Persist a value-free refusal independently of result(), which must never
-    // return invalid audio. The attempt stays consumed/uncertain, with no retry.
-    const diagnostics = await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined);
-    const reason = diagnostics?.failure || (durationBoundReached ? 'duration-bound' :
-      diagnostics?.hasHypothesis === false ? 'missing-user-final' : 'incomplete-media');
-    await recordEvidence({ ...labels(), status: 'invalid', reason,
+    // return invalid audio. Dispatched attempts stay uncertain, with no retry.
+    const status = consumed ? 'invalid' : admitting ? 'not-admitted' : 'setup-failed';
+    const diagnostics = consumed ? await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined) : undefined;
+    const reason = consumed ? diagnostics?.failure || (durationBoundReached ? 'duration-bound' :
+      diagnostics?.hasHypothesis === false ? 'missing-user-final' : 'incomplete-media') : status;
+    await recordEvidence({ ...labels(), status, reason,
       ...(diagnostics ? { diagnostics } : {}) });
-    throw new Error(`Production baseline failed; invalid evidence (${reason}); retain uncertain exposure and inspect private session receipts`);
+    throw new Error(`Production baseline failed; ${consumed ? 'invalid evidence' : status} (${reason}); ${consumed ? 'retain uncertain exposure and inspect private session receipts' : 'no conversation dispatched'}`);
   }
   finally {
     clearTimeout(durationTimer); clearTimeout(closeTimer);
