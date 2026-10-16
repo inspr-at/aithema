@@ -25,7 +25,6 @@ ${selector} > .header-actions { min-width:0; height:44px; }
 // data-aithema-mounted is set synchronously after configure has mounted the UI;
 // :defined alone is too early because session loading may still be pending.
 export const firstPaintStyles = `${headerGeometry('.aithema-first-paint')}
-.aithema-shell { min-height:100dvh; }
 .aithema-shell > aithema-session:not([data-aithema-mounted]) { display:none; }
 .aithema-shell > aithema-session[data-aithema-mounted] + .aithema-first-paint { display:none; }
 .aithema-first-paint { position:sticky; top:0; max-width:var(--aithema-shell-max,1520px); margin-inline:auto;
