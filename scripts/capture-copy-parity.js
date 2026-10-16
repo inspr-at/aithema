@@ -75,7 +75,16 @@ test('AIT-228 manual copy evidence: 12 viewport/theme/locale combinations', { ti
       await shot(label, state);
       // Mobile stacks the overview below the conversation: capture each changed surface in its viewport.
       if (width === 390) {
-        await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
+        await shadow(page, c => {
+          c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' });
+          window.scrollBy(0, -c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom - 12);
+        });
+        const headerVisible = await shadow(page, c => {
+          const header = c.shadowRoot.querySelector('.understanding > .head').getBoundingClientRect();
+          const band = c.shadowRoot.querySelector('.band').getBoundingClientRect();
+          return header.top >= band.bottom && header.bottom < innerHeight;
+        });
+        assert.equal(headerVisible, true, `${label}/${state}: overview header clears the sticky band`);
         await shot(label, state + '-overview');
         await shadow(page, c => c.shadowRoot.querySelector('.display-foot').scrollIntoView({ block: 'end' }));
         await shot(label, state + '-footer');
