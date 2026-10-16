@@ -7,9 +7,11 @@ import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
 function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = false } = {}) {
-  const storage = new SQLiteStorage(), calls = [], admissions = [];
-  const reasoning = { ...createMockReasoning(), async *stream(request) {
-    calls.push(request); await hold?.promise;
+  const storage = new SQLiteStorage(), calls = [], admissions = [], mock = createMockReasoning();
+  const reasoning = { ...mock, async *stream(request, options) {
+    calls.push(request);
+    for await (const _ of mock.stream(request, options)) { /* exercise canonical consume and terminal report */ }
+    await hold?.promise;
     if (failOnce) { failOnce = false; throw new Error('fixture failure'); }
     yield JSON.stringify({ content: 'Which launch date should we plan for?', question_short: 'Launch date?', options: [], ...(policy ? { scope: 'in' } : {}) });
   } };

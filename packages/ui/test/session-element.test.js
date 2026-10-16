@@ -1223,3 +1223,22 @@ test('AIT-210: loading shell readiness follows configuration, not element defini
   assert.equal(mounted.hasAttribute('data-aithema-mounted'), true);
   assert.ok(mounted.shadowRoot.querySelector('.band .audio-rail .voice-output'));
 });
+
+test('AIT-263: public focus command carries ownership/revision and propagates typed stale refusals', async t => {
+  const component = setup();
+  turn(component, 'person-focus', 'We need a website.');
+  component.receive({ seq: component.session.seq + 1, type: 'understanding.updated', data: {
+    ...component.session.understanding, inputRevision: inputRevision(component.session), draft: false,
+    openQuestions: ['Audience?', 'Launch date?'],
+  } });
+  const item = component.openQuestionItems[1], requests = [];
+  const original = globalThis.fetch; t.after(() => { globalThis.fetch = original; });
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return Response.json({ error: 'focus-refused', reason: 'stale-question' }, { status: 409 });
+  };
+  await assert.rejects(component.focusQuestion(item.id), { reason: 'stale-question', status: 409 });
+  assert.match(requests[0].url, /\/focus-question$/u);
+  assert.deepEqual(JSON.parse(requests[0].options.body), { questionId: item.id, inputRevision: inputRevision(component.session) });
+  assert.equal(component.session.transcript.length, 1);
+});
