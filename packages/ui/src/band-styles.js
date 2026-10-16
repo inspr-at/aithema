@@ -253,6 +253,10 @@ slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inhe
   .display-foot:has(.host-legal:not([hidden])) .host-credits__track { display:none; }
 }
 
+@media(width < ${FOOTER_WIDTHS.number}px) {
+  .display-foot:has(.host-legal:not([hidden])) .display-foot__row { gap:4px; }
+  .display-foot:has(.host-legal:not([hidden])) .ai-notice .speaker-sign { display:none; }
+}
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }
