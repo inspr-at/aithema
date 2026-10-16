@@ -36,8 +36,8 @@ for (const copy of [de, en]) {
       try {
         const parent = window.document.createElement('div');
         new OperatorSettings({ parent, copy, operator: { ...operator, adminUrl } });
-        assert.equal(parent.querySelector('.operator-admin'), null);
-        assert.equal(parent.querySelector('.operator-separator'), null);
+        assert.equal(parent.querySelectorAll('.operator-admin').length, 0);
+        assert.equal(parent.querySelectorAll('.operator-separator').length, 0);
         assert.equal(parent.querySelector('.operator-name').textContent, 'Operator: Ada');
         assert.ok(!parent.querySelector('.operator-signed-in').textContent.includes(' · '));
         assert.equal(parent.querySelector('.operator-logout').textContent, copy.settings.operatorLogout);
@@ -59,8 +59,8 @@ for (const copy of [de, en]) {
         const view = new OperatorSettings({ parent, copy, operator: { ...operator, adminUrl } });
         assert.equal(parent.querySelector('.operator-admin').textContent, copy.settings.operatorAdmin);
         view.set({ ...operator, adminUrl: 'javascript:alert(1)' });
-        assert.equal(parent.querySelector('.operator-admin'), null);
-        assert.equal(parent.querySelector('.operator-separator'), null);
+        assert.equal(parent.querySelectorAll('.operator-admin').length, 0);
+        assert.equal(parent.querySelectorAll('.operator-separator').length, 0);
         view.set({ ...operator, adminUrl }); view.setCopy(copy === de ? en : de);
         assert.equal(parent.querySelector('.operator-admin').getAttribute('href'), adminUrl);
         assert.equal(parent.querySelectorAll('.operator-separator').length, 2);
