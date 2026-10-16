@@ -183,6 +183,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .operator-name { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .operator-separator { flex:none; white-space:pre; }
 .general .operator-logout { flex:none; min-height:44px; margin:0; padding:13px 0; font:inherit; font-weight:400; color:inherit; border:0; border-radius:0; background:none; }
+.operator-name + .operator-logout { margin-inline-start:16px; }
 .operator-admin { flex:none; display:inline-flex; align-items:center; min-height:44px; padding:13px 0; color:inherit; text-decoration:none; }
 .operator-notice { display:grid; }
 .operator-notice > p { grid-area:1/1; font-size:.75rem; line-height:1.5; color:var(--aithema-muted); max-width:34rem; overflow-wrap:anywhere; }

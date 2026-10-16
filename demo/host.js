@@ -87,7 +87,7 @@ async function adopt(session) {
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
-      host: { ...(binding.operatorLogin ? { operator: { ...binding.operatorLogin, name: binding.operator?.name,
+      host: { ...(binding.operatorLogin ? { operator: { ...binding.operatorLogin, name: binding.operator?.name, adminUrl: '/admin',
           error: new URL(location.href).searchParams.get('operator') === 'denied' } } : {}), library: true, verification: { delivery: binding.demoHost === true, privacyDocumentConfigured: Boolean(binding.privacy) },
         handover: binding.demoHost === true, credits: true, locale: () => localeChoice, version: binding.build } });
     // A stored choice may have changed while the initial conversation was being restored.

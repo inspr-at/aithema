@@ -159,6 +159,19 @@ version row and log once, leaving the session usable. Auto colors use the host b
 `host.version.display: "semver"` selects the full reduced coordinate in that same
 popup, with the same canonical-copy interaction. Legacy details remain plain.
 
+The UI's optional `host.operator` configuration supplies `provider`,
+`url: '/api/operator/login/'`, `logoutUrl: '/api/operator/logout/'`, and the
+authenticated operator's `name`. Set `operator.adminUrl` only when the host
+provides an admin destination, for example
+`host: { operator: { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', name: 'Ada', adminUrl: '/admin' } }`.
+`adminUrl` accepts same-origin relative paths (such as `/admin` or `./admin`)
+or absolute HTTP(S) URLs. Other schemes, protocol-relative URLs, backslashes,
+whitespace and malformed URLs fail closed. Omit it when no admin page exists:
+the name has no admin anchor, dot separators or reserved admin space; native
+sign-out remains available. The complete operator line is built synchronously
+before attachment. The demo host explicitly supplies `/admin`; admin pages
+remain host-owned.
+
 ## Host ports and presets
 
 Hosts supply `identity`, `library(ownerToken)`, `handover(ownerToken)`,
