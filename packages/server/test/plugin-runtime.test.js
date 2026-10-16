@@ -34,6 +34,76 @@ test('matrix reflects each preset and exact binding, with explicit unavailable r
   assert.equal(matrix.eu.analysis.reason, 'processing residency denied'); assert.equal(matrix.eu.text.available, true);
   const serialized = JSON.stringify(matrix); assert.equal(serialized.includes('FIXTURE_ONLY'), false); assert.equal(serialized.includes('fixture-account'), false);
 });
+test('AIT-262 catalog exposes only public host summaries from admission evidence at now()', async t => {
+  let clock = Date.now();
+  const h = setup(t, 'https://private-host-evidence.example.test/chat', { now: () => clock });
+  h.b.legal.countries = ['FR', 'DE'];
+  const fields = ['hostQualified', 'hostCountries', 'hostTraining', 'hostPriceReviewed'];
+  const catalog = await h.runtime.catalog(h.session), facts = catalog.presets.best.models[0].facts;
+  assert.deepEqual(Object.fromEntries(fields.map(key => [key, facts[key]])), {
+    hostQualified: true, hostCountries: ['FR', 'DE'], hostTraining: false, hostPriceReviewed: true,
+  });
+  assert.equal(facts.qualification, 'unverified', 'host qualification does not rewrite the manifest');
+  assert.equal(facts.cost.reviewedAt, null, 'host prices do not become manifest rates');
+  const serialized = JSON.stringify(catalog);
+  for (const privateValue of [h.b.endpoint, h.b.accountRef, h.b.secretRef, h.b.legal.retention,
+    h.b.legal.purpose, h.b.legal.recipient, ...h.b.legal.processors]) {
+    assert.equal(serialized.includes(privateValue), false, `private value must stay on the server: ${privateValue}`);
+  }
+  assert.doesNotMatch(serialized, /"(?:endpoint|routing|accountRef|secretRef|rates|legal|evidence|retention|processors|purpose|recipient|prompt|completion)":/u);
+  assert.equal(serialized.includes('1e-9'), false, 'operator prices are never serialized');
+  facts.hostCountries.push('US');
+  assert.deepEqual(h.b.legal.countries, ['FR', 'DE'], 'public arrays are copies');
+  for (const [at, present] of [[h.b.legal.evidence.verifiedAt - 1, false], [h.b.legal.evidence.verifiedAt, true],
+    [h.b.legal.evidence.expiresAt - 1, true], [h.b.legal.evidence.expiresAt, false]]) {
+    clock = at;
+    const f = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
+    for (const key of fields) assert.equal(Object.hasOwn(f, key), present, `${key} at ${at}`);
+  }
+});
+test('AIT-262 missing, mismatched and policy-denied host evidence leaves manifest facts unchanged', async t => {
+  const h = setup(t), fields = ['hostQualified', 'hostCountries', 'hostTraining', 'hostPriceReviewed'];
+  const original = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
+  for (const key of fields) delete original[key];
+  for (const change of [b => delete b.legal, b => b.legal.approved = false, b => b.legal.evidence.qualified = false,
+    ...['accountRef', 'secretRef', 'model', 'endpoint'].map(key => b => b.legal.evidence[key] = 'mismatch'),
+    b => b.legal.evidence.routing = { only: ['other-provider'] }, b => b.legal.retention = '',
+    b => b.legal.countries = ['invalid'], b => b.legal.training = null]) {
+    const invalid = structuredClone(h.b); change(invalid);
+    h.presets.best.bindings.reaction = invalid;
+    const f = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
+    assert.deepEqual(f, original);
+  }
+  h.presets.best.bindings.reaction = h.b;
+  h.presets.best.policy = { endpoints: [] };
+  assert.deepEqual((await h.runtime.catalog(h.session)).presets.best.models[0].facts, original);
+  h.presets.best.policy = { endpoints: [h.b.endpoint], noTraining: true };
+  h.presets.best.bindings.reaction = { ...h.b, legal: { ...h.b.legal, training: true } };
+  assert.deepEqual((await h.runtime.catalog(h.session)).presets.best.models[0].facts, original);
+});
+test('AIT-262 price review is model-specific and only a boolean crosses the plugin boundary', async t => {
+  const h = setup(t), plugin = h.registry.get('openrouter');
+  assert.equal(plugin.priceReviewed('fixture/model'), true);
+  assert.equal(plugin.priceReviewed('missing/model'), false);
+  const raw = qualify({ ...h.b, model: 'missing/model' });
+  h.presets.best.bindings.reaction = raw;
+  const facts = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
+  assert.equal(facts.hostQualified, true);
+  assert.equal(facts.hostPriceReviewed, false);
+});
+test('AIT-262 split reasoning choices summarize both bindings and withhold summaries if either is invalid', async t => {
+  const h = setup(t), understanding = qualify({ ...h.b, model: 'fixture/understanding' });
+  understanding.legal.countries = ['US']; understanding.legal.training = true;
+  const option = { id: 'split', bindings: { reaction: h.b, understanding } };
+  h.presets.best.choices = { models: [option] };
+  let facts = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
+  assert.deepEqual(facts.hostCountries, ['FR', 'US']);
+  assert.equal(facts.hostTraining, true);
+  assert.equal(facts.hostPriceReviewed, true);
+  understanding.legal.evidence.accountRef = 'mismatch';
+  facts = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
+  for (const key of ['hostQualified', 'hostCountries', 'hostTraining', 'hostPriceReviewed']) assert.equal(Object.hasOwn(facts, key), false);
+});
 test('admission fails closed for missing/mismatched/expired evidence, consent, health and preset membership', async t => {
   const h = setup(t);
   for (const [change, reason] of [

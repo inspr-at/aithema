@@ -1,5 +1,5 @@
 import { createChatCompletions, createBinding, publicReasoningManifest, deepFreeze, PluginError } from '@inspr/aithema-core';
-import { modelPrice, providerMaxPrice, requestCeilingMicro, requestInputTokens, tokenCeilingMicro } from './pricing.js';
+import { modelPrice, modelPriceReviewed, providerMaxPrice, requestCeilingMicro, requestInputTokens, tokenCeilingMicro } from './pricing.js';
 import { reconcileGeneration } from './reconcile.js';
 const base = publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai');
 // The adapter forwards reasoning.effort; values follow START's 2026-09-13 check of
@@ -15,6 +15,7 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
   if (!Number.isSafeInteger(uncertainEstimateMicro) || uncertainEstimateMicro < 1) throw new TypeError('Invalid uncertain cost estimate');
   const price = modelPrice(prices, binding.model);
   return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices, uncertainEstimateMicro }),
+    priceReviewed: model => modelPriceReviewed(prices, model),
     // Compatibility fallback for callers without a private lane binding. New
     // requests use the full lane price bound below, never this flat USD amount.
     uncertainEstimateMicro,

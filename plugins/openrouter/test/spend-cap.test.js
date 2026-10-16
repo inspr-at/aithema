@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createSpendCap, usdMicro } from '../../../packages/server/src/index.js';
 import { listen } from '../../../packages/server/src/http.js';
 import { createOpenRouterReasoning } from '../src/index.js';
-import { requestCeilingMicro } from '../src/pricing.js';
+import { requestCeilingMicro, modelPriceReviewed } from '../src/pricing.js';
 import { temporaryDb } from '../../../test/helpers.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
 
@@ -206,11 +206,48 @@ test('upgrade preserves existing spend/unknown holds and a free-model charge bre
   } finally { storage.close(); }
 });
 
+test('AIT-262: price review exposes only booleans and keeps the price table out of the plugin surface', () => {
+  const prices = Object.assign(Object.create({ 'private/inherited': price }), {
+    'openai/fixture': { prompt: 0.000001234567, completion: 0.000007654321 },
+    'private/free': { prompt: 0, completion: 0 },
+    'private/invalid': { prompt: -1, completion: 1 },
+  });
+  const plugin = createOpenRouterReasoning({ model: 'openai/fixture', prices,
+    resolveSecret: () => { throw new Error('price review must not resolve a secret'); },
+    fetchImpl: () => { throw new Error('price review must not call a provider'); } });
+  for (const candidate of [plugin, plugin.bind(plugin.binding)]) {
+    for (const [model, expected] of [['openai/fixture', true], ['private/free', true], ['private/invalid', false],
+      ['private/inherited', false], ['missing/model', false], ['toString', false], [undefined, false]]) {
+      assert.equal(candidate.priceReviewed(model), expected);
+    }
+    const seen = new Set(), visit = value => {
+      if (!value || !['object', 'function'].includes(typeof value) || seen.has(value)) return;
+      seen.add(value);
+      assert.notEqual(value, prices, 'the private table must stay in the closure');
+      for (const entry of Object.values(prices)) assert.notEqual(value, entry, 'no price entry is reachable');
+      for (const key of Reflect.ownKeys(value)) {
+        assert.ok(!['prices', 'prompt', 'completion', ...Object.keys(prices)].includes(key), 'no table or rate keys are exposed');
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (Object.hasOwn(descriptor, 'value')) visit(descriptor.value);
+      }
+    };
+    visit(candidate);
+    const serialized = JSON.stringify(candidate);
+    for (const privateValue of ['private/free', 'private/invalid', 'private/inherited', '0.000001234567', '0.000007654321']) {
+      assert.equal(serialized.includes(privateValue), false, 'private prices and other model keys are not serialized');
+    }
+  }
+});
+
 test('missing/invalid model prices refuse construction and rebind instead of selecting seed prices', () => {
   for (const prices of [undefined, {}, { 'openai/fixture': { prompt: -1, completion: 1 } },
     { 'openai/fixture': { prompt: 1, completion: Infinity } }, { 'openai/fixture': { prompt: '1', completion: 1 } }]) {
+    assert.equal(modelPriceReviewed(prices, 'openai/fixture'), false);
     assert.throws(() => createOpenRouterReasoning({ model: 'openai/fixture', prices }), /AITHEMA_OPENROUTER_PRICES/);
   }
+  assert.equal(modelPriceReviewed({ 'openai/fixture': price }, 'openai/fixture'), true);
+  assert.equal(modelPriceReviewed({ 'openai/fixture': { prompt: 0, completion: 0 } }, 'openai/fixture'), true);
+  assert.equal(modelPriceReviewed(Object.create({ 'openai/fixture': price }), 'openai/fixture'), false);
   const plugin = createOpenRouterReasoning({ model: 'openai/fixture', prices: { 'openai/fixture': price } });
   assert.throws(() => plugin.bind({ ...plugin.binding, model: 'anthropic/missing' }), /for anthropic\/missing/);
 });

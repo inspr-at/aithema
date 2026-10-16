@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, applyEvent } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
+import { settingsGauges } from '../../core/src/settings.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+const { hostSettingsGauges } = await import('../src/settings-dialog.js');
 test.after(async () => window.happyDOM.close());
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(resolve => setImmediate(resolve)); };
 const PRESETS = ['best', 'eu', 'device', 'custom'];
@@ -338,6 +340,81 @@ test('gauges are computed from the catalog facts of the draft and explain themse
   quality.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
   assert.equal(h.q('.context-message').textContent, 'AI quality\u00a0· Unverified: The plugin manifest marks this model unverified');
   assert.match(quality.getAttribute('aria-label'), /^AI quality: Unverified, /);
+});
+
+for (const [locale, copy] of Object.entries({ de, en })) for (const host of [false, true]) {
+  test(`AIT-262 ${locale}: gauge captions and help ${host ? 'use host summaries' : 'keep manifest fallback'}`, async t => {
+    const summary = host ? { hostQualified: true, hostCountries: ['FR', 'US'], hostTraining: false, hostPriceReviewed: true } : {};
+    const h = await opened(fixture(t, { copy, loadCatalog(catalog) {
+      const result = structuredClone(catalog), preset = result.presets.best;
+      preset.models[0].facts = facts({ free: false, ...summary });
+      preset.defaults.voice = 'off';
+      result.settings.voice = 'off';
+      return result;
+    } }));
+    for (const [kind, state, short, detail] of [
+      ['quality', host ? 'hostQualified' : 'unverified', host ? copy.gauges.short.quality.hostQualified : copy.gauges.short.quality.unverified,
+        host ? copy.gauges.details.quality.hostQualified : copy.gauges.details.quality.unverified],
+      ['cost', host ? 'hostPriceReviewed' : 'unverified', host ? copy.gauges.short.cost.hostPriceReviewed : copy.gauges.short.cost.unverified,
+        host ? copy.gauges.details.cost.hostPriceReviewed : copy.gauges.details.cost.unverified],
+      ['privacy', host ? 'restricted' : 'unverified', host ? 'FR, US' : copy.gauges.short.privacy.unverified,
+        host ? copy.gauges.details.privacy.restricted.replace('{countries}', 'FR, US') : copy.gauges.details.privacy.unverified],
+    ]) {
+      const gauge = h.q(`[data-gauge="${kind}"]`);
+      assert.equal(gauge.dataset.state, state);
+      assert.equal(gauge.querySelector('.gauge__value').textContent, copy.gauges.values[state]);
+      assert.equal(gauge.querySelector('.gauge__detail').textContent, short);
+      assert.ok(gauge.getAttribute('aria-label').endsWith(detail));
+      gauge.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
+      assert.ok(h.q('.context-message').textContent.endsWith(detail));
+    }
+  });
+}
+
+test('AIT-262 host summaries preserve ratings, free/device states and the least private selected lane', () => {
+  const model = { facts: facts({ free: false, hostQualified: true, hostCountries: ['FR'], hostTraining: true, hostPriceReviewed: true }) };
+  const input = { preset: 'best', model, effort: 'none' };
+  assert.deepEqual(hostSettingsGauges(input).cost, { state: 'hostPriceReviewed', fill: 0 }, 'a boolean cannot set a relative price level');
+  assert.equal(hostSettingsGauges(input).privacy.state, 'restricted', 'EU countries alone do not claim no training');
+  assert.equal(hostSettingsGauges({ ...input, voice: { facts: facts({ free: false }) } }).cost.state, 'unverified');
+  assert.equal(hostSettingsGauges({ ...input, voice: { facts: facts() } }).privacy.state, 'unverified');
+  assert.equal(hostSettingsGauges({ ...input, visuals: { facts: facts({ processingLocations: ['US'] }) } }).privacy.state, 'declared');
+  assert.deepEqual(hostSettingsGauges({ ...input, voice: { facts: facts({ hostCountries: ['DE', 'FR'] }) } }).privacy.countries, ['FR', 'DE']);
+  model.facts.free = true;
+  assert.equal(hostSettingsGauges(input).cost.state, 'free');
+  assert.equal(hostSettingsGauges({ ...input, preset: 'device' }).quality.state, 'local');
+  model.facts.quality = { score: 80, source: { name: 'Fixture', url: 'https://example.test/rating', asOf: '2026-10-16' } };
+  assert.equal(hostSettingsGauges(input).quality.state, 'rated');
+});
+
+for (const lane of ['model', 'voice', 'visuals']) {
+  test(`AIT-262 host countries preserve the stronger EU policy for ${lane}`, () => {
+    const input = { preset: 'eu', info: { policy: { residency: 'eu', countries: null, noTraining: true } },
+      model: { facts: facts() }, voice: { facts: facts() }, visuals: { facts: facts() } };
+    input[lane].facts.hostCountries = ['FR'];
+    assert.deepEqual(hostSettingsGauges(input).privacy, { state: 'eu', fill: 70, enforced: true, countries: null });
+  });
+  for (const preset of ['best', 'custom']) test(`AIT-262 host countries strengthen ${preset} privacy for ${lane}`, () => {
+    for (const processingLocations of [['unverified'], ['US']]) {
+      const input = { preset, [lane]: { facts: facts({ processingLocations, hostCountries: ['FR'] }) } };
+      assert.deepEqual(hostSettingsGauges(input).privacy, { state: 'restricted', fill: 55, enforced: true, countries: ['FR'] });
+    }
+  });
+}
+
+test('AIT-262 host countries preserve stronger manifest privacy', () => {
+  for (const processingLocations of [['EU'], ['device']]) {
+    const input = { preset: 'best', model: { facts: facts({ processingLocations, hostCountries: ['FR'] }) } };
+    assert.deepEqual(hostSettingsGauges(input).privacy, settingsGauges(input).privacy);
+  }
+});
+
+test('AIT-262 without host countries all base gauges stay unchanged', () => {
+  for (const preset of PRESETS) for (const hostCountries of [undefined, []]) {
+    const input = { preset, info: { policy: { residency: preset === 'eu' ? 'eu' : null, countries: null, noTraining: preset === 'eu' } },
+      model: { facts: facts({ hostCountries }) }, voice: { facts: facts() }, visuals: { facts: facts() }, effort: 'none' };
+    assert.deepEqual(hostSettingsGauges(input), settingsGauges(input));
+  }
 });
 
 test('hover, focus and saves change text in fixed boxes only: no control moves under the pointer', async t => {
