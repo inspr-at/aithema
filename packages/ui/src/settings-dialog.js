@@ -321,8 +321,9 @@ export class SettingsDialog {
     this.open(opener, { tab });
     this.#setTab(tab);
     const target = this.#q(anchor), body = this.#q('.settings__body');
-    if (target && body) body.scrollTop = Math.max(0, target.offsetTop - body.offsetTop - 12);
-    target?.focus({ preventScroll: true });
+    const presets = target?.matches('.presets'), scrollTarget = presets ? target.closest('fieldset') : target;
+    if (scrollTarget && body) body.scrollTop = Math.max(0, scrollTarget.offsetTop - body.offsetTop - 12);
+    (presets ? target.querySelector('[aria-checked="true"]') : target)?.focus({ preventScroll: true });
     this.#help = tab; this.#showHelp();
   }
   async reload() {

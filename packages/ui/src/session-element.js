@@ -341,7 +341,7 @@ export class AithemaSession extends HTMLElement {
       consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
       retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
-        ? '.preset-option[data-preset="device"]' : '[data-select="visuals"]', opener),
+        ? '.presets' : '[data-select="visuals"]', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');

@@ -1344,6 +1344,12 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-tab="model"]').getAttribute('aria-selected')), 'true');
         if (state === 'device') {
           assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.preset-option[data-preset="device"]')), true);
+          const presetView = await shadow(page, c => {
+            const root = c.shadowRoot, field = root.querySelector('.presets').closest('fieldset').getBoundingClientRect();
+            const body = root.querySelector('.settings__body').getBoundingClientRect();
+            return field.top >= body.top && field.bottom <= body.bottom;
+          });
+          assert.equal(presetView, true, `${label}: processing heading and all preset choices are in view`);
           await capture(label, 'device-preset-settings');
         }
         await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
