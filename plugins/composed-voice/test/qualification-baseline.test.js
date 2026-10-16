@@ -47,6 +47,9 @@ test('CDP sends basic auth only for a server challenge from baselineOrigin; othe
 });
 
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { runProductionBaseline, baselineOrigin } from '../ops/qualification-production-baseline.mjs';
 import { startBaselineSample } from '../ops/qualification-live-baseline.mjs';
 import { createQualificationHost } from '../ops/qualification-host-template.mjs';
@@ -154,7 +157,7 @@ async function productionFixture(t, { setupOnly = false, failStep, missingItemId
       return { attempt: { attemptId: spec.attemptId, async consume() { if (refusal === 'consume') throw new Error('fake consume denied'); order.push('consume'); } },
         report: async terminal => reports.push(terminal) };
     } });
-  return { run, page, sent, order, reports, identities, timings, aborts, evidence };
+  return { run, page, sent, order, reports, identities, timings, aborts, evidence, expire: () => expiry.reject(new Error(secret)) };
 }
 
 const setupSteps = ['goto', 'preflight', 'chooser', 'consent-ready', 'consent-items', 'grant', 'ready', 'jobs', 'session-id'];
@@ -211,6 +214,51 @@ test('setup-only host refuses every paid lane and sample option before launch', 
     await assert.rejects(host.runBaselineSetup({ runId: 'free', ...extra }), /runId only/);
   }
   await host.close();
+});
+
+test('a wall-clock bound retains its active setup step and numeric elapsed time', async t => {
+  const h = await productionFixture(t);
+  h.page.$ = () => new Promise(() => {});
+  const timer = setTimeout(h.expire, 25); t.after(() => clearTimeout(timer));
+  await assert.rejects(h.run(), /setup-failed:consent-items/);
+  assert.ok(h.evidence[0].setup.elapsedMs > 0);
+});
+
+test('setup-only host writes private failure summaries and preserves earlier diagnostics', async t => {
+  const { dir, path } = await fixture(t), page = new EventEmitter(), cdp = new EventEmitter();
+  cdp.send = async () => {}; page.createCDPSession = async () => cdp;
+  page.exposeFunction = async () => {}; page.evaluateOnNewDocument = async () => {};
+  page.goto = async () => { throw new Error(secret); }; page.evaluate = async () => {};
+  const runId = 'free-failure', run = join(dir, createHash('sha256').update(runId).digest('hex').slice(0, 24));
+  const host = createQualificationHost({ baselineSetupOnly: true, runDirectory: dir,
+    binding: { ...binding, baselineAuthFile: path },
+    async launchBrowser(_options, lifetime) {
+      lifetime.registerProcessGroup({ watchdogArmed: true, kill() {} });
+      return { defaultBrowserContext: () => ({ async overridePermissions() {} }), newPage: async () => page, async close() {} };
+    } });
+  t.after(() => host.close());
+  const result = await host.runBaselineSetup({ runId });
+  assert.equal(result.ok, false); assert.equal(result.step, 'goto');
+  assert.deepEqual(result.offeredConsentItemIds, []);
+  const failureFile = join(run, 'failure.json'), setupFile = join(run, 'baseline-setup.json');
+  const original = await readFile(failureFile, 'utf8'), diagnostic = JSON.parse(original);
+  assert.deepEqual(diagnostic, { reason: 'setup-failed:goto', setup: { step: 'goto', elapsedMs: result.elapsedMs } });
+  assert.deepEqual(JSON.parse(await readFile(setupFile, 'utf8')), result);
+  assert.equal((await stat(failureFile)).mode & 0o777, 0o600);
+  assert.equal((await stat(setupFile)).mode & 0o777, 0o600);
+  assert.doesNotMatch(original, /FAKE_BASIC_AUTH|fake-operator|free-failure|visitorSessionId|https:/);
+  await assert.rejects(host.runBaselineSetup({ runId }), { code: 'EEXIST' });
+  assert.equal(await readFile(failureFile, 'utf8'), original);
+  assert.equal((await readdir(run)).filter(name => /^failure-.*\.json$/.test(name)).length, 1);
+});
+
+test('free baseline CLI refuses paid options before reading config or launching', () => {
+  const cli = fileURLToPath(new URL('../ops/qualification-host-template.mjs', import.meta.url));
+  for (const option of ['--plan', '--budget', '--keys-file', '--lane', '--samples']) {
+    const child = spawnSync(process.execPath, [cli, '--baseline-setup-only', '--config', '/unopened/setup.json', option, 'paid'], { encoding: 'utf8' });
+    assert.notEqual(child.status, 0); assert.match(child.stderr, /Unknown option/);
+    assert.doesNotMatch(child.stderr, /ENOENT|Chrome|Baseline auth/);
+  }
 });
 
 test('production flow admits/consumes once before conversation, labels both identities and retains uncertain terminal', async t => {
