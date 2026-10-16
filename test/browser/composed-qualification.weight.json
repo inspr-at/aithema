@@ -1,0 +1,4 @@
+{
+  "seconds": 30,
+  "evidence": "AIT-160 round 5: mbp2606 de2198ab26-93585, 2026-10-16; connected-CDP checks 0.469s + CLI/probes 11.781s = 12.250s; rounded up to 20s + 10s margin."
+}

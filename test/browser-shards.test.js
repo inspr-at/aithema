@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { readBrowserTestWeights, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 test('CI shards cover every browser test file exactly once; local command runs the same full set', () => {
   assertBrowserShardCoverage();
@@ -118,4 +120,47 @@ test('the shard guard command prints projected totals for every shard', () => {
     assert.ok(result.stdout.includes(`Browser shard ${index + 1}/${browserShardCount}: projected file work ${total.toFixed(3)}s`));
   });
   assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across ${browserShardCount} shards.`));
+});
+
+test('LPT fixture packing is complete and independent of file and weight insertion order', () => {
+  const weights = { a: 200, b: 130, c: 110, d: 90, e: 80, f: 60, g: 30, h: 20 };
+  const files = Object.keys(weights);
+  const reversedWeights = Object.fromEntries(Object.entries(weights).reverse());
+  const packed = packBrowserTests([...files].reverse(), reversedWeights, 4);
+  assert.deepEqual(packed, packBrowserTests(files, weights, 4));
+  assert.equal(packed.shards.length, 4);
+  assert.deepEqual(packed.shards.flat().sort(), [...files].sort());
+  assert.equal(new Set(packed.shards.flat()).size, files.length);
+  const total = Object.values(weights).reduce((sum, weight) => sum + weight, 0);
+  const largest = Math.max(...Object.values(weights));
+  // List scheduling bound: average load + (1 - 1/m) times the largest job.
+  assert.ok(Math.max(...packed.totals) <= total / 4 + 3 * largest / 4);
+});
+
+test('per-file weights reject stale measurements after a test is removed or renamed', t => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-weights-stale-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  const measurement = JSON.stringify({ seconds: 90, evidence: 'CI measurement' });
+  writeFileSync(join(root, 'test/browser/old.weight.json'), measurement);
+  assert.throws(() => readBrowserTestWeights([], root), /Stale browser test weight: test\/browser\/old\.weight\.json; no matching test: test\/browser\/old\.test\.js/u);
+  writeFileSync(join(root, 'test/browser/new.weight.json'), measurement);
+  assert.throws(() => readBrowserTestWeights(['test/browser/new.test.js'], root), /Stale browser test weight: test\/browser\/old\.weight\.json/u);
+});
+
+test('per-file weights require readable JSON, positive seconds and measurement evidence', t => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-weights-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  const files = ['test/browser/new.test.js'];
+  const path = join(root, 'test/browser/new.weight.json');
+  assert.throws(() => readBrowserTestWeights(files, root), /Missing or unreadable.*new\.weight\.json/u);
+  writeFileSync(path, '{broken');
+  assert.throws(() => readBrowserTestWeights(files, root), /Missing or unreadable/u);
+  for (const measurement of [null, {}, { seconds: 0, evidence: 'CI run' }, { seconds: -1, evidence: 'CI run' }, { seconds: '90', evidence: 'CI run' }, { seconds: 90 }, { seconds: 90, evidence: ' ' }]) {
+    writeFileSync(path, JSON.stringify(measurement));
+    assert.throws(() => readBrowserTestWeights(files, root), /Invalid browser test weight/u);
+  }
+  writeFileSync(path, JSON.stringify({ seconds: 90, evidence: 'CI 123-1: 76.396s; rounded up + 10s' }));
+  assert.deepEqual(readBrowserTestWeights(files, root), { 'test/browser/new.test.js': 90 });
 });
