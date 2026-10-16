@@ -387,10 +387,12 @@ the template with these options. There are **no successful accounting defaults**
 OPS's **server** module returns `{ networkRelay, createSample }`. Construct the
 composed factory with the supplied `authenticateRelay` and `relayOrigin`; expose
 its `networkRelay` (including revoke/close). `createSample({ item, lane, runId,
-owner, admit })` must verify the stored session owner and exact consent/holds,
+owner, signal, admit })` must verify the stored session owner and exact consent/holds,
 then return `{ grant, result, close }`. `result` is a promise for the authoritative
 sample result above, with at most 16 MB of PCM, after all sample attempts report.
-`close()` must stop this sample's media and work and persist its terminal state.
+Honor `signal` during setup; `close()` must stop this sample's media and work and
+persist its terminal state. A close acknowledgement waits for setup and stop,
+and another sample cannot start until stop is confirmed.
 The generic mount allows one active sample and expires it after two minutes;
 the browser requires complete physical evidence within one minute.
 

@@ -41,13 +41,21 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
     if (![authenticateRelay, networkRelay?.handle, createSample].every(fn => typeof fn === 'function')) throw new TypeError('OPS qualification server ports required');
   }
   let active;
-  async function dispose(row) {
-    if (!row || row.closed) return;
+  function dispose(row) {
+    if (!row) return;
+    if (row.closing) return row.closing;
     row.closed = true; clearTimeout(row.timer);
+    row.controller.abort();
     for (const pending of row.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('Sample closed')); }
     row.pending.clear(); row.wake?.();
-    if (active === row) active = undefined;
-    await row.sample?.close();
+    row.closing = (async () => {
+      await row.setup.promise;
+      await row.sample?.close();
+      // Keep the lane occupied until OPS confirms the dispatcher stopped.
+      if (active === row) active = undefined;
+    })();
+    row.closing.catch(() => {});
+    return row.closing;
   }
   function publish(row, event) {
     if (row.closed) throw new Error('Sample closed');
@@ -67,7 +75,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
   async function start(row, input) {
     const reports = [];
     try {
-      row.sample = await createSample({ ...input, owner: row.owner, async admit(spec) {
+      row.sample = await createSample({ ...input, owner: row.owner, signal: row.controller.signal, async admit(spec) {
         const identity = await rpc(row, 'admit', { spec });
         let reported = false;
         const report = terminal => {
@@ -81,14 +89,19 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
           finally { if (!reported) await report({ attemptId: attempt.attemptId, outcome: 'uncertain' }); }
         } };
       } });
-      if (row.closed) { await row.sample.close(); return; }
+      row.setup.resolve();
+      if (row.closed) return;
+      if (!row.sample?.grant || typeof row.sample.close !== 'function' || typeof row.sample.result?.then !== 'function') throw new TypeError('OPS sample grant, result promise and close port required');
       publish(row, { type: 'ready', grant: row.sample.grant });
       const result = await row.sample.result;
       await Promise.all(reports);
       if (!(result.ttsPCM instanceof Uint8Array) || result.ttsPCM.length > 16_000_000) throw new Error('Bounded server PCM required');
       publish(row, { type: 'result', result: { hypothesis: result.hypothesis, entities: result.entities,
         ttsFormat: result.ttsFormat, ttsPCM: Buffer.from(result.ttsPCM).toString('base64') } });
-    } catch { if (!row.closed) publish(row, { type: 'failure', error: 'OPS sample failed; retain reservations and inspect server evidence' }); }
+    } catch {
+      row.setup.resolve();
+      if (!row.closed) publish(row, { type: 'failure', error: 'OPS sample failed; retain reservations and inspect server evidence' });
+    }
   }
   return {
     async handle(request) {
@@ -117,8 +130,9 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
         const input = await body(request);
         if (input.action === 'start') {
           if (active || !['candidate', 'baseline'].includes(input.lane) || typeof input.runId !== 'string' || !input.item) throw new Error('Invalid or concurrent sample');
-          const row = { id: randomUUID(), owner, queue: [], pending: new Map(), closed: false, polling: false };
-          active = row; row.timer = setTimeout(() => void dispose(row), 120_000); row.timer.unref?.();
+          const row = { id: randomUUID(), owner, queue: [], pending: new Map(), closed: false, polling: false,
+            setup: Promise.withResolvers(), controller: new AbortController() };
+          active = row; row.timer = setTimeout(() => void dispose(row)?.catch(() => {}), 120_000); row.timer.unref?.();
           void start(row, { item: input.item, lane: input.lane, runId: input.runId });
           return json({ sampleId: row.id });
         }

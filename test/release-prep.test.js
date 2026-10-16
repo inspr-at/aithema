@@ -59,6 +59,9 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.throws(() => rollbackArtifact(a.directory, { ...a.manifest, mode: 'release' }, a.manifest.artifacts[0].coordinate), /dry-run/i);
   assert.throws(() => rollbackArtifact(a.directory, a.manifest, a.manifest.artifacts[0].coordinate), /dry-run/i);
   const extracted = join(fixture, 'extracted'); mkdirSync(extracted); execFileSync('tar', ['-xzf', a.artifactPath, '-C', extracted]);
+  for (const file of ['qualification-server.mjs', 'qualification-host-template.mjs', 'qualification-page.js']) {
+    assert.ok(readFileSync(join(extracted, 'package/plugins/composed-voice/ops', file)).length, `Source archive needs ${file}`);
+  }
   execFileSync('npm', ['ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: join(extracted, 'package'), stdio: ['ignore', 'pipe', 'pipe'] });
   const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession } from '@inspr/aithema-server';
     import { createSession, createMockReasoning } from '@inspr/aithema-core';
