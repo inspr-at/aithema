@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { browserWorkload, p95, measuredSeconds, parseTimingArtifact, updateMeasurement, assertMeasuredWeight } from '../scripts/browser-timings.js';
+import { browserWorkload, p95, measuredSeconds, parseTimingArtifact, updateMeasurement, assertMeasuredWeight, plannedSeconds, assertTrustedTimingRun, assertTimingArtifactRun, assertTimingMainHistory } from '../scripts/browser-timings.js';
 
 const workload = 'a'.repeat(64), sha = 'b'.repeat(40), file = 'test/browser/example.test.js';
 const sample = (runId = '1', seconds = 10) => ({ runId, attempt: 1, sha, observedAt: new Date(2026, 9, Number(runId)).toISOString(), tests: [{ name: 'first', seconds }] });
@@ -54,7 +54,7 @@ test('updates are deterministic, idempotent and keep only the latest twenty exec
 test('changed workloads retire the old series; changed test coverage cannot silently shrink a sample', () => {
   const old = updateMeasurement(undefined, [{ workload, sample: sample('1', 100) }], workload);
   const changed = 'c'.repeat(64);
-  assert.equal(updateMeasurement(old, [{ workload: changed, sample: sample('2', 10) }], changed).seconds, 10);
+  assert.equal(updateMeasurement(old, [{ workload: changed, sample: sample('2', 10) }], changed).seconds, 12.5, 'hash reset restores the warmup margin');
   assert.throws(() => updateMeasurement(old, [], changed), /Expected 1/u);
   assert.throws(() => measuredSeconds([sample(), { ...sample('2'), tests: [{ name: 'different', seconds: 1 }] }]), /coverage changed/u);
   assert.throws(() => measuredSeconds([sample(), sample()]), /Duplicate/u);
@@ -98,4 +98,108 @@ test('the actual Node reporter records the parent once and rejects a real failed
   assert.equal(failed.status, 1);
   assert.match(failed.stdout, /intentional timing fixture failure/u);
   assert.throws(() => parseTimingArtifact(failed.stdout), /failed/u);
+});
+
+const trustedRun = () => ({ id: 123, event: 'push', head_branch: 'main', head_sha: sha, run_attempt: 1,
+  path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success',
+  repository: { full_name: 'inspr-at/aithema' }, head_repository: { id: 42, full_name: 'inspr-at/aithema' } });
+
+test('timing runs require canonical main push provenance even for fork branches called main', () => {
+  assert.doesNotThrow(() => assertTrustedTimingRun(trustedRun(), '123'));
+  for (const changes of [
+    { id: 456 }, { event: 'pull_request' }, { event: 'pull_request_target' }, { event: 'merge_group' },
+    { head_branch: 'feature' }, { head_repository: { id: 99, full_name: 'fork/aithema' } },
+    { repository: { full_name: 'fork/aithema' } }, { head_repository: null }, { head_sha: '' },
+    { status: 'in_progress' }, { conclusion: 'failure' }, { run_attempt: 0 }, { path: '.github/workflows/other.yml' },
+  ]) assert.throws(() => assertTrustedTimingRun({ ...trustedRun(), ...changes }, '123'), /Untrusted timing run/u);
+  for (const status of ['ahead', 'identical']) assert.doesNotThrow(() => assertTimingMainHistory({ status, merge_base_commit: { sha } }, trustedRun()));
+  for (const comparison of [{ status: 'behind' }, { status: 'diverged' }, { status: 'ahead', merge_base_commit: { sha: 'c'.repeat(40) } }, {}]) {
+    assert.throws(() => assertTimingMainHistory(comparison, trustedRun()), /not on canonical main history/u);
+  }
+});
+
+test('every timing artifact and payload must match its independently verified run', () => {
+  const run = trustedRun(), workflow_run = { id: 123, head_sha: sha, head_branch: 'main', head_repository_id: 42 };
+  assert.doesNotThrow(() => assertTimingArtifactRun({ workflow_run }, run));
+  for (const changes of [{ id: 456 }, { head_sha: 'c'.repeat(40) }, { head_branch: 'feature' }, { head_repository_id: 99 }]) {
+    assert.throws(() => assertTimingArtifactRun({ workflow_run: { ...workflow_run, ...changes } }, run), /provenance mismatch/u);
+  }
+  assert.throws(() => assertTimingArtifactRun({}, run), /provenance mismatch/u);
+  assert.doesNotThrow(() => parseTimingArtifact(artifact(), run));
+  for (const changes of [{ runId: '456' }, { sha: 'c'.repeat(40) }, { attempt: 2 }]) {
+    assert.throws(() => parseTimingArtifact(artifact({ 0: changes }), run), /header provenance mismatch/u);
+  }
+});
+
+test('planning adds 25% for one and four samples and uses unpadded p95 at five or more', () => {
+  for (const count of [1, 4, 5, 6]) {
+    const observations = Array.from({ length: count }, (_, i) => ({ workload, sample: sample(String(i + 1), 10) }));
+    const weight = updateMeasurement(undefined, observations, workload);
+    assert.equal(weight.seconds, count < 5 ? 12.5 : 10);
+    assert.equal(plannedSeconds(weight.timing.samples), weight.seconds);
+    assertMeasuredWeight(weight);
+    assert.deepEqual(updateMeasurement(weight, observations, workload), weight);
+  }
+  const four = updateMeasurement(undefined, Array.from({ length: 4 }, (_, i) => ({ workload, sample: sample(String(i + 1), 10) })), workload);
+  const five = updateMeasurement(four, [{ workload, sample: sample('5', 10) }], workload);
+  assert.equal(five.seconds, 10, 'the fifth sample retires the margin');
+  const changed = 'c'.repeat(64);
+  const reset = updateMeasurement(five, [{ workload: changed, sample: sample('6', 2) }], changed);
+  assert.equal(reset.timing.samples.length, 1);
+  assert.equal(reset.seconds, 2.5, 'test-file edits restart the margin as well as the series');
+});
+
+test('updater verifies GitHub provenance before importing and rejects local or PR sources', t => {
+  const root = mkdtempSync(join(tmpdir(), 'timing-import-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'scripts'));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+  for (const script of ['browser-timings.js', 'update-browser-timings.js']) {
+    writeFileSync(join(root, 'scripts', script), readFileSync(new URL(`../scripts/${script}`, import.meta.url)));
+  }
+  writeFileSync(join(root, file), '// fixture workload');
+  const payload = artifact({ 0: { files: { [file]: browserWorkload(file, root) } } });
+  const run = trustedRun();
+  const artifacts = Array.from({ length: 6 }, (_, i) => ({ name: `browser-timings-${i + 1}-of-6`, expired: false,
+    workflow_run: { id: run.id, head_sha: sha, head_branch: 'main', head_repository_id: 42 } }));
+  const weightPath = join(root, file.replace('.test.js', '.weight.json'));
+  const invoke = (changes = {}, args = []) => {
+    writeFileSync(join(root, 'gh'), `#!${process.execPath}
+import { mkdirSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2), run = ${JSON.stringify({ ...run, ...changes.run })};
+const artifacts = ${JSON.stringify(changes.artifacts ?? artifacts)};
+const reply = value => process.stdout.write(JSON.stringify(value));
+if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') reply(run);
+else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
+else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
+else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
+else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema') {
+  const dir = args[args.indexOf('--dir') + 1]; mkdirSync(dir, { recursive: true });
+  writeFileSync(dir + '/batch.jsonl', ${JSON.stringify(changes.payload ?? payload)});
+} else throw new Error('Unexpected gh command: ' + JSON.stringify(args));
+`, { mode: 0o755 });
+    return spawnSync(process.execPath, ['scripts/update-browser-timings.js', ...args], {
+      cwd: root, encoding: 'utf8', env: { PATH: `${root}:${process.env.PATH}` },
+    });
+  };
+  const success = invoke();
+  assert.equal(success.status, 0, success.stderr);
+  assert.equal(JSON.parse(readFileSync(weightPath)).seconds, 2.5);
+  const before = readFileSync(weightPath, 'utf8');
+  for (const changes of [
+    { run: { event: 'pull_request', head_repository: { id: 99, full_name: 'fork/aithema' } } },
+    { run: { event: 'pull_request_target' } }, { run: { head_repository: { id: 99, full_name: 'fork/aithema' } } },
+    { comparison: { status: 'diverged', merge_base_commit: { sha } } },
+    { artifacts: artifacts.map((a, i) => i ? a : { ...a, workflow_run: { ...a.workflow_run, id: 999 } }) },
+    { payload: artifact({ 0: { sha: 'c'.repeat(40) } }) },
+  ]) {
+    const rejected = invoke(changes, ['--run', '123']);
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /Untrusted|provenance mismatch|not on canonical main history/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'rejected input writes no weights');
+  }
+  const local = invoke({}, ['--artifacts', root]);
+  assert.notEqual(local.status, 0);
+  assert.match(local.stderr, /only verified canonical main push/u);
 });

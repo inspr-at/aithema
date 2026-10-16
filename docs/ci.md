@@ -69,7 +69,8 @@ Browser launches use a 60 s default per attempt (caller overrides preserved), wi
 
 Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
-without historical floors, ten-second buckets or added padding. Packing remains
+with a **25% safety margin while a workload has fewer than five samples**.
+At five or more samples the planner uses the measured sum directly. Packing remains
 deterministic LPT across **six** bins. `npm run test:browser-shards` checks
 complete, exactly-once coverage and the **420 s per-bin ceiling**; this leaves
 headroom for installation, Chrome startup, process cleanup and artifact upload
@@ -83,33 +84,44 @@ them. Failed, cancelled, skipped, todo or incomplete batches cannot enter the
 measurement set. Remote runs remain useful for profiling and UI evidence;
 GitHub CI is the planner's comparable timing source.
 
-Refresh from the latest 20 successful main CI runs, or include a green feature
-PR run to measure its new workload before merging:
+Refresh from the latest 20 successful canonical main push CI runs:
 
 ```sh
 npm run update:browser-timings
 npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
-npm run update:browser-timings -- --artifacts DOWNLOADED_TIMING_DIRECTORY
 npm run test:browser-shards
 ```
 
 The script downloads only the small timing artifacts through the selected `gh`
-account. It also accepts an already downloaded directory for reproducible offline
-updates. It validates all input before writing siblings, deduplicates run/attempt
+account, pinned to `inspr-at/aithema`. Both automatic selection and explicit
+`--run` imports require a successful `push` event on `main` in that repository,
+with `head_repository.full_name == inspr-at/aithema` and the CI workflow path.
+GitHub's compare API must confirm that the head SHA is an ancestor of current
+canonical main. Every artifact's workflow run ID, head repository ID, branch and
+SHA must match the verified run; every JSONL header must match its run ID,
+attempt and SHA. PR, pull_request_target, fork and merge-group runs are rejected.
+Local `--artifacts` imports are no longer accepted because local bytes cannot
+prove their origin. It validates all input before writing siblings, deduplicates
+run/attempt
 pairs, and retains the latest 20 successful executions **per workload**. For each
 top-level test it selects sorted observation `ceil(0.95 * n)` (nearest rank),
 then sums those p95 values for the file, rounding upward only to millisecond
-precision. During warmup, fewer than 20 samples use that same formula (the
-maximum for 1–19 samples); the sample count and full provenance remain visible.
+precision. For fewer than five samples, it multiplies that measured sum by 1.25
+and rounds upward to milliseconds. At five or more samples no margin is added.
+The sample count and full provenance remain visible.
 
 The workload hash covers the test plus transitive statically referenced helpers
 and fixtures under `test/`. Changing those inputs starts a fresh series when a
-matching successful CI artifact arrives; old slow workloads are not permanent
-floors. Product implementation changes remain in the rolling window. Artifacts
+matching trusted CI artifact arrives; the new series immediately regains the
+25% margin until it has five samples. Old workloads are not permanent floors.
+Product implementation changes remain in the rolling window. Artifacts
 for older workload hashes are ignored, and files without matching observations
 stay unchanged. Review sibling changes with the code, then commit the generated
 measurements. New files need a measured sibling before joining the required
-suite. Missing, malformed, nonpositive, inconsistent or orphaned measurements
+suite. The pre-policy PR calibration below is explicitly bootstrap data; it is
+retained with the warmup margin, while all future imports enforce the main-push
+policy. Main will produce the first eligible artifacts after this change merges.
+Missing, malformed, nonpositive, inconsistent or orphaned measurements
 fail the guard. The updater never changes the shard count, budget or checks.
 
 `test/browser-shards.test.js` covers discovery, exact coverage, deterministic
@@ -201,3 +213,17 @@ old series. This is a warming rolling p95 window, with no estimated samples.
 The 23 shard/timing guard tests passed on mbp2606; the merged calibration's full
 unit job and `npm run test:browser-shards` also passed. Final commit CI is linked
 in the PR handoff.
+
+
+AIT-251 round 2 restricts future timing imports to verified canonical main push
+runs and applies the 25% warmup margin to every existing short series. The
+extraction/next-upload overlap is covered by a server unit test in
+`packages/server/test/uploads.test.js`: it holds the first extractor open,
+starts reading the next multipart body, finishes extraction during that read,
+then asserts retryable 429, no partial admission, and exactly one successful
+retry using the same client event. No browser page or case is added.
+
+After the margin, `npm run test:browser-shards` reports **2265.000s** total,
+with bins `378.124 / 375.219 / 376.201 / 377.131 / 380.676 / 377.649` seconds.
+The largest bin is **380.676s**, leaving **39.324s** under the unchanged 420s
+ceiling. The six shards and all check names remain unchanged.

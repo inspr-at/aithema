@@ -6,7 +6,7 @@ import { assertMeasuredWeight } from './browser-timings.js';
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
 // Each browser test owns its sibling rolling per-test p95 CI measurements.
-// No padded floors: scripts/update-browser-timings.js regenerates the weights.
+// A 25% margin protects workloads with fewer than five CI samples.
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
   const tests = new Set(files);
   for (const entry of readdirSync(resolve(root, 'test/browser'), { withFileTypes: true })) {

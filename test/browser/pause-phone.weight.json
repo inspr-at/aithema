@@ -1,6 +1,6 @@
 {
-  "seconds": 170.883,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 213.604,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -69,7 +69,7 @@
             "seconds": 25.938022408000002
           },
           {
-            "name": "AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift",
+            "name": "AIT-190 N1: recovery sentence \u2192 quiet reply action row \u2192 gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift",
             "seconds": 59.348634151
           },
           {
@@ -165,7 +165,7 @@
             "seconds": 24.681643059000002
           },
           {
-            "name": "AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift",
+            "name": "AIT-190 N1: recovery sentence \u2192 quiet reply action row \u2192 gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift",
             "seconds": 59.433461487
           },
           {

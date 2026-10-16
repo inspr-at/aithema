@@ -4,12 +4,15 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { plannedSeconds } from '../scripts/browser-timings.js';
 import { readBrowserTestWeights, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
-const measuredWeight = (seconds = 90) => ({ seconds, evidence: 'CI artifact measurement', timing: {
-  schema: 1, window: 20, workload: 'a'.repeat(64), samples: [{ runId: '123', attempt: 1,
-    sha: 'b'.repeat(40), observedAt: '2026-10-16T12:00:00Z', tests: [{ name: 'fixture', seconds }] }],
-} });
+const measuredWeight = (seconds = 90) => {
+  const samples = [{ runId: '123', attempt: 1, sha: 'b'.repeat(40), observedAt: '2026-10-16T12:00:00Z',
+    tests: [{ name: 'fixture', seconds }] }];
+  return { seconds: plannedSeconds(samples), evidence: 'CI artifact measurement',
+    timing: { schema: 1, window: 20, workload: 'a'.repeat(64), samples } };
+};
 
 test('CI shards cover every browser test file exactly once; local command runs the same full set', () => {
   assertBrowserShardCoverage();
@@ -167,7 +170,7 @@ test('per-file weights require readable JSON, positive seconds and measurement e
     assert.throws(() => readBrowserTestWeights(files, root), /Invalid browser test weight/u);
   }
   writeFileSync(path, JSON.stringify(measuredWeight()));
-  assert.deepEqual(readBrowserTestWeights(files, root), { 'test/browser/new.test.js': 90 });
+  assert.deepEqual(readBrowserTestWeights(files, root), { 'test/browser/new.test.js': 112.5 });
 });
 
 test('the command and browser selection enforce the unchanged 420s measured budget', () => {
