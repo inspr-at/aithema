@@ -88,7 +88,7 @@ async function writeFailure(outputDirectory, context, error) {
 export class IncompleteMediaEvidence extends Error {
   constructor(reason) {
     super('Real capture/output/barge-in evidence required');
-    if (!['media-wait-limit', 'missing-first-audio', 'missing-speech-end', 'missing-barge-in', 'missing-playback-stop'].includes(reason)) {
+    if (!['late-first-audio', 'barge-in-before-first-audio', 'media-wait-limit', 'missing-first-audio', 'missing-speech-end', 'missing-barge-in', 'missing-playback-stop'].includes(reason)) {
       throw new TypeError('Unknown qualification media refusal');
     }
     this.reason = reason;

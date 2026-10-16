@@ -8,56 +8,76 @@ window.composedQualification = {
     const trace = [], done = Promise.withResolvers();
     done.promise.catch(() => {});
     const scripted = window.qualificationScriptedCapture;
-    let session, firstAudioAt, bargeInAt, stopping = false;
+    let session, firstAudioAt, bargeInAt;
+    const refuse = reason => {
+      if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
+        throw new Error('Unknown qualification media refusal');
+      }
+      done.resolve({ refusal: reason });
+    };
+    const sourceStatus = () => {
+      const status = scripted.diagnostics();
+      if (!status || typeof status.started !== 'boolean' || typeof status.barged !== 'boolean') throw new Error('Missing scripted capture diagnostics');
+      if (status.failure) throw new Error(`Scripted capture failed: ${status.failure}`);
+      if (status.refusal) refuse(status.refusal);
+      return status;
+    };
+    const finishTiming = () => {
+      try {
+        const status = sourceStatus();
+        if (status.refusal) return;
+        if (status.started && firstAudioAt === undefined && trace.some(event => event.kind === 'capture' && event.voiced)) refuse('late-first-audio');
+        else if (Number.isFinite(bargeInAt)) refuse('missing-playback-stop');
+        else throw new Error('Incomplete scripted capture evidence');
+      } catch (error) { done.reject(error); }
+    };
     const onTiming = event => {
-      if (trace.length >= 100_000) { done.reject(new Error('Timing evidence bound exceeded')); return; }
-      trace.push(event);
-      if (event.kind === 'playback-start' && firstAudioAt === undefined) {
-        firstAudioAt = event.firstAudioAt; scripted.firstAudio(firstAudioAt);
-      }
-      if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt && session && !stopping) {
-        bargeInAt = event.captureAt; stopping = true;
-        void session.interrupt().catch(done.reject);
-        // The barge-in is the final capture observation for this corpus item.
-        void session.setInput(false).catch(done.reject);
-      }
-      if (stopping && event.kind === 'playback-stop' && event.stoppedAt >= bargeInAt) done.resolve();
+      try {
+        if (trace.length >= 100_000) throw new Error('Timing evidence bound exceeded');
+        trace.push(event);
+        if (event.kind === 'capture-outcome') {
+          if (event.status === 'refused') refuse(event.reason);
+          else throw new Error(`Scripted capture failed: ${event.reason}`);
+        }
+        if (event.kind === 'playback-start' && firstAudioAt === undefined) {
+          firstAudioAt = event.firstAudioAt; scripted.firstAudio(firstAudioAt); sourceStatus();
+          // Source callbacks and rendered output callbacks can arrive out of order.
+          bargeInAt = trace.find(row => row.kind === 'capture' && row.voiced && row.captureAt >= firstAudioAt)?.captureAt;
+        }
+        // Both lanes use the injected stream's onset in the SOURCE clock. Only
+        // the product's own capture/VAD/turn logic may interrupt its playback.
+        if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt) bargeInAt ??= event.captureAt;
+        if (event.kind === 'playback-stop' && event.stoppedAt >= bargeInAt) done.resolve({});
+      } catch (error) { done.reject(error); }
     };
     const player = createPCMPlayer({ onTiming });
-    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onTiming: event => {
-      if (event.kind !== 'capture') onTiming(event); // Capture evidence uses the injected SOURCE clock.
-    }, onFault: done.reject }),
+    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: done.reject }),
       openRelay: createNetworkRelayClient({ headers }) });
-    const timer = setTimeout(() => done.reject(new Error('Physical capture/output/barge-in evidence timed out')), 50_000);
+    const timer = setTimeout(finishTiming, 50_000);
     const unsubscribe = scripted.subscribe(onTiming);
-    let failure;
     try {
       session = await media.connect(grant);
-      scripted.startUtterance();
+      scripted.startUtterance(); sourceStatus();
       void (async () => {
-        for await (const event of session.events) if (event.type === 'waiting' || event.type === 'ended') {
-          done.reject(new Error(`Qualification media ${event.type}: ${event.reason}`));
+        for await (const event of session.events) {
+          if (event.type === 'ended' && event.reason === 'closed') finishTiming();
+          else if (event.type === 'waiting' || event.type === 'ended') {
+            // Only the normal end of an otherwise healthy sample is eligible
+            // for timing classification. Every failure reason remains an abort.
+            done.reject(new Error(`Qualification media ${event.type}: ${event.reason}`));
+          }
         }
       })().catch(done.reject);
-      await done.promise;
-      return { trace };
+      const result = await done.promise;
+      sourceStatus();
+      return { trace, ...result };
     } catch (error) {
-      failure = error;
-      // Only explicit harness media failures become refusals. Transport,
-      // permission and output-device failures retain their normal abort path.
-      if (error.message === 'Qualification media waiting: limit' ||
-        error.message === 'Physical capture/output/barge-in evidence timed out' ||
-        error.message?.startsWith('Qualification media ended:')) {
-        const refusal = error.message === 'Qualification media waiting: limit' ? 'media-wait-limit' :
-          firstAudioAt === undefined ? 'missing-first-audio' : bargeInAt === undefined ? 'missing-barge-in' : 'missing-playback-stop';
-        return { trace, refusal };
-      }
       const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
       counts.voiced = trace.filter(event => event.kind === 'capture' && event.voiced).length;
       throw new Error(`${error.message}; device evidence ${JSON.stringify(counts)}`, { cause: error });
     } finally {
       clearTimeout(timer); unsubscribe();
-      try { await session?.close().catch(error => { if (!failure) throw error; }); }
+      try { await session?.close(); }
       finally { try { await player.close(); } finally { await scripted.close(); } }
     }
   },

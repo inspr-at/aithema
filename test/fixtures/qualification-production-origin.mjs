@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio', opener = 'normal' } = {}) {
+export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio', opener = 'normal', userFinalDelayMs = 400 } = {}) {
   const key = join(directory, 'synthetic-tls-key.pem'), cert = join(directory, 'synthetic-tls-cert.pem');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
     '-days', '1', '-subj', '/CN=start2.fixture.test'], { stdio: 'ignore' });
@@ -66,7 +66,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         detect.onaudioprocess=e=>{const samples=e.inputBuffer.getChannelData(0);if(answering&&Math.sqrt(samples.reduce((s,x)=>s+x*x,0)/samples.length)>=.015){gain.gain.cancelScheduledValues(context.currentTime);gain.gain.setValueAtTime(0,context.currentTime);
           answering=false;fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:2,text:'Bitte aufhören'}})});}};
         const replyDelay=window.qualificationScriptedCapture ? 2000 : 21000;
-        setTimeout(()=>{window.fixtureUserFinalAt=performance.now();fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})});},replyDelay+400);
+        setTimeout(()=>{window.fixtureUserFinalAt=performance.now();fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})});},replyDelay+${JSON.stringify(userFinalDelayMs)});
         const final=()=>{window.fixtureAssistantFinalAt=performance.now();return fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',text:'Danke.'}})});};
         oscillator=context.createOscillator();gain=context.createGain();gain.gain.value=0;
         ${mediaElement ? `const destination=context.createMediaStreamDestination();oscillator.connect(gain).connect(destination);

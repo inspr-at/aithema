@@ -7,7 +7,7 @@ export function installBaselineProbe() {
   const trace = [], pcm = [], buffered = [], contexts = new Set(), observers = [];
   let agentSink, speechStartAt, speechEndAt, lastVoicedEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt;
   let openerSpeaking = false, bufferedBytes = 0;
-  let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure;
+  let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure, refusal;
   const emit = event => { if (trace.length >= 100_000) failure ??= 'trace-bound'; else trace.push(event); };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
   const nativeConnect = AudioNode.prototype.connect;
@@ -130,7 +130,13 @@ export function installBaselineProbe() {
     return nativePlay.apply(this, args);
   };
   const capture = event => {
-    if (!armed || failure) return;
+    if (!armed || failure || refusal) return;
+    if (event.kind === 'capture-outcome') {
+      emit(event);
+      if (event.status === 'refused' && event.reason === 'late-first-audio') refusal = event.reason;
+      else failure = 'scripted-capture-failed';
+      return;
+    }
     const { captureAt, voiced, durationMs } = event;
     emit(event);
     if (voiced && speechStartAt === undefined) {
@@ -209,18 +215,26 @@ export function installBaselineProbe() {
           buffered.length = 0; bufferedBytes = 0;
         }
       }
-    } catch { /* Not a production final-user persistence request. */ }
+    } catch { failure ??= 'probe-exception'; }
     return fetch(input, init);
   };
   window.qualificationBaselineProbe = {
     arm() { armed = true; },
-    diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechStartAt, speechEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt, bufferedBytes, firstAudioAt, bargeInAt, stoppedAt, failure,
+    diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechStartAt, speechEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt, bufferedBytes, firstAudioAt, bargeInAt, stoppedAt, failure, refusal, source: scripted?.diagnostics?.(),
       counts: Object.fromEntries(['capture', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(e => e.kind === kind).length])),
       voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
     trace: () => trace,
-    complete() { return !!failure || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite); },
+    complete() {
+      const source = scripted?.diagnostics?.();
+      if (scripted && (!source || typeof source.started !== 'boolean' || typeof source.barged !== 'boolean')) failure ??= 'missing-scripted-diagnostics';
+      if (source?.failure) failure ??= 'scripted-capture-failed';
+      if (source?.refusal === 'late-first-audio') refusal ??= source.refusal;
+      else if (source?.refusal) failure ??= 'scripted-capture-failed';
+      return !!failure || !!refusal || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite);
+    },
     result() {
       if (failure) throw new Error(`Invalid production media evidence: ${failure}`);
+      if (refusal) return { trace, refusal };
       if (!hypothesis || !pcm.length || ![firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Incomplete production media evidence');
       // Chunk conversion avoids argument/string limits for bounded PCM evidence.
       const samples = new Float32Array(bytes / 4); let offset = 0;

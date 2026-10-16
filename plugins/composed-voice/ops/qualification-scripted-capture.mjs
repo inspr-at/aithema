@@ -6,7 +6,12 @@ export function installScriptedCapture(clips) {
   const BARGE_IN_DELAY_MS = 800;
   const listeners = new Set(), sources = new Set();
   let context, destination, observer, silence, buffers, started = false, barged = false, closed = false;
-  let pendingFirstAudioAt, failure;
+  let pendingFirstAudioAt, failure, refusal;
+  const terminal = (status, reason) => {
+    if (failure || refusal) return;
+    if (status === 'refused') refusal = reason; else failure = reason;
+    for (const listener of listeners) listener({ kind: 'capture-outcome', status, reason });
+  };
   const nativeGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   const initialize = async () => {
     if (!context) {
@@ -48,28 +53,30 @@ export function installScriptedCapture(clips) {
   navigator.mediaDevices.getUserMedia = async constraints => {
     if (!constraints?.audio) return nativeGetUserMedia(constraints);
     if (closed) throw new Error('Scripted capture closed');
-    await initialize();
-    return destination.stream.clone();
+    try { await initialize(); return destination.stream.clone(); }
+    catch (error) { terminal('error', 'start-failed'); throw error; }
   };
   const firstAudio = firstAudioAt => {
-    if (barged || !Number.isFinite(firstAudioAt)) return;
+    if (barged || failure || refusal || !Number.isFinite(firstAudioAt)) return;
     pendingFirstAudioAt = firstAudioAt;
     if (!started) return;
     const remaining = firstAudioAt + BARGE_IN_DELAY_MS - performance.now();
-    if (remaining < 0) { failure = 'late-first-audio'; return; }
-    barged = true;
-    play('bargeIn', context.currentTime + remaining / 1000);
+    if (remaining < 0) { terminal('refused', 'late-first-audio'); return; }
+    try {
+      play('bargeIn', context.currentTime + remaining / 1000); barged = true;
+    } catch { terminal('error', 'start-failed'); }
   };
   window.qualificationScriptedCapture = Object.freeze({
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     startUtterance() {
       if (started) return;
       if (!context || closed) throw new Error('Scripted capture not ready');
-      started = true; play('utterance', context.currentTime);
+      try { play('utterance', context.currentTime); started = true; }
+      catch (error) { terminal('error', 'start-failed'); throw error; }
       firstAudio(pendingFirstAudioAt);
     },
     firstAudio,
-    diagnostics: () => ({ started, barged, failure }),
+    diagnostics: () => ({ started, barged, failure, refusal }),
     async close() {
       closed = true; listeners.clear();
       for (const source of sources) { source.stop(); source.disconnect(); }

@@ -79,7 +79,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
   const origin = baselineOrigin(binding.baselineOrigin), base = binding.baseline;
   const maxMicro = baselineAttemptCeiling(binding);
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
-  const jobs = new Set(); let admission, admitting = false, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure, durationBoundReached = false;
+  const jobs = new Set(); let admission, admitting = false, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure, durationBoundReached = false, phase = 'setup';
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
   const labels = () => Object.fromEntries(['lane', 'runId', 'sampleId', 'visitorSessionId', 'providerSessionId', 'attemptId', 'callId']
     .filter(key => identity[key] !== undefined).map(key => [key, identity[key]]));
@@ -174,29 +174,57 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     await bounded(page.evaluate(() => window.qualificationBaselineProbe.arm()));
     await bounded(page.click('aithema-session >>> .ready__mode[data-mode="voice"]'));
     await bounded(page.click('aithema-session >>> .ready__start'));
-    await bounded(page.waitForFunction(() => window.qualificationBaselineProbe.complete(), { timeout: binding.maxDurationSeconds * 1000 }));
+    phase = 'observe';
+    // Leave time for classification and ordinary close BEFORE the independent
+    // paid-duration watchdog. Only an actual polling timeout is a timing miss.
+    const evidenceTimeoutMs = Math.max(1, Math.min(50_000, conversationDeadlineAt - Date.now() - 500));
+    await bounded(page.waitForFunction(() => window.qualificationBaselineProbe.complete(), { timeout: evidenceTimeoutMs, polling: 25 }));
+    phase = 'result';
+    const diagnostics = await bounded(page.evaluate(() => window.qualificationBaselineProbe.diagnostics()));
+    if (!diagnostics || !diagnostics.source) throw new Error('Missing baseline capture diagnostics');
+    if (diagnostics.failure || diagnostics.source.failure) throw new Error('Invalid baseline capture evidence');
     const result = await bounded(page.evaluate(() => window.qualificationBaselineProbe.result()));
+    phase = 'finalize';
     await bounded(stop());
     await bounded(Promise.all([...jobs]));
     if (responseFailure || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity.providerSessionId ?? '')) throw new Error();
     await save();
     for (const event of result.trace) onTiming(event);
+    if (result.refusal) { phase = 'refused'; throw new IncompleteMediaEvidence(result.refusal); }
     return { ...result, physicalBrowserMedia, ttsPCM: new Uint8Array(Buffer.from(result.ttsPCM, 'base64')),
       ttsConfig: binding.baseline.tts, baselineSession: labels() };
-  } catch {
-    // Persist a value-free refusal independently of result(), which must never
-    // return invalid audio. Dispatched attempts stay uncertain, with no retry.
+  } catch (error) {
+    // Never infer a timing miss from an arbitrary exception or missing fields.
+    // In particular, result/close/persistence failures retain their abort path.
     const status = consumed ? 'invalid' : admitting ? 'not-admitted' : 'setup-failed';
     const diagnostics = consumed ? await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined) : undefined;
-    const reason = consumed ? diagnostics?.failure || (durationBoundReached ? 'duration-bound' :
-      diagnostics?.hasHypothesis === false ? 'missing-user-final' :
-      !Number.isFinite(diagnostics?.firstAudioAt) ? 'missing-first-audio' :
-      !Number.isFinite(diagnostics?.bargeInAt) ? 'missing-barge-in' : 'missing-playback-stop') : status;
-    await recordEvidence({ ...labels(), status, reason,
-      ...(diagnostics ? { diagnostics } : {}) });
-    if (['missing-first-audio', 'missing-barge-in', 'missing-playback-stop'].includes(reason)) {
-      const trace = await bounded(page.evaluate(() => window.qualificationBaselineProbe?.trace())).catch(() => []);
-      for (const event of trace ?? []) onTiming(event);
+    let reason = !consumed ? status : durationBoundReached ? 'duration-bound' :
+      diagnostics?.failure || diagnostics?.source?.failure ||
+      (!diagnostics || !diagnostics.source ? 'missing-diagnostics' : 'exception');
+    let timingRefusal = phase === 'refused' && error instanceof IncompleteMediaEvidence &&
+      !!diagnostics?.source && !diagnostics.failure && !diagnostics.source.failure && !durationBoundReached;
+    if (timingRefusal) reason = error.reason;
+    else if (phase === 'observe' && error.name === 'TimeoutError' && diagnostics?.source?.started === true &&
+      !diagnostics.failure && !diagnostics.source.failure && !durationBoundReached) {
+      if (diagnostics.refusal === 'late-first-audio' || diagnostics.source.refusal === 'late-first-audio' ||
+        diagnostics.hasHypothesis === true && !Number.isFinite(diagnostics.firstAudioAt) && Number.isFinite(diagnostics.speechEndAt)) {
+        reason = 'late-first-audio'; timingRefusal = true;
+      } else if (diagnostics.hasHypothesis === true && Number.isFinite(diagnostics.firstAudioAt) &&
+        Number.isFinite(diagnostics.bargeInAt) && !Number.isFinite(diagnostics.stoppedAt)) {
+        reason = 'missing-playback-stop'; timingRefusal = true;
+      }
+    }
+    await recordEvidence({ ...labels(), status, reason, ...(diagnostics ? { diagnostics } : {}) });
+    if (timingRefusal) {
+      // Reading evidence is part of the protocol: a CDP/probe error here aborts.
+      if (!(error instanceof IncompleteMediaEvidence)) {
+        const trace = await bounded(page.evaluate(() => window.qualificationBaselineProbe.trace()));
+        for (const event of trace) onTiming(event);
+        await bounded(stop());
+        await bounded(Promise.all([...jobs]));
+        if (responseFailure) throw new Error('Baseline response protocol failed');
+        await save();
+      }
       throw new IncompleteMediaEvidence(reason);
     }
     throw new Error(`Production baseline failed; ${consumed ? 'invalid evidence' : status} (${reason}); ${consumed ? 'retain uncertain exposure and inspect private session receipts' : 'no conversation dispatched'}`);

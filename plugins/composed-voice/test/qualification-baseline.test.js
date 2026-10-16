@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
 import { loadBaselineAuth, installBaselineAuth } from '../ops/qualification-production-baseline.mjs';
 
 const secret = 'FAKE_BASIC_AUTH_VALUE_NEVER_IN_EVIDENCE';
@@ -74,7 +75,7 @@ test('baseline missing auth refuses before browser, control or admission', async
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal } = {}) {
+async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
@@ -98,19 +99,24 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       response('/api/sessions/production-visitor/voice', { providerSessionId: 'conv_fake', callId: 'fake-call', epoch: 0 });
     }
   };
-  page.waitForFunction = async () => { if (duration) await expiry.promise; if (mediaRefusal) throw new Error('Synthetic media wait timeout'); };
+  page.waitForFunction = async () => { if (duration) await expiry.promise; if (mediaRefusal) { const error = new Error('Synthetic media wait timeout'); error.name = 'TimeoutError'; throw error; } };
   page.evaluate = async (fn, input) => {
-    if (fn.toString().includes('Probe?.diagnostics') && mediaRefusal) return { hasHypothesis: true, firstAudioAt: mediaRefusal === 'missing-barge-in' ? 100 : undefined };
-    if (fn.toString().includes('Probe?.trace')) return [{ kind: 'capture', captureAt: 10, voiced: true, durationMs: 64 }];
-    if (fn.toString().includes('Probe?.diagnostics')) return { failure: invalidEvidence, hasHypothesis: false };
-    if (fn.toString().includes('Probe.result') && invalidEvidence) throw new Error('Invalid production media evidence');
+    if (/Probe\??\.diagnostics/u.test(fn.toString())) {
+      if (diagnosticsMissing) return undefined;
+      return { failure: invalidEvidence, hasHypothesis: true, speechEndAt: 50,
+        firstAudioAt: mediaRefusal === 'late-first-audio' ? undefined : 100,
+        bargeInAt: mediaRefusal === 'missing-playback-stop' ? 200 : undefined,
+        source: { started: true, barged: mediaRefusal !== 'late-first-audio' } };
+    }
+    if (/Probe\??\.trace/u.test(fn.toString())) return [{ kind: 'capture', captureAt: 10, voiced: true, durationMs: 64 }];
+    if (fn.toString().includes('Probe.result') && (invalidEvidence || resultError)) throw new Error('Invalid production media evidence');
     if (fn.toString().includes('Probe.result')) return { hypothesis: 'Wien', ttsPCM: Buffer.from(new Float32Array([0.5]).buffer).toString('base64'),
       ttsFormat: { encoding: 'pcm_f32le', sampleRateHz: 48000, channels: 1 }, trace: [
         { kind: 'capture', voiced: true, captureAt: 10, durationMs: 40 },
         { kind: 'playback-start', firstAudioAt: 100 }, { kind: 'capture', voiced: true, captureAt: 200, durationMs: 40 },
         { kind: 'playback-stop', stoppedAt: 250 },
       ] };
-    if (input?.visitorSessionId) order.push('stop');
+    if (input?.visitorSessionId) { order.push('stop'); if (afterResultError) throw new Error('Post-result protocol failure'); }
   };
   const run = () => runProductionBaseline({ page, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
     auth: { username: 'fake-operator', password: secret }, consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
@@ -201,6 +207,7 @@ import { runInNewContext } from 'node:vm';
 import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
 
 async function probeFixture(scripted) {
+  if (scripted && !scripted.diagnostics) scripted.diagnostics = () => ({ started: true, barged: false });
   const contexts = [], observers = []; let now = 0;
   class Element { attachShadow() { return {}; } }
   class MutationObserver {
@@ -474,10 +481,37 @@ test('baseline scripted utterance waits for final, speaking/listening edge AND o
   h.emit(h.audio, .5, 0); assert.equal(starts, 1);
 });
 
-for (const reason of ['missing-first-audio', 'missing-barge-in']) test(`production runSample ${reason} is a sample refusal with uncertain exposure`, async t => {
+for (const reason of ['late-first-audio', 'missing-playback-stop']) test(`production runSample ${reason} is a sample refusal with uncertain exposure`, async t => {
   const h = await productionFixture(t, { mediaRefusal: reason });
   await assert.rejects(h.run(), error => { assert.equal(error.reason, reason); return true; });
   assert.equal(h.evidence.length, 1); assert.equal(h.evidence[0].reason, reason);
   assert.equal(h.timings.length, 1); assert.equal(h.timings[0].kind, 'capture');
   assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
+});
+
+for (const options of [{ diagnosticsMissing: true }, { resultError: true }, { afterResultError: true },
+  { invalidEvidence: 'closure-uncertain' }, { invalidEvidence: 'start-failed' }]) {
+  test(`production error stays an abort: ${JSON.stringify(options)}`, async t => {
+    const h = await productionFixture(t, options);
+    await assert.rejects(h.run(), error => { assert.equal(error.reason, undefined); return /Production baseline failed/u.test(error.message); });
+    assert.equal(h.evidence.length, 1);
+    assert.ok(!['late-first-audio', 'missing-playback-stop'].includes(h.evidence[0].reason));
+    const persisted = await productionFixture(t, options);
+    await assertFailureDiagnostic(t, persisted.run, 'baseline');
+  });
+}
+
+test('late baseline user final consumes source refusal and completes before a duration timer', async () => {
+  let capture;
+  const scripted = { subscribe(fn) { capture = fn; }, startUtterance() {}, diagnostics: () => ({ started: true, barged: false, refusal: 'late-first-audio' }),
+    firstAudio() { capture({ kind: 'capture-outcome', status: 'refused', reason: 'late-first-audio' }); }, async close() {} };
+  const h = await probeFixture(scripted);
+  await h.opener();
+  capture({ kind: 'capture', voiced: true, captureAt: 500, receivedAt: 600, durationMs: 64 });
+  h.emit(h.audio, 1, .2); h.emit(h.audio, 2, .2);
+  await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  assert.equal(h.probe.complete(), true);
+  assert.equal(h.probe.result().refusal, 'late-first-audio');
+  assert.equal(h.probe.diagnostics().failure, undefined);
+  await h.probe.close();
 });

@@ -194,8 +194,8 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
   });
   // The source and consumer use independent capture clocks. The first barge-in
-  // packet can reach the coordinator before local input stops, admitting one
-  // interruption STT. Check every admission/dispatch instead of a WAV-race count.
+  // packet reaches the coordinator through the product capture/VAD path,
+  // admitting interruption STT. Check every admission/dispatch.
   const candidate = report.budget.records.filter(row => row.lane === 'candidate');
   const stt = candidate.filter(row => row.role === 'stt');
   assert.ok(stt.length === 1 || stt.length === 2);
@@ -215,6 +215,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     assert.ok(['', 'default'].includes(physicalBrowserMedia.sinkId));
     assert.ok(physicalBrowserMedia.outputLatency > 0);
     assert.ok(speechEndAt < firstAudioAt && firstAudioAt <= bargeInAt && bargeInAt <= stoppedAt);
+    assert.ok(Math.abs(bargeInAt - firstAudioAt - 800) < 150, `${lane}: barge-in onset uses the shared injected-source clock`);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));
     assert.ok(trace.some(event => event.kind === 'playback-start' && event.outputTimestamp.contextTime > 0 && event.outputTimestamp.performanceTime > 0));
     assert.ok(trace.some(event => event.kind === 'playback-stop' && event.outputTimestamp));
@@ -245,7 +246,8 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
   for (let i = 0; i < frames; i++) wav.writeInt16LE(i >= rate * 20 && i < rate * 20.15 || i >= rate * 20.3 && i < rate * 20.5 || i >= rate * 21.8 ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000) : 0, 44 + i * 2);
   await writeFile(wavPath, wav);
   const scenarios = [false, true].flatMap(mediaElement => ['before-audio', 'after-audio', 'missing'].map(assistantFinal => ({ mediaElement, assistantFinal })));
-  scenarios.push({ mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
+  scenarios.push({ mediaElement: false, assistantFinal: 'missing', lateUserFinal: true },
+    { mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
     { mediaElement: true, assistantFinal: 'missing', opener: 'normal', overlap: true });
   const clips = { utterance: { sampleRateHz: rate, pcm: wav.subarray(44 + rate * 20 * 2, 44 + rate * 20.5 * 2).toString('base64') },
     bargeIn: { sampleRateHz: rate, pcm: wav.subarray(44 + rate * 21.8 * 2, 44 + rate * 22.3 * 2).toString('base64') } };
@@ -253,8 +255,8 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
   // intentionally early fake capture and existing separate launches.
   let browser, browserCapture;
   t.after(async () => { await browser?.close(); });
-  for (const { mediaElement, assistantFinal, opener, overlap } of scenarios) await t.test(
-    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: ${overlap ? `refuse ${opener} opener overlap` : `assistant final ${assistantFinal}`}`, async () => {
+  for (const { mediaElement, assistantFinal, opener, overlap, lateUserFinal } of scenarios) await t.test(
+    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: ${overlap ? `refuse ${opener} opener overlap` : lateUserFinal ? 'late user final refuses' : `assistant final ${assistantFinal}`}`, async () => {
     let capturePath = wavPath;
     if (overlap) {
       // Deliberately invalid corpus: first speech .2.. .5 s, so an opener
@@ -263,7 +265,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       for (let i = rate * .2; i < rate * .5; i++) invalid.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000), 44 + i * 2);
       capturePath = join(directory, `invalid-${opener}.wav`); await writeFile(capturePath, invalid);
     }
-    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener });
+    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener, ...(lateUserFinal ? { userFinalDelayMs: 1500 } : {}) });
     const captureMode = overlap ? capturePath : 'scripted';
     if (browserCapture !== captureMode) {
       await browser?.close();
@@ -299,6 +301,13 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
           return { attempt: { async consume() { assert.equal(production.dispatches.length, 0); } }, report: async terminal => reports.push(terminal) };
         },
       });
+      if (lateUserFinal) {
+        await assert.rejects(pending, error => error.reason === 'late-first-audio');
+        assert.equal(abort.signal.aborted, false, 'source refusal must finish before the duration watchdog');
+        assert.equal(refusals.length, 1); assert.equal(refusals[0].reason, 'late-first-audio');
+        assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+        return;
+      }
       if (overlap) {
         await assert.rejects(pending, /invalid evidence \(opener-overlap\)/);
         assert.equal(production.dispatches.length, 1); assert.ok(production.stopped >= 1);
