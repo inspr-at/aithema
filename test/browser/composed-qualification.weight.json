@@ -1,4 +1,4 @@
 {
   "seconds": 50,
-  "evidence": "AIT-160 round 2: mbp2606 3d6a1e7226-34591, 2026-10-16; touched file observed 31.371s including production-origin red replay. Conservative planning: rounded up to 40s + 10s margin; successful replay recorded in the handoff."
+  "evidence": "AIT-160 round 2: mbp2606 1af1b4ff27-50992, 2026-10-16, complete touched browser file green in 18.964s (CLI/probes 11.773s; production Web Audio + WebRTC 6.654s; CDP checks 0.453s). Retains conservative slowest 31.371s red replay at 3d6a1e7226-34591: rounded up to 40s + 10s margin."
 }
