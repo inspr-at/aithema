@@ -233,7 +233,21 @@ for (const mode of ['crash', 'signal', 'heap']) {
     // production 10s budget. waitFor's real timer still catches missing events.
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
     const plugin = createTextExtractor({ workerURL, limits: { maxHeapMb: 16 } });
-    const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`);
+    const events = [];
+    const spawning = observed.spawned().then(({ child }) => {
+      for (const event of ['spawn', 'message', 'error', 'exit', 'disconnect', 'close']) {
+        child.on(event, (...args) => events.push([event, ...args]));
+      }
+    });
+    const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`).catch(error => {
+      console.error('AIT-222 crash timeout state', { events, active: activeExtractorProcessCount(),
+        queued: queuedExtractorProcessCount(), children: observed.children.map(({ child }) => ({
+          pid: child.pid, killed: child.killed, exitCode: child.exitCode, signalCode: child.signalCode,
+          connected: child.connected, closesGot: child._closesGot, closesNeeded: child._closesNeeded,
+        })) });
+      throw error;
+    });
+    await spawning;
     assert.equal(result.status, 'unreadable'); assert.equal(result.reason, 'limit');
     const { code, signal } = await waitFor(observed.children[0].closed, `${mode} close event`);
     assert.ok(code !== 0 || signal);
