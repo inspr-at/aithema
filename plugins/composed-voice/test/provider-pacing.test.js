@@ -7,6 +7,7 @@ import { fixtureBinding, fixtureConsent, fixtureConfig } from '../../elevenlabs/
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const speech = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
+const speakCeiling = 16_000_000, replyQueueCeiling = 2 * speakCeiling + 64_000;
 
 // Mirror qualification-live-transport: messages are independently arriving,
 // maxPayload and unread backlog are both 256,000 B; overflow is provider.
@@ -215,18 +216,42 @@ for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 24
     assert.equal(delivered, 30_000 / 12 * bytesPerSecond);
     assert.equal(delivered, produced); assert.equal(buffered, 0);
     assert.ok(peak <= 2 * fragmentBytes);
-    assert.ok(peak < 2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000, 'never reaches the derived queue ceiling');
+    assert.ok(peak < replyQueueCeiling, 'never reaches the provider-based queue ceiling');
     assert.ok(lastAt - firstAt >= 2_499_000, 'one-second lead spans the whole reply');
     assert.equal(h.coordinator.state.state, 'active');
-    t.diagnostic(`${dispatches.length} fragments; peak retained PCM ${peak} B; two-fragment allowance ${2 * fragmentBytes} B; queue bound ${2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000} B`);
+    t.diagnostic(`${dispatches.length} fragments; peak retained PCM ${peak} B; two-fragment allowance ${2 * fragmentBytes} B; queue bound ${replyQueueCeiling} B`);
     assert.ok(!h.events.some(event => event.type === 'waiting'));
     assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatches.length, 'accounting once per speak');
   });
 }
 
 for (const format of ['pcm_s16le', 'pcm_f32le']) {
+  test(`AIT-258: ${format} 240-character list of amounts completes 120 seconds of audio without limit`, async t => {
+    const text = '1.234.567,89 €; '.repeat(15), bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
+    const expectedBytes = text.length / 2 * bytesPerSecond, spoken = [];
+    let produced = 0, delivered = 0, firstAt, lastAt;
+    assert.equal(text.length, 240);
+    const h = await setup(t, { format, text, retainAudio: false,
+      onAudio({ bytes }) { delivered += bytes.length; firstAt ??= Date.now(); lastAt = Date.now(); },
+      tts: { async *speak({ text }, opts) {
+        spoken.push(text); await opts.attempt.consume();
+        for (let offset = 0; offset < expectedBytes; offset += 64_000) {
+          const size = Math.min(64_000, expectedBytes - offset); produced += size; yield Buffer.alloc(size);
+        }
+        await opts.report({ attemptId: opts.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
+      } } });
+    await h.advance(121_000); await h.coordinator.idle();
+    assert.deepEqual(spoken, [text], 'amounts stay in one fragment without sentence boundaries');
+    assert.equal(produced, expectedBytes); assert.equal(delivered, produced);
+    assert.ok(lastAt - firstAt >= 119_000, 'the whole 120-second fragment is paced');
+    assert.equal(h.coordinator.state.state, 'active');
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+    const reports = h.reports.filter(report => report.attemptId === 'tts');
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'completed');
+  });
+
   test(`AIT-258: ${format} two worst-case fragments fit while the pacer holds a chunk`, async t => {
-    const fragmentBytes = 240 / 4 * (format === 'pcm_s16le' ? 48_000 : 96_000);
+    const fragmentBytes = speakCeiling;
     let speaks = 0, produced = 0;
     const h = await setup(t, { format, blockRelay: true, text: 'a'.repeat(720),
       tts: { async *speak() {
@@ -237,7 +262,7 @@ for (const format of ['pcm_s16le', 'pcm_f32le']) {
       } } });
     await tick();
     assert.equal(speaks, 2, 'third fragment waits before admission');
-    assert.equal(produced, 2 * fragmentBytes, 'both maximum duration allowances fit');
+    assert.equal(produced, 2 * fragmentBytes, 'both complete provider per-speak ceilings fit');
     assert.equal(h.published.length, 1, 'the pacer-held chunk is included');
     assert.ok(!h.events.some(event => event.type === 'waiting'));
     await h.coordinator.interrupt(); await h.coordinator.idle();
@@ -246,17 +271,18 @@ for (const format of ['pcm_s16le', 'pcm_f32le']) {
 }
 
 for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 240], ['pcm_f32le', 1000]]) {
-  test(`AIT-258: ${format} ${fragmentCharacters}-character single fragment exceeding derived bound fails with limit`, async t => {
-    const bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
-    const bound = 2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000;
-    let aborted = false, speaks = 0;
+  test(`AIT-258: ${format} ${fragmentCharacters}-character single fragment above 16,000,000 bytes fails with limit`, async t => {
+    const sampleBytes = format === 'pcm_s16le' ? 2 : 4;
+    let aborted = false, speaks = 0, produced = 0;
     const h = await setup(t, { format, fragmentCharacters, blockRelay: true, text: 'a'.repeat(fragmentCharacters),
       tts: { async *speak(_, { signal }) {
         speaks++; signal.addEventListener('abort', () => { aborted = true; }, { once: true });
-        for (let bytes = 0; bytes <= bound; bytes += 64_000) yield Buffer.alloc(64_000);
+        for (let bytes = 0; bytes < speakCeiling; bytes += 64_000) { produced += 64_000; yield Buffer.alloc(64_000); }
+        produced += sampleBytes; yield Buffer.alloc(sampleBytes);
       } } });
     await tick();
     assert.equal(speaks, 1);
+    assert.equal(produced, speakCeiling + sampleBytes, 'rejects the first aligned sample above the per-speak ceiling');
     assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'limit'));
     assert.equal(h.published.length, 1); assert.equal(aborted, true);
   });
