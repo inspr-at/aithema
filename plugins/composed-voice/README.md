@@ -376,7 +376,7 @@ frozen `keys` object; only server provider resolvers may use it. Never log it.
 The template/CLI forwards the path and never reads the values. The file exists
 for **the run window only**; OPS stops the host, then **trashes it afterwards**.
 It never belongs in this repository, a plan JSON, browser options or evidence.
-If the fallback selects ci for the host, OPS supplies a **ci-owned** 0600 file.
+OPS supplies an **mba-owned** 0600 file; the CLI, host and Chrome all run as mba on mbp2606.
 
 The demo mounts qualification only with `AITHEMA_COMPOSED_QUALIFICATION=1`:
 
@@ -447,42 +447,46 @@ receipt implementations and provider adapters belong solely to OPS's ops-qa modu
 
 The template passes `launchBrowser(launchOptions, lifetime)` the same fake-capture,
 unmuted-output and fresh-profile options as the default launcher. It awaits a
-Puppeteer `Browser` and uses the same context/page APIs regardless of browser UID.
-It does not infer the browser user from the host user. A ci launcher rebases
-`userDataDir`, corpus paths and the minimal launch environment to ci's accessible
-run directory; it never forwards provider keys or the host's environment.
+Puppeteer `Browser`. This port supports **same-host, same-user launchers only**:
+Chrome and the probe/CLI run as **mba on mbp2606**. Cross-user launchers are
+unsupported. It never forwards provider keys or the host's environment.
 
 `lifetime` contains `signal`, `deadlineAt`, `timeoutMs`, `controllerPid` (the CLI
 PID), and `registerProcessGroup({ kill, watchdogArmed: true })`. The launcher must
 arm its watchdog **as the browser's OS user immediately when the detached Chrome
 process group starts**, including while CDP connection is pending. It registers a
 synchronous, bounded `kill()` port that kills that entire group under that user.
-An unguarded returned Browser is refused before any sample. Do not rely on mba's
-memory guard to terminate ci processes.
+An unguarded returned Browser is refused before any sample.
 
 `qualification-browser-watchdog.mjs` exports
 `guardBrowserProcessGroup(chromePid, { deadlineAt, controllerPid })` for the
 browser-user launcher. It returns that registration object and starts an
 independent watchdog which kills the group at the deadline or when the CLI PID
 vanishes, including SIGKILL/SSH loss. The default launcher registers this before
-CDP setup. For ci, OPS starts the watchdog **in ci's session**, passing the mba
-CLI PID and the same absolute deadline; its registered `kill` must invoke a
-ci-owned control channel (bounded synchronous SSH/control helper), rather than
-trying to signal ci from mba. A connected Browser's `process()` may be null;
-OPS retains its original Chrome group ID for supervision. Runner SIGINT/SIGTERM,
+CDP setup. A same-user connected Browser's `process()` may be null; OPS retains
+its original Chrome group ID for supervision. The output gate obtains that
+Browser's PID from CDP `SystemInfo.getProcessInfo` and reads its UID with local
+`ps`; for a local launch it uses `browser.process().pid`. The UID must equal the
+probe's own UID (`process.getuid()`), or the sample is refused. Missing/ambiguous
+PIDs and unavailable UIDs also refuse. Runner SIGINT/SIGTERM,
 normal exit, host `close()` and sample cleanup also invoke the kill port. The
 per-sample wall-clock abort races launch/page/control/media waits; the independent
 watchdog is the final process-group deadline even if a port hangs.
 
 Before **every sample**, after opening the authenticated page and before the
-control `start` request/admission, `probePhysicalOutput()` requires **both**:
+control `start` request/admission, `probePhysicalOutput()` requires **all**:
 
 - Web Audio rendering on the default `sinkId` (`''` or `'default'`, recorded):
   both `getOutputTimestamp()` clocks (`contextTime` and `performanceTime`)
   advance across at least 500 ms, with finite `outputLatency > 0`.
 - An OS record from `system_profiler SPAudioDataType -json` run as the browser/CLI
   user: exactly one default output, filtered to its name, transport and built-in
-  status. No OS default output, or an unavailable record, refuses the run.
+  status, plus the probe UID. No OS default output, or an unavailable record,
+  refuses the run.
+- Chrome's actual arguments from CDP `Browser.getBrowserCommandLine` (requires
+  `--enable-automation`), and a verified same-user PID/UID check as above.
+  Unavailable command-line evidence refuses; requested `launchArgs` and local
+  `spawnargs` never substitute for Chrome's reply.
 
 A silent oscillator drives the output clock without changing corpus audio.
 A null/unverified device refuses the run **before any dispatch**. The template
@@ -497,9 +501,16 @@ hardware. Zero latency or either stalled clock refuses a null output path.
 **Positive latency and advancing clocks alone cannot exclude forced fake
 streams**: Chrome's `--disable-audio-output` can synthesize both (its
 [fake stream supplies synthetic delay](https://github.com/chromium/chromium/blob/main/media/audio/fake_audio_output_stream.cc)).
-The gate also refuses explicit muted/fake/missing/ALSA-output overrides in the
-actual Chrome launch arguments, independently of the measurements. The normal
-runner forbids those overrides before launch. The plan's existing checklist
+The gate also refuses explicit muted/fake/missing/alternate-output switches,
+service wrappers and service/sandbox overrides in Chrome's actual arguments,
+independently of the measurements. Both `--switch` and `-switch` forms are
+checked. The single refusal policy and its Chromium sources live in
+`qualification-output-probe.mjs` (`findRefusedOutputFlags`); it covers
+`mute-audio`, `disable-audio-output`, `fail-audio-stream-creation`,
+`alsa-output-device`, `use-cras`, `force-wave-audio`, utility/child executable
+wrappers, service sandbox/type overrides, `audio-service-*` switches and
+`AudioService*` feature overrides. The measured `--disable-features=AudioServiceSandbox`
+capture setting is allowed. The normal runner applies the same policy before launch. The plan's existing checklist
 cannot bypass this probe.
 
 Example browser module (account ports and any server launcher remain OPS-owned):
@@ -515,11 +526,11 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
 }
 ```
 
-### OPS runbook and user fallback (primary local topology)
+### OPS runbook (same-user local topology)
 
 1. On mbp2606 as **mba over SSH**, run the key-free output-device probe with the
    intended headless Chrome **with and without both fake-capture flags**, saving
-   the full JSON for each run. OPS runs the same two rows as **ci**:
+   the full JSON for each run. The probe and Chrome must both run as **mba**:
 
    ```sh
    node plugins/composed-voice/ops/qualification-output-probe.mjs \
@@ -536,10 +547,10 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
    `--use-file-for-fake-audio-capture`; the second omits both. The report records
    launch flags, browser version, WAV hash (when used), OS record and timestamps.
    This preflight uses no keys and makes no provider calls.
-2. **If mba passes, mba wins; otherwise choose ci**, subject to ci's passing
-   probe. Keep host and Chrome under the selected user. Record the full 2×2
-   results and final choice; OPS supplies the ci rows without builder writes
-   into `/Users/ci`.
+2. **Use host mba + Chrome mba on mbp2606.** This is the decided topology.
+   Retain both reports with command-line source, actual arguments, Chrome PID,
+   Chrome/probe UIDs and the OS record. If either probe refuses, stop and resolve
+   the output evidence before dispatch.
 3. Prove refusal using the same first command plus `--force-missing-output` and
    a fresh report path. This adds Chrome's `--fail-audio-stream-creation` to
    deliberately prevent an output stream. Record exit 1 plus measured zero
@@ -548,8 +559,8 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
    its actual latency/clocks and exit 1 from the explicit fake-output guard;
    do not assume this fake stream has zero latency. Rerun the normal probe
    before dispatch.
-4. **The CLI, host and budget DB must belong to the same user**: the server accepts only a control file owned by its own user and must read the budget DB.
-   OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host under the selected host user using the supplied `controlFile`. This command names paths only; no key values
+4. **The CLI, host, Chrome and budget DB must belong to mba on mbp2606**: the server accepts only a control file owned by its own user and must read the budget DB.
+   OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host as mba using the supplied `controlFile`. This command names paths only; no key values
    belong on the command line. OPS supplies its reviewed module and bindings:
 
    ```sh
@@ -561,7 +572,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
      node demo/server.js
    ```
 
-5. Corpus WAVs live on mbp2606, accessible to the selected browser user. Chrome
+5. Corpus WAVs live on mbp2606, accessible to mba. Chrome
    uses `--use-fake-device-for-media-stream`,
    `--use-file-for-fake-audio-capture=<item.wavPath>`,
    `--use-fake-ui-for-media-stream`, `--autoplay-policy=no-user-gesture-required`
@@ -591,7 +602,8 @@ Round 4 builder evidence (mbp2606, **mba over SSH**, Chrome headless shell
 
 All four OS records name `MacBook Pro-Lautsprecher`, transport
 `coreaudio_device_type_builtin`, built-in `true`, default output for mba.
-The user choice is **mba**. OPS owns the two ci rows; they are not claimed here.
+The decided topology is **host mba + Chrome mba on mbp2606**; both probe rows
+are required under that same user.
 The first committed negative control (`eeefadde`) failed because forced fake
 output passed the clock/latency checks; `66c2af53cc` adds the explicit flag guard
 and passes the four measurements plus the fake-provider CLI/tunnel proof.
@@ -621,7 +633,7 @@ keys** (Rule C shares the consent/holds row). The automated output probe supplem
 | Checklist key(s) | OPS evidence required from this topology |
 | --- | --- |
 | `authenticatedRelay` | Flagged loopback bind; authenticated same-origin POST; wrong owner/origin and revoked grants denied. For the alternative, record tunnel ports and SSH protection; **TLS N/A: loopback by design**. |
-| `physicalBrowserMedia` | WAV identity/hash and capture flags; recorded `physicalBrowserMedia` with default sink, positive latency, both advancing clocks and the running user's OS default-output record; diagnostic real/fake labels/counts; full with/without-capture 2×2 and measured fake-output refusal; chosen user; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
+| `physicalBrowserMedia` | WAV identity/hash and capture flags; recorded `physicalBrowserMedia` with default sink, positive latency, both advancing clocks and the running user's OS default-output record; diagnostic real/fake labels/counts; both mba with/without-capture reports with actual CDP command line and verified Chrome/probe UIDs, plus measured fake-output refusal; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
 | `consentAndHolds`, `ruleCAndNoSilentRerun` | Exact stored owner/processing scopes; Rule C envelope/store; immediate revoke, holds and AIT-138 fresh generation recovery; persisted run identity refusing rerun; every reasoning/retry routed through the shared admit. |
 | `verifiedTariffsAndRounding` | Host account proofs matching each exact request/digest, lane, component/model and retry ceiling; whitespace, initialization, rounding, minimums and duration coverage; one persisted $25 cap. |
 | `authenticatedReceipts` | Authenticated host usage/receipts for both lanes, components, reasoning and retries; matching attempt/receipt identities and existing settlement reconciliation; pending exposure retained. |

@@ -12,6 +12,30 @@ import { fileURLToPath } from 'node:url';
 import { initializeQualificationBudget } from '../../plugins/composed-voice/src/persisted-budget.js';
 import { PRELIVE_CHECKS } from '../../plugins/composed-voice/src/live-qualification.js';
 import { browserPath } from '../../scripts/install-test-browser.js';
+import puppeteer from './launch.js';
+import { connect as connectBrowser } from 'puppeteer-core';
+import { readBrowserEvidence, combineOutputEvidence } from '../../plugins/composed-voice/ops/qualification-output-probe.mjs';
+
+test('AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes', { timeout: 90_000 }, async () => {
+  for (const flag of ['--disable-audio-output', '-disable-audio-output', 'unavailable', 'clean']) {
+    const browser = await puppeteer.launch({ headless: true,
+      ignoreDefaultArgs: ['--mute-audio', ...(flag === 'unavailable' ? ['--enable-automation'] : [])],
+      args: [...(flag.startsWith('-') ? [flag] : []), ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])] });
+    let connected;
+    try {
+      if (flag !== 'clean') connected = await connectBrowser({ browserWSEndpoint: browser.wsEndpoint() });
+      if (connected) assert.equal(connected.process(), null);
+      const evidence = await readBrowserEvidence(connected ?? browser);
+      assert.equal(evidence.browserUser.verified, true);
+      assert.equal(evidence.browserUser.uid, process.getuid());
+      assert.equal(evidence.browserUser.pidSource, connected ? 'CDP SystemInfo.getProcessInfo' : 'browser.process().pid');
+      assert.equal(evidence.commandLine.verified, flag !== 'unavailable');
+      const output = combineOutputEvidence({ renderingVerified: true, outputLatency: 0.016 }, { verified: true, uid: process.getuid() }, evidence);
+      assert.equal(output.verified, flag === 'clean');
+      assert.deepEqual(output.refusedOutputFlags, flag.startsWith('-') ? [flag] : []);
+    } finally { await connected?.disconnect(); await browser.close(); }
+  }
+});
 
 test('AIT-160 CLI: output-device gate before fake pair through different-port tunnel', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-tunnel-')), sockets = new Set();
@@ -106,6 +130,10 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
         await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-160-output-${name}.json`), JSON.stringify(standalone, null, 2));
       }
       assert.equal(probeCode, media.verified ? 0 : 1, probeError);
+      assert.equal(media.commandLine.verified, true);
+      assert.equal(media.browserUser.verified, true);
+      assert.equal(media.browserUser.uid, process.getuid());
+      assert.equal(media.osDefaultOutput.uid, process.getuid());
       assert.equal(media.verified, media.renderingVerified && media.osDefaultOutput.verified && media.refusedOutputFlags.length === 0);
       if (name.startsWith('forced-')) {
         assert.equal(media.verified, false, 'Chrome fake/missing output must refuse even when the OS has speakers');

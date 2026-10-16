@@ -6,7 +6,7 @@ import { startChild, temporaryDb } from '../../../test/helpers.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { runInNewContext } from 'node:vm';
-import { probeOutputDevice, defaultOutputFromProfiler, combineOutputEvidence } from '../ops/qualification-output-probe.mjs';
+import { probeOutputDevice, defaultOutputFromProfiler, combineOutputEvidence, readBrowserEvidence, findRefusedOutputFlags } from '../ops/qualification-output-probe.mjs';
 import { guardBrowserProcessGroup } from '../ops/qualification-browser-watchdog.mjs';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
@@ -385,8 +385,11 @@ test('null-device refusal persists physicalBrowserMedia before control/admission
     assert.match(error.message, /null or unverified audio output/);
     refused = error.physicalBrowserMedia;
     assert.equal(refused.verified, false);
-    const { osDefaultOutput, refusedOutputFlags, verified, ...rendering } = refused;
+    const { osDefaultOutput, commandLine, browserUser, refusedOutputFlags, verified, ...rendering } = refused;
     assert.equal(osDefaultOutput.source, 'system_profiler SPAudioDataType -json');
+    assert.equal(commandLine.verified, true);
+    assert.equal(browserUser.verified, true);
+    assert.equal(browserUser.uid, process.getuid());
     assert.deepEqual(refusedOutputFlags, []);
     assert.deepEqual(rendering, evidence); return true;
   });
@@ -448,6 +451,57 @@ test('unavailable actual command line refuses even with clean requested and loca
   });
 });
 
+test('actual Chrome evidence uses CDP arguments and resolves local/connected PID to the probe UID', async () => {
+  for (const local of [false, true]) {
+    const browser = inertBrowser({});
+    if (local) browser.process = () => ({ pid: process.pid, spawnargs: ['ignored', '--mute-audio'] });
+    const evidence = await readBrowserEvidence(browser);
+    assert.equal(evidence.commandLine.verified, true);
+    assert.deepEqual(evidence.commandLine.arguments, ['/fixture/chrome', '--enable-automation']);
+    assert.equal(evidence.browserUser.verified, true);
+    assert.equal(evidence.browserUser.uid, process.getuid());
+    assert.equal(evidence.browserUser.pidSource, local ? 'browser.process().pid' : 'CDP SystemInfo.getProcessInfo');
+    assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: process.getuid() }, evidence).verified, true);
+  }
+});
+
+test('Chrome UID mismatch, unknown UID/PID and unavailable or malformed command line all fail closed', async () => {
+  for (const uid of [undefined, NaN, -1, process.getuid() + 1]) {
+    const evidence = await readBrowserEvidence(inertBrowser({}), async () => uid);
+    assert.equal(evidence.browserUser.verified, false);
+    assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: process.getuid() }, evidence).verified, false);
+  }
+  for (const processInfo of [[], [{ type: 'browser', id: 0 }], [{ type: 'browser', id: 1 }, { type: 'browser', id: 2 }]]) {
+    const browser = inertBrowser({});
+    browser.target = () => ({ async createCDPSession() { return {
+      async send(method) { return method === 'Browser.getBrowserCommandLine' ? { arguments: ['/fixture/chrome'] } : { processInfo }; }, async detach() {},
+    }; } });
+    assert.equal((await readBrowserEvidence(browser)).browserUser.verified, false);
+  }
+  for (const args of [undefined, [], [42], ['']]) {
+    const browser = inertBrowser({}, { args });
+    // Override the default argument for the undefined response as well.
+    browser.target = () => ({ async createCDPSession() { return {
+      async send() { return { arguments: args, processInfo: [{ type: 'browser', id: process.pid }] }; }, async detach() {},
+    }; } });
+    assert.equal((await readBrowserEvidence(browser)).commandLine.verified, false);
+  }
+  assert.equal((await readBrowserEvidence(inertBrowser({}, { commandLineUnavailable: true }))).commandLine.verified, false);
+  assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true }).verified, false);
+});
+
+test('output override policy handles both switch forms, service wrappers and audio feature overrides', () => {
+  const flags = ['mute-audio', 'disable-audio-output', 'fail-audio-stream-creation', 'alsa-output-device=null',
+    'use-cras', 'force-wave-audio', 'audio-service-use-fake-device', 'utility-cmd-prefix=wrapper',
+    'browser-subprocess-path=/other/chrome', 'service-sandbox-type=none', 'utility-sub-type=audio.mojom.AudioService',
+    'type=utility', 'disable-features=Other,AudioServiceOutOfProcess', 'enable-features=AudioServiceSandbox'];
+  for (const prefix of ['--', '-']) for (const flag of flags) {
+    assert.deepEqual(findRefusedOutputFlags([prefix + flag]), [prefix + flag.split('=')[0]]);
+  }
+  assert.deepEqual(findRefusedOutputFlags(['/fixture/chrome', '--use-fake-device-for-media-stream',
+    '--use-file-for-fake-audio-capture=/corpus.wav', '--disable-features=AudioServiceSandbox,Other', '--no-sandbox']), []);
+});
+
 test('rendering requires default sink, positive latency and both clocks advancing for 500ms; labels are diagnostic', async () => {
   for (const variation of ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'zeroLatency', 'nanLatency', 'contextStalled', 'performanceStalled', 'short', 'nonDefault', 'silentSink', 'defaultAlias', 'noAPI']) {
     let reads = 0, now = 0, closed = false;
@@ -503,16 +557,18 @@ test('OS evidence retains only the unique default output name, transport and bui
 });
 
 test('physical output requires both rendering proof and the OS default output even with fake enumeration', () => {
+  const browser = { commandLine: { verified: true, arguments: ['/fixture/chrome'] }, browserUser: { verified: true, uid: 501, probeUid: 501 } };
   for (const renderingVerified of [false, true]) for (const verified of [false, true]) {
     const rendering = { renderingVerified, realAudioOutputs: 0, fakeAudioOutputs: 3, sinkId: '' };
-    const osDefaultOutput = { verified, name: 'MacBook Pro-Lautsprecher', transport: 'coreaudio_device_type_builtin', builtIn: true };
-    const evidence = combineOutputEvidence(rendering, osDefaultOutput);
+    const osDefaultOutput = { verified, uid: 501, name: 'MacBook Pro-Lautsprecher', transport: 'coreaudio_device_type_builtin', builtIn: true };
+    const evidence = combineOutputEvidence(rendering, osDefaultOutput, browser);
     assert.equal(evidence.verified, renderingVerified && verified);
     assert.equal(evidence.fakeAudioOutputs, 3);
     assert.deepEqual(evidence.osDefaultOutput, osDefaultOutput);
   }
   for (const flag of ['--disable-audio-output', '--mute-audio', '--fail-audio-stream-creation', '--alsa-output-device=null']) {
-    const evidence = combineOutputEvidence({ renderingVerified: true }, { verified: true }, [flag]);
+    const evidence = combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: 501 },
+      { ...browser, commandLine: { verified: true, arguments: ['/fixture/chrome', flag] } });
     assert.equal(evidence.verified, false);
     assert.deepEqual(evidence.refusedOutputFlags, [flag.split('=')[0]]);
   }
@@ -527,7 +583,7 @@ test('independent watchdog kills the browser process group at deadline even with
   assert.equal(code, null); assert.equal(signal, 'SIGKILL');
 });
 
-test('independent watchdog kills browser group after runner SIGKILL (also supports cross-user controller PID)', { timeout: 10_000 }, async t => {
+test('independent watchdog kills browser group after runner SIGKILL', { timeout: 10_000 }, async t => {
   const controller = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env: { PATH: process.env.PATH } });
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH } });
   t.after(() => { controller.kill('SIGKILL'); try { process.kill(-child.pid, 'SIGKILL'); } catch {} });

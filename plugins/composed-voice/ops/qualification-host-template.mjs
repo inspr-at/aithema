@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { loopbackOrigin } from './qualification-server.mjs';
-import { probePhysicalOutput } from './qualification-output-probe.mjs';
+import { probePhysicalOutput, findRefusedOutputFlags } from './qualification-output-probe.mjs';
 import { launchLocalBrowser } from './qualification-browser.mjs';
 
 /** Inert browser-side factory. OPS ports are mandatory and remain authoritative;
@@ -39,7 +39,7 @@ export function createQualificationHost(options = {}) {
       if (![admit, onTiming].every(fn => typeof fn === 'function')) throw new TypeError('admit and onTiming required');
       if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !isAbsolute(item?.wavPath ?? '')) throw new TypeError('Sample identity and absolute corpus wavPath required');
       const launchArgs = options.launchArgs ?? [];
-      if (launchArgs.some(arg => /mute-audio|disable-audio-output|fail-audio-stream-creation|alsa-output-device|fake-audio|user-data-dir|use-fake-device/u.test(arg))) throw new TypeError('Qualification capture/output flags cannot be overridden');
+      if (findRefusedOutputFlags(launchArgs).length || launchArgs.some(arg => /fake-audio|user-data-dir|use-fake-device/u.test(arg))) throw new TypeError('Qualification capture/output flags cannot be overridden');
       running = true;
       let browser, sampleId, polling;
       const lifetime = new AbortController(), ready = Promise.withResolvers(), result = Promise.withResolvers();
@@ -92,7 +92,7 @@ export function createQualificationHost(options = {}) {
         const response = await bounded(page.goto(`${hostOrigin}/composed/qualification`, { waitUntil: 'networkidle0' }));
         if (response.status() !== 200) throw new Error('Qualification page refused');
         await bounded(page.waitForFunction(() => window.composedQualification));
-        const physicalBrowserMedia = await bounded(probePhysicalOutput(page, browser.process?.()?.spawnargs ?? launchArgs));
+        const physicalBrowserMedia = await bounded(probePhysicalOutput(page, browser));
         await bounded(writeFile(join(run, `${lane}-physical-browser-media.json`), JSON.stringify({ physicalBrowserMedia }, null, 2), { mode: 0o600 }));
         if (physicalBrowserMedia?.verified !== true) {
           const error = new Error('Qualification refused: null or unverified audio output device');

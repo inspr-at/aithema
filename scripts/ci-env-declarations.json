@@ -33,8 +33,8 @@
     "reason": "Linux headless Chrome sandbox selection"
   },
   "test/browser/composed-qualification.test.js": {
-    "reads": ["CI", "CI"],
-    "reason": "Forward CI explicitly to the hermetic qualification CLI child for Linux Chrome sandbox selection, including the pre-dispatch output-device probe"
+    "reads": ["CI", "CI", "CI"],
+    "reason": "Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe"
   },
   "test/browser/consent-lines.test.js": {
     "reads": [

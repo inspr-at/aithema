@@ -119,7 +119,7 @@ they are not test coverage switches.
 | `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/composed-media.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/composed-qualification.test.js` | `CI` ×2 | Forward CI explicitly to the hermetic qualification CLI child for Linux Chrome sandbox selection, including the pre-dispatch output-device probe |
+| `test/browser/composed-qualification.test.js` | `CI` ×3 | Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/consent-lines.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/credit-hold.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
