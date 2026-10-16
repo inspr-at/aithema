@@ -131,6 +131,7 @@ export async function settleEvidenceFrame(page) {
       const panes = [...new Set([...nodes.filter(n => n.matches('.transcript-shell')),
         document.scrollingElement, ...nodes.filter(n => n.scrollHeight > n.clientHeight || n.scrollWidth > n.clientWidth)])].filter(Boolean);
       const snapshot = () => panes.map(n => [n.scrollTop, n.scrollLeft]);
+      const initialScroll = snapshot();
       const markers = nodes.filter(n => n.matches('.turn:not(.user) .speaker-sign'));
       const geometry = () => markers.map(n => {
         const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
@@ -149,6 +150,11 @@ export async function settleEvidenceFrame(page) {
         }
         for (const n of panes) {
           n.scrollTo({ top: Math.round(n.scrollTop), left: Math.round(n.scrollLeft), behavior: 'instant' });
+          // A fractional maximum may clamp an outward round back to a fraction.
+          // Truncation moves inward to an attainable integer (also for RTL).
+          if (!Number.isInteger(n.scrollTop) || !Number.isInteger(n.scrollLeft)) {
+            n.scrollTo({ top: Math.trunc(n.scrollTop), left: Math.trunc(n.scrollLeft), behavior: 'instant' });
+          }
         }
         const before = JSON.stringify([snapshot(), geometry()]), events = scrollEvents;
         await frame(); await frame();
@@ -156,10 +162,10 @@ export async function settleEvidenceFrame(page) {
         if (events === scrollEvents && !animations().length &&
             positions.every(pair => pair.every(Number.isInteger)) &&
             before === JSON.stringify([positions, geometry()])) {
-          return { scroll: positions, markers: geometry(), settledFrames: 2 };
+          return { initialScroll, scroll: positions, markers: geometry(), settledFrames: 2 };
         }
       }
-      throw new Error('Evidence did not reach an integer, scroll-idle marker frame within 5s');
+      throw new Error(`Evidence did not reach an integer, scroll-idle marker frame within 5s: ${JSON.stringify({ scrollEvents, panes: panes.map(n => ({ node: n.className, top: n.scrollTop, left: n.scrollLeft })), markers: geometry(), animations: animations().map(a => a.animationName ?? a.transitionProperty) })}`);
     } finally {
       for (const root of roots) root.removeEventListener('scroll', scrolled, true);
     }
