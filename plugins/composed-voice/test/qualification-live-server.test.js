@@ -54,7 +54,7 @@ const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: s
 // Corpus packets and endpoint silence mirror configuration.test.js turn(); the
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
-async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds } = {}) {
+async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds, waitForMetadata } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
@@ -85,7 +85,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       baselineFeed = push;
       const socket = { send(wire) {
         const event = JSON.parse(wire); baselineSent.push(event);
-        if (event.type === 'conversation_initiation_client_data') push({ type: 'conversation_initiation_metadata',
+        if (event.type === 'conversation_initiation_client_data' && !waitForMetadata) push({ type: 'conversation_initiation_metadata',
           conversation_initiation_metadata_event: { conversation_id: 'conv_fixture', user_input_audio_format: 'pcm_16000', agent_output_audio_format: 'pcm_24000' } });
         if (event.user_audio_chunk && !ready.done) {
           ready.done = true;
@@ -240,6 +240,37 @@ test('baseline paid duration closes an idle socket and persists uncertain termin
   // new quality threshold. A deliberately short synthetic lease exercises expiry.
   const h = await harness(t, { durationSeconds: 1 }), sample = await h.start('baseline');
   await assert.rejects(sample.result, /Missing qualification audio or transcript/);
+  assert.equal(h.reports.length, 1);
+  assert.ok(h.storage.voiceCalls(h.session.id)[0].terminal);
+});
+
+import { createProcessingConsent } from '../../../demo/processing-consent.js';
+import { qualificationProcessingBindings, qualificationProcessingOperations } from '../ops/qualification-live-server.mjs';
+import { consentCoverage, processingScope } from '@inspr/aithema-core';
+
+test('normal persistent consent ledger covers the exact selected component, reasoning and baseline scopes', async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const session = storage.create({ ownerToken: owner }), binding = liveBinding();
+  const consent = createProcessingConsent({ storage, bindings: qualificationProcessingBindings(binding), operationsForBinding: qualificationProcessingOperations });
+  const document = consent.describe(session.id);
+  assert.equal(consent.grant({ sessionId: session.id, consentRevision: session.consentRevision + 1,
+    decision: { contract: document.contract, items: ['voice-elevenlabs', 'models-international'] } }), true);
+  storage.reviseConsent(session.id, true);
+  for (const [role, operation] of [['stt', 'stream'], ['tts', 'speak'], ['reasoning', 'stream'], ['baseline', 'start']]) {
+    assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope(binding[role], operation)), true);
+  }
+  assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope({ ...binding.tts, model: 'other-model' }, 'speak')), false);
+  storage.reviseConsent(session.id, false);
+  assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope(binding.stt, 'stream')), false);
+});
+
+test('consent revoke during baseline setup waits for socket stop and persists its terminal', async t => {
+  const h = await harness(t, { waitForMetadata: true }), starting = h.start('baseline');
+  starting.catch(() => {});
+  // Wait on fake dispatch observations, not wall-clock or reconstructed timing.
+  while (!h.baselineSent.length) await new Promise(resolve => setImmediate(resolve));
+  await h.server.revokeSession(h.session.id);
+  await assert.rejects(starting);
   assert.equal(h.reports.length, 1);
   assert.ok(h.storage.voiceCalls(h.session.id)[0].terminal);
 });

@@ -574,7 +574,10 @@ reference sentences remain in the CLI. The first finalized corpus transcript is
 latched before later barge-in utterances; matching uses the scoring evaluator's
 NFC, de-AT case, trimmed/collapsed whitespace normalization with letter/number
 boundaries. Each expected entity returns `{ expected, actual }`, using an empty
-actual for a miss. Close stops media/work, persists the terminal, drains exactly
+actual for a miss. A server-owned timer enforces the explicit paid duration even for an idle
+baseline socket. Revocation also reaches a sample still awaiting setup; its close
+acknowledgement waits for setup and socket stop. Close stops media/work, persists
+the terminal, drains exactly
 one report per attempt and only then resolves the result. Owner, consent revision
 and holds are rechecked before admission, consume and transport; the demo revokes
 the sample before acknowledging consent, pause, settings, withdrawal or erasure

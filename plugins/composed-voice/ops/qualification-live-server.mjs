@@ -99,8 +99,8 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
   const resolveSecret = ref => keys[ref];
   let active, starting = false;
   const networkRelay = {
-    handle: request => active?.networkRelay.handle(request) ?? new Response(null, { status: 403 }),
-    revoke: providerSessionId => active?.networkRelay.revoke(providerSessionId),
+    handle: request => active?.networkRelay?.handle(request) ?? new Response(null, { status: 403 }),
+    revoke: providerSessionId => active?.networkRelay?.revoke(providerSessionId),
     async close() { await active?.close(); },
   };
   return {
@@ -118,7 +118,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       const sessionId = item.sessionId, cancellation = new AbortController();
       const sampleSignal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
       const deadlineAt = Date.now() + binding.maxDurationSeconds * 1000, rows = [], jobs = new Set();
-      const answer = Promise.withResolvers(); answer.promise.catch(() => {});
+      const answer = Promise.withResolvers(), setup = Promise.withResolvers(); answer.promise.catch(() => {});
       let sample, closing, expiry, hypothesis, pcmBytes = 0;
       const chunks = []; let revision;
       const relevant = lane === 'candidate' ? ['stt', 'tts', 'reasoning'] : ['baseline'];
@@ -168,6 +168,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
         clearTimeout(expiry); cancellation.abort();
         void (async () => {
           try {
+            await setup.promise;
             await sample?.close();
             await Promise.allSettled([...jobs]);
             await Promise.all(rows.map(row => row.finish()));
@@ -186,6 +187,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       }
       const aborted = () => { void close().catch(() => {}); };
       expiry = setTimeout(aborted, Math.max(0, deadlineAt - Date.now()));
+      active = { sessionId, close };
       try {
         revision = storage.authorize(sessionId, owner).consentRevision;
         await authorize();
@@ -194,7 +196,8 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
           transcript(text) { hypothesis ??= text; }, track };
         sample = lane === 'candidate' ? await startCandidateSample(ports) : await startBaselineSample(ports);
         sampleSignal.throwIfAborted();
-        active = { sessionId, networkRelay: sample.networkRelay, close };
+        active.networkRelay = sample.networkRelay;
+        setup.resolve();
         signal?.addEventListener('abort', aborted, { once: true });
         // Browser close comes through the attached segment, so it must also
         // drain reports/results, before the control mount sees completion.
@@ -203,7 +206,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
           signal?.removeEventListener('abort', aborted); await close();
         } };
       } catch {
-        await close(); throw new PluginError('not-admitted', 'Qualification setup refused');
+        setup.resolve(); await close(); throw new PluginError('not-admitted', 'Qualification setup refused');
       } finally { starting = false; }
     },
   };
