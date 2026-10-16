@@ -301,7 +301,7 @@ test('AIT-231: a full mock document preserves described items and an invalid one
   await page.locator('aithema-session >>> .notice button').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
   assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.consent-editor input')].map(n => n.value)), CONSENT_ITEMS.map(i => i.id));
-  assert.match(await shadow(page, c => c.shadowRoot.querySelector('.consent-intro').textContent), /^This is mock processing\./u);
+  assert.match(await shadow(page, c => c.shadowRoot.querySelector('.consent-intro').textContent), /^This is demo processing\./u);
   await page.keyboard.press('Escape');
   page.state.document = { contract: 'fixture-contract', items: [{ ...CONSENT_ITEMS[0], text: '' }], features, selected: [] };
   await page.locator('aithema-session >>> .notice button').click();

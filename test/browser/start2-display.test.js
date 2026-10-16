@@ -113,7 +113,6 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       c.configure({ copy, session, host: { library: true } });
       c.shadowRoot.activeElement?.blur();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
-      for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
     }, locale);
     // The first configured conversation still has an entrance/resize cycle.
@@ -195,93 +194,44 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   for (const row of passLines) t.diagnostic(`PASS head=${row.head} ${row.locale}-${row.theme}-${row.width}/${row.state} 0 px layout shift${row.textPixels ? `; ${row.textPixels} opaque pixels over text` : '; AIT-131 main paint preserved'}`);
 });
 
-test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewport down to 320px', { timeout: 120_000 }, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-account-band-'));
+test('AIT-246 visitor header has two icons for guest, pending and verified email identities', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-visitor-band-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await browserForFile();
+  const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
-  if (evidence) await mkdir(evidence, { recursive: true });
+  await mockIdentityReads(page);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-  await until(page, () => document.querySelector('aithema-session')?.session?.id && !document.querySelector('#demo-account').hidden);
-  await shadow(page, c => { globalThis.accountSeed = c.session; });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.visitorHeaderSeed = structuredClone(c.session); });
+  let cases = 0;
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 320], theme, 1, 'display-account')) for (const folded of [false, true]) {
-    const height = width < 600 ? 844 : 900;
-    await page.setViewport({ width, height }); await page.select('#theme', theme);
-    await page.evaluate(async ({ locale, folded }) => {
-      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
-      const { paintUtilities } = await import('/demo/page-preferences.js');
-      const copy = { en, de }[locale], c = document.querySelector('aithema-session'), s = structuredClone(globalThis.accountSeed);
-      s.locale = locale; s.settings.origin = 'chosen'; s.transcript = [{ id: 'account-source', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' }];
-      s.identity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true };
-      c.configure({ copy, session: s, host: { library: true, verification: true } });
-      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
-      for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
-      document.querySelector('#demo-account').open = false;
-      if (folded) c.shadowRoot.querySelector('.fold').click();
-      window.scrollTo(0, 0);
-    }, { locale, folded });
-    await page.mouse.move(0, 300); await settle();
-    const control = await page.evaluate(() => {
-      const root = document.querySelector('aithema-session').shadowRoot, account = document.querySelector('#demo-account'), summary = account.querySelector('summary'), label = account.querySelector('#demo-account-label');
-      const rect = n => { const b = n.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; };
-      const slot = root.querySelector('slot[name="account"]'), wrap = slot.parentElement;
-      const range = document.createRange(); range.selectNodeContents(label);
-      const text = range.getBoundingClientRect(), icon = rect(account.querySelector('.utility-icon svg')), chevron = rect(account.querySelector('.utility-chevron svg'));
-      return { box: rect(summary), band: rect(root.querySelector('.band')), gear: rect(root.querySelector('.settings-open')), name: summary.getAttribute('aria-label'), title: summary.title,
-        inRightGroup: wrap.parentElement.classList.contains('header-actions'), beforeGear: wrap.nextElementSibling.classList.contains('settings-open'),
-        label: getComputedStyle(label).display !== 'none', icon, chevron,
-        gaps: [text.left - icon.right, chevron.left - text.right], gap: parseFloat(getComputedStyle(summary).gap),
-        extras: Boolean(root.querySelector('.host-extras')), emailInSettings: Boolean(root.querySelector('dialog.settings .host-verify')) };
-    });
-    const context = `${width}/${theme}/${locale}/${folded}: ${JSON.stringify(control)}`;
-    assert.equal(control.inRightGroup, true, context); assert.equal(control.beforeGear, true, context);
-    assert.ok(control.box.top >= control.band.top && control.box.bottom <= control.band.bottom, context);
-    assert.ok(control.box.left >= 0 && control.box.right <= control.gear.left + .5 && control.gear.right <= width + .5, context);
-    assert.equal(control.icon.width, 16); assert.equal(control.icon.height, 16); assert.equal(control.label, width >= 600);
-    assert.equal(control.name, { de, en }[locale].host.slots.account); assert.equal(control.title, control.name);
-    assert.equal(control.extras, false); assert.equal(control.emailInSettings, true);
-    if (control.label) {
-      assert.equal(control.chevron.width, 10); assert.equal(control.chevron.height, 10);
-      for (const gap of control.gaps) assert.ok(Math.abs(gap - control.gap) <= .5, `icon · label · chevron share the menu gap: ${context}`);
+    await page.setViewport({ width, height: 900 }); await page.select('#theme', theme);
+    for (const status of ['guest', 'pending', 'verified']) {
+      await shadow(page, async (c, { locale, folded, status }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const s = structuredClone(window.visitorHeaderSeed); s.locale = locale; s.settings.origin = 'chosen';
+        s.transcript = [{ id: 'visitor-header', role: 'user', content: 'A website for our bakery.' }];
+        s.identity = { status, address: status === 'guest' ? null : 'visitor@example.test', verificationRequired: false, assessmentUnlocked: true };
+        c.setAttribute('motion', 'off'); c.configure({ copy, session: s, host: { library: true, verification: true } });
+        if (folded) c.shadowRoot.querySelector('.fold').click();
+      }, { locale, folded, status });
+      await finishWorkspaceEntry(page);
+      const header = await shadow(page, c => {
+        const root = c.shadowRoot, band = root.querySelector('.band');
+        return { icons: [...band.querySelectorAll('button')].filter(n => n.checkVisibility()).map(n => n.className),
+          accounts: root.querySelector('slot[name="account"]').assignedElements().length,
+          emailInSettings: Boolean(root.querySelector('dialog.settings .host-verify')) };
+      });
+      assert.deepEqual(header.icons.sort(), ['conversations-toggle', 'settings-open'], `${width}/${locale}/${theme}/${status}/${folded}`);
+      assert.equal(header.accounts, 0); assert.equal(header.emailInSettings, true);
+      assert.equal(await page.$('[slot="account"]'), null);
     }
-    const previous = checks.find(n => n.width === width && n.theme === theme && n.folded === folded);
-    if (previous) for (const key of ['left', 'top', 'width', 'height']) assert.ok(Math.abs(previous.control.box[key] - control.box[key]) <= .5, `locale preserves the account reserve from ${JSON.stringify(previous.control.box)}: ${context}`);
-    if (width === 320) {
-      const selectors = ['.host-account', '.settings-open'], before = await boxes(page, selectors);
-      // Exercise a wider font's intrinsic label width without changing the evidence's typography.
-      await page.$eval('#theme-value', n => { n.style.fontSize = '16px'; });
-      const stressed = await boxes(page, selectors);
-      await page.$eval('#theme-value', n => n.style.removeProperty('font-size'));
-      sameBoxes(before, stressed, 'wider theme glyphs preserve the account and gear reserve');
-    }
-    const shot = async suffix => {
-      if (!evidence) return;
-      const name = `r3-demo-account-${folded ? 'folded' : 'unfolded'}-${suffix}-${width}-${theme}-${locale}.png`;
-      await page.screenshot({ path: join(evidence, name) }); files.push(name);
-    };
-    await shot('closed');
-    const before = await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']);
-    await page.click('#demo-account summary'); await settle();
-    const panel = await page.$eval('#demo-account', account => {
-      const b = account.querySelector('div').getBoundingClientRect(), control = account.querySelector('summary').getBoundingClientRect();
-      return { open: account.open, left: b.left, top: b.top, right: b.right, bottom: b.bottom, controlBottom: control.bottom,
-        bandBottom: document.querySelector('aithema-session').shadowRoot.querySelector('.band').getBoundingClientRect().bottom,
-        position: getComputedStyle(account.querySelector('div')).position };
-    });
-    assert.equal(panel.open, true); assert.ok(panel.left >= 0 && panel.right <= width + .5 && panel.top >= panel.controlBottom + 5.5 && panel.bottom <= height, JSON.stringify(panel));
-    if (width < 400) {
-      assert.equal(panel.position, 'fixed'); assert.equal(panel.left, 12); assert.equal(panel.right, width - 12);
-      assert.ok(panel.top >= panel.bandBottom + 5.5, 'the viewport panel sits below the whole band');
-    }
-    sameBoxes(before, await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']), 'account disclosure changes no band layout');
-    await shot('open'); await page.keyboard.press('Escape'); assert.equal(await page.$eval('#demo-account', n => n.open), false);
-    checks.push({ width, theme, locale, folded, control, panel });
+    cases++;
   }
-  assertMatrixCaseCount('display-account', checks.length);
-  if (evidence) await writeFile(join(evidence, 'r3-demo-account-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, files, checks }, null, 2));
+  assertMatrixCaseCount('display-account', cases);
 });
 
 test('AIT-147 Settings footer wraps without moving controls: verification off/unverified/pending/verified, DE/EN, 1440/390, light/dark', { timeout: 120_000 }, async t => {
@@ -1539,4 +1489,124 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
   }
   assert.equal(checks.length, 12);
   if (evidence) await writeFile(join(evidence, 'ait246-round3-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
+});
+
+test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE/EN at 390/320', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-narrow-draft-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'fake', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await mockIdentityReads(page);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.narrowDraftSeed = structuredClone(c.session); });
+  const states = [
+    ['option-unoffered', 'visuals not offered'], ['preset-unconfigured', 'preset not configured'],
+    ['device', 'unavailable on device'], ['quote-missing', null], ['admission-timeout', 'admission deadline'],
+    ['not-configured', 'not configured'], ['off', 'visuals off'], ['low', 'budget'],
+    ['unavailable', 'unavailable'], ['request', null], ['draft-ready-quote-missing', null],
+  ];
+  const capture = async file => {
+    await shadow(page, async c => {
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.mouse.move(-1, -1);
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+  };
+  for (const locale of ['de', 'en']) for (const width of [390, 320]) {
+    const theme = locale === 'de' ? 'light' : 'dark';
+    await page.setViewport({ width, height: 844 }); await page.select('#theme', theme);
+    let baseline;
+    for (const [state, reason] of states) {
+      await shadow(page, async (c, { locale, state, reason }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        const s = structuredClone(window.narrowDraftSeed);
+        s.locale = locale; s.processingPreset = state === 'device' ? 'device' : 'best';
+        s.settings = { ...s.settings, origin: 'chosen' }; s.paused = false; s.pauseReason = null;
+        s.transcript = [{ id: 'narrow-user', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' },
+          { id: 'narrow-reply', role: 'assistant', content: locale === 'de' ? 'Wie sollen Kunden bestellen?' : 'How should customers order?' }];
+        s.transcript[1].inputRevision = inputRevision(s);
+        s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
+        s.featureMatrix = { [s.processingPreset]: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key,
+          ['html', 'images'].includes(key) ? { available: !reason, reason } : { available: true, reason: null }])) };
+        s.conceptVisualKind = 'html'; s.conceptCost = state.includes('quote-missing') ? null : { maxMicro: 400_000 };
+        s.concepts = state === 'draft-ready-quote-missing' ? [{ id: 'narrow-ready', mediaType: 'text/html', turnIds: ['narrow-user'], referenceIds: [], archived: false }] : [];
+        s.conceptStatus = { phase: 'idle' };
+        c.setAttribute('motion', 'off');
+        c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+        c.configure({ copy, session: s, host: { library: true } });
+        document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+        const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
+        window.scrollTo(0, 0);
+      }, { locale, state, reason });
+      await finishWorkspaceEntry(page);
+      const geometry = await shadow(page, c => {
+        const root = c.shadowRoot, rail = root.querySelector('.concept-bar');
+        const box = r => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+        const visible = n => n.checkVisibility({ visibilityProperty: true });
+        const parts = [];
+        // Compare independent painted primitives, never an ancestor with its descendants.
+        for (const selector of ['.concept-scene', '.concept-request', '.drafts-settings-action', '.consent-action', '.concept-preview-glyph svg', '.concept-preview img', '.concept-progress']) {
+          const n = rail.querySelector(selector);
+          if (n && visible(n)) parts.push({ name: selector, ...box(n.getBoundingClientRect()) });
+        }
+        for (const selector of ['.concept-activity-text', '.concept-countdown', '.concept-preview-label']) {
+          const n = rail.querySelector(selector); if (!n || !visible(n)) continue;
+          const walker = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const text = walker.currentNode;
+            if (!text.textContent.trim() || text.parentElement.closest('button') && selector !== '.concept-preview-label') continue;
+            const range = document.createRange(); range.selectNodeContents(text);
+            for (const r of range.getClientRects()) if (r.width && r.height) parts.push({ name: `${selector}: ${text.textContent}`, ...box(r) });
+          }
+        }
+        return { bounds: box(rail.getBoundingClientRect()), parts };
+      });
+      const context = `${width}/${locale}/${state}: ${JSON.stringify(geometry)}`;
+      assert.ok(geometry.parts.length >= 2, context);
+      for (const [i, a] of geometry.parts.entries()) {
+        assert.ok(a.left >= geometry.bounds.left && a.right <= geometry.bounds.right + .5 && a.top >= geometry.bounds.top && a.bottom <= geometry.bounds.bottom + .5, context);
+        for (const b of geometry.parts.slice(i + 1)) assert.ok(Math.min(a.right, b.right) <= Math.max(a.left, b.left) + .1 || Math.min(a.bottom, b.bottom) <= Math.max(a.top, b.top) + .1, `intersecting ${a.name} / ${b.name}; ${context}`);
+      }
+      const current = await boxes(page, ['.concept-bar', '.composer-shell', '.display-foot']);
+      if (baseline) assert.deepEqual(current, baseline, `${context}: 0 px between all draft-line states`); else baseline = current;
+      if (state === 'draft-ready-quote-missing') {
+        const status = geometry.parts.filter(p => p.name.startsWith('.concept-activity-text:'));
+        const label = geometry.parts.filter(p => p.name.startsWith('.concept-preview-label:'));
+        const scene = geometry.parts.find(p => p.name === '.concept-scene'), glyph = geometry.parts.find(p => p.name === '.concept-preview-glyph svg');
+        assert.equal(status.length, 1, context); assert.equal(label.length, 1, context);
+        assert.equal(status[0].name, `.concept-activity-text: ${{ de, en }[locale].conceptDraftReady.replace('{number}', '1')}`);
+        assert.ok(scene.top < status[0].bottom && status[0].top < scene.bottom, context);
+        assert.ok(label[0].top >= status[0].bottom && glyph.top >= scene.bottom, context);
+        assert.equal(scene.left, glyph.left, context); assert.equal(status[0].left, label[0].left, context);
+        await capture(`ait246-r4-${width}-${theme}-${locale}-draft-ready.png`);
+      }
+      checks.push({ head: evidenceCommit, width, locale, theme, state, displacementPx: 0, ...geometry });
+    }
+  }
+  assert.equal(checks.length, 44);
+  // Show the actual demo header's copy, in a settled desktop viewport.
+  await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', 'light');
+  await page.evaluate(() => localStorage.setItem('aithema-demo-locale', 'de'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id && document.documentElement.lang === 'de');
+  await shadow(page, c => {
+    c.setAttribute('motion', 'off');
+    c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+    c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+  });
+  await finishWorkspaceEntry(page);
+  await page.$eval('.demo-strip', n => n.scrollIntoView({ block: 'end' }));
+  assert.doesNotMatch(await page.$eval('.demo-strip', n => n.textContent), /Klick-Dummy|click-dummy|\bfake\b|\bmock\b/iu);
+  await capture('ait246-r4-1440-light-de-demo-header.png');
+  if (evidence) await writeFile(join(evidence, 'ait246-r4-geometry.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', checks }, null, 2));
 });

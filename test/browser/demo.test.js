@@ -1162,7 +1162,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     assert.deepEqual(await draftView(page), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Draft revision 1', count: '1 of 1',
       label: 'Draft — generated', image: false });
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-download').textContent), 'Download draft');
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Fake draft — local deterministic click-dummy, no AI or provider network');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Demo only: clickable draft, local demo, no AI provider');
     await shot(page, 'en-light-1440-viewer');
 
     // A refresh after new turns arrives while the pointer rests on Like: the shown revision stays

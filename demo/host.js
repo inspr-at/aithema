@@ -38,8 +38,7 @@ function paintPage() {
     ['#fake-say', copy.fakeVoiceSay], ['#fake-interrupt', copy.fakeVoiceInterrupt], ['#fake-disconnect', copy.fakeVoiceDisconnect]]) text(selector, value);
   // The component's host slots (AIT-104 B2), filled with labelled demo content only while the demo host runs.
   if (binding.demoHost === true) {
-    for (const [selector, value] of [['#demo-account-label', h.slots.account], ['#demo-account-note', h.slots.accountNote], ['#demo-account-source', h.slots.source],
-      ['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit], ['#demo-license', h.slots.license],
+    for (const [selector, value] of [['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit], ['#demo-license', h.slots.license],
       ['#demo-legal-source', h.slots.legalSource], ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
       ['#outbox-note', h.outbox.note], ['#ai-notice', aiNotice(component.session?.locale).text], ['#outbox-close', h.outbox.close]]) text(selector, value);
     if (!privacyLink) document.querySelector('#demo-legal').setAttribute('aria-label', h.slots.legal);
@@ -156,17 +155,6 @@ if (binding.demoHost === true) {
   document.querySelector('#outbox-open').hidden = false;
   document.querySelector('#outbox-open').addEventListener('click', () => { outbox.showModal(); void paintOutbox(); });
   document.querySelector('#outbox-close').addEventListener('click', () => outbox.close());
-  // The demo account menu closes on Escape or a click elsewhere.
-  const account = document.querySelector('#demo-account');
-  const placeAccountPanel = () => {
-    const band = component.shadowRoot?.querySelector('.band');
-    if (account.open && band) account.style.setProperty('--demo-account-panel-top', `${band.getBoundingClientRect().bottom + 6}px`);
-  };
-  account.addEventListener('toggle', placeAccountPanel);
-  document.defaultView?.addEventListener('resize', placeAccountPanel);
-  document.defaultView?.addEventListener('scroll', placeAccountPanel, { passive: true });
-  document.addEventListener('click', event => { if (account.open && !event.composedPath().includes(account)) account.open = false; });
-  account.addEventListener('keydown', event => { if (event.key === 'Escape' && account.open) { account.open = false; account.querySelector('summary').focus(); } });
 }
 if (binding.voiceMode === 'elevenlabs') {
   await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/vendor/elevenlabs/lib.iife.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });

@@ -126,6 +126,16 @@ export const bandStyles = `
 .concept-bar { padding-left:max(0px,calc(54px - var(--aithema-gutter))); }
 .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
 .concept-bar:has(.concept-preview:disabled) { grid-template-columns:minmax(0,1fr); }
+/* AIT-246: status and preview get independent, permanently reserved rows on phones. */
+@media(width < 600px) {
+  .concept-bar, .concept-bar:has(.concept-preview:disabled) { padding-left:0; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(44px,auto) 44px; row-gap:0; }
+  .concept-rail { grid-area:1/1; }
+  .concept-bar .concept-preview-slot { grid-area:2/1; display:grid; justify-items:start; }
+  .concept-activity[hidden] { display:grid !important; visibility:hidden; }
+  .concept-preview { padding-inline:0; gap:.5rem; white-space:nowrap; }
+  .concept-preview-glyph { width:22px; height:22px; }
+  .concept-preview-glyph svg { width:22px; }
+}
 .host-credits__text { color:var(--aithema-ink); font-weight:400; white-space:nowrap; }
 .host-credits__amount { font-weight:600; }
 .footer-popup { display:block; position:fixed; z-index:15; width:max-content; max-width:min(320px,calc(100vw - 24px));

@@ -93,14 +93,14 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     const { en: copy } = await import('../../packages/ui/src/i18n/en.js'), h = copy.host;
     const header = () => document.querySelector('#provider').textContent;
     assert.equal(component.session.conceptVisualKind, 'html');
-    assert.equal(header(), `Mock reasoning — deterministic demo · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
-    assert.equal(header(), 'Mock reasoning — deterministic demo · Test drafts (local click-dummy)');
+    assert.equal(header(), `Local demo, no AI provider · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
+    assert.equal(header(), 'Local demo, no AI provider · Demo only: clickable draft');
     option('visuals', 'Demo only: sample images').click();
     await wait('image visuals acknowledged in header', () => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
     option('visuals', 'Off').click();
     await wait('visuals disabled in header', () => header().endsWith(h.visualsOff));
     option('visuals', 'Demo only: clickable draft').click();
-    await wait('HTML visuals acknowledged in header', () => header().endsWith('Test drafts (local click-dummy)'));
+    await wait('HTML visuals acknowledged in header', () => header().endsWith('Demo only: clickable draft'));
     dialog.querySelector('.preset-option[data-preset="custom"]').click();
     await wait('custom preset saved', () => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
     assert.equal(component.session.id, previousId);

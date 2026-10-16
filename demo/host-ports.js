@@ -284,7 +284,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         AND NOT EXISTS (SELECT 1 FROM budget_attempts b WHERE b.attempt_id=owner_wallet_reservations.attempt_id)`).run();
     },
     handover(ownerToken) { return {
-      async offer({ sessionId }) { storage.authorize(sessionId, ownerToken); return { available: demo, label: 'Demo only: fake handover sink' }; },
+      async offer({ sessionId }) { storage.authorize(sessionId, ownerToken); return { available: demo, label: 'Demo only: local test recipient' }; },
       async deliver(request, options) {
         storage.authorize(request.sessionId, ownerToken);
         if (!demo || request.idempotencyKey !== handoverKey(request.sessionId, request.revision)) throw new TypeError('Demo handover unavailable');

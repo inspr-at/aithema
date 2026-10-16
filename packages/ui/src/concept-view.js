@@ -49,7 +49,7 @@ export class ConceptView {
       '.concept-download': 'conceptDownload', '.concept-up': 'conceptUp', '.concept-down': 'conceptDown', '.concept-reject': 'conceptReject', '.concept-preview-label': 'conceptView' };
     for (const [selector, key] of Object.entries(labels)) root.querySelector(selector).textContent = copy[key];
     root.querySelector('.drafts-reason-reserve').replaceChildren(...[
-      copy.display.draftsUnoffered, copy.display.draftsOff, copy.display.draftsUnavailable,
+      copy.display.draftsUnoffered, copy.display.draftsOff, copy.display.draftsUnavailable, copy.display.draftsLow,
       `${copy.display.draftsDisabled}${reasonSeparator}${copy.display.draftsEnable}`,
       ...['draftsPreset', 'draftsDevice', 'draftsQuote', 'draftsTimeout'].map(key =>
         `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),
