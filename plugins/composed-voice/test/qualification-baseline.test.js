@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
+import { assertFailureDiagnostic, assertNoFailureDiagnostic } from './qualification-failure-fixture.js';
 import { loadBaselineAuth, installBaselineAuth } from '../ops/qualification-production-baseline.mjs';
 
 const secret = 'FAKE_BASIC_AUTH_VALUE_NEVER_IN_EVIDENCE';
@@ -81,6 +81,7 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
   const page = new EventEmitter(), cdp = new EventEmitter();
   cdp.send = async (method, params) => { sent.push({ method, params }); };
   page.createCDPSession = async () => cdp;
+  page.exposeFunction = async () => {};
   page.evaluateOnNewDocument = async fn => { assert.ok(['installQualificationOutputProbe', 'installBaselineProbe'].includes(fn.name)); };
   page.url = () => binding.baselineOrigin + '/';
   const response = (path, body) => page.emit('response', { url: () => binding.baselineOrigin + path, ok: () => true,
@@ -565,4 +566,37 @@ for (const gapMs of [120, 250]) test(`baseline sustained silence resets after a 
   assert.equal(h.probe.complete(), true);
   assert.equal(h.probe.result().trace.find(row => row.kind === 'playback-stop').stoppedAt, 2500);
   await h.probe.close();
+});
+
+for (const refused of [false, true]) test(`baseline terminal outcome fences input and ignores late product events (refused ${refused})`, async t => {
+  const run = async input => {
+    const order = []; let capture;
+    const scripted = { subscribe(fn) { capture = fn; }, startUtterance() {}, firstAudio() {
+      if (refused) capture({ kind: 'capture-outcome', status: 'refused', reason: 'late-first-audio' });
+    }, stopInput() { order.push('input-fence'); }, async close() {} };
+    const h = await probeFixture(scripted);
+    await h.opener(); capture({ kind: 'capture', voiced: true, captureAt: 500, receivedAt: 600, durationMs: 64 });
+    await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+    h.emit(h.audio, 1, .2); capture({ kind: 'capture', voiced: true, captureAt: 1900, receivedAt: 2000, durationMs: 64 });
+    h.silence(h.audio, 2.1);
+    assert.equal(h.probe.complete(), true); assert.deepEqual(order, ['input-fence']);
+    for (const event of [{ type: 'waiting', reason: 'provider' }, { type: 'waiting', reason: 'not-admitted' },
+      { type: 'ended', reason: 'closure-uncertain' }]) await h.final(event);
+    const result = h.probe.result();
+    assert.equal(result.refusal, refused ? 'late-first-audio' : undefined);
+    assert.equal(result.trace.filter(e => e.kind === 'post-measurement').length, 3);
+    assert.equal(h.probe.diagnostics().failure, undefined);
+    result.trace.forEach(input.onTiming); await h.probe.close();
+  };
+  if (refused) await run({ onTiming() {} });
+  else await assertNoFailureDiagnostic(t, run, 'baseline');
+});
+
+for (const reason of ['limit', 'provider']) test(`baseline waiting:${reason} before terminal outcome aborts with failure.json`, async t => {
+  const run = async () => {
+    const h = await probeFixture();
+    try { await h.final({ type: 'waiting', reason }); assert.equal(h.probe.complete(), true); h.probe.result(); }
+    finally { await h.probe.close(); }
+  };
+  await assert.rejects(run()); await assertFailureDiagnostic(t, run, 'baseline');
 });

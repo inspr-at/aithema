@@ -660,3 +660,23 @@ test('paid conversation watchdog acknowledges a shorter deadline and kills witho
   await guard.limitDeadline(Date.now() + 500);
   assert.deepEqual(await ended, [null, 'SIGKILL']);
 });
+
+for (const action of ['measurement-terminal', 'close']) test(`server ${action} fences late admission without a reservation or dispatch`, async t => {
+  const { control, budget } = await controlFixture(t);
+  let admit;
+  const answer = Promise.withResolvers(); answer.promise.catch(() => {});
+  const mount = createQualificationMount({ enabled: true, control, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+    authenticateRelay: () => 'owner', networkRelay: { handle() {} },
+    async createSample(ports) { admit = ports.admit; return { grant: {}, result: answer.promise, async close() {} }; } });
+  t.after(() => mount.close());
+  const post = async input => {
+    const response = await mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+      headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': control.capability }, body: JSON.stringify(input) }));
+    assert.equal(response.status, 200); return response.json();
+  };
+  const { sampleId } = await post({ action: 'start', lane: 'candidate', runId: control.runId, item: { id: 'one' } });
+  await post({ action: 'poll', sampleId });
+  await post({ action, sampleId });
+  assert.deepEqual(await admit(attemptSpec('late-attempt')), { refused: 'sample-complete' });
+  assert.equal(budget.snapshot().records.length, 0);
+});

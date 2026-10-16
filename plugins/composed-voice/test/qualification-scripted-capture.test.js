@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
+import { assertFailureDiagnostic, assertNoFailureDiagnostic } from './qualification-failure-fixture.js';
 import { installScriptedCapture } from '../ops/qualification-scripted-capture.mjs';
 import { createQualificationMediaProbe, IncompleteMediaEvidence } from '../src/live-qualification.js';
 
@@ -37,7 +37,7 @@ function sourceFixture() {
     contexts[0].processor.onaudioprocess({ playbackTime: time + samples.length / 16000,
       inputBuffer: { duration: samples.length / 16000, getChannelData: () => samples } });
   };
-  return { runtime, capture: runtime.qualificationScriptedCapture, contexts, starts, advance, render };
+  return { runtime, capture: runtime.qualificationScriptedCapture, contexts, starts, stops, advance, render };
 }
 
 for (const delays of [[2500, 4000], [4000, 2500]]) for (const reversedDelivery of [false, true])
@@ -80,7 +80,7 @@ test('late observed onset refuses scheduling instead of playing an unanchored se
 
 import { pageFixture } from './qualification-page-fixture.js';
 
-for (const [type, reason] of [['waiting', 'limit'], ['waiting', 'transport-failed'], ['ended', 'closure-uncertain'],
+for (const [type, reason] of [['waiting', 'limit'], ['waiting', 'provider'], ['waiting', 'transport-failed'], ['ended', 'closure-uncertain'],
   ['ended', 'start-failed'], ['ended', 'transport-failed'], ['ended', 'protocol-error']]) {
   test(`candidate ${type}:${reason} aborts instead of inferring a timing refusal`, async t => {
     const h = await pageFixture(reason, { type, firstAudio: true, bargeIn: true });
@@ -103,7 +103,7 @@ test('source refusal reaches candidate immediately rather than falling through t
   assert.equal((await h.run()).refusal, 'late-first-audio');
 });
 
-for (const options of [{ missingDiagnostics: true }, { sourceFailure: 'start-failed' }, { productError: true }, { closeError: true }, { errorAfterStop: true }])
+for (const options of [{ missingDiagnostics: true }, { sourceFailure: 'start-failed' }, { productError: true }, { closeError: true }])
 test(`candidate errors abort even with complete timing: ${JSON.stringify(options)}`, async t => {
   const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true, productStop: true, ...options });
   await assert.rejects(h.run());
@@ -186,4 +186,31 @@ for (const gap of [120, 250]) test(`candidate sustained output stop refuses a ${
   const result = await h.run();
   assert.equal(result.refusal, 'missing-playback-stop');
   assert.equal(result.trace.some(row => row.kind === 'playback-stop'), false);
+});
+
+const lateEvents = [{ type: 'waiting', reason: 'provider' }, { type: 'waiting', reason: 'not-admitted' },
+  { type: 'ended', reason: 'closure-uncertain' }];
+for (const refused of [false, true]) test(`terminal candidate fences input and counts late events (refused ${refused})`, async t => {
+  const options = { firstAudio: true, bargeIn: true, productStop: true, lateEvents,
+    ...(refused ? { sourceRefusal: 'late-first-audio' } : {}) };
+  const h = await pageFixture(undefined, options), result = await h.run();
+  assert.equal(result.refusal, refused ? 'late-first-audio' : undefined);
+  assert.equal(result.trace.filter(e => e.kind === 'post-measurement').length, 3);
+  assert.deepEqual(h.order.slice(0, 3), ['input-fence', 'server-fence', 'session-close']);
+  if (!refused) await assertNoFailureDiagnostic(t, async input => {
+    const fixture = await pageFixture(undefined, options), media = await fixture.run();
+    media.trace.forEach(input.onTiming);
+  });
+});
+
+test('scripted input fence synchronously stops all clips and prevents restart before context cleanup', async () => {
+  const h = sourceFixture(); await h.runtime.navigator.mediaDevices.getUserMedia({ audio: true });
+  h.capture.startUtterance(); h.capture.firstAudio(42000);
+  h.capture.stopInput(); h.capture.stopInput();
+  assert.equal(h.stops.length, 2);
+  h.capture.startUtterance(); h.capture.firstAudio(42010); h.render(1, .25);
+  assert.equal(h.starts.length, 2);
+  assert.equal(h.contexts[0].closed, undefined);
+  await h.capture.close(); assert.equal(h.contexts[0].closed, true);
+  assert.equal(h.stops.length, 2);
 });
