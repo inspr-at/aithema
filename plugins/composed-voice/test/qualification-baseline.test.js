@@ -192,7 +192,17 @@ import { runInNewContext } from 'node:vm';
 import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
 
 async function probeFixture() {
-  const contexts = []; let now = 0;
+  const contexts = [], observers = []; let now = 0;
+  class Element { attachShadow() { return {}; } }
+  class MutationObserver {
+    constructor(callback) { this.callback = callback; observers.push(this); }
+    observe() {} disconnect() {}
+  }
+  const rail = { matches: selector => selector === '.audio-rail', getAttribute: () => rail.state, state: 'listening' };
+  const mode = state => {
+    const oldValue = rail.state; rail.state = state;
+    for (const observer of observers) observer.callback([{ target: rail, attributeName: 'data-state', oldValue }]);
+  };
   class Node {
     constructor(context) { this.context = context; }
     connect(destination) { return destination; }
@@ -209,7 +219,7 @@ async function probeFixture() {
   }
   class MediaStream {}
   class MediaElement { play() {} }
-  const runtime = { AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
+  const runtime = { Element, MutationObserver, document: {}, AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
     navigator: { mediaDevices: { getUserMedia: async () => new MediaStream() } },
     location: { origin: binding.baselineOrigin, href: binding.baselineOrigin + '/' }, URL,
     performance: { now: () => now }, fetch: async () => ({}), setTimeout, clearTimeout,
@@ -229,11 +239,17 @@ async function probeFixture() {
       inputBuffer: { duration: samples.length / context.sampleRate, getChannelData: () => samples } });
   };
   const final = event => runtime.fetch('/api/sessions/visitor/voice/call/events', { body: JSON.stringify({ event }) });
-  return { probe, capture, audio, other, emit, final };
+  const opener = async () => {
+    mode('speaking'); emit(audio, .1, .6);
+    await final({ type: 'final', role: 'assistant', turnId: 'opener', text: 'AI notice. How can I help?' });
+    now = 200; mode('listening'); emit(audio, .25, 0);
+  };
+  return { probe, capture, audio, other, emit, final, mode, opener };
 }
 
 test('injected probe ignores silence in unrelated audio contexts after barge-in', async () => {
-  const { probe, capture, audio, other, emit, final } = await probeFixture();
+  const { probe, capture, audio, other, emit, final, opener } = await probeFixture();
+  await opener();
   emit(capture, .5, .2); emit(capture, .6, 0);
   for (const event of [{ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' }, { type: 'final', role: 'assistant', text: 'Danke.' }]) {
     await final(event);
@@ -284,28 +300,77 @@ for (const ceiling of [undefined, null, -1, .5, '23', Number.MAX_SAFE_INTEGER]) 
   });
 }
 
-for (const assistantFinal of ['late', 'missing']) test(`probe retains reply onset and PCM with ${assistantFinal} assistant final, excludes opener and preserves barge-in`, async () => {
-  const { probe, capture, audio, emit, final } = await probeFixture();
-  emit(audio, .1, .6); // Opener before user speech, same agent graph.
-  emit(capture, .3, .2); emit(audio, .35, .6);
-  emit(capture, .5, 0); emit(audio, .55, .6); // Opener tail spans speech end.
-  emit(audio, .6, 0);
-  emit(audio, 1, .2); // First voiced reply, before BOTH final callbacks.
+for (const assistantFinal of ['late', 'missing']) test(`probe retains reply before ordinal-1 final with ${assistantFinal} reply final`, async () => {
+  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  await opener();
+  emit(capture, .5, .2); emit(capture, .7, 0);
+  emit(audio, 1, .2); emit(audio, 1.2, .1);
+  assert.equal(probe.diagnostics().firstAudioAt, undefined, 'ordinal 1 must anchor attribution');
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 2, text: 'Wrong ordinal' });
+  assert.equal(probe.diagnostics().firstAudioAt, undefined);
   await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
-  emit(audio, 1.2, .1);
-  if (assistantFinal === 'late') await final({ type: 'final', role: 'assistant', text: 'Danke.' });
+  if (assistantFinal === 'late') await final({ type: 'final', role: 'assistant', turnId: 'reply', text: 'Danke.' });
   emit(capture, 2, .2); emit(audio, 2.1, .1); emit(audio, 2.2, 0);
-  await final({ type: 'final', role: 'user', userTurnOrdinal: 2, text: 'Bitte aufhören' });
   assert.equal(probe.complete(), true);
   const result = probe.result(), start = result.trace.find(event => event.kind === 'playback-start');
   assert.ok(Math.abs(start.firstAudioAt - 1000) < .001);
-  // Decode through an owned byte copy: Buffer pools need not start at offset 0.
-  const bytes = Uint8Array.from(Buffer.from(result.ttsPCM, 'base64'));
-  const pcm = new Float32Array(bytes.buffer);
+  const bytes = Uint8Array.from(Buffer.from(result.ttsPCM, 'base64')), pcm = new Float32Array(bytes.buffer);
   assert.equal(pcm.length, 3 * 1024); assert.equal(pcm[0], Math.fround(.2));
   assert.equal(pcm[1024], Math.fround(.1)); assert.ok(pcm.every(value => value < .3));
   assert.ok(Math.abs(probe.diagnostics().bargeInAt - 1900) < .001);
   assert.ok(Math.abs(result.trace.find(event => event.kind === 'playback-stop').stoppedAt - 2200) < .001);
   assert.equal(result.hypothesis, 'Wien');
+  await probe.close();
+});
+
+test('probe internal utterance pause cannot promote output before the ordinal-1 final', async () => {
+  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  await opener();
+  emit(capture, .5, .2); emit(capture, .6, 0); // Internal pause, not utterance completion.
+  emit(audio, .65, 0);
+  emit(capture, .8, .2); emit(capture, .9, 0);
+  emit(audio, 1, .2);
+  assert.equal(probe.diagnostics().firstAudioAt, undefined);
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  emit(capture, 2, .2); emit(audio, 2.2, 0);
+  assert.equal(probe.complete(), true);
+  const evidence = probe.result();
+  assert.equal(evidence.trace.find(e => e.kind === 'playback-start').firstAudioAt, 1000);
+  assert.equal(evidence.trace.filter(e => e.kind === 'capture' && e.voiced && e.captureAt < 1000).length, 2);
+  await probe.close();
+});
+
+for (const delayed of [false, true]) test(`probe refuses ${delayed ? 'an opener starting after speech end' : 'an opener still playing at speech start'}`, async () => {
+  const { probe, capture, audio, emit, final, mode } = await probeFixture();
+  mode('speaking');
+  if (!delayed) emit(audio, .1, .6);
+  emit(capture, .3, .2); emit(capture, .5, 0);
+  if (delayed) emit(audio, .7, .6);
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  emit(audio, .8, .6); emit(capture, 1, .2); emit(audio, 1.2, 0);
+  assert.equal(probe.complete(), true, 'invalid evidence terminates the attempt immediately');
+  assert.equal(probe.diagnostics().failure, 'opener-overlap');
+  assert.equal(probe.diagnostics().firstAudioAt, undefined);
+  assert.throws(() => probe.result(), /Invalid production media evidence: opener-overlap/);
+  await probe.close();
+});
+
+test('opener sentence pause and an assistant text final do not establish playback completion', async () => {
+  const { probe, capture, audio, emit, final, mode } = await probeFixture();
+  mode('speaking'); emit(audio, .1, .6); emit(audio, .2, 0);
+  await final({ type: 'final', role: 'assistant', turnId: 'opener', text: 'AI notice. How can I help?' });
+  emit(capture, .3, .2);
+  assert.equal(probe.diagnostics().failure, 'opener-overlap');
+  await probe.close();
+});
+
+test('missing ordinal-1 final cannot release buffered reply evidence', async () => {
+  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  await opener(); emit(capture, .5, .2); emit(capture, .7, 0);
+  emit(audio, 1, .2); emit(capture, 2, .2); emit(audio, 2.2, 0);
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 2, text: 'Bitte aufhören' });
+  assert.equal(probe.complete(), false);
+  assert.equal(probe.diagnostics().firstAudioAt, undefined);
+  assert.throws(() => probe.result(), /Incomplete production media evidence/);
   await probe.close();
 });

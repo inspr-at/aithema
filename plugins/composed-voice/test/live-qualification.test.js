@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification } from '../src/live-qualification.js';
+import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan } from '../src/live-qualification.js';
 import { initializeQualificationBudget } from '../src/persisted-budget.js';
 
 const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40 },
   { kind: 'playback-start', firstAudioAt: 900, outputTimestamp: { contextTime: 0.9, performanceTime: 900 } },
   { kind: 'capture', voiced: true, captureAt: 1000, durationMs: 40 }, { kind: 'playback-stop', stoppedAt: 1100 } ];
-const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH' }],
+const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH', leadingSilenceMs: 20000 }],
   checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'is_final' } : {}) }])),
   ceilingChecks: [{ provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture', operation: 'stream', maxMicro: 100, request: { seconds: 1 } }] });
 
@@ -132,4 +132,9 @@ export async function createQualificationHost({ controlFile, controlCapability }
   assert.notEqual(child.status, 0); assert.match(child.stderr.toString(), /FAKE_FACTORY_REFUSAL/);
   const result = JSON.parse(await readFile(handoff)); assert.equal(result.valid, true);
   await assert.rejects(readFile(result.controlFile), { code: 'ENOENT' });
+});
+
+for (const leadingSilenceMs of [undefined, 0, 19999, '20000']) test(`plan refuses insufficient or undeclared leading silence: ${leadingSilenceMs}`, () => {
+  const input = plan(); input.corpus[0].leadingSilenceMs = leadingSilenceMs;
+  assert.throws(() => validateQualificationPlan(input), /leading silence/i);
 });
