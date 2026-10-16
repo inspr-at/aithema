@@ -169,6 +169,7 @@ test('AIT-261: legacy owner guard recovery keeps the exact deadline on its origi
 
 for (const paused of [true, false]) for (const deletion of ['retention', 'session', 'owner', 'withdrawal with erasure']) {
   test(`AIT-268: ${deletion} removes pause=${paused}, deadline and refusal rows`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
     const f = fixture(t, { ownerGuard: true }), session = await f.create();
     const ownerHash = f.storage.get(session.id).ownerHash;
     const seed = (id, token) => {
@@ -207,7 +208,8 @@ for (const paused of [true, false]) for (const deletion of ['retention', 'sessio
   });
 }
 
-test('AIT-268: a manual pause carries over New/reset and restart, then follows its source session erasure', async t => {
+test('AIT-268: a manual pause carries over New/reset and restart, then follows replacement session erasure', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), source = await f.create();
   const ownerHash = f.storage.get(source.id).ownerHash;
   assert.equal((await f.call(`/api/sessions/${source.id}/pause`, { paused: true })).status, 200);
@@ -218,16 +220,17 @@ test('AIT-268: a manual pause carries over New/reset and restart, then follows i
   const restarted = fixture(t, { path, ownerGuard: true });
   assert.equal((await restarted.create()).paused, true);
   const record = JSON.parse(restarted.storage.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).record);
-  assert.deepEqual(record, { sessionId: source.id, paused: true });
-  assert.equal(restarted.storage.creditState(source.id), null, 'a pause preference is never migrated as a deadline');
-  restarted.storage.transitionCredits(source.id, owner, { type: 'start', now: epoch });
-  assert.equal(restarted.storage.creditState(source.id).endsAt, epoch + HOUR);
-  assert.equal((await restarted.call(`/api/sessions/${source.id}/erase`, {})).status, 200);
+  assert.deepEqual(record, { sessionId: reset.id, paused: true });
+  assert.equal(restarted.storage.creditState(reset.id), null, 'a pause preference is never migrated as a deadline');
+  restarted.storage.transitionCredits(reset.id, owner, { type: 'start', now: epoch });
+  assert.equal(restarted.storage.creditState(reset.id).endsAt, epoch + HOUR);
+  assert.equal((await restarted.call(`/api/sessions/${reset.id}/erase`, {})).status, 200);
   assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).n, 0);
   assert.equal((await restarted.create()).paused, false);
 });
 
 test('AIT-268: startup binds legacy pause rows and removes orphaned or erased guards', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), live = await f.create();
   const ownerHash = f.storage.get(live.id).ownerHash;
   const erased = f.storage.create({ ownerToken: 'erased-owner' }); f.storage.erase(erased.id);
