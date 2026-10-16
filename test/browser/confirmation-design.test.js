@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { browserForFile } from './shared-browser.js';
+import { browserStep } from './browser-step.js';
 import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { createIdentity, reduceIdentity } from '@inspr/aithema-core';
 import { SQLiteStorage } from '../../packages/server/src/index.js';
@@ -151,17 +152,24 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
             duplicateBlocked: !form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })) });
         }, { once: true }));
         const postCount = f.posts();
-        await page.click('button[type=submit]');
-        await held.arrived;
-        const submitted = await submission, during = submitted.geometry;
-        assert.equal(submitted.busy, 'true'); assert.equal(submitted.disabled, 'true');
-        assert.equal(submitted.status, confirmationCopy[locale].ready.busy); assert.equal(submitted.duplicateBlocked, true);
-        await shot(`c2-landing-confirming-${locale}-${theme}-${width}`);
-        // The server cannot respond while held. Start its timeout after busy-state
-        // evidence, so screenshot time is not charged to the POST response.
-        const postResponse = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/confirm-email');
-        const navigation = page.waitForNavigation({ waitUntil: 'networkidle0' });
-        held.release(); const [response] = await Promise.all([postResponse, navigation]);
+        // Chrome can withhold the input acknowledgement until the native form
+        // navigation completes. Keep that click in flight while its POST is held.
+        const clicked = browserStep('confirmation-design.test.js: native submit click', () => page.click('button[type=submit]'));
+        void clicked.catch(() => {}); // Awaited below after the response is released.
+        let during, postResponse, navigation;
+        try {
+          await browserStep('confirmation-design.test.js: server POST arrival', () => held.arrived);
+          const submitted = await browserStep('confirmation-design.test.js: submit binding', () => submission);
+          during = submitted.geometry;
+          assert.equal(submitted.busy, 'true'); assert.equal(submitted.disabled, 'true');
+          assert.equal(submitted.status, confirmationCopy[locale].ready.busy); assert.equal(submitted.duplicateBlocked, true);
+          await shot(`c2-landing-confirming-${locale}-${theme}-${width}`);
+          // Start response/navigation waits after busy-state evidence, then
+          // release the fixture gate before awaiting the click acknowledgement.
+          postResponse = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/confirm-email');
+          navigation = page.waitForNavigation({ waitUntil: 'networkidle0' });
+        } finally { held.release(); }
+        const [response] = await Promise.all([postResponse, navigation, clicked]);
         await page.waitForSelector('[data-confirmation-state=confirmed]');
         assert.equal(f.lastPost().origin, f.url, 'the native form carries the configured Origin');
         assert.equal(f.lastPost().referer, f.url + '/', 'the bearer token never enters the Referer');

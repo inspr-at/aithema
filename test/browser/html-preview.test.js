@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
@@ -78,7 +78,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   let browser;
   t.after(async () => { await browser?.close(); server.closeAllConnections(); server.close(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() },
+    env: { PATH: process.env.PATH },
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.diagnostic(`Browser: ${await browser.version()}`);
   const page = await browser.newPage(); await page.setViewport({ width: 1280, height: 1000 });

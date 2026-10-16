@@ -63,7 +63,10 @@ const openGeneral = async (page, returned = false) => {
   // open; AIT-171 deliberately retains an unknown-tier union until close.
   await until(page, () => {
     const entry = document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify');
-    return entry.dataset.emailState && entry.querySelector('.m-lead-save')?.textContent;
+    const lead = entry.querySelector('.m-lead-save');
+    // Loading/failure copy is nonempty too; only resolved tiers remove this
+    // status class. Opening earlier pins AIT-171's larger union reservation.
+    return entry.dataset.emailState && lead?.textContent && !lead.classList.contains('m-credit-status');
   });
   await page.evaluate(() => document.fonts.ready);
   if (returned) await until(page, () => {
