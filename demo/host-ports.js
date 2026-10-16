@@ -253,7 +253,12 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     touchVisitor: session => visitorCredits.touch(session.ownerHash),
     saveEmail(ownerToken, input) { const result = visitorCredits.saveEmail(hash(ownerToken), input); purgeMail(); return result; },
     deleteEmail(ownerToken) { const result = visitorCredits.deleteEmail(hash(ownerToken)); purgeMail(); return result; },
-    eraseVisitor(ownerToken) { visitorCredits.eraseVisitor(hash(ownerToken)); purgeMail(); },
+    pendingDispatchForSession(id) {
+      return Boolean(storage.db.prepare(`SELECT 1 FROM owner_wallet_reservations w LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id
+        WHERE json_extract(w.fingerprint,'$[0]')=? AND w.released=0 AND b.attempt_id IS NULL LIMIT 1`).get(id));
+    },
+    eraseVisitor(ownerToken) { host.eraseVisitorForOwnerHash(hash(ownerToken)); },
+    eraseVisitorForOwnerHash(ownerHash) { visitorCredits.eraseVisitor(ownerHash); purgeMail(); },
     retainVisitors(options) { const result = visitorCredits.retain(options); purgeMail(); return result; },
     outbox,
     async retired({ sessionId }) {

@@ -251,6 +251,14 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       const current = settings();
       insertAudit(null, { revision: current.revision, event, ...evidence }, { actor: 'system:mail', source: 'confirmation-mail' }, timestamp());
     },
+    auditErasure({ sessionId, visitor, result }, { actor }) {
+      if (!(sessionId === null || typeof sessionId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(sessionId)) ||
+        !(visitor === null || typeof visitor === 'boolean') ||
+        !['erased', 'already-erased', 'not-found', 'voice-call-active', 'pending-dispatch', 'invalid-admin-command', 'erasure-unavailable', 'erasure-failed'].includes(result) ||
+        typeof actor !== 'string' || !actor.startsWith('ops-cli:')) throw new TypeError('Invalid erasure audit');
+      insertAudit(null, { revision: settings().revision, event: 'session.erase', sessionId, visitor, result },
+        { actor, source: 'ops-cli' }, timestamp());
+    },
     auditMailCap({ window, count }) {
       if (!['hour', 'day'].includes(window) || !integer(count)) throw new TypeError('Invalid mail cap audit');
       insertAudit(null, { revision: settings().revision, event: 'mail-cap', window, count },

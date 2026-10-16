@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { adminRequest } from './admin-socket.js';
 import { validateMailCap } from './mail-cap-policy.js';
 
-const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | provider-cap-audit [--after ID] [--limit N] | mail-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
+const usage = 'Usage: node demo/admin-cli.js [--socket PATH] erase-session <sessionId> [--visitor] | settings | audit [--after ID] [--limit N] | provider-cap | provider-cap-audit [--after ID] [--limit N] | mail-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
   + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD | set-confirmation --base-revision N --enabled true|false | '
   + 'set-mail-cap --base-revision N --hour N --day N | set-mail-ip-cap --base-revision N --hour N --day N | set-provider-cap --base-revision N --usd USD [--allow-large] | reset-provider-cap --base-revision N';
 try {
@@ -11,16 +11,20 @@ try {
   let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
   if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
   const command = args.shift();
-  if (!['settings', 'set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reset-provider-cap', 'audit', 'provider-cap', 'provider-cap-audit', 'mail-cap', 'reconcile-uncertain'].includes(command)) throw new Error(usage);
+  if (!['settings', 'set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reset-provider-cap', 'audit', 'provider-cap', 'provider-cap-audit', 'mail-cap', 'reconcile-uncertain', 'erase-session'].includes(command)) throw new Error(usage);
+  const sessionId = command === 'erase-session' ? args.shift() : undefined;
   const options = {};
   while (args.length) {
-    const key = args.shift(), value = ['--apply', '--dry-run', '--allow-large'].includes(key) ? true : args.shift();
+    const key = args.shift(), value = ['--apply', '--dry-run', '--allow-large', '--visitor'].includes(key) ? true : args.shift();
     if (!key?.startsWith('--') || value === undefined || Object.hasOwn(options, key)) throw new Error(usage);
     options[key] = value;
   }
   let payload;
   const keys = Object.keys(options);
-  if (command === 'reconcile-uncertain') {
+  if (command === 'erase-session') {
+    if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(sessionId) || keys.some(key => key !== '--visitor')) throw new Error(usage);
+    payload = { sessionId, visitor: options['--visitor'] === true };
+  } else if (command === 'reconcile-uncertain') {
     if (keys.some(key => !['--apply', '--dry-run', '--limit'].includes(key)) || options['--apply'] && options['--dry-run'] ||
       options['--limit'] !== undefined && (!/^[1-9]\d*$/u.test(options['--limit']) || Number(options['--limit']) > 100)) throw new Error(usage);
     payload = { apply: options['--apply'] === true, ...(options['--limit'] === undefined ? {} : { limit: Number(options['--limit']) }) };

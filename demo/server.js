@@ -170,7 +170,7 @@ voiceHost?.onAvailable?.(candidate => prepareVoiceRuntime({ current: readVoiceSt
 }));
 const expiry = startExpiry(handlers);
 const visitorRetention = startVisitorRetention(host);
-const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options => handlers.reconcileUncertain(options), socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
+const admin = await listenAdmin({ host, spendCap, eraseSession: options => handlers.eraseSession(options), reconcileUncertain: options => handlers.reconcileUncertain(options), socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
   join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();

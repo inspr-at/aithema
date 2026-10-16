@@ -290,8 +290,12 @@ export class SQLiteStorage {
   list() { return this.db.prepare('SELECT id FROM sessions').all().map(r => r.id); }
   ownedIds(ownerToken) {
     if (!ownerToken) return [];
+    return this.ownedIdsForHash(hash(ownerToken));
+  }
+  /** Trusted host/operator use; never accept an owner hash from a public request. */
+  ownedIdsForHash(ownerHash) {
     return this.db.prepare("SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=? AND json_extract(snapshot,'$.tombstone') IS NULL")
-      .all(hash(ownerToken)).map(row => row.id);
+      .all(ownerHash).map(row => row.id);
   }
   hostState(id) {
     const row = this.db.prepare('SELECT record FROM host_states WHERE session_id=?').get(id);
