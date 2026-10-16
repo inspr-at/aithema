@@ -79,7 +79,7 @@ function textKeys(values) {
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
+  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
   #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
@@ -144,7 +144,7 @@ export class AithemaSession extends HTMLElement {
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
-    this.#pausePrompt = Boolean(session.paused);
+    this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false;
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
     this.#journal = voiceJournal(tabStorage(), session.id);
@@ -276,7 +276,7 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div>${this.#voiceBound ? '<div class="voice-notices"></div>' : ''}</div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
-        <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="purpose-pause-copy" role="status" hidden></div>
+        <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
@@ -392,7 +392,8 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
     root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
-    root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); void this.#send(); });
+    root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); if (this.#composerPaused) void this.#resumeComposer(); else void this.#send(); });
+    root.querySelector('.composer-resume').addEventListener('click', () => { void this.#resumeComposer(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       if (e.key === 'Enter' && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.#send(); }
@@ -522,7 +523,7 @@ export class AithemaSession extends HTMLElement {
       focusAfterUnlock: () => {
         const stage = this.#stage(), input = root.querySelector('textarea');
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
-          : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
+          : this.#session.paused || input.disabled ? root.querySelector('.pause, .composer-resume') : input)?.focus();
       } });
     this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
       // Growth preserves the upload target; shrink reservations release on row exit or scrolling.
@@ -581,8 +582,25 @@ export class AithemaSession extends HTMLElement {
       if ((response.ok || response.status === 404) && sessionId === this.#session.id) this.#journal.clear();
     } catch { /* The server lease still ends the call; Start reports a conflict precisely. */ }
   }
+  get #composerPaused() { return !this.#voiceBound && this.#session.paused && this.#session.pauseReason !== 'purpose'; }
+  async #resumeComposer() {
+    if (!this.#composerPaused || this.#composerResuming) return;
+    const sessionId = this.#session.id;
+    this.#composerResuming = true; this.#render('composer');
+    try {
+      await this.#setPaused(false);
+      if (sessionId === this.#session.id && !this.#session.paused) {
+        // Restored snapshots may still carry a paused feature verdict. Wait for
+        // the existing server refresh before placing focus in the unlocked field.
+        if (this.isConnected && this.shadowRoot.querySelector('textarea').disabled) await this.#refreshFeatures();
+        if (sessionId === this.#session.id && !this.#session.paused) this.shadowRoot.querySelector('textarea').focus();
+      }
+    } finally {
+      if (sessionId === this.#session.id) { this.#composerResuming = false; this.#render('composer'); }
+    }
+  }
   #offerResume() {
-    if (this.#pausePrompt && this.#session.paused) this.shadowRoot.querySelector('.pause')?.focus();
+    if (this.#pausePrompt && this.#session.paused) this.shadowRoot.querySelector('.pause, .composer-resume')?.focus();
   }
   #pagehide = () => {
     const record = this.#journal?.read(), rail = this.#rail;
@@ -1011,13 +1029,25 @@ export class AithemaSession extends HTMLElement {
       const placeholder = root.querySelector('.workspace').hasAttribute('data-phone-short') ? copy.placeholderCompact ?? copy.placeholder
         : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
       input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : placeholder;
-      root.querySelector('.send').disabled = this.#sending || !text.available;
+      const paused = this.#composerPaused, send = root.querySelector('.send'), resume = root.querySelector('.composer-resume');
+      const pausedLine = root.querySelector('.composer-paused');
+      pausedLine.hidden = !paused; setText(pausedLine.querySelector('span'), copy.composerPaused);
+      setText(resume, copy.resume); resume.disabled = this.#composerResuming;
+      root.querySelector('.composer').toggleAttribute('data-paused', paused);
+      const command = paused ? copy.resume : copy.send;
+      setText(send.querySelector('.visually-hidden'), command); send.setAttribute('aria-label', command);
+      send.title = command;
+      if (send.dataset.command !== (paused ? 'resume' : 'send')) {
+        send.querySelector('svg').outerHTML = icon(paused ? 'play' : 'arrowRight');
+        send.dataset.command = paused ? 'resume' : 'send';
+      }
+      send.disabled = paused ? this.#composerResuming : this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
-      const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
+      const words = this.#composerPaused ? '' : this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       if (this.#retryFiles.length) {
         const refusal = this.#retryRefusal();
         if (!reason.querySelector('.upload-discard')) {
@@ -1051,7 +1081,7 @@ export class AithemaSession extends HTMLElement {
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
-      input.style.visibility = purposePause.hidden ? '' : 'hidden';
+      input.style.visibility = purposePause.hidden && !paused ? '' : 'hidden';
       const newConversation = root.querySelector('.purpose-new');
       newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
       root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
@@ -1313,6 +1343,7 @@ export class AithemaSession extends HTMLElement {
     setText(root.querySelector('#ai-notice'), this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text);
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
     setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
+    root.querySelector('.ai-notice').setAttribute('aria-label', `Aithema 2026.10 · ${this.#copy.layout.aiShort}`);
     if (this.#voiceBound) setText(root.querySelector('.ai-notice__voice'), this.#copy.layout.syntheticVoice);
     setText(root.querySelector('.phone-status__label'), this.#connection || this.#copy.connecting);
   }
@@ -1371,16 +1402,30 @@ export class AithemaSession extends HTMLElement {
       pane.toggleAttribute('data-bottom', pane.scrollTop + pane.clientHeight < pane.scrollHeight - 4);
     }
   }
+  // Measure the actual brand and reserved actions, so host copy/account changes
+  // use the same 208 px rail floor as viewport changes. Row placement does not
+  // change either measurement and therefore cannot oscillate.
+  #syncRailFit() {
+    const root = this.shadowRoot, band = root.querySelector('.band');
+    if (!band?.querySelector('.audio-rail')) return;
+    const style = this.ownerDocument.defaultView.getComputedStyle(band);
+    const available = band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+      - root.querySelector('.band-identity').getBoundingClientRect().width
+      - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap);
+    band.toggleAttribute('data-rail-row', available < 208);
+  }
   #observePanes() {
     this.#paneObserver?.disconnect();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
       this.#paneObserver = new Observer(() => {
         const band = this.shadowRoot.querySelector('.band');
+        this.#syncRailFit();
         this.shadowRoot.querySelector('.edge-column').style.setProperty('--band-height', `${band.getBoundingClientRect().height}px`);
         this.#syncPanes();
       });
-      this.#paneObserver.observe(this.shadowRoot.querySelector('.band'));
+      for (const selector of ['.band', '.band-identity', '.header-actions']) this.#paneObserver.observe(this.shadowRoot.querySelector(selector));
+      this.#syncRailFit();
       for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
         this.#paneObserver.observe(pane); for (const child of pane.children) this.#paneObserver.observe(child);
       }

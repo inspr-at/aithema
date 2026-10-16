@@ -227,6 +227,11 @@ export const bandStyles = `
 ${headerGeometry('.band')}
 .band > .audio-rail { grid-column:2; grid-row:1; }
 @media(max-width:599px) { .band > .audio-rail { grid-column:1/-1; grid-row:2; } }
+/* The second row is driven by measured free space, including host brand/account copy. */
+@media(min-width:600px) {
+  .band[data-rail-row] { grid-template-rows:60px 48px; }
+  .band[data-rail-row] > .audio-rail { grid-column:1/-1; grid-row:2; }
+}
 /* AIT-260: approved host frame. Host text gets only its natural width, capped
    before it can squeeze the rail or the permanently reserved action targets. */
 .band > .header-actions { grid-column:3; grid-row:1; }
@@ -285,7 +290,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .conversations-toggle > svg:first-child { display:block; }
   .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; gap:8px; }
   .footer-right, .display-foot:has(.host-credits[hidden]) .footer-right { gap:0; }
-  .footer-right .status { display:none; }
+  .footer-right .status { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
   .ai-notice { min-width:44px; font-size:12.5px; }
   .ai-notice .speaker-sign { display:block; }
   .engine-info { width:44px; }

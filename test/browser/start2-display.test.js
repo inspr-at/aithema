@@ -277,7 +277,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { window.opaqueBandSeed = c.session; });
   const approvedBackground = 'linear-gradient(to bottom,color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)),color-mix(in srgb,var(--aithema-accent) 4%,transparent) 70%,transparent)';
-  const selectors = ['.band', '.band-orb', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
+  const selectors = ['.band', '.audio-rail', '.band-orb', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
   const shot = async (label, state) => {
     const file = `ait155-band-${label}-${state}.png`;
     let png, paintAttempts = 0, firstLineInkPixels;
@@ -323,7 +323,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       session.transcript = Array.from({ length: 16 }, (_, i) => ({ id: `opaque-${i}`, role: 'assistant',
         content: (locale === 'de' ? 'Diese Nachricht muss vollständig hinter dem Band verschwinden. ' : 'This message must disappear completely behind the band. ').repeat(8) }));
       c.style.setProperty('--aithema-height', '1600px');
-      c.configure({ copy, session, host: { library: true } });
+      c.configure({ copy, session, voiceClient: {}, host: { library: true } });
       c.shadowRoot.activeElement?.blur();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
@@ -717,12 +717,12 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       await scene(locale, theme, 390);
       await shadow(page, async (c, locale) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-        c.configure({ copy, session: c.session, host: { library: true } });
+        c.configure({ copy, session: c.session, voiceClient: {}, host: { library: true } });
       }, locale);
       for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
         const label = `${locale}/${theme}/${width}`;
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-        const selectors = ['.band', '.band-orb', '.header-actions', '.conversations-toggle', '.settings-open'];
+        const selectors = ['.band', '.audio-rail', '.band-orb', '.header-actions', '.conversations-toggle', '.settings-open'];
         const before = await boxes(page, selectors);
         await page.click('aithema-session >>> .conversations-toggle');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
@@ -1445,7 +1445,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       return response;
     };
   });
-  const stable = ['.band', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
+  const stable = ['.band', '.audio-rail', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
   const record = (label, state, detail = {}) => {
     checks.push({ head: evidenceCommit, label, state, ...detail });
   };
@@ -1480,7 +1480,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.configure({ copy, session: s, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1,
+      c.configure({ copy, session: s, voiceClient: {}, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1,
         host: { library: true } });
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
       const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
@@ -1817,7 +1817,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
         const scene = geometry.parts.find(p => p.name === '.concept-scene'), glyph = geometry.parts.find(p => p.name === '.concept-preview-glyph svg');
         // AIT-260: the fold clearance can wrap the 320px German status. Both
         // lines stay inside the same reserved row; preview clears the last line.
-        assert.ok(status.length >= 1 && status.length <= 2, context); assert.equal(label.length, 1, context);
+        assert.equal(status.length, width === 320 && locale === 'de' ? 2 : 1, context); assert.equal(label.length, 1, context);
         assert.equal(status[0].name, `.concept-activity-text: ${{ de, en }[locale].conceptDraftReady.replace('{number}', '1')}`);
         assert.ok(scene.top < status.at(-1).bottom && status[0].top < scene.bottom, context);
         assert.ok(label[0].top >= status.at(-1).bottom && glyph.top >= scene.bottom, context);

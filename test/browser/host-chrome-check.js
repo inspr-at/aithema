@@ -23,7 +23,7 @@ export async function hostChromeCheck(t) {
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { window.chromeSeed = c.session; });
-  const evidence = fullMatrix && join(process.env.AITHEMA_EVIDENCE_DIR, 'ait260-host-chrome');
+  const evidence = fullMatrix && join(process.env.AITHEMA_EVIDENCE_DIR, 'ait260-round3');
   if (evidence) await mkdir(evidence, { recursive: true });
   const checks = [];
   const settle = () => shadow(page, async c => {
@@ -38,6 +38,116 @@ export async function hostChromeCheck(t) {
     const { png } = await captureEvidence(page);
     await writeFile(join(evidence, `${label}.png`), png);
   };
+  // No provider calls: paused snapshots, ack and refreshed verdicts stay in-page.
+  await shadow(page, c => {
+    const nativeFetch = window.fetch;
+    window.fetch = (url, init = {}) => {
+      const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/pause')) {
+        window.resumeBody = JSON.parse(init.body);
+        return new Promise(resolve => { window.ackResume = () => resolve(Response.json({ event: {
+          seq: c.session.seq + 1, type: 'session.paused', data: { paused: false },
+        } })); });
+      }
+      if (/\/api\/sessions\/[^/]+$/u.test(path)) {
+        const session = c.session;
+        if (!session.paused) session.featureMatrix.best.text = { available: true };
+        return Promise.resolve(Response.json(session));
+      }
+      return nativeFetch(url, init);
+    };
+  });
+  const scene = async ({ locale = 'de', voice = false, brandMode = 'start', paused = false } = {}) => {
+    await shadow(page, async (c, { locale, voice, brandMode, paused }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(window.chromeSeed);
+      session.locale = locale; session.paused = paused; session.pauseReason = null;
+      session.settings.origin = 'chosen'; session.processingPreset = 'best';
+      session.transcript = [{ id: 'r3-user', role: 'user', content: locale === 'de' ? 'Wir möchten unsere Abläufe verbessern.' : 'We want to improve our workflow.' },
+        { id: 'r3-reply', role: 'assistant', content: locale === 'de' ? 'Welcher Ablauf kostet heute am meisten Zeit?' : 'Which workflow takes the most time today?' }];
+      session.featureMatrix.best = { text: paused ? { available: false, reason: 'session paused', unpaused: { available: true } } : { available: true }, voice: { available: false }, analysis: { available: true } };
+      c.querySelectorAll('[slot="brand"]').forEach(n => n.remove());
+      const brand = document.createElement('h1'); brand.slot = 'brand';
+      brand.textContent = brandMode === 'long' ? 'START · Augmentoring — a deliberately very long host brand for truncation' : 'START'; c.append(brand);
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.setAttribute('motion', 'off'); c.configure({ copy, session, voiceClient: voice ? {} : undefined, host: { library: true } });
+      document.documentElement.lang = locale; scrollTo(0, 0);
+    }, { locale, voice, brandMode, paused });
+    await settle();
+  };
+  const composerBoxes = () => shadow(page, c => ['.composer', 'textarea', '.send'].map(selector => {
+    const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+  }));
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
+    await scene({ locale });
+    const baseline = await composerBoxes(), resume = locale === 'de' ? 'Fortsetzen' : 'Resume';
+    for (const cause of ['restore', 'blur', 'limits']) for (const control of ['.composer-resume', '.send']) {
+      if (cause === 'restore') await scene({ locale, paused: true });
+      else await shadow(page, (c, reason) => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason } }), cause);
+      await settle();
+      const label = `${locale}-${theme}-${width}-${cause}-${control.slice(1)}`;
+      const state = await shadow(page, c => {
+        const r = c.shadowRoot, button = r.querySelector('.composer-resume'), send = r.querySelector('.send');
+        r.querySelector('textarea').value = 'Unsent draft';
+        return { disabled: r.querySelector('textarea').disabled, line: r.querySelector('.composer-paused span').textContent,
+          visible: r.querySelector('.composer-paused').checkVisibility(), resume: button.textContent, label: send.getAttribute('aria-label'), title: send.title,
+          targets: [button, send].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
+          restoreFocus: r.activeElement === button };
+      });
+      assert.equal(state.disabled, true); assert.equal(state.visible, true);
+      assert.equal(state.line, locale === 'de' ? 'Gespräch pausiert.' : 'Conversation paused.');
+      assert.equal(state.resume, resume); assert.equal(state.label, resume); assert.equal(state.title, resume);
+      assert.ok(state.targets.every(([w, h]) => w >= 44 && h >= 44), `${label}: 44 px controls`);
+      if (cause === 'restore') assert.equal(state.restoreFocus, true);
+      assert.deepEqual(await composerBoxes(), baseline, `${label}: paused composer/field/Send 0 px`);
+      if (cause === 'restore' && control === '.composer-resume') await shot(`${locale}-${theme}-${width}-paused`);
+      await page.click(`aithema-session >>> ${control}`);
+      assert.equal(await shadow(page, c => c.session.paused), true, 'wait for acknowledgement');
+      assert.deepEqual(await page.evaluate(() => window.resumeBody), { paused: false });
+      await page.evaluate(() => window.ackResume());
+      await until(page, () => {
+        const c = document.querySelector('aithema-session'), r = c.shadowRoot;
+        return !c.session.paused && !r.querySelector('textarea').disabled && r.activeElement === r.querySelector('textarea');
+      });
+      await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), 'Unsent draft');
+      assert.deepEqual(await composerBoxes(), baseline, `${label}: resumed composer/field/Send 0 px`);
+      checks.push({ pass: true, label, composerShiftPx: 0, sendShiftPx: 0, acknowledgedResume: true, fieldFocused: true });
+    }
+    // The phone's pre-live status remains in the accessibility tree, including notices.
+    await scene({ locale });
+    const a11y = await shadow(page, c => {
+      const r = c.shadowRoot, status = r.querySelector('.status');
+      return { display: getComputedStyle(status).display, visibility: getComputedStyle(status).visibility,
+        role: status.getAttribute('role'), name: r.querySelector('.ai-notice').getAttribute('aria-label') };
+    });
+    assert.notEqual(a11y.display, 'none'); assert.equal(a11y.visibility, 'visible'); assert.equal(a11y.role, 'status');
+    assert.ok(a11y.name.includes(locale === 'de' ? 'KI' : 'AI'));
+    checks.push({ pass: true, label: `${locale}-${theme}-${width}-a11y`, ...a11y });
+  }
+  for (const brandMode of ['start', 'long']) {
+    await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', 'light');
+    await scene({ voice: true, brandMode });
+    for (let width = 320; width <= 1440; width += 40) {
+      await page.setViewport({ width, height: 1000 }); await settle();
+      const fit = await shadow(page, c => {
+        const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width }; };
+        const rail = box(r.querySelector('.audio-rail'));
+        const others = [r.querySelector('.band-identity'), ...r.querySelectorAll('.header-actions, .header-actions button, .host-account')].map(box);
+        return { rail, others, row: r.querySelector('.band').hasAttribute('data-rail-row'),
+          overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+      });
+      assert.ok(fit.rail.width >= 208, `${brandMode}/${width}: rail minimum 208 px`);
+      assert.equal(fit.overflowPx, 0);
+      for (const b of fit.others) assert.ok(fit.rail.right <= b.left || fit.rail.left >= b.right || fit.rail.bottom <= b.top || fit.rail.top >= b.bottom,
+        `${brandMode}/${width}: rail intersects brand/action ${JSON.stringify(fit)}`);
+      checks.push({ pass: true, label: `${brandMode}-${width}-rail-fit`, ...fit });
+    }
+    await page.setViewport({ width: 700, height: 1000 }); await settle(); await shot(`de-light-700-voice-${brandMode}`);
+  }
+  console.log('AIT-260 PASS: 48 paused composer cases (restore/blur/limits, both controls, DE/EN, light/dark, 1440/390), acknowledged resume and focus, composer/Send 0 px; 58 rail-fit cases 320–1440; phone status and KI/AI accessible name.');
   for (const locale of ['de', 'en']) for (const width of fullMatrix ? [1440, 1024, 390] : [1440, 390]) {
     await page.setViewport({ width, height: width < 600 ? 844 : 1000 });
     for (const theme of fullMatrix ? ['light', 'dark'] : ['light']) {

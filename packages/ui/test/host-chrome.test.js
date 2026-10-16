@@ -84,3 +84,42 @@ test('AIT-260: changing device connector and voice binding keeps teardown render
     assert.equal(Boolean(c.shadowRoot.querySelector('.audio-rail')), !voiceClient);
   }
 });
+
+for (const locale of ['de', 'en']) {
+  test(`AIT-260: no-voice resume is acknowledged, retryable and preserves the draft, ${locale}`, async t => {
+    const c = configure(locale), root = c.shadowRoot, copy = { en, de }[locale];
+    const input = root.querySelector('textarea');
+    input.value = 'Unsent draft';
+    let release, calls = 0;
+    t.mock.method(globalThis, 'fetch', (url, init) => {
+      assert.ok(url.endsWith(`/sessions/${c.session.id}/pause`));
+      assert.deepEqual(JSON.parse(init.body), { paused: false }); calls++;
+      return new Promise(resolve => { release = resolve; });
+    });
+    for (const cause of ['restore', 'blur', 'limits']) {
+      const paused = cause === 'restore' ? { ...c.session, paused: true } : null;
+      if (paused) c.configure({ copy, session: paused });
+      else c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: cause } });
+      const r = c.shadowRoot, field = r.querySelector('textarea'), button = r.querySelector('.send'), resume = r.querySelector('.composer-resume');
+      field.value = 'Unsent draft';
+      assert.equal(field.disabled, true); assert.equal(button.disabled, false);
+      assert.equal(r.querySelector('.composer-paused').hidden, false);
+      assert.equal(r.querySelector('.composer-paused span').textContent, copy.composerPaused);
+      assert.equal(resume.textContent, copy.resume); assert.equal(button.getAttribute('aria-label'), copy.resume);
+      assert.equal(button.title, copy.resume); assert.equal(r.querySelector(absent), null);
+      resume.click(); assert.equal(c.session.paused, true);
+      assert.equal(resume.disabled, true); assert.equal(button.disabled, true);
+      const pendingCalls = calls; button.click(); resume.click(); assert.equal(calls, pendingCalls);
+      release(new Response(null, { status: 500 })); await new Promise(resolve => setImmediate(resolve));
+      assert.equal(c.session.paused, true); assert.equal(field.disabled, true);
+      assert.equal(resume.disabled, false); assert.equal(button.disabled, false);
+      // Exercise the Send slot's actual submit path as well as the inline click.
+      r.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+      release(Response.json({ event: { seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } } }));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(c.session.paused, false); assert.equal(field.disabled, false);
+      assert.equal(r.querySelector('.composer-paused').hidden, true);
+      assert.equal(field.value, 'Unsent draft'); assert.equal(button.getAttribute('aria-label'), copy.send);
+    }
+  });
+}
