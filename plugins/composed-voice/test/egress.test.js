@@ -51,7 +51,7 @@ async function fixture(t, { format, text, pollDelay = 250, providerGap = false }
         'data: ' + JSON.stringify({ type: 'speech.audio.delta', audio_data: bytes.toString('base64') }) + '\n\n'));
       controller.enqueue(new TextEncoder().encode('data: {"type":"speech.audio.done","usage":{}}\n\n')); controller.close();
     } }), { headers: { 'content-type': 'text/event-stream' } }) });
-  const published = [];
+  const published = [], silences = [];
   coordinator = createComposedVoiceCoordinator({ sessionId: 'egress-session', callId: relay.grant.callId,
     providerSessionId: relay.grant.providerSessionId, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 60_000,
     outputFormat: format, outputAudioFormat: { encoding: format, sampleRateHz: 24_000, channels: 1 }, tts,
@@ -61,7 +61,7 @@ async function fixture(t, { format, text, pollDelay = 250, providerGap = false }
       yield { type: 'completion', replyId: 'egress-reply', text };
     } }, authorize: async () => true, commitUtterance: async () => {},
     admitComponent: async () => ({ attempt: { attemptId: 'fixture-attempt', claimId: 'fixture-claim', maxMicro: 100_000, consume() {} }, report() {} }),
-    relay: { event: event => relay.event(event), silence: frame => relay.silence(frame),
+    relay: { event: event => relay.event(event), silence(frame) { silences.push(frame); relay.silence(frame); },
       audio(frame) { published.push({ ...frame, at: Date.now() }); relay.audio(frame); } } });
   relay.attach(coordinator);
   const route = createComposedRelayRoute({ authenticate: () => 'fixture-owner', authorize: async () => true,
@@ -103,7 +103,7 @@ async function fixture(t, { format, text, pollDelay = 250, providerGap = false }
   t.after(async () => { await session.close(); route.close(); await coordinator.idle(); await pcmPlayer.close(); });
   await tick(); pollingBlocked = true;
   await coordinator.receiveAudio(input(true)); await coordinator.receiveAudio(input(false)); await tick();
-  return { coordinator, relay, session, expected, delivered, published, scheduled, audible, events, failures, providerTimes,
+  return { coordinator, relay, session, expected, delivered, published, silences, scheduled, audible, events, failures, providerTimes,
     get fragments() { return fragment; }, get stopCount() { return stopCount; },
     async advance(ms) { for (let elapsed = 0; elapsed < ms; elapsed += 25) { t.mock.timers.tick(25); await tick(); } } };
 }
@@ -135,9 +135,11 @@ for (const format of ['pcm_s16le', 'pcm_f32le']) {
     assert.ok(h.delivered.length > 0); const before = h.stopCount;
     const revision = h.published.at(-1).playbackRevision, published = h.published.length;
     // Voiced ingress must silence before this asynchronous operation settles.
+    const silent = h.silences.length;
     const pending = h.coordinator.receiveAudio(input(true));
-    const connection = h.coordinator.state;
-    assert.equal(connection.state, 'active');
+    assert.equal(h.silences.length, silent + 1, 'server silence flush is synchronous');
+    assert.equal(h.silences.at(-1).reason, 'barge-in');
+    assert.equal(h.coordinator.state.state, 'active');
     await pending; await h.advance(250);
     assert.ok(h.stopCount > before, 'silence reaches the player on the next poll');
     const played = h.audible.length, delivered = h.delivered.length;

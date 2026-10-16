@@ -221,3 +221,13 @@ test('AIT-160 round 2: voiced barge-in silences before pending ingress authoriza
     assert.equal(h.commits.length, 1, 'new work still waits for authorization');
   } finally { release.resolve(); await pending; }
 });
+
+
+test('AIT-258: server preserves its aligned, nonempty 64,000 B output frame contract', async t => {
+  for (const size of [0, 3, 64_004]) {
+    const h = fixture(t, { tts: { async *speak() { yield new Uint8Array(size); } } });
+    await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
+    await h.coordinator.idle();
+    assert.equal(h.coordinator.state.state, 'waiting'); assert.equal(h.audio.length, 0);
+  }
+});
