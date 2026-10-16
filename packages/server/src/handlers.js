@@ -748,7 +748,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     reconcileVoiceLater() { voiceHandlers?.reconcileLater(); },
     async resume() {
       await storage.systemWork(async () => {
-        pluginRuntime.conversationLimits.resume();
+        pluginRuntime.conversationLimits.resume((id, reason) => voiceHandlers?.stopSession(id, reason));
         hostHandlers.resume();
         pluginRuntime.budget.recover();
         host?.recoverWallets?.();

@@ -45,10 +45,12 @@ export function createConversationLimits({ storage, now = Date.now, durationMs =
       arm(id, state); return state;
     },
     deadline(id) { return storage.creditState(id)?.endsAt ?? Infinity; },
-    resume() {
+    resume(onEnd = () => {}) {
       for (const id of storage.list()) {
         if (storage.get(id).tombstone) continue;
-        check(id); arm(id, storage.creditState(id));
+        const reason = check(id);
+        if (reason) onEnd(id, reason);
+        arm(id, storage.creditState(id));
       }
     },
     close() { for (const id of timers.keys()) cancel(id); },

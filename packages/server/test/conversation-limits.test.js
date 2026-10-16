@@ -22,7 +22,7 @@ function fixture(t, { path, at = epoch, ownerGuard = false } = {}) {
   const create = async () => (await call('/api/sessions', {})).json();
   const turn = (id, name = 'start') => call(`/api/sessions/${id}/turns`, { clientEventId: name, content: 'A requirements conversation.' });
   const advance = async ms => { time += ms; t.mock.timers.tick(ms); await new Promise(setImmediate); };
-  return { storage, runtime, host, handlers, call, create, turn, close, advance };
+  return { storage, runtime, host, handlers, call, create, turn, close, advance, at: value => { time = value; } };
 }
 const terminal = (f, id) => f.storage.read(id).filter(e => ['credits.limit-reached', 'conversation.end-requested'].includes(e.type));
 function assertEnded(f, id) {
@@ -105,4 +105,47 @@ test('AIT-261: New/reset have independent deadlines; reconnect and another conve
   assert.equal(f.storage.get(reset.id).credits.remainingMs, HOUR);
   await f.advance(HOUR - 100); assertEnded(f, second.id); assert.equal(terminal(f, reset.id).length, 0);
   await f.advance(100); assertEnded(f, reset.id);
+});
+
+// Do not tick the timer: these exercise the synchronous admission gate even
+// when the event loop has not delivered the scheduled callback yet.
+test('AIT-261: delayed timer still refuses text and concept admission before wallet or ledger', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t), s = await f.create(); await f.turn(s.id); await f.handlers.idle();
+  const wallet = t.mock.fn(() => { throw new Error('must not consult wallet'); });
+  f.runtime.setOwnerWallet(wallet); f.at(epoch + HOUR);
+  for (const lane of ['reaction', 'understanding', 'concept']) await assert.rejects(f.runtime.admit({
+    session: f.storage.get(s.id), lane, operation: lane === 'reaction' ? 'stream' : lane === 'concept' ? 'generate' : 'structured', request,
+  }), { code: 'not-admitted', message: 'one-hour' });
+  assert.equal(wallet.mock.callCount(), 0); assertEnded(f, s.id);
+});
+
+test('AIT-261: expiry during wallet admission refuses the ledger reservation and keeps the owner hold', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t), s = await f.create(); await f.turn(s.id); await f.handlers.idle();
+  const wallet = f.host.wallet(owner), admitted = wallet.admit, release = t.mock.fn(wallet.release);
+  const holds = [];
+  f.runtime.setOwnerWallet(() => ({ ...wallet, release, async admit(value) {
+    holds.push(value); const result = await admitted(value); f.at(epoch + HOUR); return result;
+  } }));
+  const count = f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
+  await assert.rejects(f.runtime.admit({ session: f.storage.get(s.id), lane: 'reaction', operation: 'stream', request }),
+    { code: 'not-admitted', message: 'one-hour' });
+  assert.equal(holds.length, 1); assert.equal(release.mock.callCount(), 0);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, count);
+  assert.equal(f.storage.db.prepare('SELECT released FROM owner_wallet_reservations WHERE attempt_id=?').get(holds[0].attemptId).released, 0);
+  assertEnded(f, s.id);
+});
+
+test('AIT-261: an admitted but undispatched operation cannot spend after expiry or zero its held maximum', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t), s = await f.create(); await f.turn(s.id); await f.handlers.idle();
+  const admitted = await f.runtime.admit({ session: f.storage.get(s.id), lane: 'reaction', operation: 'stream', request });
+  const id = admitted.options.attempt.attemptId;
+  await f.advance(HOUR);
+  await assert.rejects(async () => admitted.options.attempt.consume(), { code: 'not-admitted', message: 'one-hour' });
+  assert.equal(f.runtime.budget.get(id).state, 'claimed');
+  admitted.options.report({ attemptId: id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+  admitted.finish({ failed: true });
+  assert.equal(f.runtime.budget.get(id).outcome, 'uncertain');
 });

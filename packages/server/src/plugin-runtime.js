@@ -115,7 +115,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     conversationLimits.start(session.id);
     const wallet = ownerWallet?.(session);
     if (!wallet) return budget.admit(request);
-    const verdict = await admitCredits(budget, request, wallet);
+    const verdict = await admitCredits(budget, request, wallet, { beforeReserve: () => conversationLimits.assertOpen(session.id) });
     if (!verdict.ok) throw new PluginError('not-admitted', verdict.reason);
     return verdict.admission;
   };
@@ -219,6 +219,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const durationBinding = raw => createDurationBinding(
     registry.get(raw.plugin)?.ports?.serverAdapter?.normalizeBinding?.(raw) ?? raw);
   async function evaluate(session, preset, feature, options) {
+    const guard = storage.creditState(session.id);
+    if (!options.existingCall && guard && (['ending', 'ended'].includes(guard.status) ||
+      guard.status === 'active' && Math.max(now(), guard.lastNow) >= guard.endsAt)) {
+      return { reason: guard.endReason ?? 'one-hour' };
+    }
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
@@ -992,7 +997,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           }
         } catch (error) { if (!failed) throw error; }
         finally {
-          if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId);
+          if (failed && lane === 'understanding' && !deadlineRefused) budget.releaseUnderstandingCredits(attemptId);
           try {
             const row = budget.get(attemptId), latest = storage.get(session.id);
             const inputChanged = inputRevision(latest) !== inputRevision(session);

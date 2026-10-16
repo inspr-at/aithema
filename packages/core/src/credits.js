@@ -77,8 +77,11 @@ export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0
  * store; use this attemptId for ledger admission, settlement and recovery.
  * Multi-process hosts MUST implement the same in-flight exclusion at the wallet
  * or ledger; this module's set only guards calls in the current process.
+ * beforeReserve is a synchronous server deadline guard, checked immediately
+ * before each reservation. If the wallet await crosses that deadline, its hold
+ * is retained for host recovery; no ledger reservation or provider dispatch follows.
  * SQLiteBudgetLedger already accepts caller IDs, so no ledger change is needed. */
-export async function admitCredits(ledger, request, ownerWallet) {
+export async function admitCredits(ledger, request, ownerWallet, { beforeReserve = () => {} } = {}) {
   assertOwnerWalletPort(ownerWallet);
   if (typeof ledger?.admit !== 'function') throw new TypeError('Credit ledger admission required');
   const snapshot = structuredClone(request);
@@ -91,12 +94,16 @@ export async function admitCredits(ledger, request, ownerWallet) {
   try {
     const preview = creditAdmission(ledger, snapshot.sessionId, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0, ownerWallet);
     if (!preview.ok) return preview;
+    beforeReserve();
     const result = await ownerWallet.admit(snapshot);
     if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
     if (!result.ok) {
       if (result.reason === 'attempt-conflict') return { ok: false, reason: 'attempt-conflict', attemptId: snapshot.attemptId };
       return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
     }
+    // Outside the definitive ledger-rejection catch: a clock refusal must never
+    // release a reservation already accepted by the asynchronous owner port.
+    beforeReserve();
     try {
       return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
     } catch (error) {

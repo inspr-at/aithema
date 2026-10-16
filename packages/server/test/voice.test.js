@@ -3187,7 +3187,7 @@ test('AIT-261 negative: periodic voice turns cannot run past the conversation ho
     h.advance(4_000); t.mock.timers.tick(4_000);
     assert.equal((await h.route(`/voice/${grant.callId}/heartbeat`, identity)).status, 200);
     assert.equal((await h.route(`/voice/${grant.callId}/events`, { ...identity,
-      event: { callId: grant.callId, type: 'final', turnId: `hour-turn-${i}`, role: 'user', text: `Requirement ${i}` },
+      event: { callId: grant.callId, type: 'final', turnId: `${grant.providerSessionId}:user:${i}`, role: 'user', text: `Requirement ${i}` },
     })).status, 200);
     await h.handlers.idle();
   }
