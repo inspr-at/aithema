@@ -52,6 +52,7 @@ const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 0 });
 const pluginRuntime = createPluginRuntime({ storage, consent, reasoning, registry, presets: mockPresets(), budget });
 const handlers = createHandlers({ storage, consent, pluginRuntime, log: record => console.error(record) });
 await handlers.resume();
+// /health is the smoke host's own liveness endpoint, mounted beside product handlers.
 const { server, url } = await listen(request => new URL(request.url).pathname === '/health'
   ? Response.json({ status: 'ok' }) : handlers.handle(request));
 let element, preview;
@@ -59,6 +60,7 @@ try {
   const health = await fetch(url + '/health');
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { status: 'ok' });
+  // Exercise the real product session route mounted through handlers.handle.
   const token = crypto.randomUUID();
   const response = await fetch(url + '/api/sessions', { method: 'POST', headers: {
     'content-type': 'application/json', 'x-aithema-session-token': token }, body: JSON.stringify({ locale: 'en' }) });
@@ -105,6 +107,7 @@ try {
 } finally {
   element?.remove(); preview?.remove(); await window.happyDOM.close();
   await handlers.close();
+  server.closeAllConnections();
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   assert.equal(server.listening, false);
   storage.close();
