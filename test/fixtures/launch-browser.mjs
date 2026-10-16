@@ -13,7 +13,7 @@ if (previous.length) {
 }
 mkdirSync(profile, { recursive: true });
 writeFileSync(`${profile}/startup-marker`, 'created by failed launch');
-appendFileSync(record, JSON.stringify({ pid: process.pid, profile }) + '\n');
+appendFileSync(record, JSON.stringify({ pid: process.pid, profile, home: process.env.HOME, tmpdir: process.env.TMPDIR, cache: process.env.XDG_CACHE_HOME, config: process.env.XDG_CONFIG_HOME }) + '\n');
 if (error) { console.error('deliberate non-timeout launch failure'); process.exit(1); }
 if (previous.length < Number(hangs)) {
   setInterval(() => {}, 60_000); // The only deliberate hang in these tests.

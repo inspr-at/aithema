@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, isAbsolute } from 'node:path';
 import browserLauncher, { launchTimeout } from './browser/launch.js';
 
 async function fixture(t, hangs, extra = {}) {
@@ -72,4 +72,24 @@ test('a caller abort during startup is never retried', async t => {
   controller.abort(new Error('caller cancelled'));
   await assert.rejects(browserLauncher.launch({ ...f.options, signal: controller.signal }), /caller cancelled|aborted/iu);
   assert.deepEqual(f.messages, []);
+});
+
+// AIT-227: callers historically supplied the real account HOME. The central
+// launcher must replace it and keep all writable Chrome paths beside its profile.
+test('concurrent launches isolate HOME, profile, cache and temp despite caller HOME', async t => {
+  const fixtures = await Promise.all([fixture(t, 0), fixture(t, 0)]);
+  const browsers = await Promise.all(fixtures.map(f => browserLauncher.launch({
+    ...f.options, env: { ...f.options.env, HOME: '/caller-home-must-never-be-used' },
+  })));
+  t.after(() => Promise.all(browsers.map(browser => browser.close())));
+  const attempts = (await Promise.all(fixtures.map(f => f.attempts()))).flat();
+  assert.equal(attempts.length, 2);
+  for (const key of ['profile', 'home', 'tmpdir', 'cache', 'config']) {
+    assert.notEqual(attempts[0][key], attempts[1][key], `${key} shared between browsers`);
+    for (const [i, attempt] of attempts.entries()) {
+      assert.equal(typeof attempt[key], 'string', `${key} must be explicit`);
+      const path = relative(fixtures[i].options.userDataDir, attempt[key]);
+      assert.ok(path && !path.startsWith('..') && !isAbsolute(path), `${key} must stay inside the run`);
+    }
+  }
 });
