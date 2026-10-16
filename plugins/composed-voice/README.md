@@ -95,7 +95,12 @@ Transport inventory (all repo TTS transport implementations and injections):
 | Voxtral `test/wire.test.js` and composed `test/egress.test.js` injected Response/ReadableStream | No transport cap; component limits apply | Finite synthetic pre-enqueued SSE; no configured byte cap | Eagerly drains the response body through `speech.audio.done`, independently of playback. |
 
 The qualification WebSocket now carries the full **1 MiB decoded TTS message**.
-The shared component bound is `4 × ceil(1,048,576 / 3) + 16,384 = 1,414,488`
+Core exports `TTS_MESSAGE_BYTES` and `TTS_WIRE_CHARACTERS` beside `TTS_SPEAK_BYTES`
+in `voice-components.js`; both providers import these shared limits. The wire
+constants live in the public `@inspr/aithema-core/live-voice` entry point so the
+qualification transport can import them without depending on plugin internals
+or publishing the source-only component helpers. Voxtral uses the same metadata
+margin for SSE. The shared component bound is `4 × ceil(1,048,576 / 3) + 16,384 = 1,414,488`
 wire characters (base64 plus bounded JSON metadata); the transport adds another
 16 KiB of envelope headroom. Its two-message backlog allows an additional
 maximum arrival while the coordinator drains eagerly. Neither bound changes the

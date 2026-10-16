@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { WebSocketServer } from 'ws';
-import { TTS_WIRE_CHARACTERS } from '../../elevenlabs/src/components.js';
+import { TTS_WIRE_CHARACTERS } from '@inspr/aithema-core/live-voice';
 import { connectQualificationSocket } from '../ops/qualification-live-transport.mjs';
 
 // Assert the transport's receive contract independently of its implementation.

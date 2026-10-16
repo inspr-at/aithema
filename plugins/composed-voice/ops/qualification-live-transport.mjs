@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { PluginError } from '@inspr/aithema-core/invocation';
-import { TTS_WIRE_CHARACTERS } from '../../elevenlabs/src/components.js';
+import { TTS_WIRE_CHARACTERS } from '@inspr/aithema-core/live-voice';
 
 // Carry the full component wire bound plus 16 KiB envelope headroom. Retain at
 // most two maximum messages: the eager reader normally leaves near one queued,

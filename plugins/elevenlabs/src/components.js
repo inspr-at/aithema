@@ -4,7 +4,7 @@ import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { processingScope } from '../../../packages/core/src/presets.js';
 import { consentCoverage } from '@inspr/aithema-core';
-import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES } from '../../../packages/core/src/voice-components.js';
+import { componentInvocation, boundedEvents, TTS_SPEAK_BYTES, TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from '../../../packages/core/src/voice-components.js';
 import { validateVoiceSettings } from './voice-settings.js';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
@@ -12,11 +12,10 @@ export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 2
 const STT_MODEL = 'scribe_v2_realtime', TTS_MODEL = 'eleven_flash_v2_5';
 // OPS 2026-10-16 (5d818c38): one short sentence arrived as 102,540 B
 // after flush:true. Retain a 1 MiB decoded ceiling, separate from 16,000,000 B
-// per speak. The qualification transport imports the wire bound below to carry
+// per speak. The qualification transport imports the same core wire bound to carry
 // that full decoded message plus JSON; relay/player frames stay independently
 // bounded. See composed-voice/README.md transport table.
-const TTS_MESSAGE_BYTES = 1_048_576;
-export const TTS_WIRE_CHARACTERS = 4 * Math.ceil(TTS_MESSAGE_BYTES / 3) + 16_384; // base64 + bounded JSON metadata
+export { TTS_WIRE_CHARACTERS };
 // Realtime commit guide: transcript processing starts after the first 2 s of audio.
 // Pad short inputs at endpointing without adding a wall-clock endpoint delay.
 const STT_MIN_BYTES = 2 * 32_000;
