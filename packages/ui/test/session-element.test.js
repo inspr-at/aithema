@@ -698,7 +698,7 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
 
 const paimosOptions = { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 };
 
-for (const state of ['two failures', 'overview-only failure', 'stale', 'pending', 'generating', 'draft', 'empty', 'reply-only failure', 'current', 'recovered']) {
+for (const state of ['two failures', 'overview-only failure', 'stale', 'pending', 'generating', 'draft', 'empty', 'reply-only failure', 'current voice', 'current', 'recovered']) {
   test(`AIT-221 project action requires a current overview: ${state}`, t => {
     const c = setup(), session = c.session;
     session.transcript = [{ id: 'person', role: 'user', content: 'A bakery app.' }];
@@ -712,12 +712,13 @@ for (const state of ['two failures', 'overview-only failure', 'stale', 'pending'
     if (state === 'pending' || state === 'empty') session.understanding.readinessAssessed = false;
     if (state === 'pending') session.operations.running = ['reaction'];
     if (state === 'draft') session.understanding.draft = true;
+    if (state === 'current voice') session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'active' };
     c.configure({ copy: en, session, ...paimosOptions });
     if (state === 'recovered') {
       c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], failures: [], lastFailure: null } });
       c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
     }
-    const current = ['reply-only failure', 'current', 'recovered'].includes(state), root = c.shadowRoot, create = root.querySelector('.create-project');
+    const current = ['reply-only failure', 'current voice', 'current', 'recovered'].includes(state), root = c.shadowRoot, create = root.querySelector('.create-project');
     assert.equal(root.querySelector('.understanding').dataset.overview, current ? 'current' : 'unavailable');
     assert.equal(create.inert, !current, 'unavailable overview cannot be reached with the keyboard');
     assert.equal(create.hidden, false, 'keep the measured footer slot');

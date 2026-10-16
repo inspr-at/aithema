@@ -1212,7 +1212,7 @@ export class AithemaSession extends HTMLElement {
     // Project creation follows the overview, independently of Retry placement.
     // Keep its measured slot while failed, stale or unfinished work is replaced.
     const currentOverview = u.readinessAssessed && !stale && !u.draft && !overviewFailed && !failedOverview &&
-      !analysisRunning && !scheduledAnalysis && !waiting && !locked;
+      !analysisRunning && !scheduledAnalysis && !locked;
     aside.dataset.overview = currentOverview ? 'current' : 'unavailable';
     const create = root.querySelector('.create-project');
     if (create) create.inert = !currentOverview || this.#session.processingPreset === 'device';
