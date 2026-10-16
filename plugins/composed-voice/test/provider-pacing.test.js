@@ -82,6 +82,7 @@ test('AIT-258: eager reader drains bounded provider messages while one-second pa
   const socket = h.sockets[0];
   for (let i = 0; i < 8; i++) {
     const bytes = Buffer.alloc(102_540, i + 1); expected.push(bytes); socket.deliver(wire(bytes));
+    await tick(); // Let arrival microtasks settle before advancing simulated time.
     await h.advance(25);
     assert.equal(socket.failure, undefined, 'pacing must never stall the bounded reader');
     assert.equal(socket.backlog, 0, 'each message is consumed before the next arrives');
@@ -97,6 +98,23 @@ test('AIT-258: eager reader drains bounded provider messages while one-second pa
   let total = 0;
   for (const frame of h.published) { total += frame.bytes.length; assert.ok(total / 48_000 <= (frame.at - started) / 1000 + 1.001); }
   assert.ok(!h.events.some(event => event.type === 'waiting'));
+});
+
+test('AIT-258: bounded provider cancellation closes the socket and finishes one uncertain invocation', async t => {
+  const h = await setup(t), socket = h.sockets[0];
+  for (let i = 0; i < 8; i++) { socket.deliver(wire(Buffer.alloc(102_540, i))); await tick(); }
+  assert.equal(socket.consumed, 8); assert.equal(socket.backlog, 0);
+  const count = h.published.length, silent = h.silences.length;
+  const pending = h.coordinator.interrupt();
+  assert.equal(h.silences.length, silent + 1); assert.equal(socket.aborted, true);
+  await pending; await h.coordinator.idle();
+  const reports = h.reports.filter(report => report.attemptId === 'tts');
+  assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+  assert.equal(socket.backlog, 0); assert.equal(h.published.length, count);
+  socket.deliver(wire(Buffer.alloc(102_540))); socket.deliver(final);
+  await h.advance(20_000);
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 1);
+  assert.equal(h.published.length, count, 'late provider audio cannot refill a dropped queue');
 });
 
 test('AIT-258: server reply queue fails closed at its 16 MB byte bound', async t => {
