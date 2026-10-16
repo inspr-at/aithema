@@ -283,9 +283,13 @@ function streamedUploadRequest(id, clientId, size = 20 * MiB) {
 test('AIT-219: eight concurrent 20 MiB uploads bound held bytes, refuse before body reads, and finish FIFO across handlers', { timeout: 30_000 }, async t => {
   const release = Promise.withResolvers(), started = Promise.withResolvers();
   let reads = 0, heldBytes = 0, peakHeldBytes = 0, loads = 0;
-  const order = [], readUploadBody = (...args) => { reads++; return readBody(...args); };
+  const order = [], admitted = [], readUploadBody = (...args) => { reads++; return readBody(...args); };
   const first = setup(t, { readUploadBody }), second = setup(t, { readUploadBody });
   for (const f of [first, second]) {
+    const admit = f.storage.postUploads.bind(f.storage);
+    t.mock.method(f.storage, 'postUploads', (...args) => {
+      const result = admit(...args); admitted.push(...result.events.map(e => e.data.id)); return result;
+    });
     const load = f.storage.uploadBytes.bind(f.storage);
     t.mock.method(f.storage, 'uploadBytes', (...args) => {
       const data = load(...args); loads++;
@@ -316,8 +320,12 @@ test('AIT-219: eight concurrent 20 MiB uploads bound held bytes, refuse before b
     assert.equal(reads, 3, 'capacity is checked before reading the other five bodies');
     assert.equal(loads, 1, 'queued jobs have not loaded their durable bytes');
     assert.equal(peakHeldBytes, 20 * MiB, 'only the running job holds source bytes');
+    const retry = first.storage.create({ ownerToken: testToken, demo: true });
+    const busy = await first.handlers.handle(streamedUploadRequest(retry.id, 'after-acknowledgement'));
+    assert.equal(busy.status, 429, 'HTTP 202 does not release the pending reservation');
+    assert.equal(reads, 3, 'later traffic is also refused before body reads');
   } finally { release.resolve(); await Promise.all([first.handlers.idle(), second.handlers.idle()]); }
-  assert.deepEqual(order, accepted.map(r => r.body.uploads[0].id), 'admitted work finishes in order');
+  assert.deepEqual(order, admitted, 'admitted work finishes in order');
   assert.equal(loads, 3); assert.equal(heldBytes, 0); assert.equal(peakHeldBytes, 20 * MiB);
   for (const { f, session } of attempts) for (const upload of f.storage.get(session.id).uploads) assert.equal(upload.state, 'accepted');
   await post(first, 'capacity-recovered'); await first.handlers.idle();
@@ -358,6 +366,57 @@ for (const operation of ['withdraw', 'deadline', 'close']) test(`AIT-219: ${oper
     }
     await waitFor(nextStarted.promise, 'recovered byte slot');
   } finally { nextRelease.resolve(); await first.handlers.idle(); }
+});
+
+test('AIT-219: a multi-file request retains its reservation until its last job finishes', async t => {
+  const f = setup(t), releaseFirst = Promise.withResolvers(), releaseRest = Promise.withResolvers();
+  const firstStarted = Promise.withResolvers(), secondStarted = Promise.withResolvers();
+  let calls = 0;
+  t.mock.method(f.runtime, 'extractUpload', async () => {
+    const index = ++calls;
+    if (index === 1) { firstStarted.resolve(); await releaseFirst.promise; }
+    else { secondStarted.resolve(); await releaseRest.promise; }
+    return { status: 'accepted', text: 'Batch fixture', truncated: false };
+  });
+  try {
+    await post(f, 'batch', [['one.txt', bytes('First')], ['two.txt', bytes('Second')]]);
+    await waitFor(firstStarted.promise, 'first batch file');
+    for (let i = 0; i < 2; i++) {
+      const session = f.storage.create({ ownerToken: testToken, demo: true });
+      assert.equal((await f.handlers.handle(uploadRequest(session.id, `pending-${i}`))).status, 202);
+    }
+    releaseFirst.resolve(); await waitFor(secondStarted.promise, 'second batch file');
+    const overflow = f.storage.create({ ownerToken: testToken, demo: true });
+    assert.equal((await f.handlers.handle(uploadRequest(overflow.id, 'still-busy'))).status, 429);
+  } finally { releaseFirst.resolve(); releaseRest.resolve(); await f.handlers.idle(); }
+  assert.equal(calls, 4);
+  await post(f, 'batch-recovered'); await f.handlers.idle();
+});
+
+test('AIT-219: restart backlogs use the byte semaphore and block fresh bodies until capacity returns', async t => {
+  const release = Promise.withResolvers(), started = Promise.withResolvers();
+  let reads = 0;
+  const f = setup(t, { readUploadBody: (...args) => { reads++; return readBody(...args); } });
+  for (let i = 0; i < 4; i++) {
+    const session = f.storage.create({ ownerToken: testToken, demo: true });
+    f.storage.postUploads(session.id, `old-${i}`, `digest-${i}`, [{ filename: 'old.txt', mediaType: 'text/plain',
+      bytes: bytes('Durable backlog'), deadlineAt: Date.now() + 25_000 }], SERVER_UPLOAD_LIMITS);
+  }
+  const ids = f.storage.list().flatMap(id => f.storage.get(id).uploads.map(u => u.id));
+  const load = t.mock.method(f.storage, 'uploadBytes'), order = [];
+  t.mock.method(f.runtime, 'extractUpload', async ({ uploadId }) => {
+    order.push(uploadId); started.resolve(); await release.promise;
+    return { status: 'accepted', text: 'Recovered fixture', truncated: false };
+  });
+  try {
+    await f.handlers.resume(); await f.handlers.resume();
+    await waitFor(started.promise, 'recovered job');
+    assert.equal(load.mock.callCount(), 1);
+    assert.equal((await f.handlers.handle(uploadRequest(f.session.id, 'fresh'))).status, 429);
+    assert.equal(reads, 0);
+  } finally { release.resolve(); await f.handlers.idle(); }
+  assert.deepEqual(order, ids, 'repeated resume does not duplicate work or reservations');
+  await post(f, 'after-recovery'); await f.handlers.idle();
 });
 
 test('AIT-219: the default core request ceiling rejects declared and streamed oversized bodies', async t => {

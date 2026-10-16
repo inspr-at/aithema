@@ -1,6 +1,8 @@
+import { UPLOAD_LIMITS } from '@inspr/aithema-core/extractor';
+
 // START src/lib/config.ts and request-size.ts. Originals are discarded after
 // extraction; the session byte ceiling still counts the admitted source sizes.
-export const SERVER_UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequestBytes: 64 * 1024 * 1024,
+export const SERVER_UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes,
   maxFilesPerRequest: 8, maxDocumentsPerSession: 8, maxSessionBytes: 160 * 1024 * 1024, requestBudgetMs: 25_000,
   maxConcurrentRequestsPerSession: 2, maxConcurrentRequestsPerDeployment: 4 });
 export function normalizeUploadLimits(value = {}) {

@@ -100,15 +100,78 @@ without instrumentation, asserts child reaping, and extracts a small PDF afterwa
 bounded metadata to native `formData()`, and rejects `Content-Transfer-Encoding`.
 There is no base64 expansion. A 21 MiB core request budget leaves 1 MiB for
 framing a 20 MiB file, well above the bounded multipart headers and scalar
-fields. The server and UI already use 20 MiB files and 64 MiB requests, so
-those ceilings do not need changing. The HTTP test explicitly lowers the server
-request ceiling to the new core value, compares admitted bytes byte-for-byte,
+fields. The server's effective request ceiling is the core 21 MiB ceiling or a
+lower host setting. `AITHEMA_UPLOAD_MAX_REQUEST_BYTES` above the core ceiling
+is rejected at configuration time; a host cannot raise it. The UI receives the
+server ceiling in upload responses. The HTTP test uses the default server
+request ceiling, compares admitted bytes byte-for-byte,
 checks framing below 64 KiB, waits for accepted/truncated extraction and verifies
 original bytes are discarded. One extra source byte is refused with HTTP 413.
 
 `packages/core/src/chat-completions.js:227` counts incoming provider SSE response
 bytes (and an incomplete-event buffer) in the chat response stream. It is not
 on the document upload/extractor path and remains unchanged.
+
+## Pending jobs and resident memory (round 2)
+
+Admission reserves **three requests per server process**, shared across handler
+instances: one running request and up to two pending requests. Reservation begins
+before `readBody` and ends only when **every file in that request** is terminal.
+The existing lower request-concurrency settings still apply. A full budget
+returns HTTP **429** with `upload-rate-limit` before reading or parsing the body;
+the UI already presents this as busy/try again. Parsing errors, denied admission,
+replays, withdrawal, cancellation, deadline expiry and shutdown release reservations.
+
+A separate process-wide FIFO semaphore encloses `storage.uploadBytes`, sniffing,
+runtime admission and extraction. **Only one job loads source bytes**; waiting
+jobs hold IDs/metadata and leave originals in SQLite. Thus queued extraction jobs
+hold **zero source bytes**, including old durable backlogs recovered after restart.
+Recovery drains through the same semaphore and blocks new admission while the
+recovered reservation count fills the budget. Cancelled/expired waiters remove
+themselves without loading their bytes. Running cancellation retains the semaphore
+until extraction settles and the worker has been reaped.
+
+The SQLite result is an owned byte array; `uploadBytes` returns a view rather than
+copying it again. The core extractor still snapshots caller-owned input before
+waiting on its worker slot, preserving isolation from caller mutation. IPC still
+serializes the one running job. Worker bounds and the measurements above are unchanged.
+
+For capacity planning, let `Q = 3`, `R = min(21 MiB, host request ceiling)`,
+`B = min(20 MiB, host file ceiling)`, and `W = 384 MiB` (or a lower worker RSS
+setting). A conservative worst-case live payload allowance is:
+
+```text
+queued source bytes = 0
+parent payload bytes <= 2 * Q * R + 3 * B
+                     = 126 MiB + 60 MiB = 186 MiB at the defaults
+RSS_total <= RSS_base + RSS_SQLite + RSS_transport + S_sniff + 2*Q*R + 3*B + W
+             + GC/allocator slack + watchdog overshoot
+          = fixed/service overhead + 570 MiB + GC/allocator slack + watchdog overshoot
+```
+
+`2*Q*R` conservatively allows a complete body plus transient input/staging bytes
+for every admitted request, even while another job is running. `3*B` allows the
+one loaded SQLite result, its isolation snapshot and IPC serialization. Multipart
+parts are views. `S_sniff` is the bounded parent MIME/archive inspection workspace;
+SQLite cache, connection buffers and ordinary session/output metadata are separate
+service overhead. This is a live-memory capacity formula, not a hard RSS promise:
+V8/SQLite allocators can retain freed pages, and the unchanged 25 ms worker RSS
+watchdog can overshoot before reaping. Hosts must allow that headroom. Incoming
+traffic cannot multiply the queued source-byte term or the three body reservations.
+
+Round-2 regression uses eight concurrent streamed 20 MiB uploads and an injected
+slow extractor. The byte counter observes stored-source loads through completion:
+three requests are accepted, five get retryable 429 without body reads, only one
+20 MiB source is loaded at once, later traffic remains refused after HTTP 202,
+and admitted jobs finish FIFO. Separate withdrawal, deadline and shutdown cases
+verify queued jobs never load bytes and that all three reservations and the byte
+semaphore remain reusable. Existing real-worker cancellation/reaping tests still apply.
+Multi-file and restart cases also cover reservation lifetime and duplicate resume.
+
+Round-2 red-before commit `684dfc76e5` ran on mbp2606 at 2026-10-16 01:44 UTC:
+all seven selected assertions failed under the old queue/request behavior (four
+large requests admitted instead of three, queued loads before the byte slot,
+and the old 64 MiB default). The tests completed in 834 ms.
 
 ## Reproduction and validation
 
