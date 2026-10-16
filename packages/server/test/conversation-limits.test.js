@@ -234,8 +234,9 @@ test('AIT-268: startup binds legacy pause rows and removes orphaned or erased gu
   const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), live = await f.create();
   const ownerHash = f.storage.get(live.id).ownerHash;
   const erased = f.storage.create({ ownerToken: 'erased-owner' }); f.storage.erase(erased.id);
+  const withdrawn = f.storage.create({ ownerToken: 'withdrawn-owner' }); f.storage.reviseConsent(withdrawn.id, false);
   const orphanHash = 'a'.repeat(64);
-  for (const legacyOwnerHash of [ownerHash, erased.ownerHash, orphanHash]) {
+  for (const legacyOwnerHash of [ownerHash, erased.ownerHash, withdrawn.ownerHash, orphanHash]) {
     f.storage.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?)').run(legacyOwnerHash, JSON.stringify({ paused: true }));
   }
   f.storage.db.prepare('INSERT INTO conversation_credit_guards VALUES (?,?)').run(erased.id, JSON.stringify({ sessionId: erased.id, paused: true }));

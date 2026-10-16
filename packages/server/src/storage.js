@@ -90,12 +90,14 @@ export class SQLiteStorage {
         WHERE json_extract(s.snapshot,'$.tombstone') IS NULL AND json_extract(g.record,'$.status') IS NOT NULL;
         UPDATE owner_credit_guards SET record=json_set(record,'$.sessionId',
           (SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=owner_hash
-            AND json_extract(snapshot,'$.tombstone') IS NULL ORDER BY rowid DESC LIMIT 1))
+            AND json_extract(snapshot,'$.tombstone') IS NULL AND COALESCE(json_extract(snapshot,'$.consentWithdrawn'),0)=0
+            ORDER BY rowid DESC LIMIT 1))
           WHERE json_extract(record,'$.sessionId') IS NULL;`);
       // Repair AIT-261's unbound pause rows at startup, never in a retention sweep.
       const owners = this.db.prepare(`DELETE FROM owner_credit_guards WHERE NOT EXISTS
         (SELECT 1 FROM sessions WHERE id=json_extract(record,'$.sessionId')
-          AND json_extract(snapshot,'$.ownerHash')=owner_hash AND json_extract(snapshot,'$.tombstone') IS NULL)`).run().changes;
+          AND json_extract(snapshot,'$.ownerHash')=owner_hash AND json_extract(snapshot,'$.tombstone') IS NULL
+          AND COALESCE(json_extract(snapshot,'$.consentWithdrawn'),0)=0)`).run().changes;
       const conversations = this.db.prepare(`DELETE FROM conversation_credit_guards WHERE session_id IN
         (SELECT id FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL)`).run().changes;
       return owners + conversations;
