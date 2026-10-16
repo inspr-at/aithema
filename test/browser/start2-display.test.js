@@ -1574,7 +1574,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
           }
         }
         const controls = [...root.querySelectorAll('.motion-toggle, .band button, .band-orb [role="button"]')]
-          .filter(visible).map(n => ({ name: n.className, ...box(n.getBoundingClientRect()) }));
+          .filter(n => visible(n) && !n.matches('.fold')).map(n => ({ name: n.className, ...box(n.getBoundingClientRect()) }));
         return { bounds: box(rail.getBoundingClientRect()), parts, controls, fold: { name: '.fold', ...box(root.querySelector('.fold').getBoundingClientRect()) } };
       });
       const context = `${width}/${locale}/${state}: ${JSON.stringify(geometry)}`;
