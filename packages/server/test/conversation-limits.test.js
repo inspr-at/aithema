@@ -121,7 +121,7 @@ test('AIT-261: delayed timer still refuses text and concept admission before wal
   assert.equal(wallet.mock.callCount(), 0); assertEnded(f, s.id);
 });
 
-test('AIT-261: expiry during wallet admission refuses the ledger reservation and keeps the owner hold', async t => {
+test('AIT-261: expiry during wallet admission releases the undispatched owner hold', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(t), s = await f.create(); await f.turn(s.id); await f.handlers.idle();
   const wallet = f.host.wallet(owner), admitted = wallet.admit, release = t.mock.fn(wallet.release);
@@ -132,13 +132,13 @@ test('AIT-261: expiry during wallet admission refuses the ledger reservation and
   const count = f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
   await assert.rejects(f.runtime.admit({ session: f.storage.get(s.id), lane: 'reaction', operation: 'stream', request }),
     { code: 'not-admitted', message: 'one-hour' });
-  assert.equal(holds.length, 1); assert.equal(release.mock.callCount(), 0);
+  assert.equal(holds.length, 1); assert.equal(release.mock.callCount(), 1);
   assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, count);
-  assert.equal(f.storage.db.prepare('SELECT released FROM owner_wallet_reservations WHERE attempt_id=?').get(holds[0].attemptId).released, 0);
+  assert.equal(f.storage.db.prepare('SELECT released FROM owner_wallet_reservations WHERE attempt_id=?').get(holds[0].attemptId).released, 1);
   assertEnded(f, s.id);
 });
 
-test('AIT-261: an admitted but undispatched operation cannot spend after expiry or zero its held maximum', async t => {
+test('AIT-261: an admitted but undispatched operation is cancelled without charge after expiry', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(t), s = await f.create(); await f.turn(s.id); await f.handlers.idle();
   const admitted = await f.runtime.admit({ session: f.storage.get(s.id), lane: 'reaction', operation: 'stream', request });
@@ -148,7 +148,8 @@ test('AIT-261: an admitted but undispatched operation cannot spend after expiry 
   assert.equal(f.runtime.budget.get(id).state, 'claimed');
   admitted.options.report({ attemptId: id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
   admitted.finish({ failed: true });
-  assert.equal(f.runtime.budget.get(id).outcome, 'uncertain');
+  assert.equal(f.runtime.budget.get(id).outcome, 'cancelled');
+  assert.equal(f.runtime.budget.get(id).settled_micro, 0);
 });
 
 test('AIT-261: legacy owner guard recovery keeps the exact deadline on its original conversation', async t => {

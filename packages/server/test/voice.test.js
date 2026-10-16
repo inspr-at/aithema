@@ -3203,3 +3203,53 @@ test('AIT-261 negative: periodic voice turns cannot run past the conversation ho
   assert.equal(ends.length, 1); assert.equal(ends[0].data.settleOutstanding, true);
   assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'credits.limit-reached').length, 1);
 });
+
+
+for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: voice refused ${stage} at the hour releases its hold without charging the owner`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const HOUR = 60 * 60_000;
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'clock-start', content: 'We need an app.' }); await h.handlers.idle();
+  h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
+  h.advance(HOUR - 1);
+  const wallet = h.host.wallet('voice-owner'), before = wallet.balance();
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'deadline-refusal' } });
+  const id = admitted.options.attempt.attemptId;
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  assert.ok(wallet.balance().committedMicro > before.committedMicro);
+  if (stage === 'before-consume') h.advance(1);
+  else h.beforeCoverage(async () => { h.advance(1); });
+  await assert.rejects(admitted.options.attempt.consume(), { code: 'not-admitted', message: 'one-hour' });
+  assert.equal(h.runtime.budget.get(id).state, 'claimed');
+  admitted.finish();
+  const row = h.runtime.budget.get(id);
+  assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'cancelled');
+  assert.equal(row.settled_micro, 0); assert.equal(row.settled_visitor_micro, 0);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 0);
+  assert.equal(h.storage.db.prepare('SELECT actual_ms FROM voice_cap_reservations WHERE attempt_id=?').get(id).actual_ms, 0);
+  assert.deepEqual(wallet.balance(), before);
+  assert.deepEqual(h.traffic, []);
+  h.runtime.recoverVoiceCap(); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+});
+
+test('AIT-261: dispatched voice keeps its duration hold at the hour until confirmed settlement', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const HOUR = 60 * 60_000;
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'clock-start', content: 'We need an app.' }); await h.handlers.idle();
+  h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
+  h.advance(HOUR - 1);
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'deadline-dispatched' } });
+  const invocation = await core.beginVoiceInvocation(admitted.options, 'deadline-dispatched'); invocation.dispatch();
+  const id = admitted.options.attempt.attemptId;
+  h.advance(1); t.mock.timers.tick(HOUR); await h.handlers.idle();
+  assert.equal(h.runtime.budget.get(id).state, 'dispatched');
+  assert.equal(h.storage.creditState(h.session.id).endReason, 'one-hour');
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  await invocation.finish({ outcome: 'completed', closureConfirmed: true, usage: {
+    providerSeconds: 1, providerMinutes: 1 / 60, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 1000, visitorMicro: 2000,
+  } });
+  admitted.finish();
+  assert.equal(h.runtime.budget.get(id).outcome, 'completed'); assert.equal(h.runtime.budget.get(id).settled_micro, 1000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 1000);
+});

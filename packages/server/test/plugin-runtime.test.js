@@ -607,7 +607,7 @@ for (const lane of ['reaction', 'understanding']) test(`AIT-261: paid ${lane} di
   assert.equal(h.runtime.budget.get(id).outcome, 'completed');
 });
 
-for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: paid dispatch refused ${stage} retains its entire reservation`, async t => {
+for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: paid dispatch refused ${stage} is cancelled without charge`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let clock = Date.now();
   t.mock.method(Date, 'now', () => clock);
@@ -621,9 +621,10 @@ for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: paid di
   else h.consent.coverage = async query => { expire(); return grantFor(query); };
   await assert.rejects(async () => admitted.options.attempt.consume(), { code: 'not-admitted', message: 'one-hour' });
   assert.equal(h.runtime.budget.get(id).state, 'claimed');
-  // Third-party finally blocks cannot turn the retained hold into a zero receipt.
+  // A provider finally block reports its ordinary pre-dispatch cancellation.
   admitted.options.report({ attemptId: id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
   admitted.finish({ failed: true });
-  assert.equal(h.runtime.budget.get(id).outcome, 'uncertain');
-  assert.equal(h.runtime.budget.get(id).settled_micro, maximum);
+  assert.equal(h.runtime.budget.get(id).outcome, 'cancelled');
+  assert.equal(h.runtime.budget.get(id).settled_micro, 0);
+  assert.equal(h.runtime.budget.used(h.session.id), 0);
 });

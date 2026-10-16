@@ -522,7 +522,7 @@ test('credits reads owner and ledger amounts on the server; new/reset get a fres
   f.at(1_150);
   const reset = await (await f.call(`/api/library/${s.id}/reset`, {})).json();
   view = await (await f.call(`/api/sessions/${reset.id}/credits`)).json(); assert.equal(view.limitSlot.remainingMs, null); assert.equal(view.balance.owner.committedMicro, 123);
-  assert.equal(reset.session.paused, false); assert.equal(view.limitSlot.canStartPaidWork, false);
+  assert.equal(reset.session.paused, true); assert.equal(view.limitSlot.canStartPaidWork, false);
   await f.call(`/api/sessions/${reset.id}/turns`, { clientEventId: 'reset-start', content: 'New conversation' }); await f.handlers.idle();
   f.at(1_350);
   const lengthBefore = f.storage.read(reset.id).length, guardBefore = f.storage.creditState(reset.id);
