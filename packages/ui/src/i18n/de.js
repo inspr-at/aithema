@@ -273,7 +273,7 @@ export const de = {
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',
-  composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht\u00a0…', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', placeholderFullHold: 'Sprechen Sie einfach weiter.', send: 'Senden',
+  composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht\u00a0…', placeholderCompact: 'Ihre Nachricht …', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', placeholderFullHold: 'Sprechen Sie einfach weiter.', send: 'Senden',
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Zusammenfassung', signals: 'Was wir konkret gesehen haben', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
   export: 'Gesprächsdaten herunterladen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',

@@ -76,7 +76,7 @@ function textKeys(values) {
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
+  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #postCallMatrix = null;
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
@@ -284,7 +284,8 @@ export class AithemaSession extends HTMLElement {
           <span class="status" role="status"><span class="status__sizer" aria-hidden="true"></span><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
-      onResize: () => { if (this.#follow && !this.#onTranscript) this.#scrollToLatest(); } });
+      followsTranscript: () => this.#follow && !this.#onTranscript,
+      onResize: ({ following }) => { if (following && !this.#onTranscript) this.#scrollToLatest(); } });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
     for (const [index, line] of (this.#copy.entrance?.promise ?? []).entries()) { if (index) promise.append(' '); promise.append(node('span', '', line)); }
@@ -428,12 +429,14 @@ export class AithemaSession extends HTMLElement {
     // composer/export targets stable; #anchored keeps the element under the pointer in place.
     const shell = root.querySelector('.transcript-shell');
     shell.addEventListener('scroll', () => {
-      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
+      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8 || this.#latestScrollTop !== null && Math.abs(shell.scrollTop - this.#latestScrollTop) <= 1;
+      this.#questionCard.scheduleReserve();
       if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => {
       this.#onTranscript = false;
+      this.#questionCard.reserve();
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
@@ -452,7 +455,7 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { followsTranscript: () => this.#follow, onNoticesChange: () => {
+    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
       // A last-item notice follows like a message; reading older turns never moves.
       if (this.#follow && !this.#fold.folded) this.#scrollToLatest();
     } });
@@ -557,7 +560,48 @@ export class AithemaSession extends HTMLElement {
   #scrollToLatest() {
     if (this.#fold?.folded) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
-    shell.scrollTop = shell.scrollHeight; this.#follow = true;
+    // Measure the visible card before finding the latest reply.
+    this.#follow = true; this.#questionCard?.reserve();
+    shell.scrollTop = shell.scrollHeight;
+    const latest = shell.querySelector('.turn:last-child');
+    for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
+    const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
+    let mini = signal?.querySelector('.voice-read-full-mini');
+    if (readFull) readFull.hidden = true;
+    if (mini) mini.hidden = true;
+    signal?.removeAttribute('data-read-full');
+    if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
+      const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
+      const room = shell.getBoundingClientRect().bottom - top;
+      if (latest.getBoundingClientRect().height > room) {
+        latest.toggleAttribute('data-start-only', room < 88);
+        const openFullReply = row => {
+          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
+          const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+          if (!dialog.open) dialog.showModal();
+        };
+        if (room < 88 && signal) {
+          // The band already has a 44px status slot; use it when the keyboard
+          // leaves only a line of transcript. Neither dock nor card changes size.
+          if (!mini) {
+            mini = node('button', 'voice-read-full-mini'); mini.type = 'button'; mini.setAttribute('aria-haspopup', 'dialog');
+            mini.addEventListener('click', () => openFullReply(shell.querySelector('.turn:last-child')));
+            signal.append(mini);
+          }
+          mini.hidden = false; setText(mini, this.#copy.voiceReadFullReply); signal.setAttribute('data-read-full', '');
+        } else {
+          let button = readFull;
+          if (!button) {
+            button = node('button', 'turn-read-full'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
+            button.addEventListener('click', () => openFullReply(latest));
+            latest.append(button);
+          }
+          button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
+        }
+        shell.scrollTop += latest.getBoundingClientRect().top - top;
+      }
+    }
+    this.#latestScrollTop = shell.scrollTop;
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';
   }
   #hovered() {
@@ -861,7 +905,9 @@ export class AithemaSession extends HTMLElement {
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
-      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      const placeholder = root.querySelector('.workspace').hasAttribute('data-phone-short') ? copy.placeholderCompact ?? copy.placeholder
+        : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
