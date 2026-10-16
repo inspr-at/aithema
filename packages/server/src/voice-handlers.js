@@ -623,9 +623,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(await changePause(entry, true, options(request)));
         }
         let session = sessionFor(entry);
+        const playbackActivity = action === 'events' && ['speaking', 'listening'].includes(body.event?.type);
         // Cleanup is always permitted. Every other command needs current binding coverage.
         try {
-          await runtime.checkVoice(session, { ...options(request), allowPaused: ['resume', 'heartbeat', 'recover'].includes(action), existingCall: true });
+          await runtime.checkVoice(session, { ...options(request), allowPaused: playbackActivity || ['resume', 'heartbeat', 'recover'].includes(action), existingCall: true });
           session = sessionFor(entry);
         } catch (error) {
           if (!(error instanceof ConflictError) && error.message !== 'session paused') void close(entry, 'call-authorization-lost', 'cancelled');
@@ -646,7 +647,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
-          if (['speaking', 'listening'].includes(body.event?.type)) {
+          if (playbackActivity) {
             if (body.event.callId !== callId || body.event.providerSessionId !== entry.call.providerSessionId) throw new TypeError('Invalid voice activity');
             entry.playback = body.event.type;
             return json({ acknowledged: true });
