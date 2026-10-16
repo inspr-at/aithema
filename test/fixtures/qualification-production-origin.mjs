@@ -52,7 +52,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
       if(!sessionStorage.getItem('consented')){root.innerHTML='<button class="chooser__continue">Continue</button>';root.querySelector('button').onclick=()=>location.href='/consent/';return;}
       root.innerHTML='<button class="ready__mode" data-mode="voice">Voice</button><button class="ready__start">Start</button><button class="voice-close">Stop</button>';
       let context,oscillator,gain,stream;
-      root.querySelector('.voice-close').onclick=()=>{if(gain)gain.gain.value=0;stream?.getTracks().forEach(t=>t.stop());};
+      root.querySelector('.voice-close').onclick=()=>{if(gain){gain.gain.cancelScheduledValues(context.currentTime);gain.gain.setValueAtTime(0,context.currentTime);}stream?.getTracks().forEach(t=>t.stop());};
       root.querySelector('.ready__start').onclick=async()=>{
         await fetch('/api/sessions/production-visitor/voice',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({callId:'fake-call',tabId:'fake-tab'})});
         stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
@@ -60,7 +60,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         const input=context.createMediaStreamSource(stream),detect=context.createScriptProcessor(1024,1,1),silent=context.createGain();silent.gain.value=0;
         input.connect(detect);detect.connect(silent).connect(context.destination);
         let answering=false;
-        detect.onaudioprocess=e=>{const samples=e.inputBuffer.getChannelData(0);if(answering&&Math.sqrt(samples.reduce((s,x)=>s+x*x,0)/samples.length)>=.015){gain.gain.value=0;
+        detect.onaudioprocess=e=>{const samples=e.inputBuffer.getChannelData(0);if(answering&&Math.sqrt(samples.reduce((s,x)=>s+x*x,0)/samples.length)>=.015){gain.gain.cancelScheduledValues(context.currentTime);gain.gain.setValueAtTime(0,context.currentTime);
           answering=false;fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:2,text:'Bitte aufhören'}})});}};
         setTimeout(()=>fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})}),700);
         const final=()=>{window.fixtureAssistantFinalAt=performance.now();return fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',text:'Danke.'}})});};
