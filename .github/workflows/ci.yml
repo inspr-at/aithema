@@ -99,7 +99,8 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci
-      - run: command -v gdb
+      - name: Install temporary native-stack diagnostic
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gdb
       - name: AIT-222 temporary isolated Linux crash reproduction
         run: node scripts/extractor-crash-stress.js
 
