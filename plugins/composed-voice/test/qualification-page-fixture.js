@@ -6,7 +6,7 @@ import { installQualificationOutputProbe, qualificationObservationWindow } from 
 // Execute the real page harness with fake media ports, so refusal returned from
 // page.evaluate retains the trace rather than throwing past the run coordinator.
 export async function pageFixture(reason, { type = 'waiting', firstAudio = false, bargeIn = false, sourceRefusal, sourceFailure,
-  missingDiagnostics = false, closeError = false, productStop = false, productError = false, stopBeforeSource = false, errorAfterStop = false, teardownStop = false, silentOutput = true, outputTrace, explicitStop = true, deadlineSeconds = 60, deadlineElapsedMs = 0, firstAudioAt = 10, bargeInAt = 810 } = {}) {
+  missingDiagnostics = false, closeError = false, productStop = false, productError = false, stopBeforeSource = false, errorAfterStop = false, teardownStop = false, silentOutput = true, outputTrace, explicitStop = true, stopRequestedAt = 850, deadlineSeconds = 60, deadlineElapsedMs = 0, firstAudioAt = 10, bargeInAt = 810 } = {}) {
   const source = (await readFile(new URL('../ops/qualification-page.js', import.meta.url), 'utf8'))
     .replace(/^import .*;\n/gmu, '');
   let onTiming, onRendered, sourceTiming, started = false, connected = false, closed = false, interrupts = 0, inputChanges = 0;
@@ -27,7 +27,7 @@ export async function pageFixture(reason, { type = 'waiting', firstAudio = false
         }
         if (productError) throw new Error('product event exception');
         if (productStop) {
-          if (explicitStop) onTiming({ kind: 'playback-stop', requestedAt: 850, stoppedAt: 850, origin: teardownStop ? 'teardown' : 'interrupt' });
+          if (explicitStop) onTiming({ kind: 'playback-stop', requestedAt: stopRequestedAt, stoppedAt: stopRequestedAt, origin: teardownStop ? 'teardown' : 'interrupt' });
           if (!stopBeforeSource) render();
           if (errorAfterStop) yield { type: 'ended', reason: 'closure-uncertain' };
         }
@@ -51,7 +51,10 @@ export async function pageFixture(reason, { type = 'waiting', firstAudio = false
   runInNewContext(`(${installQualificationOutputProbe.toString()})()`, runtime);
   runtime.qualificationOutputProbe.tap = (_source, callback) => { onRendered = callback; };
   const render = () => {
-    for (const block of outputTrace ?? [{ at: 910, voiced: !silentOutput, timestamp: { contextTime: .91, performanceTime: 910 } }]) onRendered(block);
+    const blocks = outputTrace ?? [{ at: firstAudioAt, durationMs: 20, rms: .2, voiced: true },
+      ...Array.from({ length: 50 }, (_, i) => ({ at: 910 + i * 20, durationMs: 20, rms: silentOutput ? 0 : .2, voiced: !silentOutput,
+        timestamp: { contextTime: (930 + i * 20) / 1000, performanceTime: 930 + i * 20 } }))];
+    for (const block of blocks) onRendered(block);
   };
   runInNewContext(source, runtime);
   return { run: () => runtime.composedQualification.run({ grant: { opaque: { spendDeadlineAt: Date.now() + deadlineSeconds * 1000 - deadlineElapsedMs } }, headers: {} }), timers, state: () => ({ started, closed, interrupts, inputChanges }) };

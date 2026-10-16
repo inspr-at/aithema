@@ -264,21 +264,25 @@ async function probeFixture(scripted) {
     await final({ type: 'final', role: 'assistant', turnId: 'opener', text: 'AI notice. How can I help?' });
     now = 200; mode('listening'); emit(audio, .25, 0);
   };
-  return { probe, capture, audio, other, emit, final, mode, opener };
+  const silence = (context, time) => {
+    for (let i = 0; i < 48; i++) emit(context, time + i * 1024 / context.sampleRate, 0);
+  };
+  return { probe, capture, audio, other, emit, silence, final, mode, opener };
 }
 
 test('injected probe ignores silence in unrelated audio contexts after barge-in', async () => {
-  const { probe, capture, audio, other, emit, final, opener } = await probeFixture();
+  const { probe, capture, audio, other, emit, silence, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .6, 0);
   for (const event of [{ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' }, { type: 'final', role: 'assistant', text: 'Danke.' }]) {
     await final(event);
   }
   emit(audio, 1, .2); emit(capture, 2, .2);
-  emit(other, 2.1, 0);
+  silence(other, 2.1);
   assert.equal(probe.complete(), false, 'a silent microphone graph cannot establish agent stop');
   emit(audio, 2.2, .2); assert.equal(probe.complete(), false, 'agent is still audible');
-  emit(audio, 2.3, 0); assert.equal(probe.complete(), true);
+  emit(audio, 2.3, 0); assert.equal(probe.complete(), false, 'one quiet block cannot establish stop');
+  silence(audio, 2.3); assert.equal(probe.complete(), true);
   const result = probe.result();
   assert.equal(result.hypothesis, 'Wien'); assert.ok(result.ttsPCM.length > 0);
   assert.equal(result.trace.filter(event => event.kind === 'playback-stop').length, 1);
@@ -321,7 +325,7 @@ for (const ceiling of [undefined, null, -1, .5, '23', Number.MAX_SAFE_INTEGER]) 
 }
 
 for (const assistantFinal of ['late', 'missing']) test(`probe retains reply before ordinal-1 final with ${assistantFinal} reply final`, async () => {
-  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  const { probe, capture, audio, emit, silence, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .7, 0);
   emit(audio, 1, .2); emit(audio, 1.2, .1);
@@ -330,7 +334,7 @@ for (const assistantFinal of ['late', 'missing']) test(`probe retains reply befo
   assert.equal(probe.diagnostics().firstAudioAt, undefined);
   await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
   if (assistantFinal === 'late') await final({ type: 'final', role: 'assistant', turnId: 'reply', text: 'Danke.' });
-  emit(capture, 2, .2); emit(audio, 2.1, .1); emit(audio, 2.2, 0);
+  emit(capture, 2, .2); emit(audio, 2.1, .1); silence(audio, 2.2);
   assert.equal(probe.complete(), true);
   const result = probe.result(), start = result.trace.find(event => event.kind === 'playback-start');
   assert.ok(Math.abs(start.firstAudioAt - 1000) < .001);
@@ -344,7 +348,7 @@ for (const assistantFinal of ['late', 'missing']) test(`probe retains reply befo
 });
 
 test('probe internal utterance pause cannot promote output before the ordinal-1 final', async () => {
-  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  const { probe, capture, audio, emit, silence, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .6, 0); // Internal pause, not utterance completion.
   emit(audio, .65, .6); emit(audio, .75, 0); // Output during the internal pause is not the final reply.
@@ -352,7 +356,7 @@ test('probe internal utterance pause cannot promote output before the ordinal-1 
   emit(audio, 1, .2);
   assert.equal(probe.diagnostics().firstAudioAt, undefined);
   await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
-  emit(capture, 2, .2); emit(audio, 2.2, 0);
+  emit(capture, 2, .2); silence(audio, 2.2);
   assert.equal(probe.complete(), true);
   const evidence = probe.result();
   assert.ok(Math.abs(evidence.trace.find(e => e.kind === 'playback-start').firstAudioAt - 1000) < .001);
@@ -528,10 +532,12 @@ for (const reversed of [false, true]) test(`candidate and baseline use the same 
   await baseline.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
   baseline.emit(baseline.audio, 1, .2);
   if (!reversed) baseline.emit(baseline.capture, 2, .2);
-  const outputTrace = [];
-  for (const [seconds, level] of [[2, .2], [2.1, .0151], [2.2, .0149], [2.3, 0]]) {
+  const outputTrace = [{ at: 1000, durationMs: 1024 / 48, rms: Math.fround(.2), voiced: true }];
+  const frames = [[2, .2], [2.1, .0021], [2.2, .0019],
+    ...Array.from({ length: 47 }, (_, i) => [2.2 + (i + 1) * 1024 / 48000, 0])];
+  for (const [seconds, level] of frames) {
     baseline.emit(baseline.audio, seconds, level);
-    outputTrace.push({ at: seconds * 1000, voiced: level >= .015,
+    outputTrace.push({ at: seconds * 1000, contextTime: seconds, durationMs: 1024 / 48, rms: Math.fround(level), voiced: level >= .002,
       timestamp: { contextTime: seconds + .1, performanceTime: (seconds + .1) * 1000 } });
   }
   if (reversed) baseline.emit(baseline.capture, 2, .2);
@@ -543,4 +549,20 @@ for (const reversed of [false, true]) test(`candidate and baseline use the same 
   assert.ok(Math.abs(stop(result.trace) - stop(baseline.probe.result().trace)) < .001);
   assert.equal(stop(result.trace), 2200);
   await baseline.probe.close();
+});
+
+for (const gapMs of [120, 250]) test(`baseline sustained silence resets after a ${gapMs} ms gap and resumed speech`, async () => {
+  const h = await probeFixture();
+  await h.opener();
+  h.emit(h.capture, .5, .2); h.emit(h.capture, .6, 0);
+  await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  h.emit(h.audio, 1, .2); h.emit(h.capture, 2, .2);
+  for (let ms = 0; ms < gapMs; ms += 20) h.emit(h.audio, 2.1 + ms / 1000, 0, 48 * Math.min(20, gapMs - ms));
+  assert.equal(h.probe.complete(), false);
+  h.emit(h.audio, 2.1 + gapMs / 1000, .1);
+  assert.equal(h.probe.complete(), false);
+  h.silence(h.audio, 2.5);
+  assert.equal(h.probe.complete(), true);
+  assert.equal(h.probe.result().trace.find(row => row.kind === 'playback-stop').stoppedAt, 2500);
+  await h.probe.close();
 });

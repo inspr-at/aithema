@@ -13,7 +13,7 @@ function fixture() {
 
 const block = (at, durationMs, rms = 0) => ({ at, durationMs, rms, voiced: rms >= .015,
   timestamp: { contextTime: (at + durationMs) / 1000, performanceTime: at + durationMs } });
-const silence = (at, durationMs, rms = 0) => Array.from({ length: durationMs / 20 }, (_, i) => block(at + i * 20, 20, rms));
+const silence = (at, durationMs, rms = 0) => Array.from({ length: Math.ceil(durationMs / 20) }, (_, i) => block(at + i * 20, Math.min(20, durationMs - i * 20), rms));
 const reply = () => [block(0, 100, .2)];
 
 for (const gap of [120, 250, 600, 980]) test(`sustained output stop rejects a ${gap} ms gap followed by speech`, () => {
@@ -63,4 +63,33 @@ test('sustained output stop requires contiguous complete blocks after barge-in a
 test('sustained output stop orders rendered blocks and ignores late source callback delivery', () => {
   const trace = [...reply(), ...silence(100, 1000)].reverse();
   assert.equal(fixture().stop(trace, 100).stoppedAt, 100);
+});
+
+test('sustained output stop uses device continuity despite performance timestamp jitter', () => {
+  const trace = [...reply(), ...silence(100, 1000).map((entry, i) => ({ ...entry,
+    contextTime: entry.at / 1000, at: entry.at + (i % 2 ? .4 : -.4) }))];
+  assert.equal(fixture().stop(trace, 99).stoppedAt, 99.6);
+  trace.splice(20, 1);
+  assert.equal(fixture().stop(trace, 99), undefined, 'clock jitter cannot conceal a missing device block');
+});
+
+test('output tap waits for the entire PCM block to render before reporting evidence', () => {
+  const timers = [], rendered = [];
+  class Node { connect(destination) { return destination; } disconnect() {} }
+  const runtime = { AudioNode: Node, setTimeout(fn) { timers.push(fn); }, clearTimeout() {} };
+  runtime.window = runtime;
+  runInNewContext(`(${installQualificationOutputProbe.toString()})()`, runtime);
+  const sink = new Node(); let renderedTime = .01;
+  const context = { sampleRate: 48000, destination: new Node(), createScriptProcessor: () => sink,
+    createGain: () => Object.assign(new Node(), { gain: {} }),
+    getOutputTimestamp: () => ({ contextTime: renderedTime, performanceTime: renderedTime * 1000 }) };
+  runtime.qualificationOutputProbe.tap({ context }, block => rendered.push(block));
+  const samples = new Float32Array(1024).fill(.002), duration = 1024 / 48000;
+  sink.onaudioprocess({ playbackTime: duration, inputBuffer: { duration, getChannelData: () => samples } });
+  assert.equal(rendered.length, 0, '10 ms of a 21.3 ms block is not fully rendered');
+  renderedTime = duration; timers.shift()();
+  assert.equal(rendered.length, 1);
+  assert.equal(rendered[0].rms, Math.fround(.002));
+  assert.equal(rendered[0].voiced, true, 'quiet output does not inherit capture VAD');
+  runtime.qualificationOutputProbe.close();
 });

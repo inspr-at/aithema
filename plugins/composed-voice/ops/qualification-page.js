@@ -54,10 +54,7 @@ window.composedQualification = {
         if (event.kind === 'playback-stop-request' && event.origin !== 'interrupt') teardownAt = Math.min(teardownAt, event.requestedAt);
         // Output and source callbacks can arrive out of order. Select by their
         // rendered/source timestamps, never by delivery order or stop request.
-        const stop = output.reduce((first, block) => {
-          const next = outputProbe.stop(block, bargeInAt, teardownAt);
-          return next && (!first || next.stoppedAt < first.stoppedAt) ? next : first;
-        }, undefined);
+        const stop = outputProbe.stop(output, bargeInAt, teardownAt);
         if (stop && stoppedAt === undefined) { stoppedAt = stop.stoppedAt; trace.push(stop); done.resolve({}); }
       } catch (error) { fail(error); }
     };
@@ -65,8 +62,10 @@ window.composedQualification = {
       onTiming(event) { onTiming(event.kind === 'playback-stop' ? { ...event, kind: 'playback-stop-request' } : event); },
       observeOutput: source => outputProbe.tap(source, block => {
         if (finished) return;
-        output.push({ at: block.at, timestamp: block.timestamp, voiced: block.voiced, durationMs: block.durationMs });
-        onTiming({ kind: 'playback-rendered', at: block.at, voiced: block.voiced, durationMs: block.durationMs, outputTimestamp: block.timestamp });
+        output.push({ at: block.at, timestamp: block.timestamp, rms: block.rms, voiced: block.voiced,
+          contextTime: block.contextTime, durationMs: block.durationMs });
+        onTiming({ kind: 'playback-rendered', at: block.at, rms: block.rms, voiced: block.voiced,
+          contextTime: block.contextTime, durationMs: block.durationMs, outputTimestamp: block.timestamp });
       }, { onFault: fail }),
     });
     const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: fail }),

@@ -168,9 +168,11 @@ for (const at of [840, 850, 910]) test(`teardown cannot create a qualifying sile
   assert.equal(result.trace.some(row => row.kind === 'playback-stop'), false);
 });
 
-test('a fully rendered silent block before teardown remains valid evidence', async () => {
+test('a fully rendered sustained silent run before teardown remains valid evidence', async () => {
   const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true, productStop: true,
-    teardownStop: true, outputTrace: [{ at: 820, durationMs: 21, voiced: false, timestamp: { contextTime: .82, performanceTime: 820 } }] });
+    teardownStop: true, stopRequestedAt: 1900, outputTrace: [{ at: 10, durationMs: 20, rms: .2, voiced: true },
+      ...Array.from({ length: 50 }, (_, i) => ({ at: 820 + i * 20, durationMs: 20, rms: 0, voiced: false,
+        timestamp: { contextTime: (840 + i * 20) / 1000, performanceTime: 840 + i * 20 } }))] });
   const result = await h.run();
   assert.equal(result.refusal, undefined);
   assert.equal(result.trace.find(row => row.kind === 'playback-stop').stoppedAt, 820);

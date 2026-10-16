@@ -228,7 +228,11 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     assert.ok(Math.abs(bargeInAt - firstAudioAt - 800) < 150, `${lane}: barge-in onset uses the shared injected-source clock`);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));
     assert.ok(trace.some(event => event.kind === 'playback-start' && event.outputTimestamp.contextTime > 0 && event.outputTimestamp.performanceTime > 0));
-    assert.ok(trace.some(event => event.kind === 'playback-stop' && event.origin === 'rendered-silence' && event.outputTimestamp));
+    const stop = trace.find(event => event.kind === 'playback-stop');
+    assert.equal(stop.origin, 'rendered-silence');
+    assert.ok(stop.outputTimestamp && stop.confirmationOutputTimestamp);
+    assert.ok(stop.silenceDurationMs >= 1000 && stop.confirmedAt > stop.stoppedAt);
+    assert.ok(stop.outputRmsThreshold > 0);
     if (lane === 'candidate') assert.ok(trace.some(event => event.kind === 'playback-stop-request' && event.origin === 'interrupt'));
   }
   assert.equal(JSON.parse(await readFile(join(output, 'blind.json'))).length, 2);
@@ -328,6 +332,9 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       }
       result = await pending;
       const evidence = probe.evidence();
+      const stop = result.trace.find(event => event.kind === 'playback-stop');
+      assert.ok(stop.silenceDurationMs >= 1000 && stop.confirmedAt > stop.stoppedAt);
+      assert.ok(stop.confirmationOutputTimestamp && stop.outputRmsThreshold > 0);
       assert.ok(evidence.speechEndAt < evidence.firstAudioAt && evidence.firstAudioAt <= evidence.bargeInAt && evidence.bargeInAt <= evidence.stoppedAt);
       assert.equal(result.hypothesis, 'Wien', 'later final barge-in phrase is excluded');
       assert.ok(result.ttsPCM.byteLength > 0); assert.equal(result.ttsFormat.encoding, 'pcm_f32le');

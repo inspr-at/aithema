@@ -648,8 +648,9 @@ Audio output, including the SDK's WebRTC media element through a silent parallel
 Web Audio tap. Device frames/output timestamps supply the same capture,
 playback-start and playback-stop event contract as the candidate, including the
 WAV speech-end and barge-in timeline. The ScriptProcessor observation block is
-1024 frames; RMS 0.015, trace 100,000 events and PCM 16 MB use the existing
-candidate/evaluator limits. No fixture timing offset reconstructs evidence.
+1024 frames; capture RMS 0.015, trace 100,000 events and PCM 16 MB use the existing
+candidate/evaluator limits. Output has its own level criterion and sustained
+stop window below. No fixture timing offset reconstructs evidence.
 Production's first final user callback (ordinal 1) supplies the hypothesis and
 anchors reply attribution. Capture silence is never a committed utterance end:
 internal pauses cannot release reply evidence. Rendered output is buffered
@@ -676,6 +677,45 @@ claiming that admitted media was invalid.
 Missing ordinal-1 final cannot release buffered output: the existing duration,
 wall-clock, trace and PCM bounds stop it and retain uncertain exposure.
 Barge-in remains the next voiced capture at or after the original reply onset.
+
+### Sustained rendered-output stop
+
+Both lanes call the same `installQualificationOutputProbe().stop()` implementation
+in `ops/qualification-output-timing.js`. `stoppedAt` is the start of the first
+**1000 ms continuous silent run after barge-in**, confirmed only after its entire
+last PCM block has rendered according to `getOutputTimestamp()`. The confirmation
+window is evidence collection; the 300 ms interruption pass bar still measures
+from barge-in to the run's **start**. Speech resuming within the window resets
+the run. Missing blocks, invalid levels/durations, and blocks crossing barge-in
+or teardown cannot fill a run. Device context time establishes block continuity
+despite jitter in the mapping to performance time. No sustained run before the
+existing observation deadline is `missing-playback-stop`; there is no extension
+of the paid duration. Stop requests alone cannot establish this evidence.
+
+The 1000 ms minimum is a conservative engineering choice informed by
+[Heldner & Edlund (2010), *Pauses, gaps and overlaps in conversations*, Table 2](https://staff.fnwi.uva.nl/r.fernandezrovira/teaching/cosp/cosp2016/docs/HeldnerEdlund2010.pdf)
+(DOI `10.1016/j.wocn.2010.08.002`): their literature compilation reports
+within-utterance pauses with mean 300 ms, median 280 ms and SD 210 ms. One second
+is more than three times that mean and rejects word gaps of 120/250 ms as well
+as longer 600/980 ms gaps in the regressions. This is a finite observation policy,
+not a claim that all human speech pauses are shorter than a second. The existing
+offline reply fixtures are continuous synthetic tones
+(`test/fixtures/composed-qualification-provider.mjs` and
+`test/fixtures/qualification-production-origin.mjs`), not recordings of TTS speech;
+they cannot establish a real-speech intra-utterance p99. The literature supplies
+the duration rationale rather than inventing a speech percentile from those tones.
+
+Output silence uses **RMS < 0.01 × peak pre-barge-in rendered reply-block RMS**
+(-40 dB relative amplitude, `20 × log10(0.01)`). This ratio is the single
+output-level constant shared by both lanes, separate from capture's absolute
+0.015 VAD threshold. It is an explicit relative attenuation criterion derived
+from each sample's own reply level, not a microphone noise assumption. The
+reference is frozen to pre-barge-in reply blocks, excluding the baseline opener;
+neither a fading tail nor resumed output can move it. An above-threshold fade
+tail remains output; a sub-threshold tail can begin the quiet run. A missing or
+zero reference cannot prove a stop. The trace records `outputRmsThreshold`,
+`silenceDurationMs`, `confirmedAt`, and both output timestamps so the decision
+can be inspected. Blind reply PCM is still cut at `stoppedAt`, not confirmation.
 
 Before voice start, Node admits exactly one baseline attempt and awaits its
 consume acknowledgment. Its ceiling is

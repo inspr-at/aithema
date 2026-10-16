@@ -1,7 +1,8 @@
 /** Injected with evaluateOnNewDocument. No secrets, expected text or product
  * imports. Observe the production graph and final-user persistence unchanged.
  * PCM/trace bounds: qualification-live-server.mjs / live-qualification.js.
- * RMS .015: browser-audio.js. 1024 frames: ScriptProcessor's supported size,
+ * Output RMS/stop window: qualification-output-timing.js. Capture RMS .015:
+ * browser-audio.js. 1024 frames: ScriptProcessor's supported size,
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
   const trace = [], pcm = [], rendered = [], buffered = [], contexts = new Set(), observers = [];
@@ -41,13 +42,10 @@ export function installBaselineProbe() {
   };
   const observeStop = () => {
     if (stoppedAt !== undefined) return;
-    const stop = rendered.reduce((first, block) => {
-      const next = outputProbe.stop(block, bargeInAt);
-      return next && (!first || next.stoppedAt < first.stoppedAt) ? next : first;
-    }, undefined);
+    const stop = outputProbe.stop(rendered, bargeInAt);
     if (stop) { stoppedAt = stop.stoppedAt; emit(stop); }
   };
-  const attribute = ({ samples, at, timestamp, voiced, voicedSince, sampleRateHz }) => {
+  const attribute = ({ samples, at, timestamp, rms, voiced, voicedSince, contextTime, durationMs, sampleRateHz }) => {
     if (!hypothesis || failure || at < speechEndAt || voiced && voicedSince < speechEndAt) return;
     if (voiced && firstAudioAt === undefined) {
       firstAudioAt = at;
@@ -59,7 +57,7 @@ export function installBaselineProbe() {
     if (firstAudioAt === undefined || stoppedAt !== undefined) return;
     if (format && format.sampleRateHz !== sampleRateHz) { failure = 'output-format'; return; }
     format = { encoding: 'pcm_f32le', sampleRateHz, channels: 1 };
-    rendered.push({ at, timestamp, voiced }); observeStop();
+    rendered.push({ at, timestamp, rms, voiced, contextTime, durationMs }); observeStop();
     if (stoppedAt !== undefined) return;
     bytes += samples.byteLength;
     if (bytes > 16_000_000) { failure = 'pcm-bound'; return; }
