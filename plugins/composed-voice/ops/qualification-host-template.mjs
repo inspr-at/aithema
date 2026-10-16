@@ -109,6 +109,10 @@ export function createQualificationHost(options = {}) {
                 await bounded(group.limitDeadline(deadlineAt));
               }
             }, consentDecision: options.consentDecision, bounded, abort, preflight,
+            async recordEvidence(evidence) {
+              const file = createHash('sha256').update(`${runId}:${item.sampleId ?? item.id}`).digest('hex').slice(0, 24);
+              await writeFile(join(run, `baseline-invalid-${file}.json`), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+            },
             async recordIdentity(identity) {
               const key = `${runId}:${item.sampleId ?? item.id}`;
               baselineSessions.set(key, identity);

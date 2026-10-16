@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio' } = {}) {
+export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio', opener = 'normal' } = {}) {
   const key = join(directory, 'synthetic-tls-key.pem'), cert = join(directory, 'synthetic-tls-cert.pem');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
     '-days', '1', '-subj', '/CN=start2.fixture.test'], { stdio: 'ignore' });
@@ -41,7 +41,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
           sessionStorage.setItem('consented','1');location.href='/';};</script>`); return;
     }
     // Corpus timing source: composed-qualification.test.js's WAV has utterance
-    // 0..0.5 s and barge-in from 1.8 s. These fixture timers mimic provider final
+    // 20..20.5 s and barge-in from 21.8 s after a fixed 20 s prefix. These fixture timers mimic provider final
     // callbacks/reply audio; they never enter probe timestamps or expected text.
     res.end(`<!doctype html><aithema-session></aithema-session><script>
       (async()=>{
@@ -50,7 +50,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
       fetch(${JSON.stringify(otherOrigin + '/challenge')},{mode:'cors',credentials:'include'}).catch(()=>{});
       const root=document.querySelector('aithema-session').attachShadow({mode:'open'});
       if(!sessionStorage.getItem('consented')){root.innerHTML='<button class="chooser__continue">Continue</button>';root.querySelector('button').onclick=()=>location.href='/consent/';return;}
-      root.innerHTML='<button class="ready__mode" data-mode="voice">Voice</button><button class="ready__start">Start</button><button class="voice-close">Stop</button>';
+      root.innerHTML='<button class="ready__mode" data-mode="voice">Voice</button><button class="ready__start">Start</button><button class="voice-close">Stop</button><div class="audio-rail" data-state="listening"></div>';
       let context,oscillator,gain,stream;
       root.querySelector('.voice-close').onclick=()=>{if(gain){gain.gain.cancelScheduledValues(context.currentTime);gain.gain.setValueAtTime(0,context.currentTime);}stream?.getTracks().forEach(t=>t.stop());};
       root.querySelector('.ready__start').onclick=async()=>{
@@ -62,20 +62,27 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         let answering=false;
         detect.onaudioprocess=e=>{const samples=e.inputBuffer.getChannelData(0);if(answering&&Math.sqrt(samples.reduce((s,x)=>s+x*x,0)/samples.length)>=.015){gain.gain.cancelScheduledValues(context.currentTime);gain.gain.setValueAtTime(0,context.currentTime);
           answering=false;fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:2,text:'Bitte aufhören'}})});}};
-        setTimeout(()=>fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})}),700);
+        setTimeout(()=>{window.fixtureUserFinalAt=performance.now();fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})});},21400);
         const final=()=>{window.fixtureAssistantFinalAt=performance.now();return fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',text:'Danke.'}})});};
         oscillator=context.createOscillator();gain=context.createGain();gain.gain.value=0;
         ${mediaElement ? `const destination=context.createMediaStreamDestination();oscillator.connect(gain).connect(destination);
         const audio=new Audio();audio.srcObject=destination.stream;document.body.append(audio);await audio.play();` : 'oscillator.connect(gain).connect(context.destination);'}
         // An audible opener on the SAME graph must never enter the reply PCM.
         const start=context.currentTime;oscillator.start();
-        gain.gain.setValueAtTime(.6,start+.05);gain.gain.setValueAtTime(0,start+.25);
-        gain.gain.setValueAtTime(.2,start+1.05);gain.gain.setValueAtTime(.08,start+1.3);
-        window.fixtureReplyContextTime=start+1.05;
+        const rail=root.querySelector('.audio-rail');rail.dataset.state='speaking';
+        const openerStart=${JSON.stringify(opener)}==='delayed' ? .7 : .05;
+        gain.gain.setValueAtTime(.6,start+openerStart);gain.gain.setValueAtTime(0,start+openerStart+.2);
+        // A multi-sentence opener with a real gap, followed by its OWN final
+        // and SDK playback-completion state; never hide it inside user speech.
+        gain.gain.setValueAtTime(.6,start+openerStart+.35);gain.gain.setValueAtTime(0,start+openerStart+.55);
+        setTimeout(()=>fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',turnId:'opener',text:'AI notice. How can I help?'}})}),(openerStart+.6)*1000);
+        setTimeout(()=>{rail.dataset.state='listening';},(openerStart+.65)*1000);
+        gain.gain.setValueAtTime(.2,start+21.05);gain.gain.setValueAtTime(.08,start+21.3);
+        window.fixtureReplyContextTime=start+21.05;
         window.fixtureOutputClock=()=>context.getOutputTimestamp();
-        if(${JSON.stringify(assistantFinal)}==='before-audio')setTimeout(final,1000);
-        if(${JSON.stringify(assistantFinal)}==='after-audio')setTimeout(final,1500);
-        setTimeout(()=>{answering=true;},1100);
+        if(${JSON.stringify(assistantFinal)}==='before-audio')setTimeout(final,21000);
+        if(${JSON.stringify(assistantFinal)}==='after-audio')setTimeout(final,21500);
+        setTimeout(()=>{answering=true;},21100);
       };})();</script>`);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

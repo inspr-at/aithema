@@ -70,18 +70,18 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
   const keysFile = join(directory, 'provider.keys');
   await writeFile(keysFile, `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`, { mode: 0o600 });
   // Fake microphone uses a real WAV: utterance, endpointing silence, barge-in.
-  const wavPath = join(directory, 'corpus.wav'), rate = 48000, frames = rate * 4, wav = Buffer.alloc(44 + frames * 2);
+  const wavPath = join(directory, 'corpus.wav'), rate = 48000, frames = rate * 24, wav = Buffer.alloc(44 + frames * 2);
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
   for (let i = 0; i < frames; i++) {
-    const voiced = i < rate * 0.5 || i >= rate * 1.8;
+    const voiced = i >= rate * 20 && i < rate * 20.5 || i >= rate * 21.8;
     wav.writeInt16LE(voiced ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12_000) : 0, 44 + i * 2);
   }
   await writeFile(wavPath, wav);
   const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), budget = join(directory, 'qualification.sqlite'), output = join(directory, 'evidence');
   initializeQualificationBudget({ path: budget });
-  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', wavPath, reference: 'Wien', expected: 'Wien' }],
+  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', wavPath, reference: 'Wien', expected: 'Wien', leadingSilenceMs: 20000 }],
     ceilingChecks: [{ provider: 'fixture', model: 'fixture', operation: 'stream', accountRef: 'offline-fixture',
       endpoint: 'https://fixture.invalid/stream', maxMicro: 100, request: { fixture: true } }],
     checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'FAKE ONLY; no live qualification',
@@ -106,7 +106,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   const baselineAuthFile = ${JSON.stringify(join(directory, 'baseline-auth.json'))};
   await writeFile(baselineAuthFile, JSON.stringify({username:production.username,password:production.password}), {mode:0o600});
   let baselineAttemptId;
-  const host = template({ binding: {baselineOrigin:production.origin,baselineAuthFile,maxDurationSeconds:10,baselineReasoningCeilingMicro:25,
+  const host = template({ binding: {baselineOrigin:production.origin,baselineAuthFile,maxDurationSeconds:28,baselineReasoningCeilingMicro:25,
       baseline:{plugin:'fixture',model:'fixture',agentId:'fixture-agent',accountRef:'offline-fixture',endpoint:'https://fixture.invalid/stream',microPerMinute:600}},
     consentDecision:{items:['voice-elevenlabs','models-international']}, controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
     ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
@@ -218,27 +218,38 @@ import { startFakeProductionOrigin } from '../fixtures/qualification-production-
 import { runProductionBaseline } from '../../plugins/composed-voice/ops/qualification-production-baseline.mjs';
 import { createQualificationMediaProbe } from '../../plugins/composed-voice/src/live-qualification.js';
 
-test('AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin', { timeout: 60_000 }, async t => {
+test('AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-production-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  // Same corpus WAV timeline as the CLI fixture above (0..0.5 s speech,
-  // silence until 1.8 s, then barge-in), not asserted quality thresholds.
-  const rate = 48000, frames = rate * 4, wav = Buffer.alloc(44 + frames * 2), wavPath = join(directory, 'corpus.wav');
+  // Same 20 s leading silence in both lanes, then an utterance with an
+  // internal pause and barge-in at 21.8 s; these are synthetic fixture inputs.
+  const rate = 48000, frames = rate * 24, wav = Buffer.alloc(44 + frames * 2), wavPath = join(directory, 'corpus.wav');
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
-  for (let i = 0; i < frames; i++) wav.writeInt16LE(i < rate * .5 || i >= rate * 1.8 ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000) : 0, 44 + i * 2);
+  for (let i = 0; i < frames; i++) wav.writeInt16LE(i >= rate * 20 && i < rate * 20.15 || i >= rate * 20.3 && i < rate * 20.5 || i >= rate * 21.8 ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000) : 0, 44 + i * 2);
   await writeFile(wavPath, wav);
-  for (const mediaElement of [false, true]) for (const assistantFinal of ['before-audio', 'after-audio', 'missing']) await t.test(
-    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: assistant final ${assistantFinal}`, async () => {
-    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal });
+  const scenarios = [false, true].flatMap(mediaElement => ['before-audio', 'after-audio', 'missing'].map(assistantFinal => ({ mediaElement, assistantFinal })));
+  scenarios.push({ mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
+    { mediaElement: true, assistantFinal: 'missing', opener: 'normal', overlap: true });
+  for (const { mediaElement, assistantFinal, opener, overlap } of scenarios) await t.test(
+    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: ${overlap ? `refuse ${opener} opener overlap` : `assistant final ${assistantFinal}`}`, async () => {
+    let capturePath = wavPath;
+    if (overlap) {
+      // Deliberately invalid corpus: first speech .2.. .5 s, so an opener
+      // starts after speech end or is still playing at user speech start.
+      const invalid = Buffer.from(wav); invalid.fill(0, 44);
+      for (let i = rate * .2; i < rate * .5; i++) invalid.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000), 44 + i * 2);
+      capturePath = join(directory, `invalid-${opener}.wav`); await writeFile(capturePath, invalid);
+    }
+    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener });
     const browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
       args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         // Test-only fake renderer makes this hermetic on CI hosts with no audio
         // hardware. The real launcher refuses this flag before admission.
-        '--disable-audio-output', '--disable-features=AudioServiceSandbox', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wavPath}`,
+        '--disable-audio-output', '--disable-features=AudioServiceSandbox', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${capturePath}`,
         '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
-    const page = await browser.newPage(), logs = [], reports = [], identities = [], probe = createQualificationMediaProbe();
+    const page = await browser.newPage(), logs = [], reports = [], identities = [], refusals = [], probe = createQualificationMediaProbe();
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
     const abort = new AbortController(); let watchdog;
     const expired = new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
@@ -246,20 +257,28 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
     let result;
     try {
       await browser.defaultBrowserContext().overridePermissions(production.origin, ['microphone']);
-      result = await runProductionBaseline({ page, binding: { baselineOrigin: production.origin, maxDurationSeconds: 8, baselineReasoningCeilingMicro:25,
+      const pending = runProductionBaseline({ page, binding: { baselineOrigin: production.origin, maxDurationSeconds: 28, baselineReasoningCeilingMicro:25,
         baseline: { plugin: 'elevenlabs', model: 'fake-agent', agentId: 'fake-agent', accountRef: 'fixture-account', endpoint: 'https://api.elevenlabs.io', microPerMinute: 600 } },
         item: { id: 'fake-corpus' }, runId: 'production-fixture', auth: { username: production.username, password: production.password },
         consentDecision: { items: ['voice-elevenlabs', 'models-international'] }, onTiming: probe.onTiming,
         bounded: value => Promise.race([value, expired]), abort: reason => abort.abort(reason),
-        preflight: async () => ({ fixtureOnly: true, verified: false }), recordIdentity: async identity => identities.push(identity),
+        preflight: async () => ({ fixtureOnly: true, verified: false }), recordIdentity: async identity => identities.push(identity), recordEvidence: async evidence => refusals.push(evidence),
         boundConversation: async deadline => { watchdog = setTimeout(() => abort.abort(new Error('fixture duration watchdog')), deadline - Date.now()); },
         admit: async spec => {
           assert.equal(production.dispatches.length, 0, 'durable admission precedes production conversation');
-          // Synthetic tariff: 600 micro/min * 8 s / 60 + 25 reasoning micro.
-          assert.equal(spec.maxMicro, 105);
+          // Synthetic tariff: 600 micro/min * 28 s / 60 + 25 reasoning micro.
+          assert.equal(spec.maxMicro, 305);
           return { attempt: { async consume() { assert.equal(production.dispatches.length, 0); } }, report: async terminal => reports.push(terminal) };
         },
       });
+      if (overlap) {
+        await assert.rejects(pending, /invalid evidence \(opener-overlap\)/);
+        assert.equal(production.dispatches.length, 1); assert.ok(production.stopped >= 1);
+        assert.equal(refusals.length, 1); assert.equal(refusals[0].reason, 'opener-overlap');
+        assert.equal(refusals[0].status, 'invalid'); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+        return;
+      }
+      result = await pending;
       const evidence = probe.evidence();
       assert.ok(evidence.speechEndAt < evidence.firstAudioAt && evidence.firstAudioAt <= evidence.bargeInAt && evidence.bargeInAt <= evidence.stoppedAt);
       assert.equal(result.hypothesis, 'Wien', 'later final barge-in phrase is excluded');
@@ -269,10 +288,11 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       assert.ok(peak(samples.subarray(0, 2048)) > .15, 'PCM retains the first voiced reply block before the assistant final');
       assert.ok(peak(samples) < .3, 'the .6-amplitude production opener is excluded');
       const reference = await page.evaluate(() => ({ clock: window.fixtureOutputClock(), reply: window.fixtureReplyContextTime,
-        finalAt: window.fixtureAssistantFinalAt }));
+        finalAt: window.fixtureAssistantFinalAt, userFinalAt: window.fixtureUserFinalAt }));
       const expectedReplyAt = reference.clock.performanceTime + (reference.reply - reference.clock.contextTime) * 1000;
       assert.ok(evidence.firstAudioAt >= expectedReplyAt - 75 && evidence.firstAudioAt < expectedReplyAt + 250,
         `first reply block observed at ${evidence.firstAudioAt}, device reference ${expectedReplyAt}`);
+      assert.ok(evidence.firstAudioAt < reference.userFinalAt - 100, 'buffer retains reply audio before ordinal-1 user final');
       if (assistantFinal === 'after-audio') assert.ok(evidence.firstAudioAt < reference.finalAt - 100);
       if (assistantFinal === 'missing') assert.equal(reference.finalAt, undefined);
       assert.ok(evidence.bargeInAt > evidence.firstAudioAt + 300, 'barge-in remains the next voiced corpus segment');

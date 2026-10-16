@@ -74,11 +74,11 @@ export async function prepareBaselinePage(page, origin, auth, allowRequest) {
 /** Use only production's normal visitor UI and response identities. No control
  * mount, owner headers, provider secret, mint, SDK option or agent write. */
 export async function runProductionBaseline({ page, binding, item, runId, admit, onTiming, consentDecision,
-  bounded, abort, recordIdentity, auth, preflight, boundConversation }) {
+  bounded, abort, recordIdentity, recordEvidence = async () => {}, auth, preflight, boundConversation }) {
   const origin = baselineOrigin(binding.baselineOrigin), base = binding.baseline;
   const maxMicro = baselineAttemptCeiling(binding);
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
-  const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure;
+  const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure, durationBoundReached = false;
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
   const labels = () => Object.fromEntries(['lane', 'runId', 'sampleId', 'visitorSessionId', 'providerSessionId', 'attemptId', 'callId']
     .filter(key => identity[key] !== undefined).map(key => [key, identity[key]]));
@@ -165,6 +165,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     // allowance (two watchdog ticks plus CDP delivery), never added paid time.
     closeTimer = setTimeout(() => { void stop().catch(() => {}); }, Math.max(0, conversationDeadlineAt - Date.now() - 250));
     durationTimer = setTimeout(() => {
+      durationBoundReached = true;
       void stop().catch(() => {});
       abort(new Error('Baseline conversation duration bound reached'));
     }, Math.max(0, conversationDeadlineAt - Date.now()));
@@ -180,7 +181,16 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     for (const event of result.trace) onTiming(event);
     return { ...result, physicalBrowserMedia, ttsPCM: new Uint8Array(Buffer.from(result.ttsPCM, 'base64')),
       baselineSession: labels() };
-  } catch { throw new Error('Production baseline failed; retain uncertain exposure and inspect private session receipts'); }
+  } catch {
+    // Persist a value-free refusal independently of result(), which must never
+    // return invalid audio. The attempt stays consumed/uncertain, with no retry.
+    const diagnostics = await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined);
+    const reason = diagnostics?.failure || (durationBoundReached ? 'duration-bound' :
+      diagnostics?.hasHypothesis === false ? 'missing-user-final' : 'incomplete-media');
+    await recordEvidence({ ...labels(), status: 'invalid', reason,
+      ...(diagnostics ? { diagnostics } : {}) });
+    throw new Error(`Production baseline failed; invalid evidence (${reason}); retain uncertain exposure and inspect private session receipts`);
+  }
   finally {
     clearTimeout(durationTimer); clearTimeout(closeTimer);
     try { await bounded(stop()).catch(() => {}); await Promise.allSettled([...jobs]); await save(); }

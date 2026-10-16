@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan } from '../src/live-qualification.js';
+import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan, verifyCorpusLeadingSilence } from '../src/live-qualification.js';
 import { initializeQualificationBudget } from '../src/persisted-budget.js';
 
 const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40 },
@@ -52,7 +52,9 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
         receiptId: row.attemptId, provider: row.provider, model: row.model, operation: row.operation, accountRef: row.accountRef, endpoint: row.endpoint, chargedMicro: 1, estimated: false });
     },
   };
-  const options = { operatorApproved: true, plan: plan(), host, budgetPath, outputDirectory };
+  const input = plan(); input.corpus[0].wavPath = join(directory, 'corpus.wav');
+  await writeFile(input.corpus[0].wavPath, corpusWav());
+  const options = { operatorApproved: true, plan: input, host, budgetPath, outputDirectory };
   const report = await runLiveQualification(options);
   assert.equal(report.candidate.wer, 0); assert.equal(report.candidate.firstAudioMs.p95, 760);
   assert.equal(report.candidate.bargeInStopMs, 100); assert.equal(report.candidate.qualified, false);
@@ -137,4 +139,22 @@ export async function createQualificationHost({ controlFile, controlCapability }
 for (const leadingSilenceMs of [undefined, 0, 19999, '20000']) test(`plan refuses insufficient or undeclared leading silence: ${leadingSilenceMs}`, () => {
   const input = plan(); input.corpus[0].leadingSilenceMs = leadingSilenceMs;
   assert.throws(() => validateQualificationPlan(input), /leading silence/i);
+});
+
+function corpusWav() {
+  const rate = 16000, dataBytes = rate * 21 * 2, wav = Buffer.alloc(44 + dataBytes);
+  wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(dataBytes, 40);
+  wav.writeInt16LE(10000, 44 + 20 * rate * 2); return wav;
+}
+
+test('corpus prefix is checked from the same WAV bytes before either lane, without padding or seeking', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'corpus-silence-')), wavPath = join(directory, 'corpus.wav');
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const wav = corpusWav(), item = { wavPath, leadingSilenceMs: 20000 };
+  await writeFile(wavPath, wav); await verifyCorpusLeadingSilence(item);
+  wav.writeInt16LE(10000, 44 + 19 * 16000 * 2); await writeFile(wavPath, wav);
+  await assert.rejects(verifyCorpusLeadingSilence(item), /leading silence/);
+  await writeFile(wavPath, wav.subarray(0, 43)); await assert.rejects(verifyCorpusLeadingSilence(item), /Incomplete corpus WAV/);
 });

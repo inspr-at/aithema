@@ -74,8 +74,8 @@ test('baseline missing auth refuses before browser, control or admission', async
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit } = {}) {
-  const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [];
+async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence } = {}) {
+  const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
   cdp.send = async (method, params) => { sent.push({ method, params }); };
@@ -100,6 +100,8 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
   };
   page.waitForFunction = async () => { if (duration) await expiry.promise; };
   page.evaluate = async (fn, input) => {
+    if (fn.toString().includes('Probe?.diagnostics')) return { failure: invalidEvidence, hasHypothesis: false };
+    if (fn.toString().includes('Probe.result') && invalidEvidence) throw new Error('Invalid production media evidence');
     if (fn.toString().includes('Probe.result')) return { hypothesis: 'Wien', ttsPCM: Buffer.from(new Float32Array([0.5]).buffer).toString('base64'),
       ttsFormat: { encoding: 'pcm_f32le', sampleRateHz: 48000, channels: 1 }, trace: [
         { kind: 'capture', voiced: true, captureAt: 10, durationMs: 40 },
@@ -113,7 +115,7 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
     bounded: promise => Promise.race([promise, expiry.promise]), abort(error) { aborts.push(error.message); expiry.reject(error); },
     preflight: async () => ({ verified: true }), boundConversation: async deadlineAt => {
       assert.ok(deadlineAt > Date.now()); order.push('duration-watchdog');
-    }, recordIdentity: async value => identities.push(value), onTiming: event => timings.push(event),
+    }, recordIdentity: async value => identities.push(value), recordEvidence: async value => evidence.push(value), onTiming: event => timings.push(event),
     async admit(spec) {
       order.push('admit'); if (refusal === 'admit') throw new Error('fake admission denied');
       // Source: explicit synthetic tariff 1001 micro/min * binding 1 s / 60,
@@ -127,7 +129,7 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       return { attempt: { attemptId: spec.attemptId, async consume() { if (refusal === 'consume') throw new Error('fake consume denied'); order.push('consume'); } },
         report: async terminal => reports.push(terminal) };
     } });
-  return { run, page, sent, order, reports, identities, timings, aborts };
+  return { run, page, sent, order, reports, identities, timings, aborts, evidence };
 }
 
 test('production flow admits/consumes once before conversation, labels both identities and retains uncertain terminal', async t => {
@@ -155,6 +157,7 @@ test('binding hard duration stops an idle production conversation and reports un
   assert.equal(h.order.includes('stop'), true);
   assert.equal(h.aborts.length, 1); assert.match(h.aborts[0], /duration bound/);
   assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
+  assert.equal(h.evidence[0].status, 'invalid'); assert.equal(h.evidence[0].reason, 'duration-bound');
 });
 
 test('baseline launcher gets fresh profile and corpus flags, with no loopback headers, control or provider credentials', async t => {
@@ -327,7 +330,7 @@ test('probe internal utterance pause cannot promote output before the ordinal-1 
   const { probe, capture, audio, emit, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .6, 0); // Internal pause, not utterance completion.
-  emit(audio, .65, 0);
+  emit(audio, .65, .6); emit(audio, .75, 0); // Output during the internal pause is not the final reply.
   emit(capture, .8, .2); emit(capture, .9, 0);
   emit(audio, 1, .2);
   assert.equal(probe.diagnostics().firstAudioAt, undefined);
@@ -335,7 +338,7 @@ test('probe internal utterance pause cannot promote output before the ordinal-1 
   emit(capture, 2, .2); emit(audio, 2.2, 0);
   assert.equal(probe.complete(), true);
   const evidence = probe.result();
-  assert.equal(evidence.trace.find(e => e.kind === 'playback-start').firstAudioAt, 1000);
+  assert.ok(Math.abs(evidence.trace.find(e => e.kind === 'playback-start').firstAudioAt - 1000) < .001);
   assert.equal(evidence.trace.filter(e => e.kind === 'capture' && e.voiced && e.captureAt < 1000).length, 2);
   await probe.close();
 });
@@ -373,4 +376,16 @@ test('missing ordinal-1 final cannot release buffered reply evidence', async () 
   assert.equal(probe.diagnostics().firstAudioAt, undefined);
   assert.throws(() => probe.result(), /Incomplete production media evidence/);
   await probe.close();
+});
+
+test('opener overlap is recorded as invalid, closes once and retains uncertain exposure without a retry', async t => {
+  const h = await productionFixture(t, { invalidEvidence: 'opener-overlap' });
+  await assert.rejects(h.run(), /invalid evidence \(opener-overlap\)/);
+  assert.equal(h.order.filter(step => step === 'admit').length, 1);
+  assert.equal(h.order.filter(step => step === 'conversation').length, 1);
+  assert.equal(h.order.filter(step => step === 'stop').length, 1);
+  assert.equal(h.evidence.length, 1); assert.equal(h.evidence[0].status, 'invalid');
+  assert.equal(h.evidence[0].reason, 'opener-overlap');
+  assert.equal(h.evidence[0].providerSessionId, 'conv_fake');
+  assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
 });

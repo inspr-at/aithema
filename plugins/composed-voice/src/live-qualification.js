@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, open, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { evaluateQualification } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
@@ -65,7 +65,48 @@ export function validateQualificationPlan(plan) {
     !Array.isArray(plan.ceilingChecks) || !plan.ceilingChecks.length ||
     PRELIVE_CHECKS.some(key => plan.checks?.[key]?.verified !== true || !plan.checks[key].reference) ||
     !['is_final', 'isFinal'].includes(plan.checks.ttsFinalFlag.spelling)) throw new Error('Verified pre-live checklist and pricing plan required');
+  if (plan.corpus.some(item => !Number.isSafeInteger(item?.leadingSilenceMs) || item.leadingSilenceMs < 20_000)) {
+    throw new Error('Corpus requires declared leading silence of at least 20000 ms in each identical lane WAV');
+  }
   if (plan.checks.ttsFinalFlag.spelling !== 'is_final') throw new Error('Adapter expects is_final; resolve protocol spelling before run');
+}
+
+/** Both lanes consume the same unmodified PCM16 mono WAV. Check the declared
+ * prefix before either dispatch; no per-lane padding, seek or retry is allowed. */
+export async function verifyCorpusLeadingSilence(item) {
+  const file = await open(item.wavPath, 'r');
+  try {
+    const size = (await file.stat()).size;
+    const read = async (length, position) => {
+      const bytes = Buffer.alloc(length);
+      if ((await file.read(bytes, 0, length, position)).bytesRead !== length) throw new Error('Incomplete corpus WAV');
+      return bytes;
+    };
+    const header = await read(12, 0);
+    if (header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') throw new Error('PCM16 mono corpus WAV required');
+    let format;
+    for (let at = 12, chunks = 0; at + 8 <= size && chunks < 128; chunks++) {
+      const chunk = await read(8, at), length = chunk.readUInt32LE(4), start = at + 8;
+      if (start + length > size) throw new Error('Incomplete corpus WAV');
+      if (chunk.toString('ascii', 0, 4) === 'fmt ' && length >= 16) {
+        const fmt = await read(16, start);
+        if (fmt.readUInt16LE(0) !== 1 || fmt.readUInt16LE(2) !== 1 || fmt.readUInt16LE(12) !== 2 || fmt.readUInt16LE(14) !== 16) throw new Error('PCM16 mono corpus WAV required');
+        format = fmt.readUInt32LE(4);
+        if (format < 8000 || format > 96000) throw new Error('Invalid corpus sample rate');
+      }
+      if (chunk.toString('ascii', 0, 4) === 'data' && format) {
+        const needed = Math.ceil(item.leadingSilenceMs * format / 1000) * 2;
+        if (!Number.isSafeInteger(needed) || needed < 1 || needed >= length) throw new Error('Declared leading silence exceeds corpus WAV');
+        for (let offset = 0; offset < needed; offset += 65536) {
+          const bytes = await read(Math.min(65536, needed - offset), start + offset);
+          if (bytes.some(value => value !== 0)) throw new Error('Corpus leading silence must contain zero PCM before user speech');
+        }
+        return;
+      }
+      at = start + length + length % 2;
+    }
+    throw new Error('PCM16 mono corpus WAV data required');
+  } finally { await file.close(); }
 }
 
 /** OPS supplies an account-specific host with existing Rule C, consent,
@@ -87,6 +128,7 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
     await mkdir(outputDirectory, { recursive: true });
     const samples = { candidate: [], baseline: [] }, blind = [], answerKey = [];
     for (const [index, item] of plan.corpus.entries()) {
+      await verifyCorpusLeadingSilence(item);
       const pair = [];
       for (const lane of ['candidate', 'baseline']) {
         const probe = createQualificationMediaProbe();
