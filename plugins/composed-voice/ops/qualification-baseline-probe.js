@@ -5,6 +5,7 @@
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
   const trace = [], pcm = [], contexts = new Set();
+  let responseReady = false;
   let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure;
   const emit = event => { if (trace.length >= 100_000) failure = true; else trace.push(event); };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
@@ -27,7 +28,7 @@ export function installBaselineProbe() {
         // observes the previous input block; map that frame to the device clock.
         const time = event.playbackTime - event.inputBuffer.duration;
         const at = clockAt(context, time), voiced = rms(samples) >= 0.015;
-        if (!hypothesis || !Number.isFinite(at)) return; // Exclude the production opener.
+        if (!hypothesis || !responseReady || !Number.isFinite(at)) return; // Exclude the production opener.
         if (voiced) {
           if (firstAudioAt === undefined) {
             firstAudioAt = at;
@@ -35,12 +36,15 @@ export function installBaselineProbe() {
           }
           if (format && format.sampleRateHz !== context.sampleRate) { failure = true; return; }
           format = { encoding: 'pcm_f32le', sampleRateHz: context.sampleRate, channels: 1 };
-          bytes += samples.byteLength;
-          if (bytes > 16_000_000) { failure = true; return; }
-          pcm.push(...samples);
+
         } else if (firstAudioAt !== undefined && bargeInAt !== undefined && at >= bargeInAt && stoppedAt === undefined) {
           stoppedAt = at;
           emit({ kind: 'playback-stop', stoppedAt, outputTimestamp: context.getOutputTimestamp() });
+        }
+        if (firstAudioAt !== undefined && stoppedAt === undefined) {
+          bytes += samples.byteLength;
+          if (bytes > 16_000_000) { failure = true; return; }
+          pcm.push(Float32Array.from(samples));
         }
       };
       const silence = context.createGain(); silence.gain.value = 0;
@@ -102,6 +106,7 @@ export function installBaselineProbe() {
         const event = JSON.parse(init?.body).event;
         if (!hypothesis && bargeInAt === undefined && event.type === 'final' && event.role === 'user' &&
           event.userTurnOrdinal === 1 && typeof event.text === 'string' && event.text.trim()) hypothesis = event.text;
+        if (hypothesis && event.type === 'final' && event.role === 'assistant') responseReady = true;
       }
     } catch { /* Not a production final-user persistence request. */ }
     return fetch(input, init);
@@ -112,7 +117,9 @@ export function installBaselineProbe() {
     result() {
       if (failure || !hypothesis || !pcm.length || ![firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Incomplete production media evidence');
       // Chunk conversion avoids argument/string limits for bounded PCM evidence.
-      const data = new Uint8Array(new Float32Array(pcm).buffer); let binary = '';
+      const samples = new Float32Array(bytes / 4); let offset = 0;
+      for (const chunk of pcm) { samples.set(chunk, offset); offset += chunk.length; }
+      const data = new Uint8Array(samples.buffer); let binary = '';
       for (let i = 0; i < data.length; i += 8192) binary += String.fromCharCode(...data.subarray(i, i + 8192));
       return { hypothesis, trace, ttsPCM: btoa(binary), ttsFormat: format };
     },

@@ -63,7 +63,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
   bounded, abort, recordIdentity, auth, preflight, boundConversation }) {
   const origin = baselineOrigin(binding.baselineOrigin), base = binding.baseline;
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
-  const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, stopping, responseFailure;
+  const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure;
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
   const save = () => recordIdentity({ ...identity });
   const response = value => {
@@ -77,6 +77,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
           identity.providerSessionId = body.providerSessionId;
           identity.callId = body.callId;
           identity.epoch = body.epoch;
+          identity.tabId = body.controllingTabId;
         }
         await save();
       })()).catch(() => { responseFailure = true; });
@@ -92,7 +93,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       if (identity.visitorSessionId && identity.callId) {
         await fetch(`/api/sessions/${identity.visitorSessionId}/voice/${identity.callId}/close`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ callId: identity.callId, ...(identity.epoch !== undefined ? { epoch: identity.epoch } : {}),
+          body: JSON.stringify({ callId: identity.callId, providerSessionId: identity.providerSessionId, tabId: identity.tabId, ...(identity.epoch !== undefined ? { epoch: identity.epoch } : {}),
             reason: 'closed', background: true }),
         });
       }
@@ -109,7 +110,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       const requestId = event.networkId ?? event.requestId;
       if (!consumed || voiceStartId && voiceStartId !== requestId) return false;
       voiceStartId = requestId;
-      try { identity.callId = JSON.parse(value.postData).callId; } catch { /* response still records identity */ }
+      try { const body = JSON.parse(value.postData); identity.callId = body.callId; identity.tabId = body.tabId; } catch { /* response still records identity */ }
     }
     return true;
   });
@@ -143,6 +144,9 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     await bounded(admission.attempt.consume()); consumed = true;
     // Binding's paid duration, measured from dispatch permission (earlier than
     // connection). Node's independent process watchdog also survives CLI death.
+    // Begin the normal close 250 ms before the hard kill. This is a shutdown
+    // allowance (two watchdog ticks plus CDP delivery), never added paid time.
+    closeTimer = setTimeout(() => { void stop().catch(() => {}); }, Math.max(0, conversationDeadlineAt - Date.now() - 250));
     durationTimer = setTimeout(() => {
       void stop().catch(() => {});
       abort(new Error('Baseline conversation duration bound reached'));
@@ -161,7 +165,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       baselineSession: { ...identity } };
   } catch { throw new Error('Production baseline failed; retain uncertain exposure and inspect private session receipts'); }
   finally {
-    clearTimeout(durationTimer);
+    clearTimeout(durationTimer); clearTimeout(closeTimer);
     try { await bounded(stop()).catch(() => {}); await Promise.allSettled([...jobs]); await save(); }
     finally {
       page.off('response', response);

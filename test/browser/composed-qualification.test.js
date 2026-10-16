@@ -93,6 +93,7 @@ import { browserPath } from ${JSON.stringify(new URL('../../scripts/install-test
 import { startLocalQualificationHost, loadQualificationControl } from ${JSON.stringify(new URL('../../plugins/composed-voice/ops/qualification-server.mjs', import.meta.url).href)};
 import { createQualificationServer } from ${JSON.stringify(new URL('../fixtures/composed-qualification-provider.mjs', import.meta.url).href)};
 import { writeFile } from 'node:fs/promises';
+import { startFakeProductionOrigin } from ${JSON.stringify(new URL('../fixtures/qualification-production-origin.mjs', import.meta.url).href)};
 export async function createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability }) {
   if (keysFile !== ${JSON.stringify(keysFile)}) throw new Error("CLI keys-file path not forwarded");
   const authenticateRelay = request => request.headers.get('cookie') === 'aithema-visitor=fixture-owner' ? 'fixture-owner' : null;
@@ -101,9 +102,15 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   const local = await startLocalQualificationHost({ enabled: true, hostname: '127.0.0.1', relayOrigin: ${JSON.stringify(hostOrigin)},
     ...ports, authenticateRelay, keysFile, control });
   await writeFile(${JSON.stringify(targetFile)}, JSON.stringify({ port: Number(new URL(local.url).port) }));
-  const host = template({ controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
+  const production = await startFakeProductionOrigin(${JSON.stringify(directory)});
+  const baselineAuthFile = ${JSON.stringify(join(directory, 'baseline-auth.json'))};
+  await writeFile(baselineAuthFile, JSON.stringify({username:production.username,password:production.password}), {mode:0o600});
+  let baselineAttemptId;
+  const host = template({ binding: {baselineOrigin:production.origin,baselineAuthFile,maxDurationSeconds:10,
+      baseline:{plugin:'fixture',model:'fixture',agentId:'fixture-agent',accountRef:'offline-fixture',endpoint:'https://fixture.invalid/stream',microPerMinute:600}},
+    consentDecision:{items:['voice-elevenlabs','models-international']}, controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
     ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
-    launchArgs: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [],
+    launchArgs: [...production.launchArgs,...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])],
     verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'fake price evidence', expiresAt: Date.now() + 60000 }),
     verifyReceipt: async () => true,
     async reconcile({ snapshot, reconcile }) {
@@ -113,8 +120,8 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
       }
     },
   });
-  return { ...host, async close() {
-    try { await host.close(); } finally { await local.close(); await writeFile(${JSON.stringify(dispatchFile)}, JSON.stringify(ports.dispatches)); }
+  return { ...host, runSample(input) { return host.runSample({...input,admit(spec) { if(input.lane==='baseline')baselineAttemptId=spec.attemptId;return input.admit(spec); }}); }, async close() {
+    try { await host.close(); } finally { await local.close(); await production.close(); await writeFile(${JSON.stringify(dispatchFile)}, JSON.stringify([...ports.dispatches,...production.dispatches.map(()=>baselineAttemptId)])); }
   } };
 }
 `);
@@ -182,9 +189,9 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   assert.equal(code, 0, `${stderr}\nFixture dispatches: ${JSON.stringify(ports.dispatches)}`); assert.match(stdout, /tunnel-fake-proof/);
   const report = JSON.parse(await readFile(join(output, 'report.json'))), observations = JSON.parse(await readFile(join(output, 'observations.json')));
   assert.equal(report.candidate.wer, 0); assert.equal(report.baseline.wer, 0); assert.equal(report.candidate.qualified, false);
-  assert.equal(report.budget.records.length, 8); assert.equal(ports.dispatches.length, 8);
+  assert.equal(report.budget.records.length, 5); assert.equal(ports.dispatches.length, 5);
   assert.deepEqual(new Set(report.budget.records.map(row => row.attemptId)), new Set(ports.dispatches));
-  assert.equal(report.budget.records.filter(row => row.retryOf).length, 2);
+  assert.equal(report.budget.records.filter(row => row.retryOf).length, 1);
   assert.ok(report.budget.records.every(row => row.state === 'settled' && row.receipt && row.dispatchedAt));
   for (const lane of ['candidate', 'baseline']) {
     const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, physicalBrowserMedia } = observations[lane][0];
@@ -205,4 +212,72 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
       fixtureOnly: true, bindPort: target, browserOrigin: hostOrigin, report, observations, dispatches: ports.dispatches,
     }, null, 2));
   }
+});
+
+import { startFakeProductionOrigin } from '../fixtures/qualification-production-origin.mjs';
+import { runProductionBaseline } from '../../plugins/composed-voice/ops/qualification-production-baseline.mjs';
+import { createQualificationMediaProbe } from '../../plugins/composed-voice/src/live-qualification.js';
+
+test('AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-production-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // Same corpus WAV timeline as the CLI fixture above (0..0.5 s speech,
+  // silence until 1.8 s, then barge-in), not asserted quality thresholds.
+  const rate = 48000, frames = rate * 4, wav = Buffer.alloc(44 + frames * 2), wavPath = join(directory, 'corpus.wav');
+  wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
+  for (let i = 0; i < frames; i++) wav.writeInt16LE(i < rate * .5 || i >= rate * 1.8 ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000) : 0, 44 + i * 2);
+  await writeFile(wavPath, wav);
+  for (const mediaElement of [false, true]) await t.test(mediaElement ? 'WebRTC media element' : 'Web Audio output', async () => {
+    const production = await startFakeProductionOrigin(directory, { mediaElement });
+    const browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
+      args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
+        // Test-only fake renderer makes this hermetic on CI hosts with no audio
+        // hardware. The real launcher refuses this flag before admission.
+        '--disable-audio-output', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wavPath}`,
+        '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+    const page = await browser.newPage(), logs = [], reports = [], identities = [], probe = createQualificationMediaProbe();
+    page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
+    const abort = new AbortController(); let watchdog;
+    const expired = new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
+    expired.catch(() => {});
+    let result;
+    try {
+      await browser.defaultBrowserContext().overridePermissions(production.origin, ['microphone']);
+      result = await runProductionBaseline({ page, binding: { baselineOrigin: production.origin, maxDurationSeconds: 8,
+        baseline: { plugin: 'elevenlabs', model: 'fake-agent', agentId: 'fake-agent', accountRef: 'fixture-account', endpoint: 'https://api.elevenlabs.io', microPerMinute: 600 } },
+        item: { id: 'fake-corpus' }, runId: 'production-fixture', auth: { username: production.username, password: production.password },
+        consentDecision: { items: ['voice-elevenlabs', 'models-international'] }, onTiming: probe.onTiming,
+        bounded: value => Promise.race([value, expired]), abort: reason => abort.abort(reason),
+        preflight: async () => ({ fixtureOnly: true, verified: false }), recordIdentity: async identity => identities.push(identity),
+        boundConversation: async deadline => { watchdog = setTimeout(() => abort.abort(new Error('fixture duration watchdog')), deadline - Date.now()); },
+        admit: async spec => {
+          assert.equal(production.dispatches.length, 0, 'durable admission precedes production conversation');
+          // Source: binding 600 micro/min * 8 s / 60 = 80 micro.
+          assert.equal(spec.maxMicro, 80);
+          return { attempt: { async consume() { assert.equal(production.dispatches.length, 0); } }, report: async terminal => reports.push(terminal) };
+        },
+      });
+      const evidence = probe.evidence();
+      assert.ok(evidence.speechEndAt < evidence.firstAudioAt && evidence.firstAudioAt <= evidence.bargeInAt && evidence.bargeInAt <= evidence.stoppedAt);
+      assert.equal(result.hypothesis, 'Wien', 'later final barge-in phrase is excluded');
+      assert.ok(result.ttsPCM.byteLength > 0); assert.equal(result.ttsFormat.encoding, 'pcm_f32le');
+      assert.equal(result.baselineSession.visitorSessionId, 'production-visitor');
+      assert.equal(result.baselineSession.providerSessionId, 'conv_production');
+      assert.equal(production.dispatches.length, 1); assert.ok(production.stopped >= 1);
+      assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain'); assert.equal(reports[0].chargedMicro, undefined);
+      assert.ok(production.requests.length > 0);
+      assert.ok(production.requests.every(request => !request.authorization), 'other origin never receives cached/preemptive basic auth');
+      assert.doesNotMatch(JSON.stringify({ evidence, identities, result, logs, requests: production.requests }), /SYNTHETIC_BASIC_AUTH_SENTINEL|fixture-operator|x-aithema-qualification-control|LOOPBACK_OWNER|API_KEY/);
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-160-production-${mediaElement ? 'webrtc' : 'web-audio'}.json`),
+          JSON.stringify({ fixtureOnly: true, evidence, baselineSession: result.baselineSession, pcmBytes: result.ttsPCM.byteLength,
+            format: result.ttsFormat, reports, otherOriginRequests: production.requests }, null, 2));
+      }
+    } catch (error) {
+      error.message += `; fixture logs: ${JSON.stringify(logs)}`; throw error;
+    } finally { clearTimeout(watchdog); await browser.close(); await production.close(); }
+  });
 });
