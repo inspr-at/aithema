@@ -95,13 +95,13 @@ export async function hostChromeCheck(t) {
         return { disabled: r.querySelector('textarea').disabled, line: r.querySelector('.composer-paused span').textContent,
           visible: r.querySelector('.composer-paused').checkVisibility(), resume: button.textContent, label: send.getAttribute('aria-label'), title: send.title,
           targets: [button, send].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
-          restoreFocus: r.activeElement === button };
+          restoreFocus: r.activeElement === button, active: r.activeElement?.className ?? null, documentActive: document.activeElement?.tagName, inert: r.querySelector('form').inert, resumeDisabled: button.disabled };
       });
       assert.equal(state.disabled, true); assert.equal(state.visible, true);
       assert.equal(state.line, locale === 'de' ? 'Gespräch pausiert.' : 'Conversation paused.');
       assert.equal(state.resume, resume); assert.equal(state.label, resume); assert.equal(state.title, resume);
       assert.ok(state.targets.every(([w, h]) => w >= 44 && h >= 44), `${label}: 44 px controls`);
-      if (cause === 'restore') assert.equal(state.restoreFocus, true);
+      if (cause === 'restore') assert.equal(state.restoreFocus, true, `${label}: ${JSON.stringify(state)}`);
       assert.deepEqual(await composerBoxes(), baseline, `${label}: paused composer/field/Send 0 px`);
       if (cause === 'restore' && control === '.composer-resume') await shot(`${locale}-${theme}-${width}-paused`);
       await page.click(`aithema-session >>> ${control}`);
