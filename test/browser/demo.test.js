@@ -1418,7 +1418,11 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
             }
           }
         }
-        return original(url, options);
+        const response = await original(url, options);
+        if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
+          (window.uploadResponses ??= []).push({ status: response.status, body: await response.clone().json() });
+        }
+        return response;
       };
     });
     const controls = ['.composer', 'textarea', '.attach', '.send'];
@@ -1440,7 +1444,12 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
     };
     await settle(); const baseline = await geometry();
     const chooser = await uploadChooser(page); await chooser.accept(paths);
-    await until(page, () => window.forcedBusy);
+    await until(page, () => window.forcedBusy || window.uploadAttempts.length
+      && document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
+    assert.equal(await page.evaluate(() => Boolean(window.forcedBusy)), true, JSON.stringify(await inShadow(page, c => ({
+      attempts: window.uploadAttempts, responses: window.uploadResponses,
+      notice: c.shadowRoot.querySelector('.composer-reason').textContent, uploads: c.session.uploads.map(({ state, reason }) => ({ state, reason })),
+    }))));
     assert.notEqual(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), de.uploads.busy);
     await sameControls(baseline, 'waiting for retry'); await shot('retrying');
     await until(page, () => {
