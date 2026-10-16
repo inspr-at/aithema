@@ -1,6 +1,9 @@
 import { isConsentReason } from '../../core/src/settings.js';
 import { featureConsentText, reasonSeparator } from './consent-line.js';
 
+// Shared with native browser hosts through the public display entrypoint.
+export { reasonSeparator };
+
 // AIT-131: public names for served routes. Unknown routes get localized copy, never an id or a host label.
 export const MODEL_DISPLAY_NAMES = Object.freeze({
   'anthropic/claude-haiku-5.5': 'Claude Haiku 5.5',

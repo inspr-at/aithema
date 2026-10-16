@@ -348,6 +348,7 @@ test('AIT-228: rendered overview, locale flag and all draft actions retain their
 test('AIT-228: fractional quotes gate Retry and Regenerate exactly like missing quotes', async t => {
   for (const copy of [de, en]) {
     const { c, root, refresh } = fixture(t, { copy, cost: { maxMicro: 10000 } });
+    root.querySelector('.concept-tab').click(); await tick();
     const request = root.querySelector('.concept-request'), regenerate = root.querySelector('.concept-regenerate');
     for (const phase of ['idle', 'failed', 'ready']) {
       receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase } });

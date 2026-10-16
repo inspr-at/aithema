@@ -7,7 +7,7 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
-import { reasonSeparator } from '../packages/ui/src/consent-line.js';
+import { reasonSeparator } from '../packages/ui/src/display.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
