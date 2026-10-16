@@ -188,23 +188,32 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   }
   assert.equal(code, 0, `${stderr}\nFixture dispatches: ${JSON.stringify(ports.dispatches)}`); assert.match(stdout, /tunnel-fake-proof/);
   const report = JSON.parse(await readFile(join(output, 'report.json'))), observations = JSON.parse(await readFile(join(output, 'observations.json')));
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-tunnel-cli.json'), JSON.stringify({
+      fixtureOnly: true, bindPort: target, browserOrigin: hostOrigin, report, observations, dispatches: ports.dispatches,
+    }, null, 2));
+  }
   assert.equal(report.candidate.wer, 0); assert.equal(report.baseline.wer, 0); assert.equal(report.candidate.qualified, false);
   assert.deepEqual(report.tts, {
     candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
     baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
   });
   // The source and consumer use independent capture clocks. During sustained
-  // silence confirmation the interruption can finish STT and produce its own
-  // reply. Account for both bounded turns; keep every admission/dispatch check.
+  // silence confirmation the interruption can finish STT and reasoning even
+  // when playback revision changes suppress its TTS. Bound each role to the two
+  // scripted turns and keep every admission/dispatch check.
   const candidate = report.budget.records.filter(row => row.lane === 'candidate');
   const stt = candidate.filter(row => row.role === 'stt');
+  const reasoning = candidate.filter(row => row.role === 'reasoning');
   const replies = candidate.filter(row => row.role === 'tts');
   assert.ok(stt.length === 1 || stt.length === 2);
+  assert.ok(reasoning.length === 2 || reasoning.length === 4);
+  assert.ok(reasoning.length / 2 <= stt.length, 'each reasoning pair needs its own scripted STT turn');
   assert.ok(replies.length === 1 || replies.length === 2);
-  if (replies.length === 2) assert.equal(stt.length, 2, 'only the scripted interruption can produce a second reply');
-  assert.equal(candidate.filter(row => row.role === 'reasoning').length, 2 * replies.length);
+  assert.ok(replies.length <= reasoning.length / 2, 'TTS needs a completed reasoning pair');
   assert.equal(report.budget.records.filter(row => row.lane === 'baseline').length, 1);
-  assert.equal(report.budget.records.length, 1 + 3 * replies.length + stt.length);
+  assert.equal(report.budget.records.length, 1 + reasoning.length + replies.length + stt.length);
   const consumed = report.budget.records.filter(row => row.dispatchedAt), dispatched = new Set(ports.dispatches);
   for (const attemptId of dispatched) assert.ok(consumed.some(row => row.attemptId === attemptId), 'every dispatch has a consumed admission');
   // Product VAD may admit the interruption STT immediately before the observed
@@ -216,7 +225,9 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     assert.equal(row.role, 'stt'); assert.equal(row.attemptId, stt[1]?.attemptId);
     assert.equal(row.outcome, 'uncertain');
   }
-  assert.equal(report.budget.records.filter(row => row.retryOf).length, replies.length);
+  const retries = report.budget.records.filter(row => row.retryOf);
+  assert.equal(retries.length, reasoning.length / 2);
+  for (const retry of retries) assert.ok(reasoning.some(row => !row.retryOf && row.attemptId === retry.retryOf));
   assert.ok(report.budget.records.every(row => row.state === 'settled' &&
     (row.dispatchedAt ? row.receipt : row.outcome === 'cancelled' && row.exposureMicro === 0)));
   for (const lane of ['candidate', 'baseline']) {
@@ -238,12 +249,6 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     if (lane === 'candidate') assert.ok(trace.some(event => event.kind === 'playback-stop-request' && event.origin === 'interrupt'));
   }
   assert.equal(JSON.parse(await readFile(join(output, 'blind.json'))).length, 2);
-  if (process.env.AITHEMA_EVIDENCE_DIR) {
-    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-tunnel-cli.json'), JSON.stringify({
-      fixtureOnly: true, bindPort: target, browserOrigin: hostOrigin, report, observations, dispatches: ports.dispatches,
-    }, null, 2));
-  }
 });
 
 import { startFakeProductionOrigin } from '../fixtures/qualification-production-origin.mjs';
