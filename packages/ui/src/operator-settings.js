@@ -19,7 +19,7 @@ export class OperatorSettings {
       <a class="operator-view operator-login" href="/api/operator/login/">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M14 4h6v16h-6M3 12h12m-4-4 4 4-4 4"/></svg><span></span></a>
       <form class="operator-view operator-signed-in" method="post" action="/api/operator/logout/">
-        <span class="operator-name"></span><button type="submit" class="operator-logout"></button></form>
+        <span class="operator-name"></span><span class="operator-separator" aria-hidden="true"> · </span><button type="submit" class="operator-logout"></button></form>
       </div><div class="operator-notice"><p class="m-notice operator-error" role="status" aria-live="polite"></p>
         <p class="m-notice operator-error-measure" aria-hidden="true"></p></div>`;
     this.element = section; this.paint(); parent.append(section);
@@ -37,15 +37,13 @@ export class OperatorSettings {
     s.querySelector('.operator-name').textContent = c.operatorName.replace('{name}', this.operator.name ?? '');
     const href = adminHref(this.operator.adminUrl);
     let admin = s.querySelector('.operator-admin');
-    if (!href) s.querySelectorAll('.operator-admin, .operator-separator').forEach(node => node.remove());
+    if (!href) s.querySelectorAll('.operator-admin, .operator-admin-separator').forEach(node => node.remove());
     else {
       if (!admin) {
         admin = s.ownerDocument.createElement('a'); admin.className = 'operator-admin';
-        const separator = () => {
-          const node = s.ownerDocument.createElement('span'); node.className = 'operator-separator';
-          node.setAttribute('aria-hidden', 'true'); node.textContent = ' · '; return node;
-        };
-        s.querySelector('.operator-name').after(separator(), admin, separator());
+        const separator = s.ownerDocument.createElement('span'); separator.className = 'operator-separator operator-admin-separator';
+        separator.setAttribute('aria-hidden', 'true'); separator.textContent = ' · ';
+        s.querySelector('.operator-name').after(separator, admin);
       }
       admin.setAttribute('href', href); admin.textContent = c.operatorAdmin;
     }

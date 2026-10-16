@@ -226,7 +226,7 @@ test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/
       await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
       await openGeneral(page, true);
       for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) {
-        const frames = [];
+        const frames = [], texts = [], renderedTexts = [];
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
         for (const state of ['with-admin', 'without-admin']) {
@@ -234,17 +234,24 @@ test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/
           await openGeneral(page);
           const first = await shadow(page, c => {
             const r = c.shadowRoot, form = r.querySelector('.operator-signed-in'), row = r.querySelector('.operator-row');
-            return { html: form.innerHTML, name: r.querySelector('.operator-name').textContent,
+            return { html: form.innerHTML, name: r.querySelector('.operator-name').textContent, text: form.textContent.trim(),
+              renderedText: [...form.children].map(node => node.innerText).join(''),
               href: r.querySelector('.operator-admin')?.getAttribute('href') ?? null,
               anchors: form.querySelectorAll('a').length, children: form.children.length,
               separators: r.querySelectorAll('.operator-separator').length, height: row.getBoundingClientRect().height,
+              separatorsHidden: [...form.querySelectorAll('.operator-separator')].every(node => node.getAttribute('aria-hidden') === 'true'),
+              logoutMargin: getComputedStyle(r.querySelector('.operator-logout')).marginInlineStart,
               overflow: form.scrollWidth - form.clientWidth };
           });
           assert.equal(first.name, 'Operator: Ada'); assert.equal(first.height, 44); assert.equal(first.overflow, 0);
           assert.equal(first.href, state === 'with-admin' ? '/admin' : null);
           assert.equal(first.anchors, state === 'with-admin' ? 1 : 0);
-          assert.equal(first.children, state === 'with-admin' ? 5 : 2, 'no hidden admin slot');
-          assert.equal(first.separators, state === 'with-admin' ? 2 : 0);
+          assert.equal(first.children, state === 'with-admin' ? 5 : 3, 'no hidden admin slot');
+          assert.equal(first.separators, state === 'with-admin' ? 2 : 1);
+          assert.equal(first.separatorsHidden, true); assert.equal(first.logoutMargin, '0px', 'no reserved admin gap');
+          const expectedText = `Operator: Ada${state === 'with-admin' ? ` · ${copy.settings.operatorAdmin}` : ''} · ${copy.settings.operatorLogout}`;
+          assert.equal(first.text, expectedText); assert.equal(first.renderedText, expectedText);
+          texts.push(first.text); renderedTexts.push(first.renderedText);
           if (state === 'without-admin') assert.equal(await page.evaluate(() => window.operatorAtAttach), first.html, 'no admin fallback at attachment');
           await settle(page);
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-signed-in').innerHTML), first.html, 'operator line is final at first frame');
@@ -256,12 +263,14 @@ test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/
           assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.operator-logout')), true, 'mid-sequence capture restores focus');
           assert.deepEqual(await geometry(page), before, 'capture leaves layout and scroll unchanged');
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-logout').textContent), copy.settings.operatorLogout);
-          const line = `PASS head=${evidenceCommit} AIT-223 ${locale}-${theme}-${width}/${state}: href=${first.href ?? 'none'}, separators=${first.separators}, row=44px, first-frame final, 0px shift, focus restored`;
+          const line = `PASS head=${evidenceCommit} AIT-223 ${locale}-${theme}-${width}/${state}: text=${JSON.stringify(first.text)}, href=${first.href ?? 'none'}, separators=${first.separators} aria-hidden, logout margin=0px, row=44px, first-frame final, 0px shift, focus restored`;
           passLines.push(line); t.diagnostic(line);
           await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), false, 'flow continues after capture');
         }
         assert.deepEqual(frames[1], frames[0], 'admin availability preserves dialog, footer and row height');
+        assert.equal(texts[1], texts[0].replace(` · ${copy.settings.operatorAdmin}`, ''), 'only the admin item and its separator disappear');
+        assert.equal(renderedTexts[1], renderedTexts[0].replace(` · ${copy.settings.operatorAdmin}`, ''), 'remaining items keep their rendered join');
       }
       assert.deepEqual(errors, []); await browser.close(); browser = null;
     }
