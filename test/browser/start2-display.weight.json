@@ -1,4 +1,4 @@
 {
-  "seconds": 200,
-  "evidence": "AIT-246 round 4: CI 38889278135/job116934613384 successful top-level tests total 176.723s (the failed narrow alignment test excluded), plus successful mbp2606 722b2432e3-41399 narrow geometry/evidence 4.239s = 180.962s; rounded up to 190s + 10s margin. Previous 140s floor from 78b25f02be-5727 retained."
+  "seconds": 110,
+  "evidence": "AIT-246 round 5, optimized workload at eb82c40dbdbc8754f5ce44438fe46c65feb143a2: successful CI browser (3/6), https://github.com/inspr-at/aithema/actions/runs/38894713067/job/116952641709 . Sum of all 15 successful top-level start2-display tests = 99.366242501s; round up to 100s + 10s margin (also retains main's 110s floor). Replaces the 200s measurement of the old workload: page/scene reuse and removal of duplicate evidence captures and repeated behavior cases; all required assertions retained."
 }
