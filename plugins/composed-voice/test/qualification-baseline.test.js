@@ -81,6 +81,7 @@ test('baseline missing auth refuses before browser, control or admission', async
 async function productionFixture(t, { setupOnly = false, failStep, missingItemId, longPoll = false, duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
   const fail = step => { if (failStep === step) throw Object.assign(new Error(secret + ' https://private.invalid/?session=SECRET_SESSION'), { name: 'TimeoutError' }); };
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
+  let preflightDone = false;
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
   cdp.send = async (method, params) => { sent.push({ method, params }); };
@@ -101,7 +102,7 @@ async function productionFixture(t, { setupOnly = false, failStep, missingItemId
     return { ok: () => true };
   };
   page.waitForSelector = async selector => {
-    if (selector.includes('.chooser__continue')) fail('chooser');
+    if (selector.includes('.chooser__continue') && preflightDone) fail('chooser');
     if (selector.includes('consent-status')) fail('consent-ready');
     if (selector.includes('.ready__start')) fail('ready');
   };
@@ -141,7 +142,7 @@ async function productionFixture(t, { setupOnly = false, failStep, missingItemId
   const run = () => runProductionBaseline({ page, setupOnly, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
     auth: { username: 'fake-operator', password: secret }, consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
     bounded: promise => Promise.race([promise, expiry.promise]), abort(error) { aborts.push(error.message); expiry.reject(error); },
-    preflight: async () => { fail('preflight'); return { verified: true }; }, boundConversation: async deadlineAt => {
+    preflight: async () => { fail('preflight'); preflightDone = true; return { verified: true }; }, boundConversation: async deadlineAt => {
       assert.ok(deadlineAt > Date.now()); order.push('duration-watchdog');
     }, recordIdentity: async value => identities.push(value), recordEvidence: async value => evidence.push(value), onTiming: event => timings.push(event),
     async admit(spec) {
@@ -196,13 +197,19 @@ test('baseline proceeds with a permanently open event request', async t => {
 
 test('baseline drains the visitor response before chooser navigation can destroy its document', async t => {
   const h = await productionFixture(t, { setupOnly: true });
-  h.page.goto = async () => {
+  h.page.goto = async () => ({ ok: () => true });
+  const waitForSelector = h.page.waitForSelector.bind(h.page);
+  let created = false;
+  h.page.waitForSelector = async selector => {
+    if (created) return waitForSelector(selector);
+    created = true;
+    // Session creation completes after DOM content, before the chooser appears.
     h.page.emit('response', { url: () => binding.baselineOrigin + '/api/sessions', ok: () => true,
       request: () => ({ method: () => 'POST' }), async json() {
         await new Promise(resolve => setTimeout(resolve, 25));
         return { id: 'production-visitor' };
       } });
-    return { ok: () => true };
+    return waitForSelector(selector);
   };
   const click = h.page.click.bind(h.page);
   h.page.click = async selector => {
@@ -211,6 +218,17 @@ test('baseline drains the visitor response before chooser navigation can destroy
   };
   assert.equal((await h.run()).ok, true);
   assert.equal(h.order.includes('admit'), false);
+});
+
+test('baseline missing readiness signal stays a free setup-failed:goto', async t => {
+  const h = await productionFixture(t, { setupOnly: true });
+  h.page.waitForSelector = async () => { throw Object.assign(new Error('Missing readiness'), { name: 'TimeoutError' }); };
+  const result = await h.run();
+  assert.equal(result.ok, false); assert.equal(result.step, 'goto');
+  assert.deepEqual(result.offeredConsentItemIds, []);
+  assert.equal(h.evidence[0].reason, 'setup-failed:goto');
+  assert.equal(h.order.includes('admit'), false); assert.equal(h.order.includes('conversation'), false);
+  assert.equal(h.timings.length, 0); assert.equal(h.reports.length, 0);
 });
 
 test('baseline setup-only reaches session-id without admission, voice start or ledger rows', async t => {

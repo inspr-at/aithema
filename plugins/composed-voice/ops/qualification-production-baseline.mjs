@@ -148,10 +148,12 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       await bounded(page.exposeFunction('qualificationMeasurementTerminal', stop));
       await bounded(prepareBaselinePage(page, origin, auth, allowRequest));
       // Production keeps its session event stream open. Network idle can never
-      // be the readiness signal; wait for the component's explicit mount hook.
+      // be the readiness signal. The chooser exists on the measured f24f455
+      // baseline (packages/ui/src/session-element.js:1415), before the mount
+      // attribute was introduced, and appears after visitor-session creation.
       const navigated = await bounded(page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' }));
       if (!navigated?.ok() || new URL(page.url()).origin !== origin) throw new Error();
-      await bounded(page.waitForSelector('aithema-session[data-aithema-mounted]'));
+      await bounded(page.waitForSelector('aithema-session >>> .chooser__continue'));
     });
     const physicalBrowserMedia = await step('preflight', preflight);
     // Read the created visitor's response while its document is still alive.

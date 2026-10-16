@@ -384,33 +384,48 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
 test('AIT-272 baseline setup completes while production session events stay open', { timeout: 15_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'baseline-open-events-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const production = await startFakeProductionOrigin(directory, { longPoll: true });
-  t.after(() => production.close());
-  const browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
-    args: [...production.launchArgs, '--autoplay-policy=no-user-gesture-required',
-      ...(process.platform === 'linux' ? ['--no-sandbox'] : [])] });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
-  page.setDefaultNavigationTimeout(1500);
-  page.setDefaultTimeout(3000);
-  const identities = [];
-  const result = await runProductionBaseline({ page, setupOnly: true,
-    binding: { baselineOrigin: production.origin, maxDurationSeconds: 1, baselineReasoningCeilingMicro: 0,
-      baseline: { microPerMinute: 0 } }, item: { id: 'free' }, runId: 'open-events',
-    auth: { username: production.username, password: production.password },
-    consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
-    bounded: async action => {
-      let timer;
-      try { return await Promise.race([action, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Fixture setup bound')), 4000); })]); }
-      finally { clearTimeout(timer); }
-    },
-    // Exercise the real probe on the page with an open stream. Its evidence
-    // remains a fixture result; this check never qualifies physical hardware.
-    preflight: () => probePhysicalOutput(page, browser),
-    recordIdentity: async identity => identities.push(identity),
-    admit() { assert.fail('Free setup must never admit'); }, onTiming() { assert.fail('Free setup must never measure'); },
+  let browser;
+  t.after(() => browser?.close());
+  for (const mountedAttribute of [true, false]) await t.test(mountedAttribute ? 'with mount attribute' : 'AIT-275 without mount attribute', async t => {
+    const production = await startFakeProductionOrigin(directory, { longPoll: true, mountedAttribute });
+    t.after(() => production.close());
+    browser ??= await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
+      args: [...production.launchArgs, '--autoplay-policy=no-user-gesture-required',
+        ...(process.platform === 'linux' ? ['--no-sandbox'] : [])] });
+    const page = await browser.newPage();
+    t.after(() => page.close());
+    page.setDefaultNavigationTimeout(1500);
+    page.setDefaultTimeout(3000);
+    const identities = [];
+    let chooserNavigated = false;
+    const click = page.click.bind(page);
+    page.click = async selector => {
+      if (selector.endsWith('.chooser__continue')) {
+        chooserNavigated = true;
+        assert.ok(identities.some(identity => identity.visitorSessionId === 'production-visitor'), 'visitor response must drain before consent navigation');
+        assert.equal(await page.$eval('aithema-session', element => element.hasAttribute('data-aithema-mounted')), mountedAttribute);
+      }
+      return click(selector);
+    };
+    const result = await runProductionBaseline({ page, setupOnly: true,
+      binding: { baselineOrigin: production.origin, maxDurationSeconds: 1, baselineReasoningCeilingMicro: 0,
+        baseline: { microPerMinute: 0 } }, item: { id: 'free' }, runId: 'open-events',
+      auth: { username: production.username, password: production.password },
+      consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
+      bounded: async action => {
+        let timer;
+        try { return await Promise.race([action, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Fixture setup bound')), 4000); })]); }
+        finally { clearTimeout(timer); }
+      },
+      // Exercise the real probe on the page with an open stream. Its evidence
+      // remains a fixture result; this check never qualifies physical hardware.
+      preflight: () => probePhysicalOutput(page, browser),
+      recordIdentity: async identity => identities.push(identity),
+      admit() { assert.fail('Free setup must never admit'); }, onTiming() { assert.fail('Free setup must never measure'); },
+    });
+    assert.deepEqual(result, { ok: true, offeredConsentItemIds: ['voice-elevenlabs', 'models-international'], visitorSessionId: 'production-visitor' });
+    assert.ok(identities.some(identity => identity.visitorSessionId === result.visitorSessionId));
+    assert.equal(chooserNavigated, true);
+    assert.equal(production.dispatches.length, 0);
   });
-  assert.deepEqual(result, { ok: true, offeredConsentItemIds: ['voice-elevenlabs', 'models-international'], visitorSessionId: 'production-visitor' });
-  assert.ok(identities.some(identity => identity.visitorSessionId === result.visitorSessionId));
-  assert.equal(production.dispatches.length, 0);
 });

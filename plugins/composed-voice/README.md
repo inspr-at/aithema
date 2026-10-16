@@ -1096,7 +1096,8 @@ export function createQualificationHost(cli) {
    may be `voice-elevenlabs` or `models-international`. No page text, URLs,
    credentials or session IDs enter this summary. The coordinator's separate
    `--out/failure.json` retains its existing redaction rules. Navigation waits
-   for DOM content and `aithema-session[data-aithema-mounted]`, so production's
+   for DOM content and `aithema-session >>> .chooser__continue` (also present
+   in the measured f24f455 baseline), so production's
    long-lived session event stream cannot hold it at network idle. The physical
    output probe uses no network-idle wait and remains inside the setup bound.
 
