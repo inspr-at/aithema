@@ -1254,6 +1254,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
   const browser = await browserForFile(), page = await browser.newPage();
+  const emulation = await page.createCDPSession();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -1370,12 +1371,12 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       await capture(label, `fine-${platform}`);
     }
     const fineBoxes = await boxes(page, stable.concat('.send', '.attach'));
-    await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: true });
+    await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     assert.equal(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), true);
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden');
     assert.deepEqual(await boxes(page, stable.concat('.send', '.attach')), fineBoxes, `${label}: touch hint hides with 0 px shift`);
     await capture(label, 'coarse');
-    await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: false });
+    await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: false });
     await shadow(page, c => c.openSettings());
     let utilityBaseline;
     for (const choice of ['light', 'dark', 'system']) {

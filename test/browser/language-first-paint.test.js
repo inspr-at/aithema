@@ -140,13 +140,14 @@ test('AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices 
             probe.textContent = text; return [text, probe.getBoundingClientRect().width];
           }));
           probe.remove();
-          return { gap: chevron.left - reserve.right, reserve: reserve.width, widths };
+          return { gap: chevron.left - reserve.right, value: reserve.width, reserve: document.querySelector('.theme-value-reserve').getBoundingClientRect().width, widths, text: label.textContent };
         });
         await page.keyboard.press('Escape');
         assert.ok(spacing.gap >= 0 && spacing.gap <= 8, `theme reserve-to-chevron gap ${spacing.gap}`);
         const widest = Math.max(...Object.values(spacing.widths));
-        assert.ok(Math.abs(spacing.reserve - widest) <= 0.02, 'reserve is the widest actual label with zero slack');
-        for (const [label, width] of Object.entries(spacing.widths)) assert.ok(width <= spacing.reserve + 0.02, `${label} fits without overflow or truncation`);
+        assert.ok(Math.abs(spacing.value - spacing.widths[spacing.text]) <= 0.02, 'appearance value hugs its actual text');
+        assert.ok(Math.abs(spacing.reserve - widest - 14) <= 0.02, 'stable slot reserves the widest label plus the 4px gap and 10px chevron');
+        for (const [label, width] of Object.entries(spacing.widths)) assert.ok(width + 14 <= spacing.reserve + 0.02, `${label} fits without overflow or truncation`);
         const spacingPass = `AIT-206 SPACING ${width} ${result.language}: gap=${spacing.gap}px reserve=${spacing.reserve}px labels=${JSON.stringify(spacing.widths)} overflow=none`;
         passes.push(spacingPass); console.log(spacingPass);
         assert.equal(result.early, undefined);
