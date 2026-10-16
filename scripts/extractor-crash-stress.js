@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 
-const repeats = 500, concurrency = 8, cpuWorkers = 4;
+const repeats = Number(process.env.AITHEMA_EXTRACTOR_STRESS_REPEATS ?? 500), concurrency = 8, cpuWorkers = 4;
 test('extractor process file survives repeated execution under CPU pressure', { timeout: 600_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ait-222-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
