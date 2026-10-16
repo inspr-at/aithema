@@ -13,11 +13,14 @@ export async function firstPaintCheck(t) {
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, results = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.setRequestInterception(true);
-  let releaseModule;
   page.on('request', request => {
-    if (new URL(request.url()).pathname === '/demo/host.js') releaseModule = () => request.continue();
+    const url = new URL(request.url());
+    if (url.pathname === '/demo/host.js' && !url.search) void request.respond({ status: 200, contentType: 'application/javascript',
+      body: "window.releaseAithema = () => import('/demo/host.js?ait-210-upgrade');" });
     else void request.continue();
   });
+  // Defer the real host import until after a painted frame. A pending module
+  // network request can itself defer Chrome paint, so a tiny bootstrap owns it.
   // One page and browser for all twelve states; no artificial startup sleeps.
   await page.evaluateOnNewDocument(() => {
     const state = new URLSearchParams(location.search);
@@ -54,8 +57,7 @@ export async function firstPaintCheck(t) {
   for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
-    releaseModule = undefined;
-    const navigation = page.goto(`${demo.url}?theme=${theme}&locale=${locale}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${demo.url}?theme=${theme}&locale=${locale}`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => window.paintFrames?.length >= 2);
     const initial = await page.evaluate(() => ({ defined: Boolean(customElements.get('aithema-session')), boxes: window.paintGeometry(),
       titleVisible: (() => {
@@ -66,9 +68,7 @@ export async function firstPaintCheck(t) {
     const name = `${width}-${theme}-${locale}`;
     await settle();
     if (evidence) await page.screenshot({ path: join(evidence, `${name}-first-paint.png`), fullPage: false, captureBeyondViewport: false });
-    assert.ok(releaseModule, 'host module request held');
-    await releaseModule();
-    await navigation;
+    await page.evaluate(() => { void window.releaseAithema(); });
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
     await settle();
     const loaded = await page.evaluate(() => {
