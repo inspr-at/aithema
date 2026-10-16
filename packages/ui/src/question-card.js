@@ -195,7 +195,9 @@ export class QuestionCard {
     if (phone && !this.card.hidden && !short) {
       const style = this.view.getComputedStyle(this.card);
       const rows = [...this.card.querySelectorAll('.qopt')];
-      const floor = Math.max(66, ...rows.map(row => row.getBoundingClientRect().height + 22));
+      // A bounded list needs room for one complete option and its scroll cue.
+      // The tallest translated label must not force every full phone into chips.
+      const floor = Math.max(66, Math.min(...rows.map(row => row.getBoundingClientRect().height + 22)));
       this.card.style.setProperty('--question-options-floor', `${floor}px`);
       const minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
         + this.card.querySelector('.qhint').getBoundingClientRect().height
