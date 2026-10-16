@@ -3169,3 +3169,37 @@ test('AIT-247 operator socket refuses an actual active voice call without revoki
   await h.handlers.idle();
   assert.equal((await adminRequest(socketPath, 'erase-session', { sessionId: h.session.id })).body.result, 'erased');
 });
+
+// The parent spend deadline also bounds separately admitted voice components.
+// Periodic visitor turns/heartbeats cannot move the conversation's deadline.
+test('AIT-261 negative: periodic voice turns cannot run past the conversation hour; the call closes once', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const HOUR = 60 * 60_000;
+  const h = voiceFixture(t, { host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'clock-start', content: 'We need an app.' }); await h.handlers.idle();
+  h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
+  h.advance(HOUR - 10_000);
+  // Run elapsed timers before opening the call; it must inherit the remaining 10 seconds.
+  t.mock.timers.tick(HOUR - 10_000); await new Promise(setImmediate);
+  const grant = await h.start(), identity = { providerSessionId: grant.providerSessionId };
+  assert.equal(grant.spendDeadlineAt, h.now() + 10_000);
+  for (let i = 1; i <= 2; i++) {
+    h.advance(4_000); t.mock.timers.tick(4_000);
+    assert.equal((await h.route(`/voice/${grant.callId}/heartbeat`, identity)).status, 200);
+    assert.equal((await h.route(`/voice/${grant.callId}/events`, { ...identity,
+      event: { callId: grant.callId, type: 'final', turnId: `hour-turn-${i}`, role: 'user', text: `Requirement ${i}` },
+    })).status, 200);
+    await h.handlers.idle();
+  }
+  const attempts = h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
+  h.advance(2_000); t.mock.timers.tick(2_000); await h.handlers.idle();
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'ended');
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).terminalReason, 'one-hour');
+  assert.deepEqual(h.closeRequests, [grant.providerSessionId]);
+  const response = await h.route('/voice', { callId: 'after-hour' });
+  assert.equal(response.status, 403); assert.equal((await response.json()).reason, 'one-hour');
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, attempts);
+  const ends = h.storage.read(h.session.id).filter(e => e.type === 'conversation.end-requested');
+  assert.equal(ends.length, 1); assert.equal(ends[0].data.settleOutstanding, true);
+  assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'credits.limit-reached').length, 1);
+});
