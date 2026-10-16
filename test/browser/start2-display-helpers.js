@@ -110,6 +110,12 @@ const seekReveal = (page, ms) => page.evaluate(ms => {
   for (const animation of globalThis.displayRevealTimeline) animation.currentTime = ms;
 }, ms);
 
+// Keep evidence on full CPU-rasterized tiles. Hardware partial raster can
+// produce different circular-edge coverage at identical fractional DOM bounds.
+// The GPU compositor remains enabled; product CSS and the font stack stay real.
+// These args are opt-in for evidence runs, with no PR suite raster-cost increase.
+export const evidenceBrowserArgs = ['--disable-partial-raster', '--disable-gpu-rasterization'];
+
 // Evidence only: retain the real paint, but eliminate fractional compositor scroll
 // origins and wait until fonts, shadow-root transitions and scroll handlers agree.
 // Timed animation assertions intentionally keep their explicit screenshot clocks.

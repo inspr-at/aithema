@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { fullMatrix } from './matrix-coverage.js';
-import { captureEvidence, settleEvidenceFrame } from './start2-display-helpers.js';
+import { captureEvidence, settleEvidenceFrame, evidenceBrowserArgs } from './start2-display-helpers.js';
 
 // PR artifacts must not enable evidence-only captures or the exhaustive sweep.
 // Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
@@ -31,7 +31,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     });
     t.after(() => demo.kill());
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+      env: { PATH: process.env.PATH, HOME: homedir() }, args: [...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), ...(evidenceDirectory ? evidenceBrowserArgs : [])] });
     t.after(() => browser.close());
     const page = await browser.newPage(), evidence = evidenceDirectory, files = [], captures = {}, checks = [], keyboardChecks = [], stabilityChecks = [];
     const accessibility = await page.createCDPSession(), accessibilityChecks = [];
@@ -685,7 +685,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
       await writeFile(join(evidence, 'index.md'), `# AIT-225 round 5 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json)\u00a0· metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
-      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, captures, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, captures, rasterArgs: evidenceBrowserArgs, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         accessibilityPassLines: accessibilityChecks,
         stabilityPassLines: stabilityChecks.map(check => ({ ...check, viewport: `390×${check.height}`, pass: true })),
@@ -708,7 +708,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   t.after(() => demo.kill());
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), ...(evidenceDirectory ? evidenceBrowserArgs : [])] });
   t.after(() => browser.close());
   const page = await browser.newPage(), evidence = evidenceDirectory, checks = [];
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -756,13 +756,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     const shot = async state => {
       if (!evidence || !(locale === 'de' && theme === 'light' && width === 390 && ['quote-missing', 'consent-needed', 'drafts-removed'].includes(state)
         || locale === 'en' && theme === 'dark' && width === 1440 && state === 'quote-missing')) return;
-      await page.mouse.move(-1, -1);
-      await shadow(page, async c => {
-        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
-        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
-      });
-      await nextFrame(page);
-      await page.screenshot({ path: join(evidence, `ait-229-${label}-${state}.png`), fullPage: false });
+      await captureEvidence(page, { path: join(evidence, `ait-229-${label}-${state}.png`) });
     };
     for (const question of [false, true]) {
       await page.evaluate(question => globalThis.noDraftsReply(question ? [{ text: 'Yes' }, { text: 'No' }] : []), question);
