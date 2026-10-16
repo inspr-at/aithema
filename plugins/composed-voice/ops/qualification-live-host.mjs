@@ -1,6 +1,6 @@
 import { fork } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loopbackOrigin } from './qualification-server.mjs';
@@ -11,7 +11,7 @@ import { createQualificationHost as browserTemplate } from './qualification-host
  * control file. Child environment is explicit, without ambient provider keys,
  * agent-host modules, Node preload hooks or production provider initialization. */
 export async function launchQualificationHost({ binding: raw, hostOrigin, keysFile, controlFile, runDirectory,
-  locale = 'de', consentDecision, forkImpl = fork, fetchImpl = globalThis.fetch } = {}) {
+  locale = 'de', consentDecision, forkImpl = fork, fetchImpl = globalThis.fetch, tmpdirImpl = tmpdir } = {}) {
   const binding = validateQualificationBinding(raw), origin = new URL(loopbackOrigin(hostOrigin));
   if (origin.protocol !== 'http:' || !origin.port || ![keysFile, controlFile].every(value => isAbsolute(value ?? '')) ||
     !['en', 'de'].includes(locale) || !consentDecision || typeof consentDecision.contract !== 'string' ||
@@ -23,8 +23,7 @@ export async function launchQualificationHost({ binding: raw, hostOrigin, keysFi
   await mkdir(runDirectory, { recursive: true });
   const directory = await mkdtemp(join(runDirectory, 'qualification-host-'));
   const bindingFile = join(directory, 'binding.json');
-  await writeFile(bindingFile, JSON.stringify(Object.fromEntries(Object.entries(binding).filter(([key]) => key !== 'baselineAuthFile'))), { mode: 0o600, flag: 'wx' });
-  let child, closing;
+  let child, closing, socketDirectory, socketPathError;
   const close = () => closing ??= (async () => {
     if (child && child.exitCode === null && child.signalCode === null) {
       const exit = new Promise(resolve => child.once('exit', resolve));
@@ -33,9 +32,20 @@ export async function launchQualificationHost({ binding: raw, hostOrigin, keysFi
       try { await exit; } finally { clearTimeout(timer); }
     }
     // Only the generated non-secret binding is ephemeral; retain DB/evidence.
-    await rm(bindingFile, { force: true });
+    try { await rm(bindingFile, { force: true }); }
+    finally { if (socketDirectory) await rm(socketDirectory, { recursive: true, force: true }); }
   })();
   try {
+    // mkdtemp creates a private (0700) directory; keep DB/evidence in the run directory.
+    socketDirectory = await mkdtemp(join(tmpdirImpl(), 'aq-'));
+    const socketPath = join(socketDirectory, 'admin.sock');
+    const socketLimit = process.platform === 'darwin' ? 104 : 108;
+    // sockaddr_un.sun_path also needs its terminating NUL byte.
+    if (Buffer.byteLength(socketPath) >= socketLimit) {
+      socketPathError = new RangeError(`Qualification admin socket path is too long: requires ${Buffer.byteLength(socketPath) + 1} bytes including NUL; ${process.platform} limit is ${socketLimit}. Use a shorter OS temporary directory.`);
+      throw socketPathError;
+    }
+    await writeFile(bindingFile, JSON.stringify(Object.fromEntries(Object.entries(binding).filter(([key]) => key !== 'baselineAuthFile'))), { mode: 0o600, flag: 'wx' });
     child = forkImpl(fileURLToPath(new URL('../../../demo/server.js', import.meta.url)), [], {
       cwd: fileURLToPath(new URL('../../../', import.meta.url)), silent: true, execArgv: [],
       env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR,
@@ -43,7 +53,7 @@ export async function launchQualificationHost({ binding: raw, hostOrigin, keysFi
         PORT: origin.port, AITHEMA_PUBLIC_ORIGIN: hostOrigin, AITHEMA_COMPOSED_RELAY_ORIGIN: hostOrigin,
         AITHEMA_COMPOSED_QUALIFICATION_MODULE: fileURLToPath(new URL('./qualification-live-server.mjs', import.meta.url)),
         AITHEMA_COMPOSED_BINDING_FILE: bindingFile, AITHEMA_COMPOSED_KEYS_FILE: keysFile, AITHEMA_COMPOSED_CONTROL_FILE: controlFile,
-        AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_ADMIN_SOCKET: join(directory, 'admin.sock'),
+        AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_ADMIN_SOCKET: socketPath,
         AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
       },
     });
@@ -85,7 +95,7 @@ export async function launchQualificationHost({ binding: raw, hostOrigin, keysFi
         if (!/^[A-Za-z0-9_-]{1,128}$/u.test(next.id ?? '')) throw new Error('Qualification visitor setup refused');
         await grantConsent(next.id); return next.id;
       } };
-  } catch { await close(); throw new Error('Qualification host setup refused; inspect server state privately'); }
+  } catch { await close(); throw socketPathError ?? new Error('Qualification host setup refused; inspect server state privately'); }
 }
 
 /** OPS supplies its accounting ports, binding, explicit consent decision and
