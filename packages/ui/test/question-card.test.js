@@ -217,6 +217,14 @@ test('AIT-225: scroll and visual viewport resize reservations coalesce into one 
   card.destroy(); assert.deepEqual(cancelled, [2]);
   viewport.dispatchEvent(new view.Event('resize')); view.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 2, 'disconnect removes both resize listeners');
+  const opts = card.card.querySelector('.qopts');
+  Object.defineProperties(opts, { scrollWidth: { value: 300 }, clientWidth: { value: 100 } });
+  card.card.setAttribute('data-compact', ''); opts.scrollLeft = 200;
+  card.connect(); opts.dispatchEvent(new view.Event('scroll'));
+  assert.equal(opts.hasAttribute('data-more-start'), true, 'reconnecting restores scroll-edge updates');
+  assert.equal(opts.hasAttribute('data-more-end'), false);
+  card.destroy(); opts.scrollLeft = 0; opts.dispatchEvent(new view.Event('scroll'));
+  assert.equal(opts.hasAttribute('data-more-start'), true, 'disconnect removes the option-scroll listener too');
 });
 
 test('AIT-225: desktop reservations do not inspect phone layout styles', t => {

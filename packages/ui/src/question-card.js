@@ -134,10 +134,10 @@ export class QuestionCard {
       this.scheduleReserve();
     };
     this.optionsScroll = () => this.fadeOptions();
-    this.card.querySelector('.qopts').addEventListener('scroll', this.optionsScroll, { passive: true });
     this.connect();
   }
   connect() {
+    this.card.querySelector('.qopts').addEventListener('scroll', this.optionsScroll, { passive: true });
     const Resize = this.root.ownerDocument.defaultView?.ResizeObserver;
     if (Resize) {
       this.observer ??= new Resize(this.scheduleReserve);
