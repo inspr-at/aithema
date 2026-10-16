@@ -7,6 +7,11 @@ export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 1
 // Speech API PCM is float32 LE. It must never be sent to a PCM16 player.
 export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_f32le', sampleRateHz: 24000, channels: 1 });
 const STT_MODEL = 'voxtral-mini-transcribe-realtime-2602', TTS_MODEL = 'voxtral-mini-tts-2603';
+// Use the same bounded provider-message allowance as ElevenLabs: its OPS
+// 2026-10-16 probe (5d818c38) returned 102,540 B for one short sentence.
+// 1 MiB gives ~10x headroom; the synthesis total remains 16,000,000 B.
+const TTS_MESSAGE_BYTES = 1_048_576;
+const TTS_WIRE_CHARACTERS = 4 * Math.ceil(TTS_MESSAGE_BYTES / 3) + 16_384; // base64 + SSE/JSON metadata
 export const manifest = deepFreeze({ id: 'voxtral', version: '0.0.0', apiVersion: '^1.0.0',
   kinds: ['stt', 'tts'], placement: 'server', entrypoints: { server: './src/index.js' },
   configSchema: { type: 'object', properties: {}, additionalProperties: true },
@@ -39,8 +44,8 @@ async function authorization(config, resolveSecret, options) {
   if (typeof value !== 'string' || !value || /[\r\n]/u.test(value)) throw new PluginError('auth');
   return { Authorization: `Bearer ${value}` };
 }
-function decodeJSON(wire) {
-  if (typeof wire !== 'string' || wire.length > 256_000) throw new PluginError('invalid-output');
+function decodeJSON(wire, maxCharacters = 256_000) {
+  if (typeof wire !== 'string' || wire.length > maxCharacters) throw new PluginError('invalid-output');
   try { const value = JSON.parse(wire); if (!value || typeof value.type !== 'string') throw new Error(); return value; }
   catch { throw new PluginError('invalid-output'); }
 }
@@ -123,13 +128,19 @@ async function* speechEvents(body, options) {
   try {
     for (;;) {
       const item = await voiceOperation(options, () => reader.read());
-      pending += item.done ? decoder.decode() : decoder.decode(item.value, { stream: true });
-      if (pending.length > 256_000) throw new PluginError('limit');
-      let match;
-      while ((match = /\r?\n\r?\n/u.exec(pending))) {
-        const frame = pending.slice(0, match.index); pending = pending.slice(match.index + match[0].length);
-        const data = frame.split(/\r?\n/u).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
-        if (data) yield decodeJSON(data);
+      const input = item.done ? decoder.decode() : decoder.decode(item.value, { stream: true });
+      // HTTP reads may coalesce many valid events. Bound the pending SSE
+      // message, not the aggregate read, and drain before accepting more.
+      for (let offset = 0; offset < input.length;) {
+        const length = Math.min(input.length - offset, TTS_WIRE_CHARACTERS - pending.length);
+        if (!length) throw new PluginError('limit');
+        pending += input.slice(offset, offset + length); offset += length;
+        let match;
+        while ((match = /\r?\n\r?\n/u.exec(pending))) {
+          const frame = pending.slice(0, match.index); pending = pending.slice(match.index + match[0].length);
+          const data = frame.split(/\r?\n/u).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+          if (data) yield decodeJSON(data, TTS_WIRE_CHARACTERS);
+        }
       }
       if (item.done) { if (pending.trim()) throw new PluginError('invalid-output'); return; }
     }
@@ -157,10 +168,14 @@ export function createVoxtralTTS({ enabled = false, config: raw, resolveSecret, 
         if (!response.headers.get('content-type')?.startsWith('text/event-stream')) throw new PluginError('invalid-output');
         for await (const event of speechEvents(response.body, opts)) {
           if (event.type === 'speech.audio.delta') {
-            if (typeof event.audio_data !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(event.audio_data)) throw new PluginError('invalid-output');
+            if (typeof event.audio_data !== 'string' || event.audio_data.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(event.audio_data)) throw new PluginError('invalid-output');
+            if (event.audio_data.length > 4 * Math.ceil(TTS_MESSAGE_BYTES / 3)) throw new PluginError('limit');
             const bytes = Buffer.from(event.audio_data, 'base64'); totalBytes += bytes.byteLength;
-            if (!bytes.byteLength || bytes.byteLength % 4 || bytes.byteLength > 64_000 || totalBytes > 16_000_000) throw new PluginError('limit');
-            yield Uint8Array.from(bytes);
+            if (!bytes.byteLength || bytes.byteLength % 4 || bytes.byteLength > TTS_MESSAGE_BYTES || totalBytes > 16_000_000) throw new PluginError('limit');
+            for (let offset = 0; offset < bytes.byteLength; offset += 64_000) {
+              opts.signal.throwIfAborted();
+              yield Uint8Array.from(bytes.subarray(offset, offset + 64_000));
+            }
           } else if (event.type === 'speech.audio.done') {
             if (!totalBytes || !event.usage || typeof event.usage !== 'object') throw new PluginError('invalid-output');
             invocation.usage(characters, cost, 'configured-character-tariff'); completed = true; break;

@@ -11,6 +11,14 @@ export function callDurationSeconds({ host, maxDurationSeconds = host === 'start
   return maxDurationSeconds;
 }
 
+async function playbackDelay(ms, options) {
+  await voiceOperation(options, ({ signal }) => new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener('abort', finish, { once: true });
+  }));
+}
+
 /** Trusted server-only utterance authority. The browser sends PCM, never finals. */
 export function createComposedVoiceCoordinator({ sessionId, callId, providerSessionId = `composed-${randomUUID()}`, epoch = 0,
   stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now = Date.now,
@@ -20,10 +28,20 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   if (!sessionId || !callId || !providerSessionId || !stt?.stream || !tts?.speak || !replyExecutor?.execute ||
     [admitComponent, authorize, commitUtterance, relay?.audio, relay?.silence, relay?.event].some(fn => typeof fn !== 'function') ||
     !Number.isSafeInteger(epoch) || epoch < 0 || inputFormat !== 'pcm_s16le' ||
+    !['pcm_s16le', 'pcm_f32le'].includes(outputFormat) || outputAudioFormat.encoding !== outputFormat ||
+    !Number.isSafeInteger(outputAudioFormat.sampleRateHz) || outputAudioFormat.sampleRateHz < 8000 || outputAudioFormat.sampleRateHz > 96000 || outputAudioFormat.channels !== 1 ||
     ![endpointMs, maxUtteranceMs, maxPendingTurns, maxTextCharacters, fragmentCharacters].every(n => Number.isSafeInteger(n) && n > 0) ||
     endpointMs > maxUtteranceMs || maxUtteranceMs > 60_000 || fragmentCharacters < 2 || fragmentCharacters > 1000 || maxPendingTurns > 16) {
     throw new TypeError('Composed coordinator requires trusted, bounded host ports');
   }
+  const sampleBytes = outputFormat === 'pcm_s16le' ? 2 : 4;
+  const bytesPerSecond = outputAudioFormat.sampleRateHz * sampleBytes;
+  // L = 1 s at both real 24 kHz formats: 96,000 B float32 / 48,000 B
+  // PCM16. Even counting a whole not-yet-completed 64,000 B player frame,
+  // 160,000 B < each 256,000 B bound, leaving 96,000 B for polling/startup
+  // delay and control frames. Cap L's bytes at 96,000 for higher PCM rates.
+  const leadBytes = Math.min(bytesPerSecond, 96_000), leadMs = leadBytes / bytesPerSecond * 1000;
+  const pacedFrameBytes = Math.min(64_000, leadBytes);
   const startedAt = now();
   spendDeadlineAt = Math.min(spendDeadlineAt ?? Infinity, startedAt + callDurationSeconds({ host, maxDurationSeconds }) * 1000);
   if (!Number.isFinite(browserLivenessDeadlineAt) || Math.min(spendDeadlineAt, browserLivenessDeadlineAt) <= now()) throw new PluginError('deadline');
@@ -134,7 +152,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     }).finally(committed.resolve));
     return turn;
   }
-  async function speak(text, revision, turnSignal, replyId) {
+  async function speak(text, revision, turnSignal, replyId, pacing) {
     if (!text.trim() || revision !== playbackRevision || !output || !current()) return;
     const controller = new AbortController(), job = { controller }; speechJobs.add(job);
     const signal = AbortSignal.any([turnSignal, controller.signal]);
@@ -142,10 +160,20 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       await component('tts', { text, voice, format: outputFormat }, signal, async opts => {
         let speaking = false;
         for await (const bytes of boundedEvents(tts.speak({ text, voice, format: outputFormat }, opts), opts)) {
-          if (!(bytes instanceof Uint8Array) || bytes.byteLength > 64_000) throw new PluginError('limit');
-          if (revision !== playbackRevision || !output || !current()) break;
-          if (!speaking) { speaking = true; event({ type: 'speaking' }); }
-          await voiceOperation(opts, () => relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat, sampleRateHz: outputAudioFormat.sampleRateHz, channels: outputAudioFormat.channels, bytes }));
+          if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength % sampleBytes || bytes.byteLength > 64_000) throw new PluginError('limit');
+          for (let offset = 0; offset < bytes.byteLength; offset += pacedFrameBytes) {
+            const frame = bytes.subarray(offset, offset + pacedFrameBytes), durationMs = frame.byteLength / bytesPerSecond * 1000;
+            // One cursor spans every fragment of this reply. Provider gaps do
+            // not earn catch-up credit; the first frame always fits L and is immediate.
+            const endAt = Math.max(pacing.endAt ?? now(), now()) + durationMs;
+            let delay;
+            while ((delay = endAt - now() - leadMs) > 0) await playbackDelay(delay, opts);
+            // Silence can arrive during the wait. Fence again before publication.
+            if (signal.aborted || revision !== playbackRevision || !output || !current()) return;
+            pacing.endAt = Math.max(endAt, now() + durationMs);
+            if (!speaking) { speaking = true; event({ type: 'speaking' }); }
+            await voiceOperation(opts, () => relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat, sampleRateHz: outputAudioFormat.sampleRateHz, channels: outputAudioFormat.channels, bytes: frame }));
+          }
         }
       });
     } catch (error) { if (!signal.aborted) throw error; }
@@ -153,6 +181,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   }
   async function reply(envelope, revision, signal) {
     let pending = '', full = '', replyId, complete = false;
+    const pacing = {};
     for await (const item of boundedEvents(replyExecutor.execute(envelope, options(signal)), options(signal))) {
       if (complete) throw new PluginError('invalid-output');
       if (item.type === 'operation') {
@@ -167,7 +196,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           if (boundary) end = boundary.index + 2;
           if (/[\uD800-\uDBFF]/u.test(pending[end - 1])) end--;
           const fragment = pending.slice(0, end); pending = pending.slice(end);
-          await speak(fragment, revision, signal, replyId);
+          await speak(fragment, revision, signal, replyId, pacing);
         }
       } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
         complete = true;
@@ -176,7 +205,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           appendHistory('assistant', full);
           event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
         }
-        await speak(pending, revision, signal, replyId);
+        await speak(pending, revision, signal, replyId, pacing);
       } else throw new PluginError('invalid-output');
     }
     if (!complete) throw new PluginError('invalid-output');
