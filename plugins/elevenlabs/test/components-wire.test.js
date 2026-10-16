@@ -193,3 +193,39 @@ for (const role of ['stt', 'tts']) {
     assert.equal(calls, 0);
   });
 }
+
+
+function burstTTS(chunks, final = true) {
+  return setup('tts', { connect: () => ({ send() {}, close() {}, events: (async function* () {
+    for (const bytes of chunks) yield JSON.stringify({ ...ttsWire.audio, audio: bytes.toString('base64') });
+    if (final) yield JSON.stringify(ttsWire.done);
+  })() }) });
+}
+
+test('AIT-258: real-sized ElevenLabs chunks split byte-for-byte and settle only on isFinal', async () => {
+  for (const size of [102_540, 1_048_576]) {
+    const bytes = Buffer.from(Array.from({ length: size }, (_, i) => i % 251)), reports = [];
+    const pieces = await run('tts', burstTTS([bytes]), options(reports));
+    assert.ok(pieces.every(piece => piece.length > 0 && piece.length <= 64_000 && piece.length % 2 === 0));
+    assert.deepEqual(pieces.map(piece => piece.length), Array.from({ length: Math.ceil(size / 64_000) }, (_, i) => Math.min(64_000, size - i * 64_000)));
+    assert.deepEqual(Buffer.concat(pieces), bytes);
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'completed');
+    assert.equal(reports[0].usage.quantity, 7); assert.equal(reports[0].chargedMicro, 14);
+    const truncated = [];
+    await assert.rejects(run('tts', burstTTS([bytes], false), options(truncated)), { code: 'invalid-output' });
+    assert.equal(truncated.length, 1); assert.equal(truncated[0].outcome, 'uncertain');
+  }
+});
+
+test('AIT-258: ElevenLabs keeps empty, alignment, 1 MiB message and 16 MB total bounds', async () => {
+  for (const size of [0, 3, 1_048_578, 1_500_000]) {
+    const reports = [];
+    await assert.rejects(run('tts', burstTTS([Buffer.alloc(size)]), options(reports)), { code: 'limit' });
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+  }
+  const bytes = Buffer.alloc(1_000_000), reports = []; let delivered = 0;
+  await assert.rejects(async () => {
+    for await (const part of burstTTS(Array(17).fill(bytes)).speak(request('tts'), options(reports))) delivered += part.length;
+  }, { code: 'limit' });
+  assert.equal(delivered, 16_000_000); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+});

@@ -7,7 +7,7 @@ import { assertVoiceMediaGrant } from '../../../packages/core/src/live-voice.js'
 export function createComposedRelay({ callId, providerSessionId, epoch = 0, expiresAt, spendDeadlineAt = expiresAt,
   browserLivenessDeadlineAt = expiresAt, now = Date.now, maxBytes = 256_000 } = {}) {
   const relayId = randomUUID(), frames = [];
-  let bytes = 0, consumer, closed = false, connected = false, coordinator;
+  let bytes = 0, consumer, closed = false, connected = false, coordinator, playbackRevision = 0;
   const identity = { callId, providerSessionId, epoch };
   const grant = Object.freeze({ callId, providerSessionId, expiresAt,
     opaque: Object.freeze({ relayId, epoch, spendDeadlineAt, browserLivenessDeadlineAt }) });
@@ -23,9 +23,13 @@ export function createComposedRelay({ callId, providerSessionId, epoch = 0, expi
     grant,
     attach(value) { if (coordinator) throw new PluginError('already-claimed'); coordinator = value; },
     event: event => push({ type: 'event', event }),
-    audio: frame => push({ type: 'audio', ...frame, bytes: Uint8Array.from(frame.bytes) }),
+    audio(frame) {
+      if (frame.playbackRevision < playbackRevision) return;
+      push({ type: 'audio', ...frame, bytes: Uint8Array.from(frame.bytes) });
+    },
     silence(frame) {
       // Flush audio before the stop frame. A stale producer cannot refill after its revision is fenced.
+      playbackRevision = Math.max(playbackRevision, frame.playbackRevision);
       for (let i = frames.length - 1; i >= 0; i--) if (frames[i].frame.type === 'audio') bytes -= frames.splice(i, 1)[0].size;
       push({ type: 'silence', ...frame });
     },

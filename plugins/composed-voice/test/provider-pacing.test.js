@@ -1,0 +1,429 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { PluginError } from '../../../packages/core/src/invocation.js';
+import { createComposedVoiceCoordinator } from '../../../packages/server/src/composed-voice.js';
+import { createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
+import { createElevenLabsTTS } from '../../elevenlabs/src/components.js';
+import { fixtureBinding, fixtureConsent, fixtureConfig } from '../../elevenlabs/test/component-fixtures.js';
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+const speech = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
+const speakCeiling = 16_000_000, replyQueueCeiling = 2 * speakCeiling + 64_000;
+
+// Mirror qualification-live-transport: messages are independently arriving,
+// maxPayload and unread backlog are both 256,000 B; overflow is provider.
+function boundedSocket(signal) {
+  let bytes = 0, peak = 0, consumed = 0, failure, ended = false, wake, aborted = false;
+  const messages = [];
+  const notify = () => { wake?.(); wake = undefined; };
+  const close = () => { ended = true; messages.length = 0; bytes = 0; notify(); signal.removeEventListener('abort', abort); };
+  const abort = () => { aborted = true; close(); };
+  signal.addEventListener('abort', abort, { once: true });
+  return {
+    send() {}, close,
+    get backlog() { return bytes; }, get peak() { return peak; }, get consumed() { return consumed; },
+    get failure() { return failure; }, get aborted() { return aborted; }, get closed() { return ended; },
+    deliver(wire) {
+      if (ended || failure) return;
+      const size = Buffer.byteLength(wire);
+      if (size > 256_000 || bytes + size > 256_000) { failure = new PluginError('provider'); notify(); return; }
+      messages.push(wire); bytes += size; peak = Math.max(peak, bytes); notify();
+    },
+    events: {
+      [Symbol.asyncIterator]() { return this; },
+      async next() {
+        while (!ended && !failure && !messages.length) await new Promise(resolve => { wake = resolve; });
+        if (failure) throw failure;
+        if (!messages.length) return { done: true };
+        const value = messages.shift(); bytes -= Buffer.byteLength(value); consumed++;
+        return { value, done: false };
+      },
+      async return() { close(); return { done: true }; },
+    },
+  };
+}
+
+async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), leaseMs = 600_000, spendMs = 600_000,
+  fragmentCharacters = 240, format = 'pcm_s16le', onAudio, retainAudio = true, replyExecutor } = {}) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const published = [], events = [], silences = [], reports = [], sockets = [];
+  const release = Promise.withResolvers();
+  tts ??= createElevenLabsTTS({ enabled: true, config: fixtureConfig,
+    consent: fixtureConsent(fixtureBinding('tts')), resolveSecret: () => 'synthetic-auth',
+    connect: ({ signal }) => { const socket = boundedSocket(signal); socket.openedAt = Date.now(); sockets.push(socket); return socket; } });
+  let turns = 0;
+  const coordinator = createComposedVoiceCoordinator({ sessionId: 'provider-pacing', callId: 'provider-pacing', tts,
+    spendDeadlineAt: Date.now() + spendMs, browserLivenessDeadlineAt: Date.now() + leaseMs, maxDurationSeconds: 3600, fragmentCharacters,
+    outputFormat: format, outputAudioFormat: { encoding: format, sampleRateHz: 24_000, channels: 1 },
+    stt: { async *stream({ audio }) { for await (const _ of audio) { /* drain ingress */ } yield { text: ++turns === 1 ? 'Ja' : '', final: true }; } },
+    replyExecutor: replyExecutor ?? { async *execute() {
+      yield { type: 'operation', replyId: 'reply' }; yield { type: 'delta', text };
+      yield { type: 'completion', replyId: 'reply', text };
+    } }, authorize: async () => true, commitUtterance: async () => {},
+    admitComponent: async ({ role }) => ({ attempt: { attemptId: role, claimId: 'claim', maxMicro: 100_000, consume() {} }, report: value => reports.push(value) }),
+    relay: { event: value => events.push(value), silence: value => silences.push(value),
+      audio: value => { const result = onAudio?.(value); if (retainAudio) published.push({ ...value, at: Date.now() }); return blockRelay ? release.promise : result; } } });
+  t.after(async () => { await coordinator.close(); release.resolve(); await coordinator.idle(); });
+  await coordinator.receiveAudio(speech()); await coordinator.receiveAudio(Buffer.alloc(16_000)); await tick();
+  return { coordinator, published, events, silences, reports, sockets,
+    async advance(ms) { for (let elapsed = 0; elapsed < ms; elapsed += 25) { t.mock.timers.tick(25); await tick(); } } };
+}
+
+const wire = bytes => JSON.stringify({ audio: bytes.toString('base64'), isFinal: false });
+const final = JSON.stringify({ audio: null, isFinal: true });
+
+// Exercise the production reader cancellation path while completion is held.
+// Releasing it after recovery also checks that late text cannot dispatch TTS.
+function deferredReply(t, text) {
+  const release = Promise.withResolvers();
+  let finished = false, cancelled = false, pendingRead = false, signal;
+  t.after(() => release.resolve());
+  const readerExecutor = createVoiceReplyExecutor({ execute() {
+    const parts = [{ type: 'operation', replyId: 'reply' }, { type: 'delta', text }];
+    return { operation: { key: 'reply-operation', callId: 'provider-pacing', providerSessionId: 'segment', ordinal: 1 },
+      events: new ReadableStream({
+        async pull(controller) {
+          if (parts.length) { controller.enqueue(parts.shift()); return; }
+          pendingRead = true;
+          await release.promise;
+          if (cancelled) return;
+          finished = true;
+          controller.enqueue({ type: 'delta', text: 'Late. ' });
+          controller.enqueue({ type: 'completion', replyId: 'reply', text: text + 'Late. ' });
+          controller.close();
+        },
+        cancel() { cancelled = true; },
+      }, { highWaterMark: 0 }) };
+  } });
+  const executor = { execute(envelope, options) { signal = options.signal; return readerExecutor.execute(envelope, options); } };
+  return { executor, release: release.resolve, get finished() { return finished; }, get cancelled() { return cancelled; },
+    get pendingRead() { return pendingRead; }, get signal() { return signal; } };
+}
+
+for (const failureAt of ['first frame', 'third frame of fragment 2']) {
+  test(`AIT-258: relay failure on ${failureAt} cancels reasoning and recovers before text completion`, async t => {
+    const reasoning = deferredReply(t, 'First. Second. ');
+    const failure = new PluginError('unavailable', 'Relay failed');
+    let secondFrames = 0, attempted = 0;
+    const h = await setup(t, { replyExecutor: reasoning.executor,
+      onAudio({ bytes }) {
+        attempted++;
+        if (failureAt === 'first frame' || bytes[0] === 2 && ++secondFrames === 3) throw failure;
+      } });
+    const first = h.sockets[0];
+    if (failureAt === 'first frame') {
+      first.deliver(wire(Buffer.alloc(48_000, 1))); await tick();
+      assert.equal(first.aborted, true, 'the in-flight TTS is cancelled');
+    } else {
+      for (let i = 0; i < 3; i++) { first.deliver(wire(Buffer.alloc(48_000, 1))); await tick(); }
+      first.deliver(final); await tick();
+      const second = h.sockets[1];
+      for (let i = 0; i < 3; i++) { second.deliver(wire(Buffer.alloc(48_000, 2))); await tick(); }
+      second.deliver(final); await tick();
+      assert.equal(reasoning.pendingRead, true, 'the reply is awaiting more LLM text when playback fails');
+      await h.advance(5000);
+      assert.equal(secondFrames, 3);
+    }
+    assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === failure.code), 'recovery preserves the relay failure code');
+    assert.equal(reasoning.finished, false, 'recovery precedes text completion');
+    assert.equal(reasoning.signal.aborted, true, 'the reply reasoning signal is cancelled');
+    assert.equal(reasoning.cancelled, true, 'the production executor cancels its text reader');
+    assert.equal(h.coordinator.state.state, 'waiting');
+    assert.equal(h.silences.at(-1).reason, 'component-failed');
+    assert.ok(!h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'no assistant final before reasoning completes, as on main');
+    const dispatched = h.sockets.length, frames = attempted;
+    reasoning.release(); await tick(); await h.coordinator.idle(); await h.advance(10_000);
+    assert.equal(h.sockets.length, dispatched, 'no further TTS after the relay failure');
+    assert.equal(attempted, frames, 'no further relay frames');
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatched, 'accounting settles once per dispatched speak');
+    assert.equal(h.events.filter(event => event.type === 'waiting').length, 1);
+    assert.ok(!h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'late completion cannot publish a final');
+  });
+}
+
+test('AIT-258: rejected relay acknowledgement releases a waiting third speak through recovery', async t => {
+  const acknowledgement = Promise.withResolvers(), reasoning = deferredReply(t, 'First. Second. Third. ');
+  t.after(() => acknowledgement.resolve());
+  const h = await setup(t, { replyExecutor: reasoning.executor, onAudio: () => acknowledgement.promise });
+  for (const index of [0, 1]) {
+    const socket = h.sockets[index];
+    socket.deliver(wire(Buffer.alloc(48_000, index + 1))); socket.deliver(final); await tick();
+  }
+  assert.equal(h.sockets.length, 2, 'third speak is waiting for the first relay acknowledgement');
+  acknowledgement.reject(new PluginError('provider')); await tick();
+  assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'provider'));
+  assert.equal(reasoning.cancelled, true);
+  assert.equal(reasoning.finished, false);
+  assert.equal(h.sockets.length, 2, 'the waiting third speak is never dispatched');
+  await h.coordinator.idle();
+});
+
+test('AIT-258: a relay failure during tail speech retains the already published assistant final as on main', async t => {
+  const h = await setup(t, { text: 'Tail', onAudio() { throw new Error('Relay failed'); } });
+  assert.equal(h.events.filter(event => event.type === 'final' && event.role === 'assistant').length, 1);
+  h.sockets[0].deliver(wire(Buffer.alloc(48_000))); await tick();
+  assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'provider'));
+  await h.coordinator.idle();
+  assert.equal(h.events.filter(event => event.type === 'final' && event.role === 'assistant').length, 1);
+});
+
+test('AIT-258: next speak opens after provider final and before the previous fragment drains', async t => {
+  const h = await setup(t, { text: 'First. Second. ' }), first = h.sockets[0];
+  for (let i = 0; i < 4; i++) { first.deliver(wire(Buffer.alloc(64_000, 1))); await tick(); }
+  assert.equal(h.sockets.length, 1, 'only one provider stream can open before its terminal');
+  const terminalAt = Date.now(); first.deliver(final); await tick();
+  assert.equal(first.closed, true, 'the previous provider closes before the next opens');
+  assert.equal(h.sockets.length, 2, 'next speak dispatch must not wait for playback');
+  const second = h.sockets[1];
+  assert.equal(second.openedAt, terminalAt, 'no playback-clock advance between provider final and next dispatch');
+  for (let i = 0; i < 4; i++) { second.deliver(wire(Buffer.alloc(64_000, 2))); await tick(); }
+  second.deliver(final); await tick();
+  await h.advance(12_000); await h.coordinator.idle();
+  const lastFirstFrame = h.published.filter(frame => frame.bytes[0] === 1).at(-1);
+  assert.ok(second.openedAt < lastFirstFrame.at, 'next speak dispatch precedes the pacer last-frame time');
+  assert.deepEqual(Buffer.concat(h.published.map(frame => frame.bytes)),
+    Buffer.concat([Buffer.alloc(256_000, 1), Buffer.alloc(256_000, 2)]));
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts' && report.outcome === 'completed').length, 2);
+});
+
+test('AIT-258: third speak waits for acknowledgement of the first fragment last relay', async t => {
+  const acknowledged = Promise.withResolvers(); let speaks = 0, frames = 0;
+  const h = await setup(t, { text: 'First. Second. Third. ',
+    onAudio({ bytes }) { if (bytes[0] === 1 && ++frames === 3) return acknowledged.promise; },
+    tts: { async *speak() { const index = ++speaks; for (let i = 0; i < 3; i++) yield Buffer.alloc(48_000, index); } } });
+  assert.equal(speaks, 2);
+  await h.advance(2000);
+  assert.equal(frames, 3, 'the last first-fragment frame reached the relay');
+  assert.equal(speaks, 2, 'pending last-frame acknowledgement still holds the first slot');
+  acknowledged.resolve(); await tick();
+  assert.equal(speaks, 3, 'acknowledgement releases the next speak without another clock tick');
+  await h.advance(8000); await h.coordinator.idle();
+  assert.equal(h.published.length, 9);
+  assert.ok(!h.events.some(event => event.type === 'waiting'));
+});
+
+test('AIT-258: empty lookahead retains FIFO order and interrupt releases a waiting dispatch', async t => {
+  let speaks = 0;
+  const h = await setup(t, { text: 'First. Second. Third. ', blockRelay: true,
+    tts: { async *speak() { if (++speaks === 1) yield Buffer.alloc(48_000); } } });
+  assert.equal(speaks, 2, 'empty N+1 cannot let N+2 bypass the blocked N');
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2);
+  const silent = h.silences.length, pending = h.coordinator.interrupt();
+  assert.equal(h.silences.length, silent + 1);
+  await pending; await h.coordinator.idle();
+  assert.equal(speaks, 2, 'waiting dispatch was never admitted or opened');
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2);
+  assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'));
+  await h.advance(10_000); assert.equal(h.published.length, 1, 'no stale audio after interruption');
+});
+
+test('AIT-258: bounded fake socket rejects two unread 137 KB messages', () => {
+  const socket = boundedSocket(new AbortController().signal), message = wire(Buffer.alloc(102_540));
+  assert.ok(Buffer.byteLength(message) > 136_000 && Buffer.byteLength(message) < 138_000);
+  socket.deliver(message); socket.deliver(message);
+  assert.equal(socket.failure?.code, 'provider'); socket.close();
+});
+
+test('AIT-258: eager reader drains bounded provider messages while one-second pacer runs', async t => {
+  const h = await setup(t), expected = [], started = Date.now();
+  assert.equal(h.sockets.length, 1);
+  const socket = h.sockets[0];
+  for (let i = 0; i < 8; i++) {
+    const bytes = Buffer.alloc(102_540, i + 1); expected.push(bytes); socket.deliver(wire(bytes));
+    await tick(); // Let arrival microtasks settle before advancing simulated time.
+    await h.advance(25);
+    assert.equal(socket.failure, undefined, 'pacing must never stall the bounded reader');
+    assert.equal(socket.backlog, 0, 'each message is consumed before the next arrives');
+  }
+  socket.deliver(final); await tick();
+  assert.equal(socket.consumed, 9, 'terminal is read before queued audio finishes playing');
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 1);
+  assert.equal(h.reports.find(report => report.attemptId === 'tts').outcome, 'completed');
+  assert.equal(h.published[0].at, started, 'immediate first audio');
+  await h.advance(18_000); await h.coordinator.idle();
+  assert.equal(h.coordinator.state.state, 'active'); assert.ok(socket.peak < 138_000);
+  assert.deepEqual(Buffer.concat(h.published.map(frame => frame.bytes)), Buffer.concat(expected));
+  let total = 0;
+  for (const frame of h.published) { total += frame.bytes.length; assert.ok(total / 48_000 <= (frame.at - started) / 1000 + 1.001); }
+  assert.ok(!h.events.some(event => event.type === 'waiting'));
+});
+
+test('AIT-258: bounded provider cancellation closes the socket and finishes one uncertain invocation', async t => {
+  const h = await setup(t), socket = h.sockets[0];
+  for (let i = 0; i < 8; i++) { socket.deliver(wire(Buffer.alloc(102_540, i))); await tick(); }
+  assert.equal(socket.consumed, 8); assert.equal(socket.backlog, 0);
+  const count = h.published.length, silent = h.silences.length;
+  const pending = h.coordinator.interrupt();
+  assert.equal(h.silences.length, silent + 1); assert.equal(socket.aborted, true);
+  await pending; await h.coordinator.idle();
+  const reports = h.reports.filter(report => report.attemptId === 'tts');
+  assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+  assert.equal(socket.backlog, 0); assert.equal(h.published.length, count);
+  socket.deliver(wire(Buffer.alloc(102_540))); socket.deliver(final);
+  await h.advance(20_000);
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 1);
+  assert.equal(h.published.length, count, 'late provider audio cannot refill a dropped queue');
+});
+
+// 30,000 characters also exceeds the former 32 MB backlog at 10x synthesis.
+for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 240], ['pcm_f32le', 1000]]) {
+  test(`AIT-258: ${format} ${fragmentCharacters}-character fragments keep 30,000 characters at 10x TTS within two buffers`, async t => {
+    const bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
+    const fragmentBytes = fragmentCharacters / 12 * bytesPerSecond;
+    const dispatches = [], terminals = [], relayed = [], spoken = [];
+    let buffered = 0, peak = 0, open = 0, produced = 0, delivered = 0, firstAt, lastAt, lastFragment = 0;
+    const h = await setup(t, { format, fragmentCharacters, text: 'a'.repeat(30_000), retainAudio: false,
+      leaseMs: 3_600_000, spendMs: 3_600_000,
+      onAudio({ bytes }) {
+        const index = bytes[0] - 1;
+        assert.ok(index === lastFragment || index === lastFragment + 1, 'fragment audio stays ordered');
+        lastFragment = index;
+        relayed[index] = (relayed[index] ?? 0) + bytes.length;
+        buffered -= bytes.length; delivered += bytes.length;
+        firstAt ??= Date.now(); lastAt = Date.now();
+        assert.ok(delivered / bytesPerSecond <= (lastAt - firstAt) / 1000 + 1.001, 'L = one second throughout the reply');
+      },
+      tts: { async *speak({ text }, opts) {
+        const index = dispatches.length;
+        assert.equal(++open, 1, 'only one open TTS provider');
+        if (index >= 2) assert.equal(relayed[index - 2], spoken[index - 2], 'N+2 must wait for N last relayed frame');
+        dispatches.push(Date.now());
+        spoken[index] = text.length / 12 * bytesPerSecond;
+        try {
+          for (let offset = 0; offset < spoken[index];) {
+            const size = Math.min(bytesPerSecond / 2, spoken[index] - offset);
+            // Half a second of speech arrives in 50 ms: exactly 10x real time.
+            if (offset) await new Promise(resolve => setTimeout(resolve, 50));
+            opts.signal.throwIfAborted();
+            buffered += size; produced += size; peak = Math.max(peak, buffered);
+            assert.ok(buffered <= 2 * fragmentBytes, 'retained PCM never exceeds two fragments');
+            offset += size; yield Buffer.alloc(size, index + 1);
+          }
+          terminals.push(Date.now());
+        } finally { open--; }
+      } } });
+    const started = Date.now();
+    await h.advance(2_550_000); await h.coordinator.idle();
+    assert.equal(dispatches.length, Math.ceil(30_000 / fragmentCharacters));
+    assert.equal(terminals.length, dispatches.length);
+    assert.equal(dispatches[1], terminals[0], 'N+1 opens at the previous provider terminal');
+    assert.equal(firstAt, started, 'first frame is immediate');
+    assert.equal(h.events.filter(event => event.type === 'speaking').length, 1, 'one continuous reply speaking phase');
+    assert.equal(delivered, 30_000 / 12 * bytesPerSecond);
+    assert.equal(delivered, produced); assert.equal(buffered, 0);
+    assert.ok(peak <= 2 * fragmentBytes);
+    assert.ok(peak < replyQueueCeiling, 'never reaches the provider-based queue ceiling');
+    assert.ok(lastAt - firstAt >= 2_499_000, 'one-second lead spans the whole reply');
+    assert.equal(h.coordinator.state.state, 'active');
+    t.diagnostic(`${dispatches.length} fragments; peak retained PCM ${peak} B; two-fragment allowance ${2 * fragmentBytes} B; queue bound ${replyQueueCeiling} B`);
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatches.length, 'accounting once per speak');
+  });
+}
+
+for (const format of ['pcm_s16le', 'pcm_f32le']) {
+  test(`AIT-258: ${format} 240-character list of amounts completes 120 seconds of audio without limit`, async t => {
+    const text = '1.234.567,89 €; '.repeat(15), bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
+    const expectedBytes = text.length / 2 * bytesPerSecond, spoken = [];
+    let produced = 0, delivered = 0, firstAt, lastAt;
+    assert.equal(text.length, 240);
+    const h = await setup(t, { format, text, retainAudio: false,
+      onAudio({ bytes }) { delivered += bytes.length; firstAt ??= Date.now(); lastAt = Date.now(); },
+      tts: { async *speak({ text }, opts) {
+        spoken.push(text); await opts.attempt.consume();
+        for (let offset = 0; offset < expectedBytes; offset += 64_000) {
+          const size = Math.min(64_000, expectedBytes - offset); produced += size; yield Buffer.alloc(size);
+        }
+        await opts.report({ attemptId: opts.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
+      } } });
+    await h.advance(121_000); await h.coordinator.idle();
+    assert.deepEqual(spoken, [text], 'amounts stay in one fragment without sentence boundaries');
+    assert.equal(produced, expectedBytes); assert.equal(delivered, produced);
+    assert.ok(lastAt - firstAt >= 119_000, 'the whole 120-second fragment is paced');
+    assert.equal(h.coordinator.state.state, 'active');
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+    const reports = h.reports.filter(report => report.attemptId === 'tts');
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'completed');
+  });
+
+  test(`AIT-258: ${format} two worst-case fragments fit while the pacer holds a chunk`, async t => {
+    const fragmentBytes = speakCeiling;
+    let speaks = 0, produced = 0;
+    const h = await setup(t, { format, blockRelay: true, text: 'a'.repeat(720),
+      tts: { async *speak() {
+        speaks++;
+        for (let offset = 0; offset < fragmentBytes; offset += 64_000) {
+          const size = Math.min(64_000, fragmentBytes - offset); produced += size; yield Buffer.alloc(size);
+        }
+      } } });
+    await tick();
+    assert.equal(speaks, 2, 'third fragment waits before admission');
+    assert.equal(produced, 2 * fragmentBytes, 'both complete provider per-speak ceilings fit');
+    assert.equal(h.published.length, 1, 'the pacer-held chunk is included');
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+    await h.coordinator.interrupt(); await h.coordinator.idle();
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2);
+  });
+}
+
+for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 240], ['pcm_f32le', 1000]]) {
+  test(`AIT-258: ${format} ${fragmentCharacters}-character single fragment above 16,000,000 bytes fails with limit`, async t => {
+    const sampleBytes = format === 'pcm_s16le' ? 2 : 4;
+    let aborted = false, speaks = 0, produced = 0;
+    const h = await setup(t, { format, fragmentCharacters, blockRelay: true, text: 'a'.repeat(fragmentCharacters),
+      tts: { async *speak(_, { signal }) {
+        speaks++; signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+        for (let bytes = 0; bytes < speakCeiling; bytes += 64_000) { produced += 64_000; yield Buffer.alloc(64_000); }
+        produced += sampleBytes; yield Buffer.alloc(sampleBytes);
+      } } });
+    await tick();
+    assert.equal(speaks, 1);
+    assert.equal(produced, speakCeiling + sampleBytes, 'rejects the first aligned sample above the per-speak ceiling');
+    assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'limit'));
+    assert.equal(h.published.length, 1); assert.equal(aborted, true);
+  });
+}
+
+test('AIT-258: server reply queue also bounds tiny-chunk metadata', async t => {
+  const h = await setup(t, { blockRelay: true, tts: { async *speak() { for (let i = 0; i < 1025; i++) yield Buffer.alloc(2); } } });
+  await tick();
+  assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'limit'));
+});
+
+for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', 'lease-expired', 'spend-deadline']) {
+  test(`AIT-258: ${action} drops two queued fragments, aborts TTS and settles without playback time`, async t => {
+    const filled = Promise.withResolvers(); let aborted = false, finished = false, speaks = 0;
+    const h = await setup(t, { blockRelay: true, text: 'First. Second. ', leaseMs: action === 'spend-deadline' ? 900_000 : 600_000,
+      spendMs: action === 'lease-expired' ? 900_000 : 600_000, tts: { async *speak(_, { signal }) {
+      const index = ++speaks;
+      signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+      try {
+        for (let i = 0; i < 40; i++) yield Buffer.alloc(64_000);
+        if (index === 1) return;
+        filled.resolve(); await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+      } finally { if (index === 2) finished = true; }
+    } } });
+    await filled.promise; const count = h.published.length, silent = h.silences.length;
+    assert.equal(speaks, 2, 'both fragments are queued while the second provider remains open');
+    let pending;
+    if (action === 'barge-in') pending = h.coordinator.receiveAudio(speech());
+    else if (action === 'output-off') pending = h.coordinator.setOutput(false);
+    else if (action === 'lease-expired') { t.mock.timers.tick(600_000); pending = Promise.resolve(); }
+    else if (action === 'spend-deadline') { t.mock.timers.tick(600_000); pending = Promise.resolve(); }
+    else pending = h.coordinator[action]();
+    assert.ok(h.silences.length > silent, 'silence is synchronous'); assert.equal(aborted, true, 'TTS is aborted synchronously');
+    await pending;
+    // End a new barge-in utterance without advancing playback timers.
+    if (action === 'barge-in') await h.coordinator.receiveAudio(Buffer.alloc(16_000));
+    await h.coordinator.idle(); assert.equal(finished, true);
+    assert.equal(h.published.length, count, 'no frame after the revision fence');
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2, 'each invocation finishes exactly once');
+    if (['barge-in', 'interrupt', 'output-off'].includes(action)) {
+      assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'admitted reasoning still completes');
+      assert.equal(h.coordinator.state.state, 'active', 'deliberate silence stays non-fatal');
+      assert.ok(!h.events.some(event => event.type === 'waiting'), 'deliberate silence does not trigger recovery');
+    }
+    await h.coordinator.close(); t.mock.timers.tick(1_000_000); await tick();
+    assert.equal(h.published.length, count, 'terminal cleanup leaves no playback timer');
+  });
+}
