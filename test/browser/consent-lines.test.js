@@ -99,7 +99,7 @@ async function scene(page, locale, theme, width, missing) {
 async function consentEvidenceReady(page) {
   await shadow(page, c => {
     c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
-    c.shadowRoot.querySelector('.settings__body').scrollTop = 0;
+    c.shadowRoot.querySelector('.consent-intro').scrollIntoView({ block: 'start', behavior: 'instant' });
   });
   await page.mouse.move(-10, -10); await frame(page);
   await shadow(page, async c => {
@@ -274,7 +274,7 @@ test('AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light', 
   await shadow(page, async c => {
     const { de } = await import('/packages/ui/src/i18n/de.js');
     const { withDemoConsentCopy } = await import('/demo/consent-copy.js');
-    c.configure({ copy: withDemoConsentCopy(de) });
+    c.configure({ copy: withDemoConsentCopy(de), session: c.session });
   });
   await page.locator('aithema-session >>> .notice button').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
