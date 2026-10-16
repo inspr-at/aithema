@@ -38,7 +38,7 @@ for (const pkg of pin.packages) {
 }
 const { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createMemoryConsentLedger, createPluginRuntime, mockPresets } = await import('@inspr/aithema-server');
 const { listen } = await import('@inspr/aithema-server/http');
-const { PluginRegistry, createMockReasoning } = await import('@inspr/aithema-core');
+const { PluginRegistry, createMockReasoning, inputRevision } = await import('@inspr/aithema-core');
 const { en } = await import('@inspr/aithema-ui/i18n/en');
 const { de } = await import('@inspr/aithema-ui/i18n/de');
 function keyTree(value) {
@@ -50,11 +50,17 @@ const storage = new SQLiteStorage(':memory:'), consent = createMemoryConsentLedg
 const reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning);
 const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 0 });
 const pluginRuntime = createPluginRuntime({ storage, consent, reasoning, registry, presets: mockPresets(), budget });
-const handlers = createHandlers({ storage, consent, pluginRuntime });
+const handlers = createHandlers({ storage, consent, pluginRuntime, log: record => console.error(record) });
 await handlers.resume();
-const { server, url } = await listen(handlers.handle);
+// /health is the smoke host's own liveness endpoint, mounted beside product handlers.
+const { server, url } = await listen(request => new URL(request.url).pathname === '/health'
+  ? Response.json({ status: 'ok' }) : handlers.handle(request));
 let element, preview;
 try {
+  const health = await fetch(url + '/health');
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { status: 'ok' });
+  // Exercise the real product session route mounted through handlers.handle.
   const token = crypto.randomUUID();
   const response = await fetch(url + '/api/sessions', { method: 'POST', headers: {
     'content-type': 'application/json', 'x-aithema-session-token': token }, body: JSON.stringify({ locale: 'en' }) });
@@ -62,6 +68,30 @@ try {
   const session = await response.json();
   assert.equal((await fetch(`${url}/api/sessions/${session.id}`, { headers: { 'x-aithema-session-token': token } })).status, 200);
   assert.equal((await fetch(`${url}/api/sessions/${session.id}`, { headers: { 'x-aithema-session-token': 'another-owner' } })).status, 404);
+  const base = `${url}/api/sessions/${session.id}`;
+  const post = (action, body) => fetch(`${base}/${action}`, { method: 'POST', headers: {
+    'content-type': 'application/json', 'x-aithema-session-token': token }, body: JSON.stringify(body) });
+  assert.equal((await consent.coverage({ sessionId: session.id })).covered, false, 'Host starts without consent');
+  const granted = await post('consent', { granted: true });
+  assert.equal(granted.status, 200);
+  assert.equal((await granted.json()).granted, true);
+  assert.equal((await consent.coverage({ sessionId: session.id })).covered, true);
+  const content = 'systems: SAP; operations: hosted; data: public; reach: international';
+  const turn = await post('turns', { clientEventId: 'standalone-turn', content });
+  assert.equal(turn.status, 200);
+  await handlers.idle();
+  const overviewResponse = await fetch(base, { headers: { 'x-aithema-session-token': token } });
+  assert.equal(overviewResponse.status, 200);
+  const overview = await overviewResponse.json();
+  assert.equal(overview.transcript.filter(t => t.role === 'user').length, 1);
+  assert.equal(overview.transcript.filter(t => t.role === 'assistant').length, 1);
+  assert.equal(overview.transcript.find(t => t.role === 'assistant').content, 'What should improve first?');
+  assert.equal(overview.understanding.summary, content);
+  assert.equal(overview.understanding.constraints.systems.value, 'SAP');
+  assert.equal(overview.understanding.inputRevision, inputRevision(overview));
+  assert.equal(overview.understanding.draft, false);
+  assert.equal(overview.understanding.readinessAssessed, true);
+  assert.equal(overview.operations.lastFailure, null);
   element = document.createElement('aithema-session');
   element.configure({ session, sessionToken: token, baseUrl: url, copy: en });
   document.body.append(element);
@@ -72,9 +102,13 @@ try {
   const exported = await fetch(`${url}/api/sessions/${session.id}/export`, { headers: { 'x-aithema-session-token': token } });
   assert.equal(exported.status, 200);
   assert.ok(Buffer.from(await exported.arrayBuffer()).includes(Buffer.from(pin.source_commit)), 'Export binds candidate source');
-  console.log(JSON.stringify({ imports, symbols, runtime_exports: 'all', runtime_subpaths: runtimeSubpaths, type_subpaths: typeSubpaths, locale_key_parity: 'recursive', handlers: 'HTTP create/read/export and owner isolation',
+  console.log(JSON.stringify({ imports, symbols, runtime_exports: 'all', runtime_subpaths: runtimeSubpaths, type_subpaths: typeSubpaths, locale_key_parity: 'recursive', handlers: 'HTTP health/session/consent/turn/overview/export and owner isolation', conversation: { model: 'mock', turns: 1, consent: 'granted', overview: 'current, settled and content verified' },
     components: ['aithema-session', 'aithema-html-preview'], dom: 'happy-dom mount; browser policy/layout is covered by the browser suite', version: pin.version }));
 } finally {
   element?.remove(); preview?.remove(); await window.happyDOM.close();
-  server.close(); server.closeAllConnections(); await handlers.close(); storage.close();
+  await handlers.close();
+  server.closeAllConnections();
+  await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  assert.equal(server.listening, false);
+  storage.close();
 }
