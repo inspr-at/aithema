@@ -1,3 +1,5 @@
+import { reasonSeparator } from '../packages/ui/src/display.js';
+
 // Approved AIT-169 DE/EN copy.
 export const adminCopy = {
   de: {
@@ -24,7 +26,7 @@ export const adminCopy = {
     prov: { h: 'Anbieter-Ausgaben', intro: 'Ausgaben beim KI-Anbieter seit dem Start dieses Hosts. Nur zur Ansicht; das Limit steht in der Server-Konfiguration.',
       cap: 'Limit', confirmed: 'Bestätigt', reserved: 'Reserviert', uncertain: 'Ungeklärt', remaining: 'Verfügbar', status: 'Status',
       confirmedHint: 'abgerechnet', reservedHint: 'laufende Anfragen', uncertainHint: 'wird automatisch nachgeprüft', lockedHint: 'keine neuen Anfragen',
-      open: 'Nimmt neue Anfragen an', latched: 'Gesperrt seit {time} · Grund: {reason}', latchedNoTime: 'Gesperrt · Grund: {reason}',
+      open: 'Nimmt neue Anfragen an', latched: `Gesperrt seit {time}${reasonSeparator}Grund: {reason}`, latchedNoTime: `Gesperrt${reasonSeparator}Grund: {reason}`,
       reasons: { overrun: 'Eine Abrechnung lag über ihrer Reservierung.', overCap: 'Die bestätigten Ausgaben liegen über dem Limit.' },
       recovery: 'Freigabe nur über eine geprüfte OPS-Wartung. Ein Neustart oder ein höheres Limit hebt die Sperre nicht auf.',
       none: 'Für diesen Host ist kein Anbieter-Limit eingerichtet.' },
@@ -33,9 +35,9 @@ export const adminCopy = {
       f: { anonymous: 'Guthaben „Ohne E-Mail“', emailGiven: 'Guthaben „E-Mail angegeben“', emailConfirmed: 'Guthaben „E-Mail bestätigt“',
         confirmation: 'Bestätigungs-E-Mail', mailHour: 'E-Mail-Limit gesamt, pro Stunde', mailDay: 'E-Mail-Limit gesamt, pro Tag',
         ipHour: 'E-Mail-Limit je Verbindung, pro Stunde', ipDay: 'E-Mail-Limit je Verbindung, pro Tag' },
-      erase: 'Löschung: {id} · {scope} · {result}', visitor: 'Besucher', session: 'Sitzung',
+      erase: `Löschung: {id}${reasonSeparator}{scope}${reasonSeparator}{result}`, visitor: 'Besucher', session: 'Sitzung',
       capHour: 'E-Mail-Limit gesamt erreicht: {n} in der letzten Stunde', capDay: 'E-Mail-Limit gesamt erreicht: {n} in den letzten 24 Stunden',
-      initAll: 'Ersteinrichtung: Guthaben {a} · {b} · {c} Credits, Bestätigungs-E-Mail aus',
+      initAll: `Ersteinrichtung: Guthaben {a}${reasonSeparator}{b}${reasonSeparator}{c} Credits, Bestätigungs-E-Mail aus`,
       initMail: 'E-Mail-Limit gesamt eingerichtet: {h} pro Stunde, {d} pro Tag', initIp: 'E-Mail-Limit je Verbindung eingerichtet: {h} pro Stunde, {d} pro Tag' },
     out: { line: 'Diese Seite ist nur für angemeldete Operatoren.', expired: 'Ihre Operator-Anmeldung ist abgelaufen.', login: 'Mit {provider} als Operator anmelden' },
     entry: { admin: 'Verwaltung' },
@@ -64,7 +66,7 @@ export const adminCopy = {
     prov: { h: 'Provider spending', intro: 'Spending at the AI provider since this host started. View only; the limit is set in the server configuration.',
       cap: 'Limit', confirmed: 'Confirmed', reserved: 'Reserved', uncertain: 'Unresolved', remaining: 'Available', status: 'Status',
       confirmedHint: 'billed', reservedHint: 'requests in progress', uncertainHint: 'rechecked automatically', lockedHint: 'no new requests',
-      open: 'Accepting new requests', latched: 'Locked since {time} · Reason: {reason}', latchedNoTime: 'Locked · Reason: {reason}',
+      open: 'Accepting new requests', latched: `Locked since {time}${reasonSeparator}Reason: {reason}`, latchedNoTime: `Locked${reasonSeparator}Reason: {reason}`,
       reasons: { overrun: 'A charge came in above its reservation.', overCap: 'Confirmed spending is above the limit.' },
       recovery: 'Only a reviewed OPS maintenance lifts the lock. A restart or a higher limit does not.',
       none: 'No provider limit is set up for this host.' },
@@ -73,9 +75,9 @@ export const adminCopy = {
       f: { anonymous: 'Credit “No email”', emailGiven: 'Credit “Email given”', emailConfirmed: 'Credit “Email confirmed”',
         confirmation: 'Confirmation email', mailHour: 'Email limit overall, per hour', mailDay: 'Email limit overall, per day',
         ipHour: 'Email limit per connection, per hour', ipDay: 'Email limit per connection, per day' },
-      erase: 'Erasure: {id} · {scope} · {result}', visitor: 'visitor', session: 'session',
+      erase: `Erasure: {id}${reasonSeparator}{scope}${reasonSeparator}{result}`, visitor: 'visitor', session: 'session',
       capHour: 'Email limit overall reached: {n} in the last hour', capDay: 'Email limit overall reached: {n} in the last 24 hours',
-      initAll: 'Initial setup: credit {a} · {b} · {c} Credits, confirmation email off',
+      initAll: `Initial setup: credit {a}${reasonSeparator}{b}${reasonSeparator}{c} Credits, confirmation email off`,
       initMail: 'Email limit overall set up: {h} per hour, {d} per day', initIp: 'Email limit per connection set up: {h} per hour, {d} per day' },
     out: { line: 'This page is for signed-in operators only.', expired: 'Your operator sign-in has expired.', login: 'Sign in as operator with {provider}' },
     entry: { admin: 'Admin' },

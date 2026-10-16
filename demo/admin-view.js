@@ -1,5 +1,5 @@
 import { adminCopy } from './admin-copy.js';
-import { wholeCredits } from '../packages/ui/src/display.js';
+import { reasonSeparator, wholeCredits } from '../packages/ui/src/display.js';
 export const TIERS = ['anonymous', 'emailGiven', 'emailConfirmed'];
 export const esc = s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 export const fill = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m);
@@ -46,7 +46,7 @@ export function renderAdmin(m, locale = 'de') {
 const band = () => `<header class="ad-band"><span class="ad-wordmark"><span class="ad-mark" aria-hidden="true"></span>Aithema</span></header>`
 const head = (m) => `<a class="ad-back" href="/">${I.back}<span>${esc(C.back)}</span></a>
   <h1 class="ad-title">${esc(C.title)}</h1>
-  ${m.signed === 'in' ? `<form class="ad-who" method="post" action="/api/operator/logout/"><span class="nm">${esc(fill(C.operator, { name: m.name }))}</span><span class="sep" aria-hidden="true"> · </span><button type="submit">${esc(C.logout)}</button></form>` : ''}`
+  ${m.signed === 'in' ? `<form class="ad-who" method="post" action="/api/operator/logout/"><span class="nm">${esc(fill(C.operator, { name: m.name }))}</span><span class="sep" aria-hidden="true">${reasonSeparator}</span><button type="submit">${esc(C.logout)}</button></form>` : ''}`
 
 // The status cell stacks every message this section can show (visible one + hidden measures): no shift, ever.
 function statusCell(id, msgs) {
@@ -85,9 +85,9 @@ function confirmSection(m) {
 function useLine(n, max, win, peak) {
   const base = (peak ? C.mail.peak : '') + fill(win === 'hour' ? C.mail.useHour : C.mail.useDay, { n: nf(n), max: nf(max) })
   let tail = ''
-  if (max === 0) tail = ` · <span class="warn">${esc(C.mail.paused)}</span>`
-  else if (n >= max) tail = ` · <span class="warn">${esc(C.mail.reached)}</span>`
-  else if (n >= max * 0.8) tail = ` · <span class="warn">${esc(fill(C.mail.left, { n: nf(max - n) }))}</span>`
+  if (max === 0) tail = `${reasonSeparator}<span class="warn">${esc(C.mail.paused)}</span>`
+  else if (n >= max) tail = `${reasonSeparator}<span class="warn">${esc(C.mail.reached)}</span>`
+  else if (n >= max * 0.8) tail = `${reasonSeparator}<span class="warn">${esc(fill(C.mail.left, { n: nf(max - n) }))}</span>`
   return esc(base) + tail
 }
 function mailSection(m) {
