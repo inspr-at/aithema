@@ -275,7 +275,7 @@ export async function displayMatrix(t, section) {
         if (footer.connected) { assert.ok(Math.abs(footer.digits - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
         assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
         assert.ok(footer.amount >= 600); assert.equal(footer.total, 400); assert.equal(footer.unit, 400);
-        assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 680 && (width >= 600 || !footer.legal));
+        assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 680);
         const before = await boxes(page, ['.connection-timer', '.engine-info', '.ai-notice', '.host-credits']);
         await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '1:00:00'; });
         sameBoxes(before, await boxes(page, ['.connection-timer', '.engine-info', '.ai-notice', '.host-credits']), 'reserve after digits prevents jitter');

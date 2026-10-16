@@ -249,7 +249,8 @@ slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inhe
   .display-foot:has(.host-legal:not([hidden])) .footer-right { gap:8px; }
   .footer-right .status { display:none; }
   .footer-info .connection-timer { grid-column:auto; }
-  .display-foot:has(.host-legal:not([hidden])) .ai-notice__short { display:none; }
+  .display-foot:has(.host-legal:not([hidden])) .ai-notice { font-size:11px; }
+  .display-foot:has(.host-legal:not([hidden])) .host-credits__track { display:none; }
 }
 
 :host([motion="off"]) * { animation:none !important; }
