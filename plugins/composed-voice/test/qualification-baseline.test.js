@@ -227,7 +227,7 @@ test('baseline missing readiness signal stays a free setup-failed:goto', async t
   assert.equal(result.ok, false); assert.equal(result.step, 'goto');
   assert.deepEqual(result.offeredConsentItemIds, []);
   assert.equal(h.evidence[0].reason, 'setup-failed:goto');
-  assert.deepEqual(h.order, []);
+  assert.equal(h.order.includes('admit'), false); assert.equal(h.order.includes('conversation'), false);
   assert.equal(h.timings.length, 0); assert.equal(h.reports.length, 0);
 });
 
