@@ -83,7 +83,8 @@ for (const [name, content, reason] of [['empty.txt', bytes(''), 'empty'], ['brok
 });
 
 test('a host-lowered extractor ceiling reports limit and discards the original', async t => {
-  const f = setup(t, { textPlugin: createTextExtractor({ limits: { maxBytes: 1024 } }) });
+  const presets = mockPresets(), f = setup(t, { presets });
+  presets.best.extractors = presets.best.extractors.map(binding => ({ ...binding, limits: { maxBytes: 1024 } }));
   await post(f, 'lowered-ceiling', [['large.txt', Buffer.alloc(1025, 97)]]); await f.handlers.idle();
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, 'unreadable'); assert.equal(upload.reason, 'limit');
