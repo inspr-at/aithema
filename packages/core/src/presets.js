@@ -25,9 +25,14 @@ export function bindingReason({ binding, plugin, preset, policy = {}, now = Date
   if (!legal.purpose || !legal.recipient || !legal.consentVersion || !Array.isArray(legal.processors) ||
     !Array.isArray(legal.dataCategories) || !legal.dataCategories.length || typeof legal.training !== 'boolean' ||
     typeof legal.retention !== 'string' || !legal.retention) return 'processing scope invalid';
-  const countries = preset === 'eu' ? EU_COUNTRIES.filter(c => !policy.countries || policy.countries.includes(c)) : policy.countries;
   if (!Array.isArray(legal.countries) || !legal.countries.length || legal.countries.some(c => !/^[A-Z]{2}$/u.test(c))) return 'processing residency unverified';
-  if (countries && legal.countries.some(c => !countries.includes(c))) return 'processing residency denied';
+  // Recipient seats remain subject to the host's country policy. Only a separate
+  // contractual processing guarantee can qualify the eu preset's residency.
+  if ((preset === 'eu' || Object.hasOwn(legal, 'processingCountries')) &&
+    (!Array.isArray(legal.processingCountries) || !legal.processingCountries.length ||
+      [...legal.processingCountries].some(c => typeof c !== 'string' || !/^[A-Z]{2}$/u.test(c)))) return 'processing residency unverified';
+  if (policy.countries && legal.countries.some(c => !policy.countries.includes(c))) return 'processing residency denied';
+  if (preset === 'eu' && legal.processingCountries.some(c => !EU_COUNTRIES.includes(c))) return 'processing residency denied';
   if ((preset === 'eu' || policy.noTraining) && legal.training) return 'training policy denied';
   if (!Array.isArray(policy.endpoints) || !policy.endpoints.includes(binding.endpoint)) return 'endpoint not allowed';
   return null;

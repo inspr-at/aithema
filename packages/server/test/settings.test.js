@@ -155,6 +155,7 @@ test('the catalog shows only ids, labels and manifest facts with each option\'s 
 test('the server admits only the host allowlist: unknown, crafted, unconfigured and policy-denied choices are refused with a reason', async t => {
   const presets = mockPresetsWithChoices();
   const usOnly = qualify(binding('openrouter', 'https://provider.test/v1/chat/completions', { maxMicro: 100_000 }), 'fixture-provider', ['US']);
+  usOnly.legal.processingCountries = ['US'];
   presets.eu = { plugins: ['openrouter'], policy: { endpoints: [usOnly.endpoint] }, choices: { models: [{ id: 'us-only', binding: usOnly }] } };
   const registry = new PluginRegistry().register(createMockReasoning()).register(openRouter(usOnly));
   const h = host(t, { presets, registry }), { session } = await h.create(), path = `/${session.id}/settings`;
@@ -180,6 +181,39 @@ test('the server admits only the host allowlist: unknown, crafted, unconfigured 
   assert.equal(h.storage.read(session.id).some(e => e.type === 'settings.changed'), false, 'refusals leave no durable trace');
   assert.throws(() => createPluginRuntime({ storage: h.storage, presets: { best: { plugins: [], choices: { models: [{ id: 'x', efforts: ['turbo'] }] } } } }), /Invalid model efforts/);
   assert.throws(() => normalizeChoices({ choices: { models: [{ id: 'a' }, { id: 'a' }] } }), /Invalid model choice/);
+});
+
+test('AIT-271 eu exposes its processing residency reason and refuses the choice without a fallback', async t => {
+  const b = qualify(binding('openrouter', 'https://provider.test/v1/chat/completions'));
+  const presets = mockPresetsWithChoices();
+  presets.eu = { plugins: ['openrouter'], policy: { endpoints: [b.endpoint] },
+    choices: { models: [{ id: 'eu-route', binding: b }] } };
+  const registry = new PluginRegistry().register(createMockReasoning()).register(openRouter(b));
+  const h = host(t, { presets, registry }), { session } = await h.create();
+  for (const [processingCountries, reason] of [
+    [undefined, 'processing residency unverified'],
+    [[], 'processing residency unverified'],
+    ['FR', 'processing residency unverified'],
+    [['FRA'], 'processing residency unverified'],
+    [['FR', 'US'], 'processing residency denied'],
+  ]) {
+    if (processingCountries === undefined) delete b.legal.processingCountries;
+    else b.legal.processingCountries = processingCountries;
+    const catalog = await (await h.call(`/${session.id}/settings`)).json();
+    assert.equal(catalog.presets.eu.status, 'unavailable');
+    assert.equal(catalog.presets.eu.reason, reason);
+    assert.equal(catalog.presets.eu.models[0].reason, reason);
+    assert.deepEqual(await json(await h.save(session.id, { processingPreset: 'eu' })), {
+      status: 409, body: { error: 'setting-not-allowed', field: 'model', reason },
+    });
+    assert.equal(h.storage.get(session.id).processingPreset, 'best');
+    assert.equal(h.storage.get(session.id).settings.revision, 0);
+    assert.equal(h.storage.read(session.id).some(e => e.type === 'settings.changed'), false);
+  }
+  b.legal.processingCountries = ['FR', 'DE'];
+  const eu = (await (await h.call(`/${session.id}/settings`)).json()).presets.eu;
+  assert.equal(eu.status, 'consent', 'EU processing passes policy and reaches the independent consent gate');
+  assert.equal(eu.reason, 'current processing consent required');
 });
 
 // A provider fixture whose structured output is a valid understanding, so both lanes complete.

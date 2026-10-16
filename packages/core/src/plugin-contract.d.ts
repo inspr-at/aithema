@@ -215,7 +215,13 @@ export interface PrivateBinding {
   accountRef: string; secretRef: string; maxMicro: number; maxTokens: number;
   rates: { inputMicro: number; outputMicro: number; inputUSD?: number; outputUSD?: number };
   legal: { purpose: string; recipient: string; processors: string[]; dataCategories: string[];
-    consentVersion: string; countries: string[]; training: boolean; retention: string; approved: boolean;
+    consentVersion: string;
+    /** Recipients' seat countries (ISO alpha-2); subject to the host country policy. */
+    countries: string[];
+    /** Contractually guaranteed processing countries (ISO alpha-2, non-empty when present).
+     * Required and EU-only for the eu preset; recipient seats do not establish residency. */
+    processingCountries?: string[];
+    training: boolean; retention: string; approved: boolean;
     evidence: { accountRef: string; secretRef: string; model: string; endpoint: string; routing: object;
       verifiedAt: number; expiresAt: number; qualified: boolean } };
 }

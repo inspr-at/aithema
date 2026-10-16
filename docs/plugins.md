@@ -289,6 +289,19 @@ ceilings, rates and legal evidence. The adapter exposes `binding` and optionally
 value is public. Evidence must match the account, secret reference, model,
 endpoint and route, be currently qualified, and satisfy the preset policy.
 
+`legal.countries` means the recipients' seat countries (ISO alpha-2), filtered by
+the host's `policy.countries`. Optional `legal.processingCountries` means the
+contractually guaranteed processing locations (ISO alpha-2, a non-empty array
+when present). The `eu` preset binds residency only to `processingCountries`:
+it must be present and contain EU countries exclusively; the no-training rule
+still applies. EU recipient seats alone leave the preset unavailable with
+`processing residency unverified`; malformed processing countries return the
+same reason for any preset, and non-EU processing returns
+`processing residency denied` for `eu`. These stable reasons appear in the
+settings catalog and refusal response. START hosts on `best` need no change;
+non-eu presets keep their existing recipient-seat country filters and do not
+require the new field.
+
 Configure `createPluginRuntime({ storage, reasoning, registry, presets, consent })`
 and pass it to `createHandlers`. Each preset allowlists `plugins`, permits its
 endpoints in `policy`, and supplies `choices.models[].bindings.reaction` and

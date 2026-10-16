@@ -7,7 +7,7 @@ import { createDemoHost } from '../../../demo/host-ports.js';
 import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
 import { binding, chatServer, request, consumeInFinallyReasoning, openRouterPrices } from '../../../test/plugin-fixtures.js';
 function qualify(b) {
-  return { ...b, legal: { approved: true, countries: ['FR'], training: false, retention: 'host qualified',
+  return { ...b, legal: { approved: true, countries: ['FR'], processingCountries: ['FR'], training: false, retention: 'host qualified',
     purpose: 'requirements', recipient: 'fixture-provider', processors: ['fixture-processor'],
     dataCategories: ['conversation'], consentVersion: 'v1', evidence: { qualified: true,
       accountRef: b.accountRef, secretRef: b.secretRef, model: b.model, endpoint: b.endpoint,
@@ -29,7 +29,7 @@ test('matrix reflects each preset and exact binding, with explicit unavailable r
   assert.equal(matrix.best.text.available, true); assert.equal(matrix.eu.analysis.available, true);
   assert.equal(matrix.best.voice.reason, 'not configured'); assert.equal(matrix.device.analysis.reason, 'unavailable on device');
   assert.equal(matrix.device.text.available, true);
-  h.presets.eu.bindings.understanding = { ...h.b, legal: { ...h.b.legal, countries: ['US'] } };
+  h.presets.eu.bindings.understanding = { ...h.b, legal: { ...h.b.legal, processingCountries: ['FR', 'US'] } };
   matrix = await h.runtime.matrix(h.session);
   assert.equal(matrix.eu.analysis.reason, 'processing residency denied'); assert.equal(matrix.eu.text.available, true);
   const serialized = JSON.stringify(matrix); assert.equal(serialized.includes('FIXTURE_ONLY'), false); assert.equal(serialized.includes('fixture-account'), false);

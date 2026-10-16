@@ -515,6 +515,18 @@ Voice, image and HTML bindings have their own validated contracts described in
 the README. The host-port conformance helpers above test library, delivery,
 wallet behavior and failure/recovery; they do not replace live qualification.
 
+`legal.countries` lists the recipients' seat countries (ISO alpha-2); host
+`policy.countries` filters those seats. Optional `legal.processingCountries`
+lists the contractually guaranteed processing locations (ISO alpha-2, non-empty
+when present). The `eu` preset requires that guarantee and admits only EU
+processing countries, with the existing no-training rule. Recipient seats alone
+do not establish processing residency. Missing or malformed guarantees surface
+as `processing residency unverified`; a country outside the EU surfaces as
+`processing residency denied`. The settings catalog exposes these reasons and
+refuses the choice without switching presets. START hosts using `best` need no
+change; `processingCountries` remains optional for non-eu presets, and their
+country policy filters keep their existing behavior.
+
 For the plugin contract and the text, voice and image onboarding steps, see
 [Adding a model](plugins.md#adding-a-model). The standalone external package proof
 uses host configuration and public exports without core or server changes.
