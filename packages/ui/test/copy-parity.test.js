@@ -11,7 +11,7 @@ test('AIT-228: overview header and draft label carry the same meaning in DE/EN',
   assert.deepEqual([en.understanding, en.conceptTab], ['Overview', 'Draft']);
 });
 
-test('AIT-228: every application UI separator uses reasonSeparator, including locale, upload and visitor demo copy', () => {
+test('AIT-228: every application UI separator uses reasonSeparator, including locale, upload, visitor and operator demo copy', () => {
   const sweep = directory => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory);
@@ -21,7 +21,7 @@ test('AIT-228: every application UI separator uses reasonSeparator, including lo
     }
   };
   sweep(new URL('../src/', import.meta.url));
-  for (const file of ['host.js', 'index.html']) {
+  for (const file of ['host.js', 'index.html', 'admin-copy.js', 'admin-view.js']) {
     const source = new URL(`../../../demo/${file}`, import.meta.url);
     assert.equal(readFileSync(source, 'utf8').includes(' · '), false, source.pathname);
   }
