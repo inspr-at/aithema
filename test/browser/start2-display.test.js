@@ -1605,7 +1605,6 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
     c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
     c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
   });
-  await finishWorkspaceEntry(page);
   await page.$eval('.demo-strip', n => n.scrollIntoView({ block: 'end' }));
   assert.doesNotMatch(await page.$eval('.demo-strip', n => n.textContent), /Klick-Dummy|click-dummy|\bfake\b|\bmock\b/iu);
   await capture('ait246-r4-1440-light-de-demo-header.png');
