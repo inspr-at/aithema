@@ -6,6 +6,11 @@ const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliat
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,
 // UNIQUE claims, burned before provider opening, conservative unknown recovery.
 export class SQLiteBudgetLedger {
+  // Both caps are per conversation: sessionCapMicro bounds upstream usage;
+  // visitorCapMicro bounds only that conversation's voice charge (voiceVisitor).
+  // maxVisitorMicro is the admission's per-conversation voice maximum; reasoning uses 0.
+  // Enforce owner-/visitor-wide limits in the host owner-wallet canAdmit/admit port
+  // (walletForSession); see README.md, "Host ports (AIT-104 part A)".
   constructor(storage, { sessionCapMicro = 10_000_000, visitorCapMicro = sessionCapMicro, now = Date.now } = {}) {
     if (!integer(sessionCapMicro) || !integer(visitorCapMicro)) throw new TypeError('Invalid budget cap');
     this.now = now; this.storage = storage; this.db = storage.db; this.sessionCapMicro = sessionCapMicro; this.visitorCapMicro = visitorCapMicro;
