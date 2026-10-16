@@ -36,7 +36,7 @@ export function createComposedRelay({ callId, providerSessionId, epoch = 0, expi
         candidate.expiresAt !== expiresAt || candidate.opaque?.relayId !== relayId || candidate.opaque?.epoch !== epoch) throw new PluginError('not-admitted');
       connected = true;
       return {
-        ...identity,
+        ...identity, grant,
         frames: { [Symbol.asyncIterator]() { return this; }, async next() {
           while (!closed && !frames.length) await new Promise(resolve => { consumer = resolve; });
           if (closed) return { done: true };
