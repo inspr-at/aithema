@@ -16,7 +16,7 @@ export function liveBinding() {
         processors: ['Anthropic'], dataCategories: ['messages', 'conversation-history'] } },
     baseline: { ...fixtureBinding('stt'), model: 'agent_fixture', agentId: 'agent_fixture', secretRef: 'ELEVENLABS_API_KEY',
       microPerMinute: 1000 },
-    maxDurationSeconds: 60, reasoningAttempts: 2,
+    baselineOrigin: 'https://start2.example', maxDurationSeconds: 60, reasoningAttempts: 2,
   };
 }
 
@@ -43,6 +43,8 @@ test('entity matching uses evaluateQualification NFC, de-AT case and whitespace 
 });
 
 test('baseline requires an explicit HTTPS production origin; loopback and URL extras refuse', () => {
+  const missing = liveBinding(); delete missing.baselineOrigin;
+  assert.throws(() => validateQualificationBinding(missing), /binding/i);
   for (const baselineOrigin of [undefined, 'http://start2.example', 'https://localhost', 'https://127.0.0.1',
     'https://127.1', 'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://start2.example/',
     'https://user@start2.example', 'https://start2.example/path']) {
@@ -218,19 +220,10 @@ test('candidate corpus hypothesis excludes a later committed barge-in utterance'
   assert.equal(h.reports.length, h.specs.length);
 });
 
-test('baseline uses production credential fixture and only silent locale override; later transcript is excluded', async t => {
-  const h = await harness(t), sample = await h.start('baseline'), transport = await h.open(sample);
-  await transport.sendAudio(voiced()); await h.audioFrame(transport);
-  h.baselineFeed({ type: 'user_transcript', user_transcription_event: { user_transcript: 'Bitte aufhören' } });
-  await transport.command('interrupt'); await sample.close();
-  const result = await sample.result;
-  assert.equal(result.hypothesis, 'In Wien bei Müller GmbH.');
-  assert.equal(h.specs.length, 1); assert.equal(h.specs[0].role, 'reasoning'); assert.equal(h.reports.length, 1);
-  assert.deepEqual(h.baselineSent[0], { type: 'conversation_initiation_client_data',
-    conversation_config_override: { agent: { language: 'de', first_message: '' } } });
-  assert.equal(h.wires.filter(wire => wire.role === 'reasoning').length, 2, 'one admitted baseline mint and connection');
-  assert.equal(result.ttsFormat.sampleRateHz, 24000);
-  assert.doesNotMatch(JSON.stringify({ result, grant: sample.grant, spec: h.specs, calls: h.storage.voiceCalls(h.session.id) }), /signature=|fixture-api-value|SYNTHETIC_ONLY/);
+test('loopback baseline refuses before admission, credential mint or transport', async t => {
+  const h = await harness(t);
+  await assert.rejects(h.start('baseline'), /production origin/);
+  assert.equal(h.specs.length, 0); assert.equal(h.wires.length, 0);
 });
 
 test('host revoke stops sample before acknowledging the hold; next sample uses a fresh grant', async t => {
@@ -240,21 +233,6 @@ test('host revoke stops sample before acknowledging the hold; next sample uses a
   assert.ok(h.storage.voiceCalls(h.session.id).every(call => call.terminal));
   const next = await h.start(); assert.notEqual(next.grant.providerSessionId, sample.grant.providerSessionId);
   await next.close(); await assert.rejects(next.result);
-});
-
-for (const refusal of ['admit', 'consume']) test(`baseline refused ${refusal} blocks mint and conversation wire`, async t => {
-  const h = await harness(t, { [refusal === 'admit' ? 'refuse' : 'refuseConsume']: 'reasoning' });
-  await assert.rejects(h.start('baseline'));
-  assert.equal(h.wires.length, 0); assert.equal(h.reports.length, refusal === 'consume' ? 1 : 0);
-});
-
-test('baseline paid duration closes an idle socket and persists uncertain terminal without browser cooperation', { timeout: 4000 }, async t => {
-  // Source: explicit binding maxDurationSeconds / MAX_SAMPLE_SECONDS, not a
-  // new quality threshold. A deliberately short synthetic lease exercises expiry.
-  const h = await harness(t, { durationSeconds: 1 }), sample = await h.start('baseline');
-  await assert.rejects(sample.result, /Missing qualification audio or transcript/);
-  assert.equal(h.reports.length, 1);
-  assert.ok(h.storage.voiceCalls(h.session.id)[0].terminal);
 });
 
 import { createProcessingConsent } from '../../../demo/processing-consent.js';
@@ -277,13 +255,3 @@ test('normal persistent consent ledger covers the exact selected component, reas
   assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope(binding.stt, 'stream')), false);
 });
 
-test('consent revoke during baseline setup waits for socket stop and persists its terminal', async t => {
-  const h = await harness(t, { waitForMetadata: true }), starting = h.start('baseline');
-  starting.catch(() => {});
-  // Wait on fake dispatch observations, not wall-clock or reconstructed timing.
-  while (!h.baselineSent.length) await new Promise(resolve => setImmediate(resolve));
-  await h.server.revokeSession(h.session.id);
-  await assert.rejects(starting);
-  assert.equal(h.reports.length, 1);
-  assert.ok(h.storage.voiceCalls(h.session.id)[0].terminal);
-});

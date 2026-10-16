@@ -11,7 +11,7 @@ import { createComposedVoice } from '../src/server.js';
 import { normalizeQualificationEntity } from '../src/qualification.js';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { connectQualificationSocket } from './qualification-live-transport.mjs';
-import { startBaselineSample } from './qualification-live-baseline.mjs';
+import { baselineOrigin } from './qualification-production-baseline.mjs';
 
 // Source: qualification-server.mjs bounds sample PCM to 16 MB and sample life
 // to two minutes; relay.js grants expire within the coordinator's 60 s window.
@@ -27,9 +27,11 @@ const invalidBinding = () => { throw new TypeError('Explicit valid qualification
 export function validateQualificationBinding(raw) {
   try {
     const b = structuredClone(raw);
-    if (!b || Object.keys(b).some(key => !['stt', 'tts', 'reasoning', 'baseline', 'maxDurationSeconds', 'reasoningAttempts'].includes(key)) ||
+    if (!b || Object.keys(b).some(key => !['stt', 'tts', 'reasoning', 'baseline', 'baselineOrigin', 'baselineAuthFile', 'maxDurationSeconds', 'reasoningAttempts'].includes(key)) ||
       !Number.isSafeInteger(b.maxDurationSeconds) || b.maxDurationSeconds < 1 || b.maxDurationSeconds > MAX_SAMPLE_SECONDS ||
       !Number.isSafeInteger(b.reasoningAttempts) || b.reasoningAttempts < 1 || b.reasoningAttempts > MAX_REASONING_ATTEMPTS) invalidBinding();
+    baselineOrigin(b.baselineOrigin);
+    if (b.baselineAuthFile !== undefined && !isAbsolute(b.baselineAuthFile)) invalidBinding();
     for (const [role, operation] of [['stt', 'stream'], ['tts', 'speak'], ['reasoning', 'stream'], ['baseline', 'start']]) {
       const part = b[role], reasoning = role === 'reasoning';
       if (!part || part.plugin !== (reasoning ? 'openrouter' : 'elevenlabs') ||
@@ -70,7 +72,7 @@ export function qualificationProcessingBindings(binding) {
   return ['stt', 'tts', 'reasoning', 'baseline'].map(role => binding[role]);
 }
 export function qualificationProcessingOperations(binding) {
-  return binding.plugin === 'elevenlabs' && binding.model === 'scribe_v2_realtime' ? ['stream']
+  return binding.plugin === 'claude-html' ? ['generate', 'edit'] : binding.plugin === 'elevenlabs' && binding.model === 'scribe_v2_realtime' ? ['stream']
     : binding.plugin === 'elevenlabs' && binding.model === 'eleven_flash_v2_5' ? ['speak']
       : binding.plugin === 'elevenlabs' ? ['start'] : ['stream', 'structured'];
 }
@@ -109,7 +111,8 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
     async revokeSession(sessionId) { if (active?.sessionId === sessionId) await active.close(); },
     async createSample({ item, lane, runId, owner, signal, admit }) {
       if (active || starting) throw new PluginError('not-admitted');
-      if (!['candidate', 'baseline'].includes(lane) || !id(item?.id) || !id(item.sessionId) || !id(runId) ||
+      if (lane !== 'candidate') throw new PluginError('not-admitted', 'Baseline requires its production origin browser');
+      if (!['candidate'].includes(lane) || !id(item?.id) || !id(item.sessionId) || !id(runId) ||
         !Array.isArray(item.expectedEntities) || !item.expectedEntities.length ||
         item.expectedEntities.some(value => typeof value !== 'string' || !value.trim() || value.length > 32_768) || typeof admit !== 'function') {
         throw new TypeError('Session, sample identity and expected entities required');
@@ -194,7 +197,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
         const ports = { binding, storage, sessionId, owner, deadlineAt, signal: sampleSignal, authorize, admission,
           relayOrigin, authenticateRelay, consent: handlers.consent, connect: transports.connect, fetchImpl: transports.fetch, resolveSecret, capture,
           transcript(text) { hypothesis ??= text; }, track };
-        sample = lane === 'candidate' ? await startCandidateSample(ports) : await startBaselineSample(ports);
+        sample = await startCandidateSample(ports);
         sampleSignal.throwIfAborted();
         active.networkRelay = sample.networkRelay;
         setup.resolve();

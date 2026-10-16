@@ -23,7 +23,7 @@ export async function launchQualificationHost({ binding: raw, hostOrigin, keysFi
   await mkdir(runDirectory, { recursive: true });
   const directory = await mkdtemp(join(runDirectory, 'qualification-host-'));
   const bindingFile = join(directory, 'binding.json');
-  await writeFile(bindingFile, JSON.stringify(binding), { mode: 0o600, flag: 'wx' });
+  await writeFile(bindingFile, JSON.stringify(Object.fromEntries(Object.entries(binding).filter(([key]) => key !== 'baselineAuthFile'))), { mode: 0o600, flag: 'wx' });
   let child, closing;
   const close = () => closing ??= (async () => {
     if (child && child.exitCode === null && child.signalCode === null) {
