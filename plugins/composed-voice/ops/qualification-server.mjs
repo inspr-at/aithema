@@ -55,6 +55,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
     row.queue.push(event); row.wake?.();
   }
   function rpc(row, type, payload) {
+    if (row.closed) return Promise.reject(new Error('Sample closed'));
     if (row.pending.size >= 128) return Promise.reject(new Error('Admission queue limit'));
     const id = randomUUID(), pending = Promise.withResolvers();
     pending.timer = setTimeout(() => { row.pending.delete(id); pending.reject(new Error('Admission acknowledgement timeout')); }, 30_000);
@@ -97,9 +98,9 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       if (request.headers.get('host') !== new URL(relayOrigin).host ||
         request.headers.get('origin') && request.headers.get('origin') !== relayOrigin ||
         request.headers.get('sec-fetch-site') === 'cross-site') return new Response(null, { status: 403 });
-      if (path === '/composed/relay') return networkRelay.handle(request);
       const owner = await authenticateRelay(request);
       if (typeof owner !== 'string' || !owner) return new Response(null, { status: 401 });
+      if (path === '/composed/relay') return networkRelay.handle(request);
       if (path === '/composed/qualification' && request.method === 'GET') return new Response(
         '<!doctype html><meta charset="utf-8"><title>Composed qualification</title><link rel="icon" href="data:,"><p>OPS loopback qualification</p><script type="module" src="/composed/qualification-page.js"></script>',
         { headers: { 'content-type': 'text/html', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self'; connect-src 'self'; img-src data:; object-src 'none'; frame-ancestors 'none'" } });

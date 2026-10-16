@@ -62,7 +62,7 @@ export async function createQualificationServer({ relayOrigin, authenticateRelay
       current = { factory };
       const segment = await factory.start({ sessionId: session.id, ownerToken: owner, callId: `call-${lane}-${randomUUID()}` },
         { attempt: { attemptId: `parent-${randomUUID()}`, claimId: 'fixture-parent', maxMicro: 0, consume() {} }, report() {},
-          deadlineAt: Date.now() + 60_000, spendDeadlineAt: Date.now() + 60_000 });
+          deadlineAt: Date.now() + 60_000, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 60_000 });
       return { grant: segment.grant, result: answer.promise, async close() {
         await segment.close(); factory.networkRelay.close(); await turns.idle(); storage.close();
       } };

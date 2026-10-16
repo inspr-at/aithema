@@ -74,12 +74,12 @@ export function createQualificationHost(options = {}) {
                 if (event.type === 'admit') {
                   if (admissions.has(event.spec.attemptId)) throw new Error('Duplicate remote attempt');
                   const admission = await admit({ ...event.spec, lane });
-                  admissions.set(event.spec.attemptId, admission);
+                  admissions.set(event.spec.attemptId, { admission, consumed: false, reported: false });
                   const { attemptId, claimId, maxMicro } = admission.attempt; value = { attemptId, claimId, maxMicro };
                 } else {
-                  const admission = admissions.get(event.attemptId); if (!admission) throw new Error('Unknown remote attempt');
-                  if (event.type === 'consume') await admission.attempt.consume();
-                  else if (event.type === 'report') await admission.report(event.terminal);
+                  const row = admissions.get(event.attemptId); if (!row) throw new Error('Unknown remote attempt');
+                  if (event.type === 'consume') { await row.admission.attempt.consume(); row.consumed = true; }
+                  else if (event.type === 'report') { await row.admission.report(event.terminal); row.reported = true; }
                   else throw new Error('Unknown remote admission operation');
                 }
               } catch { error = true; }
@@ -99,7 +99,16 @@ export function createQualificationHost(options = {}) {
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat };
       } finally {
         lifetime.abort(); await polling?.catch(() => {});
-        try { if (sampleId) await post({ action: 'close', sampleId }); }
+        try {
+          if (sampleId) {
+            // Acknowledgement means OPS close() has stopped the dispatcher.
+            // If it cannot be confirmed, retain exposure for explicit orphan recovery.
+            await post({ action: 'close', sampleId });
+            for (const [attemptId, row] of admissions) if (!row.reported) await row.admission.report({
+              attemptId, outcome: row.consumed ? 'uncertain' : 'cancelled',
+            });
+          }
+        }
         finally { try { await browser?.close(); } finally { browsers.delete(browser); running = false; } }
       }
     },

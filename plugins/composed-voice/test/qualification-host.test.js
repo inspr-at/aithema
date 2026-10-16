@@ -64,3 +64,44 @@ test('enabled mount enforces tunnel Host, owner authentication and cross-origin 
   assert.equal((await mount.handle(request({ cookie: 'fixture' }))).status, 200);
   assert.equal(calls, 0);
 });
+
+test('flagged demo serves the authenticated hook and mounts binary relay before JSON guards', async t => {
+  const fixture = await startChild(new URL('../../../demo/server.js', import.meta.url), await temporaryDb(), {
+    AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
+    AITHEMA_COMPOSED_QUALIFICATION_MODULE: fileURLToPath(new URL('../../../test/fixtures/composed-qualification-provider.mjs', import.meta.url)),
+  });
+  t.after(() => fixture.kill());
+  const headers = { host: '127.0.0.1:4567', cookie: 'aithema-visitor=fixture-owner', origin: 'http://127.0.0.1:4567' };
+  for (const path of ['/composed/qualification', '/composed/qualification-page.js', '/plugins/composed-voice/src/browser-audio.js', '/plugins/composed-voice/src/network-client.js', '/plugins/composed-voice/src/pcm-capture-worklet.js']) {
+    assert.equal((await fetch(fixture.url + path, { headers })).status, 200, path);
+  }
+  const response = await fetch(fixture.url + '/composed/relay', { method: 'POST', headers, body: new Uint8Array(1280) });
+  assert.equal(response.status, 403); // Reached the fake relay without a grant, rather than 415/404.
+});
+
+test('remote sample cannot dispatch until persisted consume acknowledgement; refusal blocks work', async t => {
+  let dispatched = 0;
+  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+    authenticateRelay: () => 'owner', networkRelay: { handle() {} },
+    async createSample({ admit }) {
+      const { attempt } = await admit({ attemptId: 'denied-attempt' });
+      await attempt.consume(); dispatched++;
+      assert.fail('Denied consume dispatched');
+    },
+  });
+  t.after(() => mount.close());
+  const post = async input => {
+    const response = await mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+      headers: { host: '127.0.0.1:4567' }, body: JSON.stringify(input) }));
+    assert.equal(response.status, 200); return response.json();
+  };
+  const { sampleId } = await post({ action: 'start', lane: 'candidate', runId: 'denied-run', item: { id: 'one' } });
+  const { event: admission } = await post({ action: 'poll', sampleId });
+  assert.equal(admission.type, 'admit'); assert.equal(dispatched, 0);
+  await post({ action: 'ack', sampleId, id: admission.id, value: { attemptId: 'denied-attempt', claimId: 'fixture', maxMicro: 100 } });
+  const { event: consume } = await post({ action: 'poll', sampleId });
+  assert.equal(consume.type, 'consume'); assert.equal(dispatched, 0);
+  await post({ action: 'ack', sampleId, id: consume.id, error: true });
+  const { event: failure } = await post({ action: 'poll', sampleId });
+  assert.equal(failure.type, 'failure'); assert.equal(dispatched, 0);
+});
