@@ -91,6 +91,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   };
   const observe = (value, options, invocation, spend) => {
     const id = generationId(value.id), cost = usdCostMicro(value.usage?.cost);
+    invocation.generationId(id);
     const usage = providerUsage(value.usage);
     invocation.servedModel(value.model); invocation.usage(usage);
     if (usage) floor(spend, usage); // completion_tokens already includes reasoning tokens.

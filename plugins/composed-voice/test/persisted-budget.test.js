@@ -62,6 +62,32 @@ test('authenticated receipts reconcile all lanes/components/retries without anot
   const restarted = h.open(); t.after(() => restarted.close()); assert.equal(restarted.snapshot().exposureMicro, 300);
 });
 
+test('AIT-248: provider terminal IDs survive restart into OPS snapshot and verifyReceipt without releasing exposure', async t => {
+  const h = await fixture(t), budget = h.open();
+  const evidence = [
+    { generationId: 'gen-fixture', identity: { generationId: 'gen-fixture' }, servedModel: 'fixture/model' },
+    { identity: { sessionId: 'fixture-session', requestId: 'fixture-stt-request' } },
+    { identity: { requestId: 'fixture-tts-request' } },
+    { identity: null, identityReason: 'tts-provider-identity-not-observed' },
+  ];
+  for (const [index, value] of evidence.entries()) {
+    const attemptId = `identity-${index}`, claim = await budget.admit(specification(attemptId, 1000));
+    await claim.attempt.consume(); claim.report({ attemptId, outcome: 'uncertain', ...value, privateWire: 'discard-this' });
+  }
+  budget.close();
+  const verified = [], restored = h.open({ verifyReceipt: (receipt, stored) => {
+    verified.push(stored);
+    assert.deepEqual(Object.fromEntries(Object.keys(evidence[verified.length - 1]).map(key => [key, stored[key]])), evidence[verified.length - 1]);
+    assert.equal(stored.privateWire, undefined);
+    return receipt.serverAuthenticated === true;
+  } }); t.after(() => restored.close());
+  assert.equal(restored.snapshot().exposureMicro, 4000);
+  for (const row of restored.snapshot().records) {
+    assert.equal(row.outcome, 'uncertain'); await restored.reconcile(receipt(row.attemptId, 10));
+  }
+  assert.equal(verified.length, 4); assert.equal(restored.snapshot().exposureMicro, 40);
+});
+
 test('overrun is committed and permanently blocks dispatch after restart and lower reconciliation', async t => {
   const h = await fixture(t), budget = h.open();
   const a = await budget.admit(specification('overrun', 1)), b = await budget.admit(specification('waiting', 1));
