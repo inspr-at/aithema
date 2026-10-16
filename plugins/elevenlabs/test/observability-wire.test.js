@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { replayObservabilityCallbacks } from '../../../test/voice-observability-wire.js';
+import { readVoiceObservabilityFixture } from '../../../test/voice-observability-fixtures.js';
 import { readConversationDetails, reconcileUsage } from '../src/server.js';
 
 const load = name => readFile(new URL(`../../../test/fixtures/${name}.json`, import.meta.url), 'utf8');
 
 test('AIT-139: independent v1 callback fixtures replay growth, truncation, retry and partial streams offline', async t => {
   t.mock.method(globalThis, 'fetch', () => assert.fail('Offline replay must never access a provider'));
-  const bytes = await load('voice-observability-callbacks'), fixture = JSON.parse(bytes), logs = [];
+  const { bytes, fixture } = await readVoiceObservabilityFixture('callbacks'), logs = [];
   assert.equal(fixture.format, 'aithema-voice-wire'); assert.equal(fixture.version, 1);
   const observed = await replayObservabilityCallbacks(fixture, record => logs.push(typeof record === 'string' ? JSON.parse(record) : record));
   assert.deepEqual(observed, fixture);
@@ -28,7 +29,7 @@ test('AIT-139: independent v1 callback fixtures replay growth, truncation, retry
 
 test('AIT-139: independent delayed closure and usage fixtures replay through an injected wire port', async t => {
   t.mock.method(globalThis, 'fetch', () => assert.fail('Offline replay must never access a provider'));
-  const fixture = JSON.parse(await load('voice-observability-reconciliation'));
+  const { fixture } = await readVoiceObservabilityFixture('reconciliation');
   const binding = { agentId: 'agent_observability', apiBaseUrl: 'https://api.example.test', secretRef: 'fixture-ref', upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300 };
   for (const record of fixture.reconciliation) {
     let requests = 0;

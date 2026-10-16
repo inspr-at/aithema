@@ -23,6 +23,38 @@ The question-card browser sweep retains all width-specific geometry and native
 keyboard/voice checks, with representative visual-viewport heights around the
 620px compact breakpoint; evidence keeps the exhaustive 8px height sweep.
 
+## Privacy-safe voice correlation (AIT-139 Part 1)
+
+The provider-neutral executor (`packages/server/src/voice-turns.js`) and server
+lifecycle emit through the existing diagnostic sink for both composed voice and
+ElevenLabs. The closed schema is in `packages/server/src/voice-observability.js`:
+`event`, opaque SHA-256 `callHash`, `generationHash`, `turnHash`, `attemptHash`;
+allowlisted stage fields are `admissionMs`, `firstTokenMs`, `totalMs`, bounded
+`cause`, `outcome`, `closureConfirmed`, `costEstimated`, `reconciliationAgeMs`.
+Reconciliation retains the existing `providerHash`, `chargedMicro` and bounded
+`code` fields. Turn IDs derive from the first random operation-attempt ID, never
+from content or its digest; replacement attempts keep the turn ID and change the
+attempt ID. Reconnects change generation ID while preserving call correlation.
+
+Stage durations never decrease within a writer, even on wall-clock correction.
+One confirmed closure follows each settled attempt once confirmation is known;
+unknown closure remains pending. Later usage updates use reconciliation records.
+Reconciliation age is measured from segment end (start for open segments).
+Records contain no speech, prompts, transcripts, references, token counts, keys,
+credentials, provider secrets, raw IDs, URLs, headers or exception text. Fixed
+fields, bounded enums, finite nonnegative safe integers and fixed-size hashes keep
+each record below 1 KiB; closure caches each retain at most 4096 entries. Closure
+deduplication is in-process and bounded: eviction or restart can repeat a record.
+Thrown or rejected sinks cannot change publication, consent checks or accounting.
+
+The independent synthetic `test/fixtures/voice-observability-*.json` oracles cite
+vendor wire-shape documentation and label local extensions. ElevenLabs replay and
+composed coordinator integration share them via `test/voice-observability-fixtures.js`.
+Unit/integration tests cover privacy, record size, every ordering of two concurrent
+completions and closure confirmation, retries, partial streams, delayed usage,
+consent revocation and exactly-once paid settlement. Part 2's live soak is separate.
+No environment reads or new layer exceptions are introduced.
+
 ## Allowed edges
 
 The table below is rendered from `layers` in `scripts/check-boundaries.mjs`.

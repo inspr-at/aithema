@@ -46,7 +46,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
       const evidence = closures.get(generationKey(operation));
       if (!evidence || operation.state === 'pending') return;
       const { record, terminal } = evidence;
-      const key = JSON.stringify([operation.key, operation.fence, terminal.closureConfirmed]);
+      const key = JSON.stringify([operation.key, operation.fence]);
       if (reportedClosures.has(key)) return;
       reportedClosures.add(key);
       if (reportedClosures.size > MAX_CLOSURE_DIAGNOSTICS) reportedClosures.delete(reportedClosures.values().next().value);
@@ -57,14 +57,17 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
   function abandon(operation) {
     if (!store.fail(operation.key, operation.fence, 'server-restart', now())) return;
     diagnostic('voice.turn.completion', operation, { outcome: 'failed', cause: 'server-restart',
-      totalMs: now() - operation.attempts.at(-1).startedAt });
+      totalMs: Math.max(0, now() - operation.attempts.at(-1).startedAt) });
     reportClosure({ ...operation, state: 'failed' });
   }
   function wake(flight) { for (const resolve of flight.waiters) resolve(); flight.waiters.clear(); }
   function start(operation, execute, writeStoredReply) {
     const ready = Promise.withResolvers(), done = Promise.withResolvers(), controller = new AbortController();
     const flight = { operation, controller, ready: ready.promise, done: done.promise, waiters: new Set(),
-      content: '', finished: false, startedAt: now(), admitted: false, firstToken: false };
+      content: '', finished: false, startedAt: now(), elapsedMs: 0, admitted: false, firstToken: false };
+    // Clamp elapsed observations per writer: wall-clock corrections must not
+    // drop a timing field or make first-token/completion precede admission.
+    const elapsed = () => (flight.elapsedMs = Math.max(flight.elapsedMs, now() - flight.startedAt));
     flights.set(operation.key, flight);
     const assertCurrent = () => store.pending(operation.key, operation.fence);
     flight.job = (async () => {
@@ -75,7 +78,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
             store.admitted(operation.key, operation.fence, attemptId);
             if (!flight.admitted) {
               flight.admitted = true;
-              diagnostic('voice.turn.admission', operation, { admissionMs: now() - flight.startedAt });
+              diagnostic('voice.turn.admission', operation, { admissionMs: elapsed() });
             }
           },
           retry: cause => diagnostic('voice.turn.retry', operation, { cause }),
@@ -98,7 +101,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
             if (flight.content.length > 1_048_576) throw new PluginError('limit');
             if (event.text && !flight.firstToken) {
               flight.firstToken = true;
-              diagnostic('voice.turn.first-token', operation, { firstTokenMs: now() - flight.startedAt });
+              diagnostic('voice.turn.first-token', operation, { firstTokenMs: elapsed() });
             }
             wake(flight);
           } else if (event.type === 'completion' && event.text === flight.content) completed = true;
@@ -108,14 +111,14 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
         // Completion reaches readers only after the reply and terminal state commit.
         const receipt = completion(flight);
         store.complete(operation.key, operation.fence, writeStoredReply ? writeStoredReply(receipt) : receipt, now(), replayWindowMs);
-        diagnostic('voice.turn.completion', operation, { totalMs: now() - flight.startedAt, outcome: 'completed' });
+        diagnostic('voice.turn.completion', operation, { totalMs: elapsed(), outcome: 'completed' });
         reportClosure({ ...operation, state: 'completed' });
       } catch (error) {
         if (!flight.id) flight.initialError = error;
         flight.error = codeFor(error);
         controller.abort();
         store.fail(operation.key, operation.fence, flight.error, now());
-        diagnostic('voice.turn.completion', operation, { totalMs: now() - flight.startedAt, outcome: 'failed', cause: flight.error });
+        diagnostic('voice.turn.completion', operation, { totalMs: elapsed(), outcome: 'failed', cause: flight.error });
         reportClosure({ ...operation, state: 'failed' });
       } finally {
         flight.finished = true; ready.resolve(); done.resolve(); wake(flight);
@@ -216,10 +219,10 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     },
     observeClosure(record, terminal) {
       try {
-        if (!log || typeof terminal?.closureConfirmed !== 'boolean') return;
-        const key = generationKey(record), previous = closures.get(key);
-        // A delayed uncertain lookup cannot downgrade confirmed segment evidence.
-        if (previous?.terminal.closureConfirmed && !terminal.closureConfirmed) return;
+        // Uncertain lookups are reconciliation evidence, not a second closure.
+        // Report exactly one confirmed closure per settled writer attempt.
+        if (!log || terminal?.closureConfirmed !== true) return;
+        const key = generationKey(record);
         // Retain only timing/evidence; no callback content or private call fields.
         closures.set(key, { record: { endedAt: record.endedAt, startedAt: record.startedAt },
           terminal: { closureConfirmed: terminal.closureConfirmed, usage: { costEstimated: terminal.usage?.costEstimated === true } } });

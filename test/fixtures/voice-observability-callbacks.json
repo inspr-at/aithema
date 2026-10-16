@@ -133,5 +133,13 @@
   ],
   "admissions": 4,
   "mints": [],
-  "reconciliation": []
+  "reconciliation": [],
+  "sources": [
+    {
+      "url": "https://elevenlabs.io/docs/eleven-agents/customization/llm/custom-llm",
+      "shapes": "Chat Completions messages/model/stream, extra body, SSE data frames and DONE terminator",
+      "checked": "2026-10-16"
+    }
+  ],
+  "scenarioNotes": "history_truncated, aithema_call, reply metadata and bounded error codes are local test/adapter extensions; replay/growth/truncation/partial failures are synthetic scenarios, not vendor timing guarantees"
 }
