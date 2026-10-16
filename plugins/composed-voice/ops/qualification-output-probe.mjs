@@ -1,11 +1,54 @@
 import { resolve, isAbsolute, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { homedir, userInfo } from 'node:os';
+
+/** Keep only the running user's default output, never the whole OS inventory. */
+export function defaultOutputFromProfiler(profile) {
+  const defaults = [];
+  const visit = items => {
+    for (const item of items ?? []) {
+      if (item.coreaudio_default_audio_output_device === 'spaudio_yes') defaults.push(item);
+      if (Array.isArray(item._items)) visit(item._items);
+    }
+  };
+  visit(profile.SPAudioDataType);
+  if (defaults.length !== 1) throw new Error('OS must report exactly one default audio output');
+  const device = defaults[0], name = device._name, transport = device.coreaudio_device_transport;
+  if (typeof name !== 'string' || !name.trim() || typeof transport !== 'string' || !transport.trim()) throw new Error('OS default audio output name and transport required');
+  return { name, transport, builtIn: transport === 'coreaudio_device_type_builtin' };
+}
+
+export async function readDefaultOutputDevice() {
+  const record = { verified: false, source: 'system_profiler SPAudioDataType -json',
+    user: userInfo().username, platform: process.platform, checkedAt: new Date().toISOString() };
+  try {
+    if (process.platform !== 'darwin') throw new Error('macOS default-output record required');
+    const { stdout } = await promisify(execFile)('/usr/sbin/system_profiler', ['SPAudioDataType', '-json'], {
+      timeout: 10_000, maxBuffer: 2 * 1024 * 1024,
+      env: { PATH: process.env.PATH, HOME: homedir() },
+    });
+    Object.assign(record, defaultOutputFromProfiler(JSON.parse(stdout)), { verified: true });
+  } catch { record.failure = 'OS default audio output unavailable or refused'; }
+  return record;
+}
+
+export function combineOutputEvidence(rendering, osDefaultOutput) {
+  return { ...rendering, osDefaultOutput,
+    verified: rendering.renderingVerified === true && osDefaultOutput.verified === true };
+}
+
+export async function probePhysicalOutput(page) {
+  const rendering = await page.evaluate(probeOutputDevice);
+  return combineOutputEvidence(rendering, await readDefaultOutputDevice());
+}
 
 /** Self-contained so Puppeteer can evaluate this exact function in Chrome. */
 export async function probeOutputDevice() {
   let context, oscillator;
-  const evidence = { verified: false, labelledAudioOutputs: 0, realAudioOutputs: 0, fakeAudioOutputs: 0,
-    realAudioOutputLabels: [], fakeAudioOutputLabels: [], elapsedMs: 0, outputLatency: 0 };
+  const evidence = { renderingVerified: false, labelledAudioOutputs: 0, realAudioOutputs: 0, fakeAudioOutputs: 0,
+    realAudioOutputLabels: [], fakeAudioOutputLabels: [], elapsedMs: 0, outputLatency: 0, sinkId: '' };
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const outputs = devices.filter(device => device.kind === 'audiooutput' && device.label.trim());
@@ -21,7 +64,10 @@ export async function probeOutputDevice() {
     evidence.labelledAudioOutputs = outputs.length;
     evidence.realAudioOutputs = evidence.realAudioOutputLabels.length;
     evidence.fakeAudioOutputs = evidence.fakeAudioOutputLabels.length;
+  } catch { evidence.enumerationFailure = 'Enumerated labels unavailable'; }
+  try {
     context = new AudioContext();
+    evidence.sinkId = context.sinkId ?? '';
     oscillator = context.createOscillator();
     const silent = context.createGain(); silent.gain.value = 0;
     oscillator.connect(silent).connect(context.destination); oscillator.start();
@@ -32,7 +78,9 @@ export async function probeOutputDevice() {
     evidence.after = context.getOutputTimestamp();
     evidence.elapsedMs = performance.now() - started;
     evidence.outputLatency = context.outputLatency;
-    evidence.verified = evidence.realAudioOutputs > 0 && evidence.elapsedMs >= 500 &&
+    // Fake capture replaces enumerated outputs as well as inputs. Labels are
+    // diagnostics; only the default sink's rendering and the OS record decide.
+    evidence.renderingVerified = ['', 'default'].includes(evidence.sinkId) && evidence.elapsedMs >= 500 &&
       Number.isFinite(evidence.outputLatency) && evidence.outputLatency > 0 &&
       ['contextTime', 'performanceTime'].every(key => Number.isFinite(evidence.before[key]) &&
         Number.isFinite(evidence.after[key]) && evidence.after[key] > evidence.before[key]);
@@ -41,17 +89,30 @@ export async function probeOutputDevice() {
   return evidence;
 }
 
-// Standalone hardware preflight, with the same unmuted fake-capture Chrome flags
-// as the runner. No host/account module, keys file or provider is involved.
+// Standalone hardware preflight. Optional fake-file capture matches the runner;
+// --force-fake-output measures Chrome's fake output as a refusal control.
+// No host/account module, keys file or provider is involved.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { parseArgs } = await import('node:util');
   const { mkdir, mkdtemp, writeFile, rm } = await import('node:fs/promises');
-  const { homedir, tmpdir, hostname, userInfo } = await import('node:os');
+  const { tmpdir, hostname } = await import('node:os');
+  const { access, readFile } = await import('node:fs/promises');
+  const { createHash } = await import('node:crypto');
   const { createServer } = await import('node:http');
   const { launchLocalBrowser } = await import('./qualification-browser.mjs');
-  const { values } = parseArgs({ options: { report: { type: 'string' }, 'executable-path': { type: 'string' } } });
+  const { values } = parseArgs({ options: { report: { type: 'string' }, 'executable-path': { type: 'string' },
+    'fake-capture-wav': { type: 'string' }, 'force-fake-output': { type: 'boolean', default: false } } });
   const executablePath = values['executable-path'] ?? process.env.CHROME_PATH;
   if (!isAbsolute(values.report ?? '') || !isAbsolute(executablePath ?? '')) throw new Error('Absolute --report and --executable-path (or CHROME_PATH) required');
+  const wavPath = values['fake-capture-wav'];
+  if (wavPath !== undefined) {
+    if (!isAbsolute(wavPath)) throw new Error('Absolute --fake-capture-wav required');
+    await access(wavPath);
+  }
+  const args = ['--disable-features=AudioServiceSandbox', '--autoplay-policy=no-user-gesture-required',
+    ...(wavPath ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wavPath}`, '--use-fake-ui-for-media-stream'] : []),
+    ...(values['force-fake-output'] ? ['--disable-audio-output'] : [])];
+  const startedAt = new Date().toISOString();
   const directory = await mkdtemp(join(tmpdir(), 'qualification-output-probe-')), groups = new Set(), controller = new AbortController();
   const timer = setTimeout(() => { for (const group of groups) group.kill(); controller.abort(); }, 30_000);
   const server = createServer((_request, response) => response.end('<!doctype html><title>Output probe</title>'));
@@ -62,14 +123,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     browser = await launchLocalBrowser({ executablePath, headless: true, userDataDir: join(directory, 'chrome'),
       ignoreDefaultArgs: ['--mute-audio'], signal: controller.signal, timeout: 25_000,
       env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR },
-      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
-        '--disable-features=AudioServiceSandbox', '--autoplay-policy=no-user-gesture-required'] },
+      args },
     { deadlineAt: Date.now() + 30_000, controllerPid: process.pid, registerProcessGroup(group) { groups.add(group); } });
     await browser.defaultBrowserContext().overridePermissions(origin, ['microphone']);
     const page = await browser.newPage();
     await page.goto(origin);
-    const physicalBrowserMedia = await page.evaluate(probeOutputDevice);
-    const report = { host: hostname(), user: userInfo().username, physicalBrowserMedia };
+    const physicalBrowserMedia = await probePhysicalOutput(page);
+    const report = { host: hostname(), user: userInfo().username, startedAt, finishedAt: new Date().toISOString(),
+      browserVersion: await browser.version(), captureMode: wavPath ? 'fake-file' : 'system',
+      captureWavSha256: wavPath ? createHash('sha256').update(await readFile(wavPath)).digest('hex') : null,
+      forcedFakeOutput: values['force-fake-output'], launchArgs: args, physicalBrowserMedia };
     await mkdir(dirname(values.report), { recursive: true });
     await writeFile(values.report, JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     console.log(JSON.stringify(report));

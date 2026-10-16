@@ -85,20 +85,32 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
 }
 `);
   if (process.platform === 'darwin') {
-    const reportPath = join(directory, 'standalone-output-probe.json');
-    const probeChild = spawn(process.execPath, [fileURLToPath(new URL('../../plugins/composed-voice/ops/qualification-output-probe.mjs', import.meta.url)),
-      '--report', reportPath, '--executable-path', await browserPath()], {
-      env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR }, stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    t.after(() => probeChild.kill('SIGTERM'));
-    let probeError = ''; probeChild.stdout.resume(); probeChild.stderr.on('data', bytes => { probeError += bytes; });
-    const [probeCode] = await once(probeChild, 'exit');
-    const standalone = JSON.parse(await readFile(reportPath));
-    assert.equal(probeCode, standalone.physicalBrowserMedia.verified ? 0 : 1, probeError);
-    console.log(`AIT-160 standalone probe: ${JSON.stringify(standalone)}`);
-    if (process.env.AITHEMA_EVIDENCE_DIR) {
-      await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-      await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-standalone-output-probe.json'), JSON.stringify(standalone, null, 2));
+    for (const [name, args] of [
+      ['with-fake-capture', ['--fake-capture-wav', wavPath]],
+      ['without-fake-capture', []],
+      ['forced-fake-output', ['--fake-capture-wav', wavPath, '--force-fake-output']],
+    ]) {
+      const reportPath = join(directory, `${name}.json`);
+      const probeChild = spawn(process.execPath, [fileURLToPath(new URL('../../plugins/composed-voice/ops/qualification-output-probe.mjs', import.meta.url)),
+        '--report', reportPath, '--executable-path', await browserPath(), ...args], {
+        env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR }, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      t.after(() => probeChild.kill('SIGTERM'));
+      let probeError = ''; probeChild.stdout.resume(); probeChild.stderr.on('data', bytes => { probeError += bytes; });
+      const [probeCode] = await once(probeChild, 'exit');
+      const standalone = JSON.parse(await readFile(reportPath)), media = standalone.physicalBrowserMedia;
+      assert.equal(probeCode, media.verified ? 0 : 1, probeError);
+      assert.equal(media.verified, media.renderingVerified && media.osDefaultOutput.verified);
+      if (name === 'forced-fake-output') {
+        assert.equal(media.verified, false, 'Chrome fake output must refuse even when the OS has speakers');
+        assert.ok(media.outputLatency === 0 || ['contextTime', 'performanceTime'].some(key =>
+          media.after?.[key] <= media.before?.[key]), 'Measure zero latency or stalled output timestamps on Chrome fake output');
+      }
+      console.log(`AIT-160 standalone probe (${name}): ${JSON.stringify(standalone)}`);
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-160-output-${name}.json`), JSON.stringify(standalone, null, 2));
+      }
     }
   }
   child = spawn(process.execPath, [fileURLToPath(new URL('../../scripts/composed-qualification.js', import.meta.url)),
@@ -134,7 +146,9 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   for (const lane of ['candidate', 'baseline']) {
     const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, physicalBrowserMedia } = observations[lane][0];
     assert.equal(physicalBrowserMedia.verified, true);
-    assert.ok(physicalBrowserMedia.realAudioOutputs > 0);
+    assert.equal(physicalBrowserMedia.renderingVerified, true);
+    assert.equal(physicalBrowserMedia.osDefaultOutput.verified, true);
+    assert.ok(['', 'default'].includes(physicalBrowserMedia.sinkId));
     assert.ok(physicalBrowserMedia.outputLatency > 0);
     assert.ok(speechEndAt < firstAudioAt && firstAudioAt <= bargeInAt && bargeInAt <= stoppedAt);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));

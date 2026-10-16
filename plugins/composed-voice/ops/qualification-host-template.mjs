@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { loopbackOrigin } from './qualification-server.mjs';
-import { probeOutputDevice } from './qualification-output-probe.mjs';
+import { probePhysicalOutput } from './qualification-output-probe.mjs';
 import { launchLocalBrowser } from './qualification-browser.mjs';
 
 /** Inert browser-side factory. OPS ports are mandatory and remain authoritative;
@@ -92,7 +92,7 @@ export function createQualificationHost(options = {}) {
         const response = await bounded(page.goto(`${hostOrigin}/composed/qualification`, { waitUntil: 'networkidle0' }));
         if (response.status() !== 200) throw new Error('Qualification page refused');
         await bounded(page.waitForFunction(() => window.composedQualification));
-        const physicalBrowserMedia = await bounded(page.evaluate(probeOutputDevice));
+        const physicalBrowserMedia = await bounded(probePhysicalOutput(page));
         await bounded(writeFile(join(run, `${lane}-physical-browser-media.json`), JSON.stringify({ physicalBrowserMedia }, null, 2), { mode: 0o600 }));
         if (physicalBrowserMedia?.verified !== true) {
           const error = new Error('Qualification refused: null or unverified audio output device');

@@ -475,14 +475,26 @@ per-sample wall-clock abort races launch/page/control/media waits; the independe
 watchdog is the final process-group deadline even if a port hangs.
 
 Before **every sample**, after opening the authenticated page and before the
-control `start` request/admission, Chrome runs `probeOutputDevice()`: it requires
-at least one real labelled `audiooutput` from `enumerateDevices()` (labels starting with `Fake` and their default/communications aliases are excluded), both `getOutputTimestamp()`
-clocks advancing across at least 500 ms, and finite `outputLatency > 0`.
+control `start` request/admission, `probePhysicalOutput()` requires **both**:
+
+- Web Audio rendering on the default `sinkId` (`''` or `'default'`, recorded):
+  both `getOutputTimestamp()` clocks (`contextTime` and `performanceTime`)
+  advance across at least 500 ms, with finite `outputLatency > 0`.
+- An OS record from `system_profiler SPAudioDataType -json` run as the browser/CLI
+  user: exactly one default output, filtered to its name, transport and built-in
+  status. No OS default output, or an unavailable record, refuses the run.
+
 A silent oscillator drives the output clock without changing corpus audio.
 A null/unverified device refuses the run **before any dispatch**. The template
 records the result as `physicalBrowserMedia` in
 `<runDirectory>/<hashed-runId>/<lane>-physical-browser-media.json`, including
-failures; successful results also enter `observations.json`. Evidence retains real/fake counts and separate label lists; device IDs are not retained. The plan's existing checklist cannot bypass this probe.
+failures; successful results also enter `observations.json`. Evidence retains
+labelled/real/fake counts and separate label lists for diagnosis; device IDs are
+not retained. **These labels/counts do not decide**: Chrome's
+`--use-fake-device-for-media-stream` replaces enumerated outputs as well as
+inputs, including default-output aliases, even when Web Audio renders to real
+hardware. Zero latency or either stalled clock refuses Chrome's null/fake
+output path. The plan's existing checklist cannot bypass this probe.
 
 Example browser module (account ports and any server launcher remain OPS-owned):
 
@@ -500,28 +512,34 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
 ### OPS runbook and user fallback (primary local topology)
 
 1. On mbp2606 as **mba over SSH**, run the key-free output-device probe with the
-   intended headless Chrome and save `physicalBrowserMedia`:
+   intended headless Chrome **with and without both fake-capture flags**, saving
+   the full JSON for each run. OPS runs the same two rows as **ci**:
 
    ```sh
    node plugins/composed-voice/ops/qualification-output-probe.mjs \
      --executable-path /absolute/path/to/chrome-headless-shell \
-     --report /absolute/run/output-device-probe.json
+     --fake-capture-wav /absolute/run/corpus.wav \
+     --report /absolute/run/output-with-fake-capture.json
+   node plugins/composed-voice/ops/qualification-output-probe.mjs \
+     --executable-path /absolute/path/to/chrome-headless-shell \
+     --report /absolute/run/output-without-fake-capture.json
    ```
 
-   The report must be a new file; exit 0 means verified and exit 1 means device refusal. At least one real labelled output, advancing clocks and positive latency select **host mba / Chrome mba**. This
-   hardware preflight uses fake keys only and makes no provider calls.
-2. **Only if mba has no verified real output**, start a trivial throwaway HTTP listener
-   as mba, bound to `127.0.0.1` on an unused test port, with no sensitive content.
-   Use `ssh ci@mbp2606 bash -s` (ci's login shell is fish) to `curl` that loopback
-   address with a short timeout. Stop the listener. Record the outcome: a
-   2026-10-06 pf isolation rule may deny ci's loopback traffic.
-3. If ci reaches mba's loopback, select **host mba / Chrome ci** and inject OPS's
-   ci GUI-session `launchBrowser` with ci-owned watchdog. If blocked, select
-   **host ci / Chrome ci**, and OPS supplies the ci-owned 0600 keys file.
-   In either case rerun the output probe in the selected browser session before
-   dispatch. Only ci currently has the CoreAudio GUI session. Record the final
-   user choice and both applicable probes in the handoff.
-4. OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host under the selected host user using the supplied `controlFile`. This command names paths only; no key values
+   Reports must be new files; exit 0 means verified and exit 1 means device
+   refusal. The first command adds `--use-fake-device-for-media-stream` and
+   `--use-file-for-fake-audio-capture`; the second omits both. The report records
+   launch flags, browser version, WAV hash (when used), OS record and timestamps.
+   This preflight uses no keys and makes no provider calls.
+2. **If mba passes, mba wins; otherwise choose ci**, subject to ci's passing
+   probe. Keep host and Chrome under the selected user. Record the full 2×2
+   results and final choice; OPS supplies the ci rows without builder writes
+   into `/Users/ci`.
+3. Prove refusal using the same first command plus `--force-fake-output` and a
+   fresh report path. This adds Chrome's `--disable-audio-output` fake-stream
+   flag. Record exit 1 plus measured zero latency or stalled output timestamps,
+   even with an OS default output present. Rerun the normal probe before dispatch.
+4. **The CLI, host and budget DB must belong to the same user**: the server accepts only a control file owned by its own user and must read the budget DB.
+   OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host under the selected host user using the supplied `controlFile`. This command names paths only; no key values
    belong on the command line. OPS supplies its reviewed module and bindings:
 
    ```sh
@@ -576,7 +594,7 @@ keys** (Rule C shares the consent/holds row). The automated output probe supplem
 | Checklist key(s) | OPS evidence required from this topology |
 | --- | --- |
 | `authenticatedRelay` | Flagged loopback bind; authenticated same-origin POST; wrong owner/origin and revoked grants denied. For the alternative, record tunnel ports and SSH protection; **TLS N/A: loopback by design**. |
-| `physicalBrowserMedia` | WAV identity/hash and capture flags; recorded `physicalBrowserMedia` with labelled output count, positive latency and both advancing clocks; chosen host/browser users; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
+| `physicalBrowserMedia` | WAV identity/hash and capture flags; recorded `physicalBrowserMedia` with default sink, positive latency, both advancing clocks and the running user's OS default-output record; diagnostic real/fake labels/counts; full with/without-capture 2×2 and measured fake-output refusal; chosen user; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
 | `consentAndHolds`, `ruleCAndNoSilentRerun` | Exact stored owner/processing scopes; Rule C envelope/store; immediate revoke, holds and AIT-138 fresh generation recovery; persisted run identity refusing rerun; every reasoning/retry routed through the shared admit. |
 | `verifiedTariffsAndRounding` | Host account proofs matching each exact request/digest, lane, component/model and retry ceiling; whitespace, initialization, rounding, minimums and duration coverage; one persisted $25 cap. |
 | `authenticatedReceipts` | Authenticated host usage/receipts for both lanes, components, reasoning and retries; matching attempt/receipt identities and existing settlement reconciliation; pending exposure retained. |

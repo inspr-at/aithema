@@ -6,7 +6,7 @@ import { startChild, temporaryDb } from '../../../test/helpers.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { runInNewContext } from 'node:vm';
-import { probeOutputDevice } from '../ops/qualification-output-probe.mjs';
+import { probeOutputDevice, defaultOutputFromProfiler, combineOutputEvidence } from '../ops/qualification-output-probe.mjs';
 import { guardBrowserProcessGroup } from '../ops/qualification-browser-watchdog.mjs';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
@@ -361,7 +361,7 @@ const sampleOptions = wavPath => ({ item: { id: 'one', wavPath }, lane: 'candida
   admit() { assert.fail('No dispatch before probe'); }, onTiming() {} });
 
 test('null-device refusal persists physicalBrowserMedia before control/admission and kills launcher group', async t => {
-  const fixture = await keysFixture(t), evidence = { verified: false, labelledAudioOutputs: 0, outputLatency: 0 };
+  const fixture = await keysFixture(t), evidence = { renderingVerified: false, labelledAudioOutputs: 0, outputLatency: 0 };
   let killed = 0;
   const host = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async (settings, lifetime) => {
     assert.ok(settings.userDataDir.startsWith(fixture.directory));
@@ -371,11 +371,17 @@ test('null-device refusal persists physicalBrowserMedia before control/admission
     return inertBrowser(evidence);
   } });
   t.after(() => host.close());
+  let refused;
   await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
-    assert.match(error.message, /null or unverified audio output/); assert.deepEqual(error.physicalBrowserMedia, evidence); return true;
+    assert.match(error.message, /null or unverified audio output/);
+    refused = error.physicalBrowserMedia;
+    assert.equal(refused.verified, false);
+    const { osDefaultOutput, verified, ...rendering } = refused;
+    assert.equal(osDefaultOutput.source, 'system_profiler SPAudioDataType -json');
+    assert.deepEqual(rendering, evidence); return true;
   });
   const run = createHash('sha256').update('probe-refusal').digest('hex').slice(0, 24);
-  assert.deepEqual(JSON.parse(await readFile(join(fixture.directory, run, 'candidate-physical-browser-media.json'))).physicalBrowserMedia, evidence);
+  assert.deepEqual(JSON.parse(await readFile(join(fixture.directory, run, 'candidate-physical-browser-media.json'))).physicalBrowserMedia, refused);
   assert.equal(killed, 1);
 });
 
@@ -400,11 +406,12 @@ test('launcher must arm watchdog; wall-clock timeout and host close kill even a 
 });
 
 
-test('output probe requires labelled output, positive latency and both device clocks advancing for 500ms', async () => {
-  for (const variation of ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'zeroLatency', 'contextStalled', 'performanceStalled', 'noAPI']) {
+test('rendering requires default sink, positive latency and both clocks advancing for 500ms; labels are diagnostic', async () => {
+  for (const variation of ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'zeroLatency', 'nanLatency', 'contextStalled', 'performanceStalled', 'short', 'nonDefault', 'silentSink', 'defaultAlias', 'noAPI']) {
     let reads = 0, now = 0, closed = false;
     class AudioContext {
-      outputLatency = variation === 'zeroLatency' ? 0 : 0.01;
+      outputLatency = variation === 'zeroLatency' ? 0 : variation === 'nanLatency' ? NaN : 0.01;
+      sinkId = variation === 'nonDefault' ? 'other-output' : variation === 'silentSink' ? { type: 'none' } : variation === 'defaultAlias' ? 'default' : '';
       createOscillator() { return { connect: () => ({ connect() {} }), start() {}, stop() {} }; }
       createGain() { return { gain: {} }; }
       async resume() {}
@@ -423,9 +430,9 @@ test('output probe requires labelled output, positive latency and both device cl
         variation === 'mixed' ? [{ kind: 'audiooutput', label: 'Fake Audio Output 1' }, { kind: 'audiooutput', label: 'MacBook Speakers' }] :
         [{ kind: 'audiooutput', label: variation === 'unlabelled' ? '' : 'Output' }]; } } },
       AudioContext: variation === 'noAPI' ? undefined : AudioContext,
-      performance: { now: () => now }, setTimeout(resolve) { now += 550; resolve(); },
+      performance: { now: () => now }, setTimeout(resolve) { now += variation === 'short' ? 499 : 550; resolve(); },
     });
-    assert.equal(evidence.verified, ['real', 'mixed'].includes(variation), variation);
+    assert.equal(evidence.renderingVerified, ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'defaultAlias'].includes(variation), variation);
     if (['fake', 'fakeAliases'].includes(variation)) {
       assert.equal(evidence.realAudioOutputs, 0); assert.equal(evidence.fakeAudioOutputs, 3);
       assert.equal(evidence.fakeAudioOutputLabels.length, 3);
@@ -435,6 +442,32 @@ test('output probe requires labelled output, positive latency and both device cl
       assert.deepEqual(Array.from(evidence.realAudioOutputLabels), ['MacBook Speakers']);
     }
     if (variation !== 'noAPI') assert.equal(closed, true);
+  }
+});
+
+test('OS evidence retains only the unique default output name, transport and built-in flag', () => {
+  const output = { _name: 'MacBook Pro-Lautsprecher', coreaudio_default_audio_output_device: 'spaudio_yes',
+    coreaudio_device_transport: 'coreaudio_device_type_builtin', privateInventoryField: 'must not survive' };
+  const profile = { SPAudioDataType: [{ _items: [{ _name: 'Microphone', coreaudio_default_audio_input_device: 'spaudio_yes' }, output] }] };
+  assert.deepEqual(defaultOutputFromProfiler(profile), { name: 'MacBook Pro-Lautsprecher', transport: 'coreaudio_device_type_builtin', builtIn: true });
+  const external = { ...output, _name: 'USB output', coreaudio_device_transport: 'coreaudio_device_type_usb' };
+  assert.equal(defaultOutputFromProfiler({ SPAudioDataType: [{ _items: [external] }] }).builtIn, false);
+  for (const items of [[], [{ _name: 'Not default' }], [output, external]]) {
+    assert.throws(() => defaultOutputFromProfiler({ SPAudioDataType: [{ _items: items }] }), /exactly one default/);
+  }
+  for (const invalid of [{ ...output, _name: '' }, { ...output, coreaudio_device_transport: undefined }]) {
+    assert.throws(() => defaultOutputFromProfiler({ SPAudioDataType: [invalid] }), /name and transport required/);
+  }
+});
+
+test('physical output requires both rendering proof and the OS default output even with fake enumeration', () => {
+  for (const renderingVerified of [false, true]) for (const verified of [false, true]) {
+    const rendering = { renderingVerified, realAudioOutputs: 0, fakeAudioOutputs: 3, sinkId: '' };
+    const osDefaultOutput = { verified, name: 'MacBook Pro-Lautsprecher', transport: 'coreaudio_device_type_builtin', builtIn: true };
+    const evidence = combineOutputEvidence(rendering, osDefaultOutput);
+    assert.equal(evidence.verified, renderingVerified && verified);
+    assert.equal(evidence.fakeAudioOutputs, 3);
+    assert.deepEqual(evidence.osDefaultOutput, osDefaultOutput);
   }
 });
 
