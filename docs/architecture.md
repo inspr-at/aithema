@@ -7,6 +7,22 @@ configuration through ports. This follows PPM AIT's approved
 `guideline/aithema-vision-architecture` (AIT-141, 2026-10-12) and
 `guideline/aithema-reset-concept` (AIT-95, decisions D2–D5).
 
+AIT-229: the UI's shared conversation fold and canvas loader both gate the drafts
+surface on the selected visual capability. Hosts/presets without drafts retain the
+transcript and the AIT-246 `draftsOff` host-unavailable sentence; they never expose
+the empty-canvas promise. Capability removal while folded restores the transcript.
+A configured host can fold without a price quote, and existing drafts remain
+readable through temporary generation restrictions. The fold retains its edge slot
+and keyboard focus target (`aria-disabled`) without moving composer controls.
+The unit regressions cover HTML/image capability state, cached drafts and late
+canvas responses. Browser CI checks actual transcript/canvas visibility and
+zero-shift fold attempts at phone and desktop sizes in DE/EN, switching host
+configuration in the same page. Evidence runs separately with the complete
+1440/1024/390 × light/dark × DE/EN matrix; CI artifact paths do not enable captures.
+The question-card browser sweep retains all width-specific geometry and native
+keyboard/voice checks, with representative visual-viewport heights around the
+620px compact breakpoint; evidence keeps the exhaustive 8px height sweep.
+
 ## Allowed edges
 
 The table below is rendered from `layers` in `scripts/check-boundaries.mjs`.
