@@ -1416,6 +1416,32 @@ async function uploadActionPaint(page, state) {
   }
 }
 
+async function uploadReasonLineStarts(page, state) {
+  const lines = await inShadow(page, c => {
+    const reason = c.shadowRoot.querySelector('.composer-reason');
+    const walker = document.createTreeWalker(reason, NodeFilter.SHOW_TEXT), glyphs = [];
+    while (walker.nextNode()) {
+      const text = walker.currentNode;
+      for (let i = 0; i < text.length; i++) {
+        if (/\s/u.test(text.data[i])) continue;
+        const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1);
+        for (const rect of range.getClientRects()) if (rect.width && rect.height)
+          glyphs.push({ glyph: text.data[i], top: rect.top, left: rect.left });
+      }
+    }
+    const lines = [];
+    for (const glyph of glyphs.sort((a, b) => a.top - b.top || a.left - b.left)) {
+      const line = lines.find(line => Math.abs(line.top - glyph.top) < 2);
+      if (!line) lines.push(glyph);
+      else if (glyph.left < line.left) Object.assign(line, glyph);
+    }
+    return lines;
+  });
+  assert.ok(lines.length > 0, `${state}: reason has rendered line boxes`);
+  for (const line of lines) assert.notEqual(line.glyph, '·', `${state}: no line box starts with a separator`);
+  return lines;
+}
+
 // Verify the real accessibility tree as well as the DOM and painted action style at every state shot.
 async function uploadActions(page, expected, state) {
   const actions = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-reason button')].map(button => {
@@ -1511,7 +1537,12 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     const copy = locale === 'de' ? de : en;
     const retryActions = [copy.uploads.tryAgain, copy.uploads.discard];
     const shot = async (name, expected = []) => {
-      actionRecords.push(await uploadActions(page, expected, name));
+      const record = await uploadActions(page, expected, name);
+      if (name === 'busy-exhausted' || name === 'resumed') {
+        record.lineStarts = await uploadReasonLineStarts(page, name);
+        t.diagnostic(`PASS AIT-219 round 9 ${width} ${locale.toUpperCase()} ${name}: no line box starts with ·; first glyphs ${record.lineStarts.map(line => line.glyph).join(', ')}.`);
+      }
+      actionRecords.push(record);
       if (!process.env.AITHEMA_EVIDENCE_DIR) return;
       await inShadow(page, c => {
         c.evidenceFocus = c.shadowRoot.activeElement;
