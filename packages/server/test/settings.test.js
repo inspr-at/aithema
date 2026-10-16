@@ -167,7 +167,7 @@ test('the server admits only the host allowlist: unknown, crafted, unconfigured 
     [{ voice: 'elevenlabs' }, 409, 'voice', 'not configured'],
     [{ voice: 'unknown-voice' }, 409, 'voice', 'not offered'],
     [{ visuals: 'fake-images' }, 409, 'visuals', 'not configured'],
-    [{ processingPreset: 'eu' }, 409, 'model', 'processing residency denied'],
+    [{ processingPreset: 'eu' }, 409, 'model', 'recipient seat outside eu'],
     [{ confirm: 'true' }, 400], [{ confirm: 1 }, 400], [{ confirm: null }, 400],
     [{ processingPreset: 'fallback' }, 400], [{ model: 'mock', binding: mock('mock') }, 400], [{ model: '../escape' }, 400],
     [{ processingPreset: 'device', model: 'mock' }, 409, 'model', 'unavailable on device'], ['[]', 400],
@@ -183,22 +183,24 @@ test('the server admits only the host allowlist: unknown, crafted, unconfigured 
   assert.throws(() => normalizeChoices({ choices: { models: [{ id: 'a' }, { id: 'a' }] } }), /Invalid model choice/);
 });
 
-test('AIT-271 eu exposes its processing residency reason and refuses the choice without a fallback', async t => {
+test('AIT-271 eu exposes distinct seat and processing reasons and refuses the choice without a fallback', async t => {
   const b = qualify(binding('openrouter', 'https://provider.test/v1/chat/completions'));
   const presets = mockPresetsWithChoices();
   presets.eu = { plugins: ['openrouter'], policy: { endpoints: [b.endpoint] },
     choices: { models: [{ id: 'eu-route', binding: b }] } };
   const registry = new PluginRegistry().register(createMockReasoning()).register(openRouter(b));
   const h = host(t, { presets, registry }), { session } = await h.create();
-  for (const [processingCountries, reason] of [
-    [undefined, 'processing residency unverified'],
-    [[], 'processing residency unverified'],
-    ['FR', 'processing residency unverified'],
-    [['FRA'], 'processing residency unverified'],
-    [['FR', 'US'], 'processing residency denied'],
+  for (const [countries, processingCountries, reason] of [
+    [['FR'], undefined, 'processing countries missing'],
+    [['FR'], [], 'processing residency unverified'],
+    [['FR'], 'FR', 'processing residency unverified'],
+    [['FR'], ['FRA'], 'processing residency unverified'],
+    [['FR'], ['FR', 'US'], 'processing residency denied'],
+    [['US'], ['FR', 'DE'], 'recipient seat outside eu'],
+    [['FR', 'US'], ['FR', 'DE'], 'recipient seat outside eu'],
   ]) {
-    if (processingCountries === undefined) delete b.legal.processingCountries;
-    else b.legal.processingCountries = processingCountries;
+    b.legal.countries = countries;
+    b.legal.processingCountries = processingCountries;
     const catalog = await (await h.call(`/${session.id}/settings`)).json();
     assert.equal(catalog.presets.eu.status, 'unavailable');
     assert.equal(catalog.presets.eu.reason, reason);
@@ -210,9 +212,10 @@ test('AIT-271 eu exposes its processing residency reason and refuses the choice 
     assert.equal(h.storage.get(session.id).settings.revision, 0);
     assert.equal(h.storage.read(session.id).some(e => e.type === 'settings.changed'), false);
   }
+  b.legal.countries = ['FR'];
   b.legal.processingCountries = ['FR', 'DE'];
   const eu = (await (await h.call(`/${session.id}/settings`)).json()).presets.eu;
-  assert.equal(eu.status, 'consent', 'EU processing passes policy and reaches the independent consent gate');
+  assert.equal(eu.status, 'consent', 'EU seats and processing pass policy and reach the independent consent gate');
   assert.equal(eu.reason, 'current processing consent required');
 });
 

@@ -15,13 +15,18 @@ function qualified() {
 const reason = (b, preset, policy = {}) => bindingReason({ binding: b, plugin, preset, now,
   policy: { endpoints: [b.endpoint], ...policy } });
 
-test('AIT-271 eu requires guaranteed EU processing independently of recipient seats', () => {
+test('AIT-271 eu requires both EU recipient seats and guaranteed EU processing', () => {
   const b = qualified();
-  assert.equal(reason(b, 'eu'), 'processing residency unverified', 'EU seats alone do not qualify');
+  assert.equal(reason(b, 'eu'), 'processing countries missing', 'EU seats alone do not qualify');
+  b.legal.countries = [...EU_COUNTRIES];
   b.legal.processingCountries = [...EU_COUNTRIES];
-  assert.equal(reason(b, 'eu'), null, 'every EU country is admitted');
-  b.legal.countries = ['US'];
-  assert.equal(reason(b, 'eu'), null, 'recipient seats do not establish EU processing residency');
+  assert.equal(reason(b, 'eu'), null, 'every EU country is admitted for both seats and processing');
+  for (const country of ['US', 'GB', 'CH', 'NO']) {
+    b.legal.countries = ['FR', country];
+    assert.equal(reason(b, 'eu'), 'recipient seat outside eu', country);
+    assert.equal(reason(b, 'eu', { countries: ['FR'] }), 'recipient seat outside eu', 'EU seat refusals name the seat');
+  }
+  b.legal.countries = ['FR'];
   for (const country of ['US', 'GB', 'CH', 'NO']) {
     b.legal.processingCountries = ['FR', country];
     assert.equal(reason(b, 'eu'), 'processing residency denied', country);
@@ -29,6 +34,17 @@ test('AIT-271 eu requires guaranteed EU processing independently of recipient se
   b.legal.processingCountries = ['FR'];
   b.legal.training = true;
   assert.equal(reason(b, 'eu'), 'training policy denied', 'the EU training rule is unchanged');
+});
+
+test('AIT-271 undefined processing countries are absent under every preset', () => {
+  for (const preset of ['best', 'eu', 'device', 'custom']) {
+    const b = qualified();
+    const expected = preset === 'eu' ? 'processing countries missing' : null;
+    assert.equal(reason(b, preset), expected, `${preset}: omitted field`);
+    b.legal.processingCountries = undefined;
+    assert.equal(Object.hasOwn(b.legal, 'processingCountries'), true);
+    assert.equal(reason(b, preset), expected, `${preset}: explicit undefined`);
+  }
 });
 
 test('AIT-271 non-eu presets retain seat-country and training policies with or without processing countries', () => {
@@ -51,7 +67,7 @@ test('AIT-271 non-eu presets retain seat-country and training policies with or w
 
 test('AIT-271 malformed processing countries refuse every server preset with a stable reason', () => {
   for (const preset of ['best', 'eu', 'custom']) {
-    for (const processingCountries of [undefined, null, [], new Array(1), 'FR', {}, ['FRA'], ['fr'], ['FR', ''],
+    for (const processingCountries of [null, [], new Array(1), 'FR', {}, ['FRA'], ['fr'], ['FR', ''],
       [12], [null], [['FR']], ['FR', 'US', false]]) {
       const b = qualified(); b.legal.processingCountries = processingCountries;
       assert.equal(reason(b, preset), 'processing residency unverified', `${preset}: ${JSON.stringify(processingCountries)}`);

@@ -35,6 +35,7 @@ export const FEATURE_REASON_CODES = [
   'unknown preset', 'browser only', 'device browser only', 'model not supported', 'effort not supported',
   'manifest evidence expired', 'binding evidence unverified', 'binding evidence mismatch', 'binding evidence not yet valid',
   'binding evidence expired', 'binding invalid', 'processing scope invalid', 'processing residency unverified',
+  'processing countries missing', 'recipient seat outside eu',
   'processing residency denied', 'training policy denied', 'endpoint not allowed', 'plugin binding mismatch',
   'plugin kind unsupported', 'operation unsupported', 'invalid mock budget', 'plugin unhealthy', 'admission deadline',
   'budget denied', 'concept storage limit', 'voice off', 'visuals off', 'visual kind not selected', 'visual kind invalid',
