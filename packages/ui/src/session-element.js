@@ -1319,7 +1319,7 @@ export class AithemaSession extends HTMLElement {
   // Replies can be spoken here: voice is available now, or once consent, a resume or the provider allows it.
   #voiceOffered() {
     const preset = this.#session.processingPreset ?? 'best', voice = this.#session.featureMatrix?.[preset]?.voice;
-    return preset !== 'device' && Boolean(this.#voiceClientFor()) && Boolean(voice?.available || isDynamicReason(voice?.reason));
+    return this.#voiceBound && preset !== 'device' && Boolean(this.#voiceClientFor()) && Boolean(voice?.available || isDynamicReason(voice?.reason));
   }
   #watchBrand() {
     this.#brandObserver?.disconnect();
