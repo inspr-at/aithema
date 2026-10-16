@@ -125,6 +125,7 @@ test('module packer refuses same-package imports of every excluded source file',
     ['plugins/elevenlabs', 'components.js'],
     ['packages/server', 'local-voice.js'],
     ['packages/server', 'composed-voice.js'],
+    ['packages/core', 'voice-components.js'],
   ]) {
     const pkg = { path: `${folder}/package.json` };
     const files = new Map([

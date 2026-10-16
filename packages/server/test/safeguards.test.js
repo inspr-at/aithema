@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createFacadeSecrets } from '../src/index.js';
 import { createMockReasoning, inputRevision, reasoningRequest, createSession, PluginRegistry, PluginError } from '@inspr/aithema-core';
-import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../src/dev/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
 import { purposePolicy, safeguardsCorpus, safeguardsActionCorpus, safeguardsReplyCorpus, start2Redirects } from '../../../test/safeguards-corpus.js';

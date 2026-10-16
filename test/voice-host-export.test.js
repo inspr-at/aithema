@@ -147,10 +147,13 @@ for (const variant of ['copied-start', 'copied-adapter', 'cloned-adapter', 'othe
 }
 
 test('AIT-218: the public identity entrypoint cannot enroll an arbitrary provider', async () => {
-  const { markLocalVoice, isLocalVoice: recognizes } = await import('@inspr/aithema-server/local-voice-identity');
+  const identity = await import('@inspr/aithema-server/local-voice-identity');
+  assert.deepEqual(Object.keys(identity), ['isLocalVoice']);
   const start = async () => {}, serverAdapter = Object.freeze({});
-  assert.throws(() => markLocalVoice(start, serverAdapter), /Simulator identity is private/u);
-  assert.equal(recognizes({ start, ports: Object.freeze({ serverAdapter }) }), false);
+  assert.equal(identity.isLocalVoice({ start, ports: Object.freeze({ serverAdapter }) }), false);
+  for (const path of ['dev-voice-identity', 'voice-provider', 'src/voice-provider.js', 'src/local-voice-identity.js']) {
+    await assert.rejects(import(`@inspr/aithema-server/${path}`), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+  }
 });
 
 test('AIT-218: identity does not trust accessor or mutable ports', t => {
