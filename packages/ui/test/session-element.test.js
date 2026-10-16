@@ -945,7 +945,7 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
     assert.equal(notice.textContent, AI_NOTICE[locale].text);
     assert.equal(root.querySelector('.ai-notice__label').textContent, copy.assistant);
     assert.equal(root.querySelector('.ai-notice__short').textContent, copy.layout.aiShort);
-    assert.equal(root.querySelector('.ai-notice__voice').textContent, copy.layout.syntheticVoice);
+    assert.equal(root.querySelector('.ai-notice__voice'), null);
     assert.equal(root.querySelector('textarea').disabled, true, 'the composer is still closed while the notice already stands');
     // It is the conversation's first line, outside the start card, so neither the chooser nor the
     // ready card covers it, and it comes before every control of the pane.
@@ -993,7 +993,7 @@ test('a host rewords the AI notice through the bundle or configure, but an empty
   assert.equal(text(), 'Host bundle: an AI answers.');
 });
 test('screen readers get the AI notice once, as the last description of every control that begins an interaction (AIT-119)', () => {
-  const c = setup(), root = c.shadowRoot, notice = root.querySelector('#ai-notice');
+  const c = setup(); c.configure({ copy: en, session: c.session, voiceClient: {} }); const root = c.shadowRoot, notice = root.querySelector('#ai-notice');
   const described = node => (node.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
   const entries = () => [...root.querySelectorAll('.chooser-option, .chooser__continue, .ready__actions button, .ready__start, .voice-start, .voice-retry, textarea, .attach, .send')];
   // Chooser state: the four options keep their own detail first, Continue and the composer theirs.
@@ -1221,7 +1221,7 @@ test('AIT-210: loading shell readiness follows configuration, not element defini
   assert.equal(empty.hasAttribute('data-aithema-mounted'), false);
   const mounted = setup();
   assert.equal(mounted.hasAttribute('data-aithema-mounted'), true);
-  assert.ok(mounted.shadowRoot.querySelector('.band .audio-rail .voice-output'));
+  assert.equal(mounted.shadowRoot.querySelector('.band .audio-rail'), null);
 });
 
 test('AIT-263: public focus command carries the revision and propagates typed stale refusals', async t => {

@@ -222,6 +222,28 @@ export const bandStyles = `
   .drafts-canvas { min-height:60svh; }
 }
 ${headerGeometry('.band')}
+/* AIT-260 round 1: retain the shared header rows, including without a rail.
+   A fixed brand allocation prevents host text updates from moving controls. */
+.band > .header-actions { grid-column:3; grid-row:1; }
+.band-identity { display:flex; align-items:center; gap:8px; min-width:0; }
+.band[data-branded] { grid-template-columns:192px minmax(0,1fr) var(--aithema-header-actions-width,96px); }
+.band .wordmark { margin:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.wordmark::slotted(*) { margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.host-legal { display:flex; align-items:center; font:inherit; color:inherit; }
+.host-legal::slotted(*) { margin:0; font:inherit; color:inherit; }
+.host-version { white-space:normal; }
+@media(max-width:1099px) {
+  .band > .header-actions { grid-column:2; }
+  .band[data-branded] { grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,96px); }
+}
+@media(width < 600px) {
+  .display-foot__row { gap:8px; }
+  .footer-right { gap:8px; }
+  .footer-right .status { display:none; }
+  .footer-info .connection-timer { grid-column:auto; }
+  .display-foot:has(.host-legal:not([hidden])) .ai-notice__short { display:none; }
+}
+
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }

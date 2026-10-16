@@ -403,9 +403,28 @@ element.configure({ copy: en, session, sessionToken: token, baseUrl: '' });
 locale and operator UI slots. It supplies presentation only; the server ports
 still authorize every action. `voiceClients` maps allowed option IDs to browser
 adapter clients; `voicePresentation` supplies that adapter's label and copy.
+A host has bound voice when `voiceClient` is truthy or `voiceClients` contains
+at least one truthy client. These clients represent the allowed catalog voice
+options. An off-only/unconfigured host supplies neither (including an empty
+`voiceClients` map); no rail, pause, microphone, synthetic-voice footer claim or
+reply replay/text-reading action is mounted. This condition deliberately ignores
+the currently selected voice, preset, consent and temporary availability verdicts:
+a bound host retains its voice controls when voice is switched off or interrupted.
+The shared header rows retain exactly the same height in both cases.
+
+The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
+heading; without it the default brand keeps its previous hidden presentation.
+Legal links in `slot="legal"` stand at the right of the footer bar on the entrance
+and in conversation. `slot="footer"` stays in the info popup. On phones (under
+600 px), the connection timer moves into that popup to leave room for legal links.
+
 The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
-the exact coordinate appears in the existing hover/focus details only. CalVer3
+the exact coordinate appears in the existing hover/focus details only. A new
+host-version row labels `host.version.version` with the brand slot's `textContent`
+(whitespace collapsed and trimmed), or `Host` in DE/EN without a brand. Brand text
+changes update that row in place; a host `product` value never replaces the
+Aithema label. The AI notice and existing version/build details remain intact. CalVer3
 uses the pinned shared Pretty renderer there, with canonical copy, UTC tooltip,
 keyboard/touch interaction and reduced motion. The popup shows the notice, then
 `Version 26.10.14 · 08:00` on its own line, followed by muted UTC build details.
