@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, applyEvent } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
+import { settingsGauges } from '../../core/src/settings.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -384,6 +385,36 @@ test('AIT-262 host summaries preserve ratings, free/device states and the least 
   assert.equal(hostSettingsGauges({ ...input, preset: 'device' }).quality.state, 'local');
   model.facts.quality = { score: 80, source: { name: 'Fixture', url: 'https://example.test/rating', asOf: '2026-10-16' } };
   assert.equal(hostSettingsGauges(input).quality.state, 'rated');
+});
+
+for (const lane of ['model', 'voice', 'visuals']) {
+  test(`AIT-262 host countries preserve the stronger EU policy for ${lane}`, () => {
+    const input = { preset: 'eu', info: { policy: { residency: 'eu', countries: null, noTraining: true } },
+      model: { facts: facts() }, voice: { facts: facts() }, visuals: { facts: facts() } };
+    input[lane].facts.hostCountries = ['FR'];
+    assert.deepEqual(hostSettingsGauges(input).privacy, { state: 'eu', fill: 70, enforced: true, countries: null });
+  });
+  for (const preset of ['best', 'custom']) test(`AIT-262 host countries strengthen ${preset} privacy for ${lane}`, () => {
+    for (const processingLocations of [['unverified'], ['US']]) {
+      const input = { preset, [lane]: { facts: facts({ processingLocations, hostCountries: ['FR'] }) } };
+      assert.deepEqual(hostSettingsGauges(input).privacy, { state: 'restricted', fill: 55, enforced: true, countries: ['FR'] });
+    }
+  });
+}
+
+test('AIT-262 host countries preserve stronger manifest privacy', () => {
+  for (const processingLocations of [['EU'], ['device']]) {
+    const input = { preset: 'best', model: { facts: facts({ processingLocations, hostCountries: ['FR'] }) } };
+    assert.deepEqual(hostSettingsGauges(input).privacy, settingsGauges(input).privacy);
+  }
+});
+
+test('AIT-262 without host countries all base gauges stay unchanged', () => {
+  for (const preset of PRESETS) for (const hostCountries of [undefined, []]) {
+    const input = { preset, info: { policy: { residency: preset === 'eu' ? 'eu' : null, countries: null, noTraining: preset === 'eu' } },
+      model: { facts: facts({ hostCountries }) }, voice: { facts: facts() }, visuals: { facts: facts() }, effort: 'none' };
+    assert.deepEqual(hostSettingsGauges(input), settingsGauges(input));
+  }
 });
 
 test('hover, focus and saves change text in fixed boxes only: no control moves under the pointer', async t => {
