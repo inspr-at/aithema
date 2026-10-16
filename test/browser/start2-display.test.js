@@ -12,7 +12,7 @@ import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
-import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 
 // Observe completed rendering instead of paying a fixed 120ms after every
 // state. Timed reveal checks still own their explicit animation clocks.
@@ -27,6 +27,97 @@ const settle = page => shadow(page, async c => {
 // CI keeps every assertion, including paint samples. Evidence-only captures run
 // separately on the remote runner (or nightly) without spending PR runner time.
 const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
+
+test('AIT-265: curated host model labels in settings, readiness and footer hover, DE/EN', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-host-model-label-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await browserForFile(evidenceDirectory ? { args: evidenceBrowserArgs } : {}), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  await page.setViewport({ width: 1440, height: 1000 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => {
+    window.hostModelSeed = c.session;
+    const fetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const response = await fetch(url, init);
+      if ((init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return response;
+      const catalog = await response.json();
+      catalog.processingPreset = 'best'; catalog.settings = c.session.settings; catalog.engine = c.session.engine;
+      catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', label: 'Anthropic via OpenRouter' }];
+      return Response.json(catalog);
+    };
+  });
+  const shot = async (locale, state, hover = false) => {
+    if (!evidenceDirectory) return;
+    await mkdir(evidenceDirectory, { recursive: true });
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    await page.mouse.move(-1, -1);
+    if (hover) await page.hover('aithema-session >>> .engine-info');
+    await settle(page);
+    const selector = state === 'ready' ? '[data-ready="model"] dd > span:last-child'
+      : hover ? '.engine__detail' : '[data-select="model"] .select__value';
+    const target = await shadow(page, (c, selector) => {
+      const text = c.shadowRoot.querySelector(selector), range = document.createRange(); range.selectNodeContents(text);
+      const r = range.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+        ink: getComputedStyle(text).color.match(/\d+/gu).slice(0, 3).map(Number) };
+    }, selector);
+    // Reconfigured shadow trees can leave a stale compositor tile for one capture.
+    let png, inkPixels = 0;
+    for (let attempt = 0; attempt < 3 && inkPixels < 20; attempt++) {
+      await settle(page);
+      png = Buffer.from(await page.screenshot({ fullPage: false, captureBeyondViewport: false }));
+      const paint = pixels(png); inkPixels = 0;
+      for (let y = Math.max(0, Math.ceil(target.top)); y < Math.min(paint.height, target.bottom); y++) {
+        for (let x = Math.max(0, Math.ceil(target.left)); x < Math.min(paint.width, target.right); x++) {
+          const offset = (y * paint.width + x) * paint.channels;
+          if (target.ink.every((value, channel) => Math.abs(paint.result[offset + channel] - value) <= 24)) inkPixels++;
+        }
+      }
+    }
+    assert.ok(inkPixels >= 20, `${locale}/${state}: captured model label glyphs (${inkPixels} ink pixels)`);
+    await writeFile(join(evidenceDirectory, `ait265-${locale}-${state}.png`), png);
+  };
+  for (const [locale, copy] of [['de', de], ['en', en]]) {
+    const expected = copy.catalogLabels['Anthropic via OpenRouter'];
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(window.hostModelSeed);
+      session.locale = locale; session.transcript = []; session.concepts = [];
+      session.settings = { ...session.settings, origin: 'chosen', model: 'default', effort: 'none', voice: 'off', visuals: 'off' };
+      session.engine = { preset: 'best', model: { id: 'default', label: 'Anthropic via OpenRouter' }, effort: 'none', voice: 'off', visuals: 'off' };
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ copy, session }); document.documentElement.lang = locale;
+    }, locale);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-ready="model"] dd > span:last-child').textContent), expected);
+    await shot(locale, 'ready');
+    await page.hover('aithema-session >>> .engine-info'); await settle(page);
+    const footer = await shadow(page, c => {
+      const detail = c.shadowRoot.querySelector('.engine__detail');
+      return { visibility: getComputedStyle(detail).visibility, lines: detail.textContent.split('\n') };
+    });
+    assert.equal(footer.visibility, 'visible');
+    assert.equal(footer.lines[1], `${copy.display.reply}: ${expected}`);
+    assert.equal(footer.lines[2], `${copy.display.understanding}: ${expected}`);
+    await shot(locale, 'footer-hover', true);
+    await page.click('aithema-session >>> .settings-open');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] [data-value="default"]'));
+    assert.deepEqual(await shadow(page, c => {
+      const select = c.shadowRoot.querySelector('[data-select="model"]');
+      return [select.querySelector('.select__value').textContent, select.querySelector('[data-value="default"] strong').textContent];
+    }), [expected, expected]);
+    await page.click('aithema-session >>> [data-select="model"] .select__button');
+    await shot(locale, 'settings-select');
+    await page.click('aithema-session >>> dialog.settings .done');
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  }
+});
 
 test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-reuse-'));

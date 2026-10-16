@@ -1293,8 +1293,8 @@ export class AithemaSession extends HTMLElement {
     const copy = this.#copy, preset = this.#session.processingPreset ?? 'best', view = engineView(this.#session);
     const d = copy.display, name = copy.presets[preset] ?? d.presetUnknown;
     const scope = preset === 'device' ? d.device : preset === 'eu' ? d.eu : d.international;
-    const reply = preset === 'device' ? d.localModel : modelDisplayName(view.model?.reply ?? view.model?.id, copy);
-    const understanding = preset === 'device' ? d.localModel : modelDisplayName(view.model?.understanding ?? view.model?.id, copy);
+    const reply = preset === 'device' ? d.localModel : modelDisplayName(view.model?.reply ?? view.model?.id, copy, view.model?.label);
+    const understanding = preset === 'device' ? d.localModel : modelDisplayName(view.model?.understanding ?? view.model?.id, copy, view.model?.label);
     const provider = { openrouter: 'OpenRouter', mistral: 'Mistral', mock: d.testProvider }[view.model?.provider] ?? d.hostProvider;
     const presentation = typeof this.#options.voicePresentation === 'function'
       ? this.#options.voicePresentation(this.#session.locale, view.voice)
@@ -1565,7 +1565,7 @@ export class AithemaSession extends HTMLElement {
     for (const button of section.querySelectorAll('.ready__mode')) setText(button.querySelector('span'), r[button.dataset.mode]);
     const consent = this.#consentState(), local = this.#device?.model, mode = this.#mode(), voiceMode = mode === 'voice';
     const visuals = device ? SETTINGS_OFF : view.visuals;
-    const effort = view.effort, model = modelDisplayName(view.model?.id, copy);
+    const effort = view.effort, model = modelDisplayName(view.model?.id, copy, view.model?.label);
     const microphone = { granted: [r.micGranted, 'confirmed'], denied: [r.micDenied, 'pending'], prompt: [r.micPrompt, 'pending'] }[this.#microphone] ?? [r.checkOnStart, 'pending'];
     const rows = [
       ['model', 'settings', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected
