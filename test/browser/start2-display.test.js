@@ -45,6 +45,7 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     window.fetch = async (url, init = {}) => {
       const response = await fetch(url, init);
       if ((init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return response;
+      await window.hostModelCatalogGate;
       const catalog = await response.json();
       catalog.processingPreset = 'best'; catalog.settings = c.session.settings; catalog.engine = c.session.engine;
       catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', label: 'Anthropic via OpenRouter' }];
@@ -86,6 +87,7 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     const expected = copy.catalogLabels['Anthropic via OpenRouter'];
     await shadow(page, async (c, locale) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      window.hostModelCatalogGate = new Promise(resolve => { window.releaseHostModelCatalog = resolve; });
       const session = structuredClone(window.hostModelSeed);
       session.locale = locale; session.transcript = []; session.concepts = [];
       session.settings = { ...session.settings, origin: 'chosen', model: 'default', effort: 'none', voice: 'off', visuals: 'off' };
@@ -108,7 +110,22 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     assert.equal(footer.lines[2], `${copy.display.understanding}: ${copy.display.modelUnknown}`);
     await shot(locale, 'footer-hover', true);
     await page.click('aithema-session >>> .settings-open');
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] [data-value="default"]'));
+    await settle(page);
+    assert.deepEqual(await shadow(page, c => {
+      const select = c.shadowRoot.querySelector('[data-select="model"]');
+      return [select.querySelector('.select__value').textContent, select.querySelector('.select__button').disabled,
+        select.querySelectorAll('[role="option"]').length];
+    }), [copy.settings.loadingOption, true, 0], `${locale}: no provisional model label before the catalog`);
+    const controls = ['.settings__frame', '[data-select="model"] .select__button', '.effort-area', '.settings-context', '.done'];
+    const loadingBoxes = await boxes(page, controls);
+    await shadow(page, () => window.releaseHostModelCatalog());
+    await until(page, expected => {
+      const select = document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"]');
+      return select?.querySelector('.select__value').textContent === expected &&
+        select.querySelector('[data-value="default"] strong')?.textContent === expected;
+    }, expected);
+    await settle(page);
+    assert.deepEqual(await boxes(page, controls), loadingBoxes, `${locale}: catalog arrival causes 0px layout shift`);
     assert.deepEqual(await shadow(page, c => {
       const select = c.shadowRoot.querySelector('[data-select="model"]');
       return [select.querySelector('.select__value').textContent, select.querySelector('[data-value="default"] strong').textContent];
