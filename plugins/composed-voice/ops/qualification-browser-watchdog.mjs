@@ -9,12 +9,16 @@ export function guardBrowserProcessGroup(pid, { deadlineAt, controllerPid = proc
     !Number.isSafeInteger(deadlineAt)) throw new Error('Browser process group and deadline required');
   const watchdog = spawn(process.execPath, [fileURLToPath(import.meta.url), String(pid), String(controllerPid), String(deadlineAt)],
     { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH } });
-  let failed = false;
+  let failed = false, killed = false;
   watchdog.on('error', () => { failed = true; kill(); });
   watchdog.unref();
   const kill = () => {
-    try { process.kill(-pid, 'SIGKILL'); }
-    catch (error) { if (error.code !== 'ESRCH') throw new Error('Browser process group kill failed'); }
+    if (killed) return;
+    try { process.kill(-pid, 'SIGKILL'); killed = true; }
+    catch (error) {
+      if (error.code === 'ESRCH') killed = true;
+      else throw new Error(`Browser process group kill failed (${error.code ?? 'unknown'})`);
+    }
   };
   return { kill, watchdogArmed: true, get failed() { return failed; } };
 }

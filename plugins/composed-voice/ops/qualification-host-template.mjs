@@ -132,8 +132,9 @@ export function createQualificationHost(options = {}) {
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat };
       } finally {
-        lifetime.abort(new Error('Qualification sample ended')); kill(); await polling?.catch(() => {});
+        lifetime.abort(new Error('Qualification sample ended'));
         try {
+          kill(); await polling?.catch(() => {});
           if (sampleId) {
             // Acknowledgement means OPS close() has stopped the dispatcher.
             // If it cannot be confirmed, retain exposure for explicit orphan recovery.
