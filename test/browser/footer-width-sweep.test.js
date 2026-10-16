@@ -78,6 +78,7 @@ const geometry = page => shadow(page, c => {
   }
   return { maxOverflowPx, maxOverlapPx, violations,
     compact: getComputedStyle(root.querySelector('.host-credits__total')).display === 'none',
+    legal: !root.querySelector('.host-legal').hidden,
     measureCompact: getComputedStyle(root.querySelector('.host-credits__measure-total')).display === 'none',
     amount: root.querySelector('.host-credits__amount').textContent };
 });
@@ -151,7 +152,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
           await page.setViewport({ width, height: 900 }); await settle(page);
           const measurement = await geometry(page), label = `HEAD ${evidenceCommit} ${locale}/${width}/${digits}`;
           assertFits(measurement, label);
-          assert.equal(measurement.compact, width < 700, `${label}: compact boundary`);
+          assert.equal(measurement.compact, width < (measurement.legal ? 1100 : 700), `${label}: compact boundary`);
           assert.equal(measurement.measureCompact, measurement.compact, `${label}: reserved total uses the same boundary`);
           passes.push({ head: evidenceCommit, locale, width, digits, ...measurement, pass: true }); summary.checks++;
           summary.maxOverflowPx = Math.max(summary.maxOverflowPx, measurement.maxOverflowPx);

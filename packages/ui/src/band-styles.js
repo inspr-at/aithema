@@ -228,11 +228,11 @@ ${headerGeometry('.band')}
 .band > .header-actions { grid-column:3; grid-row:1; }
 .band-identity { display:flex; align-items:center; gap:8px; min-width:0; }
 .band .wordmark { margin:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-.wordmark::slotted(*) { margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+slot[name="brand"]::slotted(*) { margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .display-foot:has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
 .footer-right { grid-column:3; min-width:0; }
 .host-legal { display:flex; align-items:center; min-width:0; font:inherit; color:inherit; }
-.host-legal::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
+slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
 .host-version { white-space:normal; }
 @media(max-width:1099px) {
   .band > .header-actions { grid-column:2; }

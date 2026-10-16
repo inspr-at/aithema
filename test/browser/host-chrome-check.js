@@ -78,7 +78,7 @@ export async function hostChromeCheck(t) {
             const content = r.querySelector('.workspace');
             const timer = r.querySelector('.connection-timer');
             return { height: r.querySelector('.band').getBoundingClientRect().height, h1: document.querySelectorAll('h1').length + r.querySelectorAll('h1').length,
-              brand: visible(brand), brandLabel: r.querySelector('.host-version__label').textContent,
+              brand: visible(brand), brandHeight: brand.getBoundingClientRect().height, brandLabel: r.querySelector('.host-version__label').textContent,
               product: r.querySelector('.display-version').textContent, noVoice: !r.querySelector(absent),
               voice: Boolean(r.querySelector('.voice-start') && r.querySelector('.pause')),
               claim: /synthetische Stimme|synthetic voice|Text lesen|Read text/u.test(content.textContent),
@@ -88,7 +88,7 @@ export async function hostChromeCheck(t) {
             };
           }, voice);
           heights.push(metrics.height);
-          assert.equal(metrics.h1, 1, `${label}/${stage}: one page h1`); assert.equal(metrics.brand, true);
+          assert.equal(metrics.h1, 1, `${label}/${stage}: one page h1`); assert.equal(metrics.brand, true); assert.ok(metrics.brandHeight <= 44, `${label}/${stage}: brand uses existing wordmark typography`);
           assert.equal(metrics.brandLabel, 'START Studio'); assert.equal(metrics.product, 'Aithema 2026.10');
           assert.equal(metrics.legal, true, `${label}/${stage}: legal links visible in bar`);
           assert.equal(metrics.footerOverflow, false, `${label}/${stage}: footer fits`);
