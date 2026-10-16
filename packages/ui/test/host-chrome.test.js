@@ -8,7 +8,7 @@ const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 test.after(() => window.happyDOM.close());
-const absent = '.audio-rail, .voice-notices, .pause, .voice-start, .voice-input, .voice-output, .ai-notice__voice, .ready__mode[data-mode="voice"], [data-ready="microphone"], [data-ready="speaker"], .recovery-repeat';
+const absent = '.audio-rail, .voice-notices, .pause, .voice-start, .voice-input, .voice-output, .ai-notice__voice, .ready__mode[data-mode="voice"], [data-ready="microphone"], [data-ready="speaker"], .voice-repeat, .voice-read-text, .voice-reply-actions';
 function configure(locale, options = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ locale, demo: true });
   session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: false, reason: 'not configured' } } };
@@ -21,7 +21,7 @@ for (const locale of ['de', 'en']) {
       const c = configure(locale, { voiceClients }), root = c.shadowRoot;
       const check = () => {
         assert.equal(root.querySelector(absent), null);
-        const content = root.cloneNode(true); content.querySelector('style').remove();
+        const content = root.querySelector('.workspace');
         assert.doesNotMatch(content.textContent, /synthetische Stimme|synthetic voice|Text lesen|Read text/u);
       };
       check();
@@ -51,7 +51,7 @@ for (const locale of ['de', 'en']) {
     const session = createSession({ locale, demo: true });
     c.configure({ copy: { en, de }[locale], session, host: { version: { product: 'Override', version: '1.2.3', version_scheme: 'legacy', commit: 'abcdef1234' } } });
     const root = c.shadowRoot;
-    assert.equal(root.querySelector('.wordmark').hidden, false);
+    assert.equal(root.querySelector('.wordmark').classList.contains('visually-hidden'), false);
     assert.equal(root.querySelector('slot[name="brand"]').assignedElements()[0], brand);
     assert.equal(root.querySelector('.host-version__label').textContent, 'START Studio');
     assert.equal(root.querySelector('.host-version__value').textContent, ' 1.2.3');
@@ -61,7 +61,7 @@ for (const locale of ['de', 'en']) {
     assert.equal(root.querySelector('.host-version__label').textContent, 'New Brand');
     brand.remove(); root.querySelector('slot[name="brand"]').dispatchEvent(new window.Event('slotchange'));
     assert.equal(root.querySelector('.host-version__label').textContent, 'Host');
-    assert.equal(root.querySelector('.wordmark').hidden, true);
+    assert.equal(root.querySelector('.wordmark').classList.contains('visually-hidden'), true);
   });
   test(`AIT-260: legal slot lives in the footer bar without requiring host surface ports, ${locale}`, () => {
     const c = configure(locale), legal = document.createElement('nav'); legal.slot = 'legal';

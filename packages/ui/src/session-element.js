@@ -261,7 +261,7 @@ export class AithemaSession extends HTMLElement {
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
     root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
-      <header class="toolbar band"><div class="band-identity"><div class="band-orb"></div><div class="wordmark" hidden><slot name="brand">Aithema</slot></div></div>${this.#voiceBound ? '<div class="audio-rail"></div>' : ''}<div class="header-actions">
+      <header class="toolbar band"><div class="band-identity"><div class="band-orb"></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>${this.#voiceBound ? '<div class="audio-rail"></div>' : ''}<div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
             <div class="conversations-recent" role="group"></div><button class="library-open-dialog" type="button" role="menuitem" tabindex="-1" aria-haspopup="dialog"></button></div></div></div>
@@ -1322,7 +1322,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, slot = root.querySelector('slot[name="brand"]');
     const sync = () => {
       const brand = slot.assignedElements()[0];
-      root.querySelector('.wordmark').hidden = !brand;
+      root.querySelector('.wordmark').classList.toggle('visually-hidden', !brand);
       root.querySelector('.band').toggleAttribute('data-branded', Boolean(brand));
       const text = brand?.textContent.replace(/\s+/gu, ' ').trim() || 'Host';
       setText(root.querySelector('.host-version__label'), text);

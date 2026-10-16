@@ -74,8 +74,8 @@ export async function hostChromeCheck(t) {
             const r = c.shadowRoot, brand = c.querySelector('[slot="brand"]'), legal = c.querySelector('[slot="legal"]');
             const visible = n => n.checkVisibility({ checkVisibilityCSS: true });
             const footer = r.querySelector('.display-foot').getBoundingClientRect(), links = [...legal.querySelectorAll('a')];
-            const absent = '.audio-rail, .pause, .voice-start, .voice-input, .voice-output, .ai-notice__voice, .ready__mode[data-mode="voice"], [data-ready="microphone"], [data-ready="speaker"], .recovery-repeat';
-            const content = r.cloneNode(true); content.querySelector('style').remove();
+            const absent = '.audio-rail, .pause, .voice-start, .voice-input, .voice-output, .ai-notice__voice, .ready__mode[data-mode="voice"], [data-ready="microphone"], [data-ready="speaker"], .voice-repeat, .voice-read-text, .voice-reply-actions';
+            const content = r.querySelector('.workspace');
             const timer = r.querySelector('.connection-timer');
             return { height: r.querySelector('.band').getBoundingClientRect().height, h1: document.querySelectorAll('h1').length + r.querySelectorAll('h1').length,
               brand: visible(brand), brandLabel: r.querySelector('.host-version__label').textContent,
