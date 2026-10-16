@@ -410,15 +410,19 @@ options. An off-only/unconfigured host supplies neither (including an empty
 reply replay/text-reading action is mounted. This condition deliberately ignores
 the currently selected voice, preset, consent and temporary availability verdicts:
 a bound host retains its voice controls when voice is switched off or interrupted.
-The shared header rows retain exactly the same height in both cases.
+The desktop header stays 90 px high through voice and conversation states;
+the phone frame follows the approved voice-specific rows.
 
 The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
 heading; without it the default brand keeps its previous hidden presentation.
 Legal links in `slot="legal"` stand at the right of the footer bar on the entrance
 and in conversation. `slot="footer"` stays in the info popup. On phones (under
 600 px), the connection timer moves into that popup to leave room for legal links.
-Footers with legal links use the existing compact details below 1100 px; phone
-footers retain the short AI label and omit the decorative credit track.
+The approved full AI label and connection status remain visible at 1024 px.
+Credit-enabled hosts retain compact balance details below 1100 px; phone footers
+use the short AI label, retain its marker and omit the decorative credit track.
+Host-owned legal navigation should use quiet underlined links with 44 px targets;
+styles for descendants of a slotted navigation element remain host-owned.
 
 The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
@@ -426,10 +430,13 @@ the exact coordinate appears in the existing hover/focus details only. A new
 host-version row labels `host.version.version` with the brand slot's `textContent`
 (whitespace collapsed and trimmed), or `Host` in DE/EN without a brand. Brand text
 changes update that row in place; a host `product` value never replaces the
-Aithema label. The AI notice and existing version/build details remain intact. CalVer3
+Aithema label. The popup orders the AI notice, Aithema version, brand-labelled
+host coordinate and muted build details. Both coordinates use the existing Pretty
+presentation; the host coordinate has no additional copy control. CalVer3
 uses the pinned shared Pretty renderer there, with canonical copy, UTC tooltip,
 keyboard/touch interaction and reduced motion. The popup shows the notice, then
-`Version 26.10.14 · 08:00` on its own line, followed by muted UTC build details.
+`Version 26.10.14 · 08:00` on its own line, then the host row (for example
+`START · 26.10.14 · 08:00`), followed by muted UTC build details.
 Tick’s approved separators are passed to the shared renderer by the product
 adapter, with weight 1 for hours/minutes and dark ink for segments/separators;
 the upstream bundle and base config stay pinned. `release/presentation.json`

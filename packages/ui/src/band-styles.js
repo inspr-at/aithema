@@ -1,6 +1,7 @@
 import { headerGeometry } from './first-paint.js';
 import { FOOTER_WIDTHS } from './layout.js';
 import { palette } from './styles.js';
+import { reasonSeparator } from './consent-line.js';
 
 // AIT-131, approved round 2: edge-to-edge band, one edge column and three footer zones.
 export const bandStyles = `
@@ -235,7 +236,7 @@ ${headerGeometry('.band')}
 slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .conversations-toggle { width:168px; gap:8px; padding:0 12px; justify-content:center; font-size:15.5px; }
 .conversations-toggle span { display:inline; }
-.conversations-toggle > svg:first-child { display:none; }
+.conversations-toggle > svg:first-child { display:block; }
 .conversations-toggle > svg:last-child { display:block; width:10px; height:10px; color:var(--aithema-muted); }
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 .footer-right { grid-column:3; min-width:0; gap:14px; }
@@ -246,11 +247,11 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 .version-details #build-info { display:contents; }
 .version-details .version-row { order:1; }
 .host-version { order:2; white-space:normal; }
-.host-version__value::before { content:' · '; white-space:pre; }
+.host-version__value::before { content:'${reasonSeparator}'; white-space:pre; }
 .version-details .build-label { order:3; }
 .footer-info .footer-popup { padding:11px 13px 12px; background:${palette.light.ink}; box-shadow:0 0 0 1px var(--aithema-line),0 12px 30px -14px rgba(0,0,0,.45); }
 .footer-popup .phone-status { display:none; color:var(--aithema-muted); }
-.phone-status .connection-timer::before { content:' · '; }
+.phone-status .connection-timer::before { content:'${reasonSeparator}'; }
 /* A legal host without a credit balance matches the approved two ends at
    tablet widths too. Credit-enabled hosts retain their existing compact rules. */
 @media(min-width:900px) {
