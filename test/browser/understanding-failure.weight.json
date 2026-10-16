@@ -1,4 +1,4 @@
 {
-  "seconds": 70,
-  "evidence": "AIT-242 expanded footer matrix with viewport evidence: mbp2606 08976fcf79-54592, 51.511s including payload boundary tests, rounded up + 10s"
+  "seconds": 100,
+  "evidence": "AIT-221 round 4, optimized workload at 270d5e36eb4379555f42c84770cba15ec75ef2fe: successful CI browser (6/6), https://github.com/inspr-at/aithema/actions/runs/38909895066/job/117002828088 . All 14 successful root tests (26 including subtests) in understanding-failure.test.js total 89.598223680s; round up to 90s + 10s margin. Reuses the mounted AIT-242 page across locales/viewports and sends a real mouse click at the AIT-221 Retry point already hit-tested; every assertion retained. Supersedes the previous workload measured at 90.728937764s in https://github.com/inspr-at/aithema/actions/runs/38902917001/job/116979623809 (preceding observation 92.515s), which required 110s rather than its old 80s weight. With main including AIT-229 savings, six shards and the 420s ceiling are unchanged."
 }

@@ -707,7 +707,7 @@ export class AithemaSession extends HTMLElement {
     finally { if (url) URL.revokeObjectURL(url); }
   }
   #createProject() {
-    if (this.#session.processingPreset === 'device') return;
+    if (this.#session.processingPreset === 'device' || this.shadowRoot.querySelector('.understanding').dataset.overview !== 'current') return;
     const action = paimosImportUrl(this.#options); if (!action) return;
     const document = this.ownerDocument, form = document.createElement('form');
     try {
@@ -774,7 +774,7 @@ export class AithemaSession extends HTMLElement {
     const exported = this.shadowRoot.querySelector('.export'), device = this.#session.processingPreset === 'device';
     const create = this.shadowRoot.querySelector('.create-project');
     // Keep the footer's space while removing the device handoff from sight and interaction.
-    if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device; }
+    if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device || this.shadowRoot.querySelector('.understanding').dataset.overview !== 'current'; }
     const reason = this.shadowRoot.querySelector('.export-reason');
     setText(reason, this.#copy.deviceExportUnavailable);
     reason.style.visibility = device ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!device));
@@ -1195,14 +1195,29 @@ export class AithemaSession extends HTMLElement {
     let replyNotice = root.querySelector('.reaction-failure');
     if (!replyNotice) {
       replyNotice = node('p', 'reaction-failure'); replyNotice.setAttribute('role', 'status');
+      replyNotice.append(node('span', 'reaction-failure-text'));
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
-    replyNotice.hidden = !replyFailed; setText(replyNotice, replyFailed ? copy.reasoningFailed : '');
+    const replyRetry = replyFailed && overviewFailed;
+    replyNotice.hidden = !replyFailed;
+    // Several failed lanes share one action at the first failure in reading
+    // order. Keep its handler and node while the project action keeps its slot.
+    const retry = root.querySelector('.retry'), retrySlot = replyRetry ? replyNotice : root.querySelector('.understanding > .foot');
+    if (retry.parentNode !== retrySlot) retrySlot.insertBefore(retry, replyRetry ? null : retrySlot.querySelector('.export-reason'));
+    setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed
+      ? `${copy.reasoningFailed}${replyRetry && !retry.hidden && !this.#host?.usedUp ? reasonSeparator : ''}` : '');
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
       (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
+    // Project creation follows the overview, independently of Retry placement.
+    // Keep its measured slot while failed, stale or unfinished work is replaced.
+    const currentOverview = u.readinessAssessed && !stale && !u.draft && !overviewFailed && !failedOverview &&
+      !analysisRunning && !scheduledAnalysis && !locked;
+    aside.dataset.overview = currentOverview ? 'current' : 'unavailable';
+    const create = root.querySelector('.create-project');
+    if (create) create.inert = !currentOverview || this.#session.processingPreset === 'device';
     const overviewText = !hasPersonTurn ? copy.empty : preparing ? copy.preparingOverview
-      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : ' · '}`
+      : failedOverview ? `${copy.understandingFailed}${replyFailed ? '.' : reasonSeparator}`
       : this.#failure && !replyFailed && !reconciling ? copy.reasoningFailed
       : !analysis.available && !cached && this.#session.pauseReason !== 'purpose' && !reconciling ? analysis.reason
       : !u.readinessAssessed && replyFailed && missingReply && this.#session.pauseReason !== 'purpose' ? copy.overviewPendingReply

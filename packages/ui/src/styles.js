@@ -343,7 +343,7 @@ summary::after { content:''; width:.45rem; height:.45rem; margin:0 .25rem .2rem;
 details[open] summary::after { transform:rotate(225deg); }
 summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,transparent); }
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
-.overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
+.overview-retry, .reaction-failure > .retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:1rem; row-gap:0; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export, .create-project { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
 .understanding > .foot > .export { grid-area:1/1; justify-self:start; }
@@ -359,8 +359,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .understanding > .foot > :is(.create-project,.retry) { grid-area:3/1; justify-self:start; margin-inline-start:0; white-space:nowrap; }
 }
 .create-project { margin-inline-start:auto; padding:0; border-radius:0; text-align:start; text-decoration:underline; }
-/* Retry owns the existing action space during recovery; never add another footer row. */
-.understanding > .foot:has(> .retry:not([hidden])) > .create-project { display:none; }
+/* Reserve the action slot until the overview can become a project. */
+.understanding:not([data-overview="current"]) > .foot > .create-project { visibility:hidden; }
 .export:hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }
 .export svg, .create-project svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 

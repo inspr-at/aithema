@@ -27,7 +27,7 @@ function assertInlineRetry(component, message) {
   const root = component.shadowRoot;
   assert.equal(root.querySelector('.retry').hidden, true, message);
   assert.equal(root.querySelector('.overview-retry').hidden, false, message);
-  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed} · ${en.understandingRetry}`, message);
+  assert.equal(root.querySelector('.notice').textContent, `${en.understandingFailed}\u00a0· ${en.understandingRetry}`, message);
 }
 function understanding(component, draft = false) {
   const session = component.session;
@@ -698,6 +698,40 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
 
 const paimosOptions = { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 };
 
+for (const state of ['two failures', 'overview-only failure', 'stale', 'pending', 'generating', 'draft', 'empty', 'reply-only failure', 'current voice', 'current', 'recovered']) {
+  test(`AIT-221 project action requires a current overview: ${state}`, t => {
+    const c = setup(), session = c.session;
+    session.transcript = [{ id: 'person', role: 'user', content: 'A bakery app.' }];
+    const revision = inputRevision(session);
+    session.transcript.push({ id: 'reply', role: 'assistant', content: 'Payments?', inputRevision: revision });
+    Object.assign(session.understanding, { inputRevision: revision, readinessAssessed: true, summary: 'A bakery app.' });
+    const failures = (state === 'two failures' ? ['reaction', 'understanding'] : state === 'overview-only failure' || state === 'recovered' ? ['understanding'] : state === 'reply-only failure' ? ['reaction'] : [])
+      .map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true }));
+    session.operations = { inputRevision: revision, running: state === 'generating' ? ['understanding'] : [], failures, lastFailure: failures.at(-1) ?? null };
+    if (state === 'stale' || state === 'pending') session.understanding.inputRevision = 'older';
+    if (state === 'pending' || state === 'empty') session.understanding.readinessAssessed = false;
+    if (state === 'pending') session.operations.running = ['reaction'];
+    if (state === 'draft') session.understanding.draft = true;
+    if (state === 'current voice') session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'active' };
+    c.configure({ copy: en, session, ...paimosOptions });
+    if (state === 'recovered') {
+      c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], failures: [], lastFailure: null } });
+      c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+    }
+    const current = ['reply-only failure', 'current voice', 'current', 'recovered'].includes(state), root = c.shadowRoot, create = root.querySelector('.create-project');
+    assert.equal(root.querySelector('.understanding').dataset.overview, current ? 'current' : 'unavailable');
+    assert.equal(create.inert, !current, 'unavailable overview cannot be reached with the keyboard');
+    assert.equal(create.hidden, false, 'keep the measured footer slot');
+    assert.notEqual(create.style.display, 'none');
+    const submitted = [];
+    t.mock.method(window.HTMLFormElement.prototype, 'submit', function () { submitted.push(this); });
+    // Even an invocation that bypasses visibility and inert must use a current overview.
+    create.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    assert.equal(submitted.length, Number(current));
+    assert.match(styles, /\.understanding:not\(\[data-overview="current"\]\) > \.foot > \.create-project\s*\{ visibility:hidden; \}/);
+  });
+}
+
 test('AIT-242 device mode hides the project action and the handler refuses a forced invocation', t => {
   const c = setup(), submitted = [], createdForms = [];
   assert.equal(c.shadowRoot.querySelector('.create-project'), null, 'the host must configure the handoff');
@@ -723,7 +757,9 @@ test('AIT-242 device mode hides the project action and the handler refuses a for
 
 test('AIT-242 switching device to server and back updates the same project action without removing its layout slot', () => {
   const c = setup();
-  c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), ...paimosOptions });
+  const session = createSession({ processingPreset: 'device' });
+  Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true });
+  c.configure({ copy: en, session, ...paimosOptions });
   const root = c.shadowRoot, create = root.querySelector('.create-project'), footer = create.parentElement;
   const children = [...footer.children];
   for (const processingPreset of ['best', 'device']) {
@@ -749,6 +785,8 @@ for (const processingPreset of ['best', 'eu', 'custom']) test(`AIT-242 ${process
     { id: 'erased', role: 'user', content: 'Erased private content', at, erased: true },
     { id: 'withdrawn', role: 'assistant', content: 'Withdrawn reply', at, withdrawn: true },
   ];
+  session.transcript[1].inputRevision = inputRevision(session);
+  Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true });
   c.configure({ copy: en, session, sessionToken: 'must-not-be-posted', ...paimosOptions });
   const create = c.shadowRoot.querySelector('.create-project'), submitted = [];
   assert.equal(create.style.visibility, '');
@@ -1068,7 +1106,7 @@ for (const copy of [de, en]) test(`AIT-198 ${copy === de ? 'DE' : 'EN'} missing 
   session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
   c.configure({ copy, session });
   const root = c.shadowRoot;
-  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed} · ${copy.understandingRetry}`);
+  assert.equal(root.querySelector('.notice').textContent, `${copy.understandingFailed}\u00a0· ${copy.understandingRetry}`);
   assert.equal(root.querySelectorAll('.notice .overview-retry').length, 1);
   assert.equal(root.querySelector('.overview-retry').disabled, false);
   assert.equal(root.querySelector('.retry').hidden, true, 'never a bare footer retry next to the placeholder');
@@ -1157,4 +1195,21 @@ test('AIT-197 R5 DE/EN copy has identical recursive key sets', () => {
     assert.equal(typeof copy[key], 'string');
     assert.ok(copy[key].length > 0);
   }
+});
+
+for (const state of ['shown', 'running', 'unavailable']) test(`AIT-221 two failures: ${state} Retry separator and footer return order`, () => {
+  const c = setup(); turn(c, 'person', 'A project detail');
+  const session = c.session;
+  const failures = ['reaction', 'understanding'].map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true }));
+  session.operations = { inputRevision: inputRevision(session), running: state === 'running' ? ['reaction'] : [], failures, lastFailure: failures[1] };
+  if (state === 'unavailable') session.featureMatrix.best.analysis = { available: false, reason: 'not configured' };
+  c.configure({ session, copy: en, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
+  const root = c.shadowRoot, retry = root.querySelector('.retry');
+  assert.equal(retry.hidden, state !== 'shown');
+  assert.equal(root.querySelector('.reaction-failure-text').textContent, `${en.reasoningFailed}${state === 'shown' ? '\u00a0· ' : ''}`);
+  c.receive({ type: 'lane.status', data: { ...session.operations, running: [], failures: [failures[0]], lastFailure: failures[0] } });
+  const footer = root.querySelector('.understanding > .foot');
+  assert.equal(footer.children[1], retry, 'same Retry returns immediately after export');
+  assert.equal(retry.nextElementSibling, footer.querySelector('.export-reason'));
+  assert.deepEqual([...footer.querySelectorAll('a, button')].map(n => n.className), ['export', 'retry', 'create-project'], 'original keyboard order');
 });
