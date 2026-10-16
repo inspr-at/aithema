@@ -5,6 +5,7 @@ import { createQualificationHost } from '../ops/qualification-host-template.mjs'
 import { startChild, temporaryDb } from '../../../test/helpers.js';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { request } from 'node:http';
 
 test('qualification flag is default-off and loopback bind/origin are mandatory', async () => {
   assert.deepEqual(qualificationSettings({}), { enabled: false });
@@ -72,11 +73,15 @@ test('flagged demo serves the authenticated hook and mounts binary relay before 
   });
   t.after(() => fixture.kill());
   const headers = { host: '127.0.0.1:4567', cookie: 'aithema-visitor=fixture-owner', origin: 'http://127.0.0.1:4567' };
+  // Node fetch rewrites Host from its URL; node:http preserves the tunnel Host.
+  const status = (path, method = 'GET', body) => new Promise((resolve, reject) => {
+    const outgoing = request(fixture.url + path, { method, headers }, response => { response.resume(); resolve(response.statusCode); });
+    outgoing.on('error', reject); outgoing.end(body);
+  });
   for (const path of ['/composed/qualification', '/composed/qualification-page.js', '/plugins/composed-voice/src/browser-audio.js', '/plugins/composed-voice/src/network-client.js', '/plugins/composed-voice/src/pcm-capture-worklet.js']) {
-    assert.equal((await fetch(fixture.url + path, { headers })).status, 200, path);
+    assert.equal(await status(path), 200, path);
   }
-  const response = await fetch(fixture.url + '/composed/relay', { method: 'POST', headers, body: new Uint8Array(1280) });
-  assert.equal(response.status, 403); // Reached the fake relay without a grant, rather than 415/404.
+  assert.equal(await status('/composed/relay', 'POST', new Uint8Array(1280)), 403); // Relay refused the missing grant, rather than 415/404.
 });
 
 test('remote sample cannot dispatch until persisted consume acknowledgement; refusal blocks work', async t => {
