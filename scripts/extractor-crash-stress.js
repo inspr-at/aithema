@@ -16,13 +16,13 @@ test('extractor process file survives repeated execution under CPU pressure', { 
   t.after(() => rm(directory, { recursive: true, force: true }));
   const execute = promisify(execFile);
   let executable = process.execPath;
-  if (process.platform === 'darwin' && process.arch === 'arm64' && process.version !== 'v24.21.0') {
+  if (process.platform === 'darwin') {
     const archive = join(directory, 'node.tar.gz');
-    await execute('/usr/bin/curl', ['-fsSL', 'https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz', '-o', archive]);
+    await execute('/usr/bin/curl', ['-fsSL', 'https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz', '-o', archive]);
     assert.equal(createHash('sha256').update(await readFile(archive)).digest('hex'),
-      'bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057');
+      '1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097');
     await execute('/usr/bin/tar', ['-xzf', archive, '-C', directory]);
-    executable = join(directory, 'node-v24.21.0-darwin-arm64/bin/node');
+    executable = join(directory, 'node-v24.21.0-darwin-x64/bin/node');
   }
   const pressure = Array.from({ length: cpuWorkers }, () => new Worker(
     'const until = Date.now() + 540000; while (Date.now() < until) Math.sqrt(Math.random());', { eval: true }));

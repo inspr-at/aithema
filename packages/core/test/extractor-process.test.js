@@ -227,7 +227,7 @@ test('RSS limits default to 384 MiB and hosts can only lower them', () => {
 });
 for (const mode of ['crash', 'signal', 'heap']) {
   test(`child ${mode} without a result is unreadable limit and releases the slot`, async t => {
-    const observed = observeParsers(t);
+    const observed = observeParsers(t, { trace: mode === 'crash' });
     const warnings = t.mock.method(console, 'warn', () => {});
     // This checks crash classification/reaping, not deadline speed. Freeze both
     // Date and the deadline timer so loaded child startup cannot consume the
@@ -247,6 +247,7 @@ for (const mode of ['crash', 'signal', 'heap']) {
     });
     const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`).catch(async error => {
       console.error('AIT-222 crash timeout state', { events, virtualTimers,
+        trace: observed.children.map(record => record.trace()),
         warnings: warnings.mock.calls.map(call => call.arguments), active: activeExtractorProcessCount(),
         queued: queuedExtractorProcessCount(), children: observed.children.map(({ child }) => ({
           pid: child.pid, killed: child.killed, exitCode: child.exitCode, signalCode: child.signalCode,
