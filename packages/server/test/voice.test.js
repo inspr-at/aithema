@@ -3176,7 +3176,9 @@ test('AIT-263: an active voice call admits the explicit selected reply through t
   const h = voiceFixture(t, { reasoning: { ...mock, async *stream(request, options) {
     requests.push(request); yield* mock.stream(request, options);
   } } });
-  await h.start('clarify-active');
+  const grant = await h.start('clarify-active');
+  assert.equal((await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+    event: { type: 'listening', callId: grant.callId, providerSessionId: grant.providerSessionId } })).status, 200);
   h.storage.postTurn(h.session.id, 'clarify-person', Buffer.from('website'), 'We need a website.');
   const current = h.storage.get(h.session.id), revision = inputRevision(current);
   h.storage.append(current.id, 'turn.final', { id: 'ordinary-cached', role: 'assistant', content: 'Who is it for?', inputRevision: revision });
@@ -3296,9 +3298,10 @@ for (const stage of ['pending', 'speaking', 'after-availability']) test(`AIT-263
   const secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
   let callback;
   if (stage === 'pending') {
+    await activity('listening');
     callback = h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
       method: 'POST', headers: { authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ messages: [{ role: 'user', content: 'We need a website.' }] }),
+      body: JSON.stringify({ aithema_call: grant.callId, messages: [{ role: 'user', content: 'We need a website.' }] }),
     }));
     await entered.promise;
     assert.ok(h.storage.voiceTurnStore.list(current.id).some(operation => operation.state === 'pending'));
