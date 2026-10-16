@@ -67,8 +67,8 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
           const foot = retry.parentElement.getBoundingClientRect(), link = c.shadowRoot.querySelector('.export').getBoundingClientRect();
           const rect = create?.getBoundingClientRect();
           return { retryHidden: retry.hidden, createVisible: Boolean(create?.getClientRects().length),
-            sameRow: !rect || !rect.height || rect.top === link.top && rect.bottom <= foot.bottom && rect.right <= foot.right,
-            overlap: Boolean(rect?.width && rect.left < link.right) };
+            sameRow: !rect || !rect.height || (innerWidth < 480 ? rect.top >= link.bottom : rect.top === link.top) && rect.bottom <= foot.bottom && rect.right <= foot.right,
+            overlap: Boolean(rect?.width && rect.left < link.right && rect.top < link.bottom) };
         });
         assert.equal(action.retryHidden, state !== 'failure');
         assert.equal(action.createVisible, enabled && state !== 'failure', 'footer Retry owns the action space during a failure');

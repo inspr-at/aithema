@@ -102,6 +102,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             turnGap: parseFloat(getComputedStyle(shell.querySelector('ol')).rowGap),
             shell: [shell.getBoundingClientRect().top, shell.getBoundingClientRect().bottom, shell.clientHeight, shell.scrollHeight, shell.scrollTop],
             reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
+            cardHeight: r.querySelector('.qcard').getBoundingClientRect().height, compact: r.querySelector('.qcard').hasAttribute('data-compact'),
+            optionsFloor: r.querySelector('.qcard').style.getPropertyValue('--question-options-floor'),
             limit: r.querySelector('.qcard').style.getPropertyValue('--question-card-limit'),
             notices: [r.querySelector('.voice-notices').getBoundingClientRect().height, r.querySelector('.voice-notices').style.minHeight],
             startVisible: bubble.top >= shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop) - 1 };
@@ -171,7 +173,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             id: `question-${c.session.seq}`, role: 'assistant', inputRevision: inputRevision(c.session), ...globalThis.qcardReply, ...patch,
           } });
           // configure() seeds the component directly; notify the real host too
-          // so slotted account/legal copy uses this scene's language.
+          // so slotted legal/footer copy uses this scene's language.
           c.dispatchEvent(new CustomEvent('aithema-locale'));
           // Pin the existing Chrome baseline stack for every scene and capture.
           document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
@@ -181,7 +183,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         }, locale);
         await page.mouse.move(0, 0); await nextFrame(page);
         await page.evaluate(() => document.fonts.ready);
-        assert.equal(await page.$eval('#demo-account-label', n => n.textContent), locale === 'de' ? 'Konto (Demo)' : 'Account (demo)', 'the host slots use the conversation language');
+        assert.match(await page.$eval('#demo-footer', n => n.textContent), locale === 'de' ? /^Nur Demo:/u : /^Demo only:/u, 'the host slots use the conversation language');
+        assert.equal(await page.$('[slot="account"]'), null, 'no person icon for visitors');
         const baseline = await boxes(page);
         await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
         assert.equal(await shown(page), false, 'a question without answers has no card'); still(baseline, await boxes(page), 'no options');
@@ -209,6 +212,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         const fullCardNames = width === 390 && theme === 'light' ? await optionSnapshot(geometry.heading) : undefined;
         await shot('card');
         const cardRest = await assertRest('card');
+        // The two-row rail can bound the option list sooner with Linux fonts.
+        // Bring the next target into its own scrollport before placing the pointer.
+        await shadow(page, c => c.shadowRoot.querySelectorAll('.qopt')[1].scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }));
+        await nextFrame(page);
         const point = await shadow(page, c => { const b = c.shadowRoot.querySelectorAll('.qopt')[1].getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; });
         await page.mouse.move(...point); await nextFrame(page);
         const hoverFill = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('.qopt .go')[1]).backgroundColor);

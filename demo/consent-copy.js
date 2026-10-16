@@ -11,28 +11,28 @@ const processingCopy = {
 };
 const hostCopy = {
   de: {
-    consentTitle: 'Einwilligung für das Mock-Gespräch',
+    consentTitle: 'Einwilligung für das Demo-Gespräch',
     consentUse: {
       html: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testentwürfe (lokaler Klick-Entwurf) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und klickbare Entwürfe zu erstellen.',
       images: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testbilder (lokales PNG) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und Entwürfe zu zeichnen.',
       off: 'Die lokalen Demo-Modelle und die Test-Sprache verwenden Ihr Gespräch, um zu antworten und ein Verständnis aufzubauen.',
     },
     consentPage: {
-      mockRecipients: 'Empfänger: der lokale Mock; keine weiteren Auftragsverarbeiter.',
-      mockConsequence: 'Ohne Einwilligung bleibt die Mock-Verarbeitung nicht verfügbar.',
+      mockRecipients: 'Empfänger: die lokale Demo; keine weiteren Auftragsverarbeiter.',
+      mockConsequence: 'Ohne Einwilligung bleibt die Demo-Verarbeitung nicht verfügbar.',
       mockTerms: 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.',
     },
   },
   en: {
-    consentTitle: 'Mock conversation consent',
+    consentTitle: 'Demo conversation consent',
     consentUse: {
-      html: 'The local demo models, fake voice and test drafts (local click-dummy) use your conversation to reply, build understanding and draft clickable concepts.',
-      images: 'The local demo models, fake voice and test images (local PNG) use your conversation to reply, build understanding and draw concepts.',
-      off: 'The local demo models and fake voice use your conversation to reply and build understanding.',
+      html: 'The local demo models, simulated voice and clickable demo drafts use your conversation to reply, build understanding and draft clickable concepts.',
+      images: 'The local demo models, simulated voice and test images (local PNG) use your conversation to reply, build understanding and draw concepts.',
+      off: 'The local demo models and simulated voice use your conversation to reply and build understanding.',
     },
     consentPage: {
-      mockRecipients: 'Recipient: the local mock; no upstream processors.',
-      mockConsequence: 'Without consent, mock processing remains unavailable.',
+      mockRecipients: 'Recipient: the local demo; no upstream processors.',
+      mockConsequence: 'Without consent, demo processing remains unavailable.',
       mockTerms: 'This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.',
     },
   },
