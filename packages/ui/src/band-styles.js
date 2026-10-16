@@ -51,11 +51,10 @@ export const bandStyles = `
   left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
-.band-utilities { display:flex; align-items:center; }
 .header-actions > .settings-open { flex:none; }
-.conversations-toggle { width:auto; gap:var(--aithema-menu-gap,7px); white-space:nowrap; }
+.conversations-toggle { width:44px; min-width:44px; padding:0; justify-content:center; }
+.conversations-toggle span { display:none; }
 .conversations-toggle > svg:first-child { display:block; width:16px; height:16px; flex:none; }
-.conversations-toggle > svg:last-child { width:10px; height:10px; flex:none; }
 .conversations-menu { z-index:12; max-height:min(440px,70dvh); overflow-y:auto; }
 .header-actions > .host-account { flex:none; }
 .conversation > .head { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); }
@@ -190,12 +189,8 @@ export const bandStyles = `
 }
 @media(max-width:599px) {
   .band { gap:6px 8px; padding-right:8px; }
-  .header-actions { gap:0; width:100%; } .conversations-toggle { gap:3px; font-size:12px; padding:0 3px; min-width:44px; max-width:100%; }
+  .header-actions { gap:0; }
   .conversations-wrap, .host-bar { min-width:0; }
-  .header-actions > .host-bar { flex:1; }
-  .conversations-wrap { width:100%; }
-  .conversations-toggle { width:100%; }
-  .band-utilities { flex:none; }
   .conversations-wrap { position:static; }
   .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
@@ -209,12 +204,6 @@ export const bandStyles = `
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }
-}
-/* Both platform font metrics fit from 448px; below that keep the 44px icon control. */
-@media(width < 448px) {
-  .conversations-toggle { min-width:44px; width:44px; padding:0; justify-content:center; }
-  .conversations-toggle > svg:first-child { display:block; }
-  .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
