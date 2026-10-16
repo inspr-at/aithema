@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertFailureDiagnostic, assertNoFailureDiagnostic } from './qualification-failure-fixture.js';
@@ -75,7 +75,8 @@ test('baseline missing auth refuses before browser, control or admission', async
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
+async function productionFixture(t, { setupOnly = false, failStep, missingItemId, longPoll = false, duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
+  const fail = step => { if (failStep === step) throw Object.assign(new Error(secret + ' https://private.invalid/?session=SECRET_SESSION'), { name: 'TimeoutError' }); };
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
@@ -85,11 +86,26 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
   page.evaluateOnNewDocument = async fn => { assert.ok(['installQualificationOutputProbe', 'installBaselineProbe'].includes(fn.name)); };
   page.url = () => binding.baselineOrigin + '/';
   const response = (path, body) => page.emit('response', { url: () => binding.baselineOrigin + path, ok: () => true,
-    request: () => ({ method: () => 'POST' }), json: async () => body });
-  page.goto = async () => { response('/api/sessions', { id: 'production-visitor' }); return { ok: () => true }; };
-  page.waitForSelector = async () => {};
-  page.$ = async () => true; page.$eval = async () => false;
+    request: () => ({ method: () => 'POST' }), json: async () => {
+      if (path === '/api/sessions' && failStep === 'jobs') await new Promise(resolve => setTimeout(resolve, 20));
+      if (path === '/api/sessions') fail('jobs');
+      return body;
+    } });
+  page.goto = async (_url, options) => {
+    fail('goto');
+    if (longPoll && options.waitUntil === 'networkidle0') throw Object.assign(new Error('Open event stream prevents idle'), { name: 'TimeoutError' });
+    response('/api/sessions', { id: failStep === 'session-id' ? undefined : 'production-visitor' });
+    return { ok: () => true };
+  };
+  page.waitForSelector = async selector => {
+    if (selector.includes('.chooser__continue')) fail('chooser');
+    if (selector.includes('consent-status')) fail('consent-ready');
+    if (selector.includes('.ready__start')) fail('ready');
+  };
+  page.$ = async selector => { fail('consent-items'); return !missingItemId || !selector.includes(missingItemId); };
+  page.$eval = async () => false;
   page.click = async selector => {
+    if (selector === '[data-grant]') fail('grant');
     if (selector.endsWith('.ready__start')) {
       order.push('conversation');
       assert.ok(order.includes('consume'));
@@ -119,10 +135,10 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       ] };
     if (input?.visitorSessionId) { order.push('stop'); if (afterResultError) throw new Error('Post-result protocol failure'); }
   };
-  const run = () => runProductionBaseline({ page, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
+  const run = () => runProductionBaseline({ page, setupOnly, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
     auth: { username: 'fake-operator', password: secret }, consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
     bounded: promise => Promise.race([promise, expiry.promise]), abort(error) { aborts.push(error.message); expiry.reject(error); },
-    preflight: async () => ({ verified: true }), boundConversation: async deadlineAt => {
+    preflight: async () => { fail('preflight'); return { verified: true }; }, boundConversation: async deadlineAt => {
       assert.ok(deadlineAt > Date.now()); order.push('duration-watchdog');
     }, recordIdentity: async value => identities.push(value), recordEvidence: async value => evidence.push(value), onTiming: event => timings.push(event),
     async admit(spec) {
@@ -140,6 +156,62 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
     } });
   return { run, page, sent, order, reports, identities, timings, aborts, evidence };
 }
+
+const setupSteps = ['goto', 'preflight', 'chooser', 'consent-ready', 'consent-items', 'grant', 'ready', 'jobs', 'session-id'];
+for (const step of setupSteps) test(`baseline setup preserves ${step} on a Puppeteer timeout without disclosing page values`, async t => {
+  const h = await productionFixture(t, { failStep: step });
+  await assert.rejects(h.run(), error => {
+    assert.match(error.message, new RegExp(`setup-failed:${step}\\)`));
+    assert.doesNotMatch(error.message, /FAKE_BASIC_AUTH|private.invalid|SECRET_SESSION/);
+    assert.equal(error.baselineSetup.step, step);
+    assert.equal(typeof error.baselineSetup.elapsedMs, 'number');
+    assert.ok(Number.isFinite(error.baselineSetup.elapsedMs) && error.baselineSetup.elapsedMs >= 0);
+    return true;
+  });
+  assert.equal(h.evidence[0].reason, `setup-failed:${step}`);
+  assert.equal(h.evidence[0].setup.step, step);
+  assert.equal(h.order.includes('admit'), false);
+});
+
+for (const missingItemId of ['voice-elevenlabs', 'models-international']) test(`baseline setup names only missing consent id ${missingItemId}`, async t => {
+  const h = await productionFixture(t, { missingItemId });
+  await assert.rejects(h.run(), new RegExp(`setup-failed:consent-items:${missingItemId}`));
+  assert.deepEqual(h.evidence[0].setup.missingItemId, missingItemId);
+  const free = await productionFixture(t, { missingItemId, setupOnly: true });
+  const result = await free.run();
+  assert.equal(result.ok, false); assert.equal(result.step, 'consent-items');
+  assert.equal(result.missingItemId, missingItemId);
+  assert.deepEqual(result.offeredConsentItemIds, ['voice-elevenlabs', 'models-international'].filter(id => id !== missingItemId));
+});
+
+test('baseline proceeds with a permanently open event request', async t => {
+  const h = await productionFixture(t, { longPoll: true, setupOnly: true });
+  const result = await h.run();
+  assert.equal(result.ok, true);
+  assert.equal(h.order.includes('admit'), false);
+});
+
+test('baseline setup-only reaches session-id without admission, voice start or ledger rows', async t => {
+  const { dir } = await fixture(t), path = join(dir, 'free-budget.sqlite');
+  initializeQualificationBudget({ path });
+  const budget = openPersistedQualificationBudget({ path, verifyCeiling() { assert.fail('must not price'); }, verifyReceipt() { assert.fail('must not reconcile'); } });
+  t.after(() => budget.close());
+  const h = await productionFixture(t, { setupOnly: true, admit() { assert.fail('must not admit'); } });
+  assert.deepEqual(await h.run(), { ok: true, offeredConsentItemIds: ['voice-elevenlabs', 'models-international'], visitorSessionId: 'production-visitor' });
+  assert.ok(h.identities.some(identity => identity.visitorSessionId === 'production-visitor'));
+  assert.equal(h.order.includes('admit'), false); assert.equal(h.order.includes('conversation'), false);
+  assert.equal(h.timings.length, 0); assert.equal(h.reports.length, 0);
+  assert.equal(budget.snapshot().records.length, 0);
+});
+
+test('setup-only host refuses every paid lane and sample option before launch', async () => {
+  const host = createQualificationHost({ baselineSetupOnly: true, launchBrowser() { assert.fail('must not launch'); } });
+  for (const lane of ['candidate', 'baseline']) await assert.rejects(host.runSample({ lane, admit() { assert.fail('must not admit'); } }), /refuses the paid sample loop/);
+  for (const extra of [{ lane: 'baseline' }, { samples: 1 }, { item: {} }, { admit() {} }]) {
+    await assert.rejects(host.runBaselineSetup({ runId: 'free', ...extra }), /runId only/);
+  }
+  await host.close();
+});
 
 test('production flow admits/consumes once before conversation, labels both identities and retains uncertain terminal', async t => {
   const h = await productionFixture(t, { duplicate: true }), result = await h.run();
