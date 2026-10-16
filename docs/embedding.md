@@ -344,6 +344,42 @@ binding in the callback, then normalize it before creating a duration binding.
 `agentName` and `facadeSecretName` must be explicit host-specific identifiers;
 `costConfig` and `qualifyBinding` are required. Missing or invalid arguments reject
 before any provider access; there is no fallback to Aithema's agent.
+
+At startup, `ensureAgent` GETs the receipt-owned agent and compares only the
+configuration it manages. An unchanged agent receives exactly one agent GET and
+no agent PATCH; a missing agent is created and its ownership receipt stored.
+START's template is always GET-only. Every create or PATCH is followed by a GET
+and verification before voice becomes available. Secret reconciliation (including
+the facade-secret PATCH on restart) remains unchanged.
+
+Managed fields are `name`; `conversation_config`'s `tts` (template voice/model,
+stability, similarity boost, style, speaker boost, speed, streaming latency,
+output format and nested voice settings when supplied), `asr` (template quality,
+provider, input format and host keywords), `turn` (template mode and host turn
+policy), `conversation` (duration and client events), `language_presets` (empty),
+and `agent` (language, AI first message, empty prompt/tools/knowledge base,
+custom LLM/model/callback/secret reference); and `platform_settings`'s template
+privacy flags/retention, host auth/allowlist and override policy. Other provider
+fields, including timestamps and version IDs, are ignored.
+
+Object key order is irrelevant. Arrays retain order, empty maps are intentional
+clears, and strings compare exactly: whitespace in prompts or first messages
+counts as drift. Only omitted TTS `stability=0.5`, `speed=1` and
+`similarity_boost=0.8` normalize to those defaults. Nulls and type differences
+remain drift, as do missing identity/security fields and non-default values.
+Extra explicitly false conversation-override flags equal disabled defaults;
+unknown enabled flags or malformed leaves require repair.
+
+The [agent PATCH API](https://elevenlabs.io/docs/api-reference/agents/update)
+accepts optional top-level `name`, `conversation_config` and `platform_settings`.
+Only changed top-level fields are sent; a changed configuration object contains
+its full managed set because nested replacement/merge semantics are not
+guaranteed. OPS receives a structured log with the existing `name`/`id` and
+`message`: `elevenlabs agent ensured: unchanged`,
+`elevenlabs agent ensured: patched (fields: a, b)` (dotted managed field names),
+or `elevenlabs agent ensured: created`. Logs never include configuration values,
+prompts or secret references.
+
 The demo's thin wrapper supplies its own START qualification, costs and openers;
 undefined options preserve those defaults.
 
