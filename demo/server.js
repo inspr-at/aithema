@@ -1,4 +1,4 @@
-import { firstPaintMarkup, firstPaintStyles } from '../packages/ui/src/first-paint.js';
+import { firstPaintMarkup, firstPaintStyles } from '@inspr/aithema-ui/first-paint';
 import { start2PurposePolicy } from './safeguards.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
 import { createOperatorSessions, createSQLiteOperatorStore } from '@inspr/aithema-server';
