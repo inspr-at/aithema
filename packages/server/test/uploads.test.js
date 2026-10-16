@@ -94,7 +94,7 @@ test('a host-lowered extractor ceiling reports limit and discards the original',
 test('AIT-219: 20 MiB PDF uploads over HTTP as literal multipart bytes, retains bounded text, and refuses cap + 1', { timeout: 30_000 }, async t => {
   const data = extractorLimitFixture('text-pdf', 20 * MiB);
   let requestBytes, admittedBytes;
-  const f = setup(t, { limits: { maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes }, readUploadBody: async (...args) => {
+  const f = setup(t, { readUploadBody: async (...args) => {
     const body = await readBody(...args); requestBytes = body.length; return body;
   } });
   const admit = f.storage.postUploads.bind(f.storage);
@@ -265,6 +265,119 @@ for (const cap of ['session', 'deployment']) test(`${cap} upload concurrency is 
   assert.equal(parser.mock.callCount(), 2);
 });
 
+// Produce large request bodies only when read; refused requests allocate no file.
+function streamedUploadRequest(id, clientId, size = 20 * MiB) {
+  const boundary = 'ait219-stream';
+  const prefix = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="clientEventId"\r\n\r\n${clientId}\r\n--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="large.txt"\r\nContent-Type: text/plain\r\n\r\n`);
+  const suffix = Buffer.from(`\r\n--${boundary}--\r\n`), chunk = Buffer.alloc(64 * 1024, 97);
+  let phase = 0, remaining = size;
+  return ownedRequest(`http://localhost/api/sessions/${id}/uploads`, { method: 'POST', duplex: 'half',
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, 'content-length': String(prefix.length + size + suffix.length) },
+    body: new ReadableStream({ pull(controller) {
+      if (!phase++) controller.enqueue(prefix);
+      else if (remaining) { const part = chunk.subarray(0, Math.min(remaining, chunk.length)); remaining -= part.length; controller.enqueue(part); }
+      else { controller.enqueue(suffix); controller.close(); }
+    } }, { highWaterMark: 0 }) });
+}
+
+test('AIT-219: eight concurrent 20 MiB uploads bound held bytes, refuse before body reads, and finish FIFO across handlers', { timeout: 30_000 }, async t => {
+  const release = Promise.withResolvers(), started = Promise.withResolvers();
+  let reads = 0, heldBytes = 0, peakHeldBytes = 0, loads = 0;
+  const order = [], readUploadBody = (...args) => { reads++; return readBody(...args); };
+  const first = setup(t, { readUploadBody }), second = setup(t, { readUploadBody });
+  for (const f of [first, second]) {
+    const load = f.storage.uploadBytes.bind(f.storage);
+    t.mock.method(f.storage, 'uploadBytes', (...args) => {
+      const data = load(...args); loads++;
+      heldBytes += data?.byteLength ?? 0; peakHeldBytes = Math.max(peakHeldBytes, heldBytes);
+      return data;
+    });
+    t.mock.method(f.runtime, 'extractUpload', async ({ uploadId, bytes }) => {
+      order.push(uploadId); started.resolve();
+      try { await release.promise; return { status: 'accepted', text: 'Bounded extraction fixture', truncated: true }; }
+      finally { heldBytes -= bytes.byteLength; }
+    });
+  }
+  const attempts = Array.from({ length: 8 }, (_, i) => {
+    const f = i % 2 ? second : first, session = f.storage.create({ ownerToken: testToken, demo: true });
+    return { f, session, request: streamedUploadRequest(session.id, `large-${i}`) };
+  });
+  let accepted;
+  try {
+    const responses = await Promise.all(attempts.map(async ({ f, request }) => {
+      const response = await f.handlers.handle(request); return { status: response.status, body: await response.json() };
+    }));
+    await waitFor(started.promise, 'slow extractor');
+    accepted = responses.filter(r => r.status === 202);
+    assert.equal(accepted.length, 3, 'one running request plus two pending reservations');
+    const refused = responses.filter(r => r.status === 429);
+    assert.equal(refused.length, 5);
+    for (const response of refused) assert.equal(response.body.error, 'upload-rate-limit', 'existing retryable UI busy response');
+    assert.equal(reads, 3, 'capacity is checked before reading the other five bodies');
+    assert.equal(loads, 1, 'queued jobs have not loaded their durable bytes');
+    assert.equal(peakHeldBytes, 20 * MiB, 'only the running job holds source bytes');
+  } finally { release.resolve(); await Promise.all([first.handlers.idle(), second.handlers.idle()]); }
+  assert.deepEqual(order, accepted.map(r => r.body.uploads[0].id), 'admitted work finishes in order');
+  assert.equal(loads, 3); assert.equal(heldBytes, 0); assert.equal(peakHeldBytes, 20 * MiB);
+  for (const { f, session } of attempts) for (const upload of f.storage.get(session.id).uploads) assert.equal(upload.state, 'accepted');
+  await post(first, 'capacity-recovered'); await first.handlers.idle();
+  assert.equal(heldBytes, 0, 'the extraction and admission permits are reusable');
+  t.diagnostic(`N=8, file=20 MiB, accepted=3, busy=5, peak loaded source=${peakHeldBytes / MiB} MiB, final held=${heldBytes}`);
+});
+
+for (const operation of ['withdraw', 'deadline', 'close']) test(`AIT-219: ${operation} removes queued work without loading bytes or leaking capacity`, async t => {
+  const release = Promise.withResolvers(), started = Promise.withResolvers();
+  const first = setup(t), queued = setup(t, { limits: operation === 'deadline' ? { requestBudgetMs: 100 } : {} });
+  t.mock.method(first.runtime, 'extractUpload', async () => {
+    started.resolve(); await release.promise; return { status: 'accepted', text: 'First document', truncated: false };
+  });
+  const load = t.mock.method(queued.storage, 'uploadBytes');
+  try {
+    await post(first, 'running'); await waitFor(started.promise, 'occupied extractor byte slot');
+    const posted = await post(queued, 'queued');
+    // Let start() reach the byte semaphore without relying on a wall-clock sleep.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(load.mock.callCount(), 0, 'waiting metadata holds no source bytes');
+    if (operation === 'withdraw') await queued.handlers.handle(action(queued.session.id, `uploads/${posted.uploads[0].id}/withdraw`));
+    else if (operation === 'close') await queued.handlers.close();
+    else await queued.handlers.idle();
+    assert.equal(load.mock.callCount(), 0, 'cancelled or expired jobs never load');
+    const upload = queued.storage.get(queued.session.id).uploads[0];
+    assert.equal(upload.state, operation === 'withdraw' ? 'withdrawn' : operation === 'close' ? 'pending' : 'unreadable');
+    if (operation === 'deadline') assert.equal(upload.reason, 'deadline');
+  } finally { release.resolve(); await first.handlers.idle(); }
+  // Fill all three reservations again while extraction is held: no leaked permits.
+  const nextRelease = Promise.withResolvers(), nextStarted = Promise.withResolvers();
+  t.mock.method(first.runtime, 'extractUpload', async () => {
+    nextStarted.resolve(); await nextRelease.promise; return { status: 'accepted', text: 'Recovery', truncated: false };
+  });
+  try {
+    for (let i = 0; i < 3; i++) {
+      const session = first.storage.create({ ownerToken: testToken, demo: true });
+      assert.equal((await first.handlers.handle(uploadRequest(session.id, `recovery-${i}`))).status, 202);
+    }
+    await waitFor(nextStarted.promise, 'recovered byte slot');
+  } finally { nextRelease.resolve(); await first.handlers.idle(); }
+});
+
+test('AIT-219: the default core request ceiling rejects declared and streamed oversized bodies', async t => {
+  let reads = 0, cancelled = false;
+  const f = setup(t, { readUploadBody: (...args) => { reads++; return readBody(...args); } });
+  const declared = ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST',
+    headers: { 'content-type': 'multipart/form-data; boundary=fixture', 'content-length': String(UPLOAD_LIMITS.maxRequestBytes + 1) }, body: '' });
+  assert.equal((await f.handlers.handle(declared)).status, 413); assert.equal(reads, 0);
+  let remaining = UPLOAD_LIMITS.maxRequestBytes + 1;
+  const chunk = Buffer.alloc(64 * 1024, 97);
+  const streamed = ownedRequest(declared.url, { method: 'POST', duplex: 'half',
+    headers: { 'content-type': 'multipart/form-data; boundary=fixture' }, body: new ReadableStream({ pull(controller) {
+      const part = chunk.subarray(0, Math.min(remaining, chunk.length)); remaining -= part.length;
+      controller.enqueue(part); if (!remaining) controller.close();
+    }, cancel() { cancelled = true; } }, { highWaterMark: 0 }) });
+  assert.equal((await f.handlers.handle(streamed)).status, 413); assert.equal(reads, 1);
+  // The stream may already have closed with its final byte; neither path admits it.
+  assert.ok(cancelled || remaining === 0); assert.equal(f.storage.get(f.session.id).uploads.length, 0);
+});
+
 test('rejected parsing and refused admission release upload concurrency slots', async t => {
   const f = setup(t, { consent: { coverage: () => ({ covered: false }) }, limits: { maxConcurrentRequestsPerSession: 1, maxConcurrentRequestsPerDeployment: 1 } });
   const invalid = ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST',
@@ -390,7 +503,10 @@ test('START reasoning item covers file text exactly; lacking file-text disables 
 
 test('defaults, lowering-only config and extension/content sniffing are explicit', () => {
   assert.equal(SERVER_UPLOAD_LIMITS.maxBytes, 20 * 1024 * 1024); assert.equal(SERVER_UPLOAD_LIMITS.maxDocumentsPerSession, 8);
-  assert.equal(SERVER_UPLOAD_LIMITS.maxRequestBytes, 64 * 1024 * 1024);
+  assert.equal(SERVER_UPLOAD_LIMITS.maxRequestBytes, UPLOAD_LIMITS.maxRequestBytes);
+  assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_REQUEST_BYTES: String(UPLOAD_LIMITS.maxRequestBytes - 1) }).maxRequestBytes, UPLOAD_LIMITS.maxRequestBytes - 1);
+  assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_REQUEST_BYTES: String(UPLOAD_LIMITS.maxRequestBytes + 1) }), TypeError);
+  assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_REQUEST_BYTES: String(64 * MiB) }), TypeError);
   assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_BYTES: '1024' }).maxBytes, 1024);
   assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS: '2', AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS_PER_SESSION: '1' }).maxConcurrentRequestsPerDeployment, 2);
   assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS_PER_SESSION: '1' }).maxConcurrentRequestsPerSession, 1);
