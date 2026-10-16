@@ -223,16 +223,33 @@ export class PhoneComposerViewport {
         ? notices.getBoundingClientRect().height : parseFloat(list.style.paddingBottom) || 0);
       this.noticeHeight = endHeight();
       this.noticeScrollTop = shell.scrollTop;
-      this.noticeScroll ??= () => {
-        this.noticeScrollTop = shell.scrollTop;
-        if (this.followsTranscript() && reservation()) {
-          reserve('');
-          // The next row must compare against the released height, not the
-          // reading reservation that just went away.
-          this.noticeHeight = endHeight();
-          this.onNoticesChange();
-        }
+      const release = () => {
+        this.uploadReservation = false;
+        if (!reservation()) return;
+        reserve('');
+        // Compare future mutations against the released height.
+        this.noticeHeight = endHeight();
+        this.onNoticesChange();
       };
+      // Remember the actual row before a mutation can clamp scrollTop and
+      // change hit testing beneath a stationary pointer.
+      this.noticePointerOver = event => { this.noticeUpload = event.target.closest?.('.upload') ?? null; };
+      this.noticePointerOut = event => {
+        if (!this.noticeUpload || this.noticeUpload.contains(event.relatedTarget)) return;
+        this.noticeUpload = null;
+        if (this.uploadReservation) release();
+      };
+      this.noticeWheel = () => { if (this.uploadReservation) release(); };
+      this.noticeScroll ??= () => {
+        const moved = shell.scrollTop !== this.noticeScrollTop;
+        this.noticeScrollTop = shell.scrollTop;
+        // Restoring a clamped offset also queues scroll events. Only a new
+        // offset or wheel gesture releases a resting upload's reservation.
+        if (reservation() && (this.uploadReservation ? moved : this.followsTranscript())) release();
+      };
+      this.root.addEventListener('pointerover', this.noticePointerOver);
+      this.root.addEventListener('pointerout', this.noticePointerOut);
+      shell.addEventListener('wheel', this.noticeWheel, { passive:true });
       shell.addEventListener('scroll', this.noticeScroll, { passive:true });
       this.noticesObserver = new Mutation(records => {
         // Reflected hidden assignments also report idempotent renders. They
@@ -251,10 +268,12 @@ export class PhoneComposerViewport {
         // Same-size label/text renders must not undo a transcript pointer anchor.
         const height = endHeight();
         if (changed && height !== this.noticeHeight) {
-          if (this.followsTranscript()) reserve('');
+          const holdUpload = this.noticeUpload && height < this.noticeHeight;
+          if (this.followsTranscript() && !holdUpload) reserve('');
           else {
-            // Retain only the room a removed last item would clamp away while
-            // reading. Release it when the person next follows the bottom.
+            // Shrinking end content must not clamp a resting upload out from
+            // under the pointer, even when already following the bottom.
+            this.uploadReservation = Boolean(holdUpload);
             reserve(`${Math.max(0, this.noticeHeight - inlineHeight())}px`);
             shell.scrollTop = this.noticeScrollTop;
           }
@@ -277,6 +296,9 @@ export class PhoneComposerViewport {
     this.root.removeEventListener('focusin', this.paint);
     this.root.removeEventListener('focusout', this.focusOut);
     this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
+    this.root.querySelector('.transcript-shell').removeEventListener('wheel', this.noticeWheel);
+    this.root.removeEventListener('pointerover', this.noticePointerOver);
+    this.root.removeEventListener('pointerout', this.noticePointerOut);
     this.noticesObserver?.disconnect();
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.paint);
