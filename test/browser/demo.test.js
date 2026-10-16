@@ -1787,6 +1787,8 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const [locale, theme] of [['de', 'light'], ['en', 'dark']]) for (const width of [1440, 390]) {
+    const cookies = await browser.cookies();
+    if (cookies.length) await browser.browser().defaultBrowserContext().deleteCookie(...cookies);
     const page = await browser.newPage();
     await preparePage(page, [locale]);
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
@@ -1798,15 +1800,18 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     }, theme);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.documentElement.hasAttribute('data-host-ready') && document.querySelector('aithema-session')?.session);
+    assert.deepEqual(await inShadow(page, c => [c.session.processingPreset, c.session.settings.voice, c.session.settings.visuals]), ['best', 'fake-voice', 'fake-html']);
     await inShadow(page, c => {
       const original = window.fetch.bind(window), held = Promise.withResolvers();
-      window.customCatalog = { release: held.resolve, posts: [], reads: 0 };
+      window.customCatalog = { release: held.resolve, posts: [], reads: 0, replies: [] };
       window.fetch = async (url, init = {}) => {
         if (new URL(url, location.href).pathname.endsWith('/settings')) {
           if (init.method === 'POST') window.customCatalog.posts.push(JSON.parse(init.body));
           else { window.customCatalog.reads++; await held.promise; }
         }
-        return original(url, init);
+        const response = await original(url, init);
+        if (new URL(url, location.href).pathname.endsWith('/settings') && init.method === 'POST') window.customCatalog.replies.push({ status: response.status, body: await response.clone().json() });
+        return response;
       };
       c.setAttribute('motion', 'off');
       c.openSettings();
@@ -1831,11 +1836,16 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     await until(page, () => {
       const c = document.querySelector('aithema-session');
       return window.customCatalog.posts.length > 0 && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
+    }).catch(async error => {
+      t.diagnostic(JSON.stringify(await inShadow(page, c => ({ probe: window.customCatalog, settings: c.session.settings, preset: c.session.processingPreset, busy: c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy'), notice: c.shadowRoot.querySelector('.notice-body').textContent, status: c.shadowRoot.querySelector('.save-status').textContent }))));
+      throw error;
     });
     const applied = await inShadow(page, c => ({ processingPreset: c.session.processingPreset, ...c.session.settings }));
     t.diagnostic(JSON.stringify({ locale, width, applied, posts: await page.evaluate(() => window.customCatalog.posts) }));
     assert.equal(applied.processingPreset, 'custom');
     assert.equal(applied.origin, 'chosen');
+    assert.equal(applied.model, 'mock/deep');
+    assert.equal(applied.effort, 'high');
     assert.equal(applied.voice, 'off', 'Custom must never inherit Best voice');
     assert.equal(applied.visuals, 'off', 'Custom must never inherit Best HTML drafts');
     assert.equal(await page.evaluate(() => window.customCatalog.posts.length), 1);
