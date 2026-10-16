@@ -97,9 +97,22 @@ Adding a browser test requires only its own sibling `.weight.json`; refreshing a
 measurement edits only that sibling file. Algorithm unit tests use inline data,
 so neither operation requires updating a shared fixture.
 
-AIT-216 migration evidence (one-time comparison on mbp2606 against the legacy
-literal in merge base `8d52ace2d36c1e8d40bcd2d738e1db5d7ad04cb7`):
-`28/28 equal; identical layout (shard membership/order and totals)`.
-Projected totals were `490 / 500 / 480 / 480` seconds. The legacy and current
-packing function bodies were identical. This records migration identity, not a
-permanent constraint on future test additions or measured weight refreshes.
+AIT-216 final regeneration evidence (2026-10-16): main
+`429b72f277119e2204e8478d6629ac8787ffb190` was merged with signoff, without
+rebasing. The one-time migration extraction read that revision's
+`scripts/browser-shards.js` literal and generated every sibling JSON from each
+entry's numeric seconds and measurement-evidence comment, including
+`upload-capacity`, `composed-media` and `language-first-paint`. No weights were
+hand-merged. The inline table was then replaced by the per-file reader;
+main's six-shard packing code and required summary workflow stayed unchanged.
+
+The one-time proof ran on mbp2606 against the committed merge
+`32ba251765b78a5940ce228236550f2c388ed4e3`, run `32ba251765-68752`:
+`31/31 equal; identical layout (shard membership/order and totals)`.
+Projected totals were `380 / 380 / 390 / 370 / 380 / 380` seconds; the largest
+was 390s and main's unchanged <= 420s plan ceiling passed. The legacy and current
+packing functions were identical. All 53 targeted shard, workflow/summary,
+merge-queue and module/CI-environment tests passed, including missing, invalid
+and orphaned weight guards. Algorithm fixtures remain self-contained; the
+real-plan test enforces the live ceiling. This records migration identity, not
+a permanent constraint on future test additions or measured weight refreshes.
