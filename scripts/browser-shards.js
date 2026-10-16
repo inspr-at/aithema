@@ -37,7 +37,7 @@ export const browserTestWeights = {
   'test/browser/host-surface.test.js': 20.000, // AIT-199 latest max 8.114s, CI 38732580354-1; historical floor 20s
   'test/browser/html-preview.test.js': 40.000, // AIT-199 latest max 9.122s, CI 38765085264-1; historical floor 40s
   'test/browser/lane-race-kit.test.js': 20.000, // CI 38784223838-1 (2.516s; rounded up + 10s margin)
-  'test/browser/operator-login.test.js': 60.000, // AIT-199 latest max 42.284s, CI 38770896962-1; historical floor 60s
+  'test/browser/operator-login.test.js': 80.000, // AIT-223 expanded matrix: CI 38840992859-1, 62.878s rounded up + 10s
   'test/browser/orb-reveal.test.js': 100.000, // AIT-199 latest max 86.949s, CI 38770896962-1; historical floor 100s
   'test/browser/pause-phone.test.js': 200.000, // AIT-199 latest max 187.080s, CI 38732580354-1; historical floor 190s
   'test/browser/question-card.test.js': 30.000, // AIT-199 latest max 16.628s, CI 38732580354-1; historical floor 30s
