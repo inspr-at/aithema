@@ -344,12 +344,16 @@ details[open] summary::after { transform:rotate(225deg); }
 summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,transparent); }
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
 .overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
-.understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
+.understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:1rem; row-gap:0; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export, .create-project { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
+.understanding > .foot > .export { grid-area:1/1; justify-self:start; }
+.understanding > .foot > :is(.create-project,.retry) { grid-area:1/2; justify-self:end; }
+/* Invisible in server modes, but always measured so mode switches move nothing. */
+.export-reason { grid-column:1/-1; font-size:.72rem; line-height:1.4; color:var(--aithema-muted); }
 .export[href] { text-decoration:underline; }
 .export[aria-disabled="true"] { text-decoration:none; cursor:help; }
 @media(width < 480px) {
-  .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem 2.75rem; gap:0; }
+  .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem 2.75rem auto; gap:0; }
   .understanding > .foot > .export { grid-area:1/1; white-space:nowrap; }
   .understanding > .foot > :is(.create-project,.retry) { grid-area:2/1; justify-self:start; margin-inline-start:0; white-space:nowrap; }
 }

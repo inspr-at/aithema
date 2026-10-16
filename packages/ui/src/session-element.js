@@ -275,7 +275,7 @@ export class AithemaSession extends HTMLElement {
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
             <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></div></div><div class="email-ask-pane"></div><button class="email-ask-fold" type="button" inert></button></div>
-        <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside>
+        <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button><small class="export-reason" id="export-reason" data-copy="deviceExportUnavailable"></small></footer></aside>
       <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
       <footer class="display-foot"><div class="display-foot__row">
@@ -340,7 +340,8 @@ export class AithemaSession extends HTMLElement {
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
       consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
       retry: () => this.#refreshFeatures(),
-      settings: opener => this.#dialog.openAt('model', '[data-select="visuals"]', opener),
+      settings: opener => this.#dialog.openAt('model', this.#session.processingPreset === 'device'
+        ? '.preset-option[data-preset="device"]' : '[data-select="visuals"]', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');
@@ -774,9 +775,18 @@ export class AithemaSession extends HTMLElement {
     const create = this.shadowRoot.querySelector('.create-project');
     // Keep the footer's space while removing the device handoff from sight and interaction.
     if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device; }
-    exported.setAttribute('aria-label', device ? `${this.#copy.export}${reasonSeparator}${this.#copy.deviceExportUnavailable}` : this.#copy.export);
-    if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
-    else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
+    const reason = this.shadowRoot.querySelector('.export-reason');
+    setText(reason, this.#copy.deviceExportUnavailable);
+    reason.style.visibility = device ? 'visible' : 'hidden'; reason.setAttribute('aria-hidden', String(!device));
+    exported.setAttribute('aria-label', this.#copy.export);
+    exported.setAttribute('role', 'link'); exported.tabIndex = 0;
+    if (device) {
+      exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true');
+      exported.setAttribute('aria-describedby', reason.id); exported.title = this.#copy.deviceExportUnavailable;
+    } else {
+      exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled');
+      exported.removeAttribute('aria-describedby'); exported.title = '';
+    }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
   }
   async #loadCatalog() {

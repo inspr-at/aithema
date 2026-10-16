@@ -322,6 +322,7 @@ export class SettingsDialog {
     this.#setTab(tab);
     const target = this.#q(anchor), body = this.#q('.settings__body');
     if (target && body) body.scrollTop = Math.max(0, target.offsetTop - body.offsetTop - 12);
+    target?.focus({ preventScroll: true });
     this.#help = tab; this.#showHelp();
   }
   async reload() {

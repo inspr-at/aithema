@@ -201,7 +201,7 @@ export class ConceptView {
     if (initial || !this.#session.paused || consentChanged || this.#session.consentWithdrawn || this.#session.tombstone) {
       const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
       const disabled = !feature.available && (feature.rawReason ?? feature.reason) === 'visuals off';
-      if ((disabled || line.recovery) && !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError) {
+      if ((disabled || line.recovery && (!this.items.length || !feature.available)) && !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError) {
         // The same native action as C1; only the destination differs.
         if (!text.querySelector('.drafts-settings-action')) {
           const label = document.createElement('span'), action = reasonAction('', opener => text.dataset.recovery === 'retry' ? void this.retry?.() : this.settings?.(opener));
