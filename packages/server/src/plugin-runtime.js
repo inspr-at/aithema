@@ -219,11 +219,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const durationBinding = raw => createDurationBinding(
     registry.get(raw.plugin)?.ports?.serverAdapter?.normalizeBinding?.(raw) ?? raw);
   async function evaluate(session, preset, feature, options) {
-    const guard = storage.creditState(session.id);
-    if (!options.existingCall && guard && (['ending', 'ended'].includes(guard.status) ||
-      guard.status === 'active' && Math.max(now(), guard.lastNow) >= guard.endsAt)) {
-      return { reason: guard.endReason ?? 'one-hour' };
-    }
+    const terminalReason = !options.existingCall && conversationLimits.reason(session.id);
+    if (terminalReason) return { reason: terminalReason };
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };

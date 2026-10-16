@@ -236,7 +236,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
-  pluginRuntime.conversationLimits.configure({ publish: broadcast, now: host?.now ?? voice?.now,
+  pluginRuntime.conversationLimits.configure({ publish: broadcast, now: voice?.now ?? host?.now,
     durationMs: host?.credits?.durationMs });
   async function eraseConversation(id, guard, ownerToken) {
     const event = storage.erase(id, guard);

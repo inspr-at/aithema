@@ -264,7 +264,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         ...opts, spendDeadlineAt, allowPaused: continuation, voiceContinuation: continuation,
       } }); entry.admission = admitted;
       const end = Math.min(spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000,
-        runtime.conversationLimits.deadline(sessionId));
+        runtime.conversationLimits?.deadline(sessionId) ?? Infinity);
       if (end <= now()) throw new PluginError('deadline');
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
@@ -462,9 +462,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         storage.transitionVoiceLifecycle(id, authority.callId, { type: 'end', reason }); endAuthority(id, authority.callId);
       }
       // Recovery can have durable logical calls without an in-memory authority.
-      for (const record of storage.voiceCalls(id)) {
-        const logical = storage.voiceLifecycle(id, record.callId);
-        if (logical && logical.state !== 'ended') storage.transitionVoiceLifecycle(id, record.callId, { type: 'end', reason });
+      if (['one-hour', 'session', 'voiceVisitor', 'host-limit'].includes(reason)) {
+        for (const record of storage.voiceCalls(id)) {
+          const logical = storage.voiceLifecycle(id, record.callId);
+          if (logical && logical.state !== 'ended') storage.transitionVoiceLifecycle(id, record.callId, { type: 'end', reason });
+        }
       }
     },
     async pauseSession(id, paused, opts = {}) {

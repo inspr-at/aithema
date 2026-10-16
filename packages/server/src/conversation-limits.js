@@ -37,6 +37,11 @@ export function createConversationLimits({ storage, now = Date.now, durationMs =
       if (!Number.isSafeInteger(durationMs) || durationMs < 1 || durationMs > CONVERSATION_LIMIT_MS) throw new TypeError('Invalid conversation deadline');
     },
     transition,
+    reason(id) {
+      const state = storage.creditState(id);
+      if (['ending', 'ended'].includes(state?.status)) return state.endReason ?? 'session';
+      return state?.status === 'active' && Math.max(now(), state.lastNow) >= state.endsAt ? 'one-hour' : null;
+    },
     assertOpen(id) { const reason = check(id); if (reason) throw new PluginError('not-admitted', reason); },
     start(id) {
       this.assertOpen(id);

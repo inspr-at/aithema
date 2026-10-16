@@ -586,6 +586,7 @@ for (const [kind, create, binding, recognizes] of [
 for (const lane of ['reaction', 'understanding']) test(`AIT-261: paid ${lane} dispatched before expiry completes and settles at the hour`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
   const h = setup(t, undefined, { now: () => clock }), gate = deferred(), started = deferred();
   t.after(() => h.runtime.conversationLimits.close());
   const admitted = await h.runtime.admit({ session: h.session, lane, operation: lane === 'reaction' ? 'stream' : 'structured', request });
@@ -609,6 +610,7 @@ for (const lane of ['reaction', 'understanding']) test(`AIT-261: paid ${lane} di
 for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: paid dispatch refused ${stage} retains its entire reservation`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
   const h = setup(t, undefined, { now: () => clock });
   t.after(() => h.runtime.conversationLimits.close());
   const admitted = await h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request });

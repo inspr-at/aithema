@@ -175,8 +175,8 @@ export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS } 
   return { sessionId, status: 'ready', startedAt: null, endsAt: null, durationMs, lastNow: 0,
     balance: null, endReason: null, paused: false };
 }
-/** Hosts persist one guard state per owner. New/reset attach its existing state
- * to the new conversation, retaining elapsed time, pause and terminal status. */
+/** Legacy guard rebinding helper. Server deadlines are per conversation:
+ * New/reset use createCredits; recovery keeps the original session and deadline. */
 export function rebindCredits(state, sessionId) {
   if (!id(state?.sessionId) || !id(sessionId)) throw new TypeError('Invalid credit conversation');
   return { ...structuredClone(state), sessionId, balance: null };
