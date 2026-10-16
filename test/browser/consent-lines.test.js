@@ -205,14 +205,14 @@ for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settin
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
     const state = await shadow(page, async (c, { target }) => {
       const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
-      const r = c.shadowRoot, editor = r.querySelector('.consent-editor');
+      const r = c.shadowRoot, editor = r.querySelector('.consent-editor'), body = r.querySelector('.settings__body');
       globalThis.ait231Focus = r.activeElement;
       return { target: r.activeElement?.value, checked: [...editor.querySelectorAll('input')].filter(n => n.checked).map(n => n.value),
         rows: editor.querySelectorAll('input').length, status: editor.querySelector('.consent-status').textContent,
         enabled: !r.querySelector('.consent-save').disabled,
         mockLabel: editor.textContent.includes(copy.host.consentTitle),
         font: getComputedStyle(c).getPropertyValue('--aithema-font').trim(),
-        horizontalOverflow: editor.scrollWidth > editor.clientWidth, expectedTarget: target };
+        horizontalOverflow: body.scrollWidth > body.clientWidth, expectedTarget: target };
     }, { target, mock });
     assert.equal(state.target, target); assert.equal(state.rows, mock ? 1 : CONSENT_ITEMS.length);
     assert.deepEqual(state.checked, selected); assert.equal(state.status, ''); assert.equal(state.enabled, true);
