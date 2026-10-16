@@ -167,6 +167,7 @@ test('the server admits only the host allowlist: unknown, crafted, unconfigured 
     [{ voice: 'unknown-voice' }, 409, 'voice', 'not offered'],
     [{ visuals: 'fake-images' }, 409, 'visuals', 'not configured'],
     [{ processingPreset: 'eu' }, 409, 'model', 'processing residency denied'],
+    [{ confirm: 'true' }, 400], [{ confirm: 1 }, 400], [{ confirm: null }, 400],
     [{ processingPreset: 'fallback' }, 400], [{ model: 'mock', binding: mock('mock') }, 400], [{ model: '../escape' }, 400],
     [{ processingPreset: 'device', model: 'mock' }, 409, 'model', 'unavailable on device'], ['[]', 400],
   ]) {
@@ -461,7 +462,7 @@ test('visuals and voice choices drive the image and live-voice features; creatio
   assert.equal(snapshot.featureMatrix.custom.images.reason, 'visuals off'); assert.equal(snapshot.conceptCost, null);
   const concept = await h.call(`/${id}/concepts`, { clientEventId: 'wish', intent: true, sourceTurnId: 'none' });
   assert.equal(concept.status, 403, 'visual concepts are refused while visuals are off');
-  for (const [body, status] of [[{ settings: { model: 'evil/model' } }, 409], [{ settings: 'deep' }, 400], [{ processingPreset: 'eu', settings: {} }, 409]]) {
+  for (const [body, status] of [[{ settings: { model: 'evil/model' } }, 409], [{ settings: 'deep' }, 400], [{ confirm: 'true' }, 400], [{ processingPreset: 'eu', settings: {} }, 409]]) {
     assert.equal((await h.create(body)).response.status, status, JSON.stringify(body));
   }
 });

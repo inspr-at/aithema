@@ -766,7 +766,7 @@ export class AithemaSession extends HTMLElement {
   #newConversation({ processingPreset, settings }) {
     this.#dialog.close();
     this.dispatchEvent(new CustomEvent('aithema-new-conversation', { detail: { processingPreset, settings: structuredClone(settings ?? {}),
-      previousSessionId: this.#session.id }, bubbles: true, composed: true }));
+      previousSessionId: this.#session.id, confirm: true }, bubbles: true, composed: true }));
   }
   async #saveConsent(body) {
     const sessionId = this.#session.id;
@@ -1399,7 +1399,7 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     const sessionId = this.#session.id, view = engineView(this.#session), settings = this.#session.settings ?? {};
-    const body = { processingPreset: choice, baseRevision: settings.revision ?? 0 };
+    const body = { processingPreset: choice, baseRevision: settings.revision ?? 0, confirm: true };
     const id = value => value === SETTINGS_OFF ? SETTINGS_OFF : value?.id;
     // Confirming the offered preset keeps the offered (possibly last) choice exactly.
     if (choice === current && choice !== 'device') Object.assign(body, { model: view.model?.id, effort: view.effort ?? undefined,

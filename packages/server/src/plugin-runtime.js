@@ -615,13 +615,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
      * Unset fields keep the current choice for the same preset, else its defaults.
      */
     async validate(session, body) {
-      const keys = ['processingPreset', 'model', 'effort', 'voice', 'visuals', 'baseRevision'];
+      const keys = ['processingPreset', 'model', 'effort', 'voice', 'visuals', 'baseRevision', 'confirm'];
       const invalid = { status: 400, error: 'invalid-settings' };
       if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !keys.includes(k))) return invalid;
       const preset = body.processingPreset ?? session.processingPreset ?? 'best';
       if (!PROCESSING_PRESETS.includes(preset) || ['model', 'voice', 'visuals'].some(k => body[k] !== undefined && body[k] !== null && !isOptionId(body[k])) ||
         body.effort !== undefined && body.effort !== null && !EFFORT_ORDER.includes(body.effort) ||
-        body.baseRevision !== undefined && (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 0)) return invalid;
+        body.baseRevision !== undefined && (!Number.isSafeInteger(body.baseRevision) || body.baseRevision < 0) ||
+        body.confirm !== undefined && typeof body.confirm !== 'boolean') return invalid;
       const refuse = (field, reason) => ({ status: 409, error: 'setting-not-allowed', field, reason });
       if (preset === 'device') {
         if (presets.device === false) return refuse('processingPreset', 'preset not configured');

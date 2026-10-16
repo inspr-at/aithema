@@ -374,7 +374,9 @@ export class SettingsDialog {
     if (this.#timer) { this.#timer = 0; await this.#save(); }
     if (this.#saving) { this.#status = this.#copy.settings.closePending; this.#render(); await this.#saving; }
     if (this.#failed) return;
-    if (this.#pending() && !this.#notice?.explicit) { await this.#save(); if (this.#failed || this.#pending()) return; }
+    if ((this.#pending() || this.#ports.state().session.settings?.origin !== 'chosen') && !this.#notice?.explicit) {
+      await this.#save(false, true); if (this.#failed || this.#pending() || this.#notice?.explicit) return;
+    }
     this.close();
   }
   #setTab(tab, focus = false) {
@@ -426,10 +428,11 @@ export class SettingsDialog {
     else void this.#save();
   }
   // One writer: edits made while a save runs are drained after its acknowledgement.
-  #save(retry = false) {
+  #save(retry = false, confirm = false) {
     if (this.#saving) return this.#saving.then(() => { if (this.#pending() && !this.#failed && !this.#timer) return this.#save(); });
     const drain = async () => {
-      while (this.#pending() && this.#dialog.open && !this.#closing) {
+      while ((this.#pending() || confirm) && this.#dialog.open && !this.#closing) {
+        confirm = false;
         if (this.#timer) break;
         const c = this.#copy.settings, state = this.#ports.state(), draft = { ...this.#draft }, revision = this.#revision;
         const crossing = (this.#active.processingPreset === 'device') !== (draft.processingPreset === 'device');
@@ -443,7 +446,7 @@ export class SettingsDialog {
         if (state.voiceActive) { this.#callNotice(); break; }
         this.#status = c.saving; this.#busy = true; this.#render();
         let result;
-        try { result = await this.#ports.save({ processingPreset: draft.processingPreset, ...this.#settingsOf(draft), baseRevision: this.#active.revision }); }
+        try { result = await this.#ports.save({ processingPreset: draft.processingPreset, ...this.#settingsOf(draft), baseRevision: this.#active.revision, confirm: true }); }
         finally { this.#busy = false; }
         if (result.ok) {
           const ack = result.ack;

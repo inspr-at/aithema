@@ -317,7 +317,7 @@ test('crossing the device boundary in a started conversation starts a new conver
   assert.equal(h.q('.notice-text').textContent, en.settings.toDevice); assert.equal(h.q('.notice-action').textContent, en.settings.startDevice);
   assert.equal(h.q('[data-select="voice"] .select__button').getAttribute('aria-disabled'), 'true', 'device keeps voice unavailable');
   h.q('.notice-action').click(); await tick();
-  assert.deepEqual(requested, { processingPreset: 'device', settings: {}, previousSessionId: h.c.session.id });
+  assert.deepEqual(requested, { processingPreset: 'device', settings: {}, previousSessionId: h.c.session.id, confirm: true });
   assert.equal(h.dialog.open, false);
 });
 

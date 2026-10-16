@@ -130,6 +130,7 @@ test('AIT-129: German entrance → mock consent → readiness, withdrawal, store
   assert.equal(await page.$eval('#source', a => getComputedStyle(a).display !== 'none'), true);
   await page.click('[data-select-all]'); await saveAndReturn(page, '[data-grant]');
   await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.intro').dataset.mode === 'ready');
+  assert.equal(await page.$eval('aithema-session', c => c.session.settings.origin), 'chosen', 'the unchanged entrance choice survives the consent return');
   assert.equal(await page.$eval('aithema-session', c => c.session.featureMatrix.best.text.available), true);
   assert.equal(await page.evaluate(() => globalThis.__microphoneRequests), 0); assert.deepEqual(voice, []);
   await visitConsent(page, demo.url); assert.equal(await page.$eval('input', b => b.checked), true);
