@@ -149,7 +149,7 @@ export const en = {
     visuals: 'Visual concepts · Add generated interface sketches to the written concept.',
     visualsOff: 'Visual concepts off · No images are generated.',
     unavailable: 'Unavailable · {reason}',
-    consentNeeded: 'Consent needed · You can choose this option. It processes nothing until the host has your consent for it.',
+    consentNeeded: '{reason} · You can choose this option. It processes nothing until the host has your consent for it.',
     limited: 'Currently unavailable · {reason}. You can still choose it; it starts once this clears.',
     consent: 'Consent · Choosing a model never grants consent. The host asks for it separately.',
     providers: 'Providers & data processing · Details about your selection and how the gauges are computed.',

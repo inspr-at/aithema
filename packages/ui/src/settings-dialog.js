@@ -8,6 +8,11 @@ import { modelDisplayName } from './display.js';
 import { OperatorSettings } from './operator-settings.js';
 
 const SAVE_MESSAGES = ['autosave', 'saving', 'saved', 'failed', 'closePending'];
+const helpMeasurements = copy => {
+  const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => featureConsentText(copy, feature))
+    .reduce((longest, text) => text.length > longest.length ? text : longest, '');
+  return Object.entries(copy.help).map(([key, text]) => fill(text, { reason: key === 'consentNeeded' ? reason : '' }));
+};
 
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const stars = Array.from({ length: 12 }, (_, i) => `<path d="m0-2 .6 1.3 1.4.2-1 1 .2 1.4L0 1.2l-1.2.7.2-1.4-1-1 1.4-.2Z" transform="translate(${(16 + 10 * Math.sin(i * Math.PI / 6)).toFixed(2)} ${(16 - 10 * Math.cos(i * Math.PI / 6)).toFixed(2)})" fill="currentColor" stroke="none"/>`).join('');
@@ -143,7 +148,7 @@ export class SettingsDialog {
     const measure = (parent, texts, className) => parent.append(...texts.map(text => {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
     }));
-    measure(this.#q('.context-text'), Object.values(this.#copy.help).map(text => fill(text, { reason: '' })), 'context-measure');
+    measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
@@ -159,7 +164,8 @@ export class SettingsDialog {
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
-    this.#all('.context-measure').forEach((n, i) => { n.textContent = fill(Object.values(copy.help)[i] ?? '', { reason: '' }); });
+    const measurements = helpMeasurements(copy);
+    this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     this.#q('.notice-measure .notice-text').textContent = notices.reduce((a, b) => b.length > a.length ? b : a);
     this.#paintKeys.clear(); this.sync();
@@ -484,7 +490,7 @@ export class SettingsDialog {
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
     const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? this.#q('.host-verify').dataset.emailHelp ?? key : key;
-    const text = isConsentReason(reason) ? featureConsentText(this.#copy, term?.dataset.feature ?? 'text')
+    const text = isConsentReason(reason) ? fill(help.consentNeeded, { reason: featureConsentText(this.#copy, term?.dataset.feature ?? 'text') })
       : term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason, term?.dataset.feature ?? 'text') })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;

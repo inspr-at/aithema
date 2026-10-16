@@ -75,6 +75,9 @@ async function scene(page, locale, theme, width, missing) {
     const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
     const { inputRevision } = await import('/packages/core/src/session.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.consentSeed);
+    c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+    c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+    document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
     session.locale = locale; session.seq = 100; session.consentRevision = 1;
     session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs'; session.conceptVisualKind = 'html';
     session.conceptCost = { maxMicro: 10000 }; session.featureMatrix = matrix;
@@ -112,7 +115,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
   for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const feature of ['html', 'voice', 'analysis']) {
     const label = `${locale}-${theme}-${width}-${feature}`;
     await scene(page, locale, theme, width, [feature]);
-    const selector = places[feature], expected = `${words[locale][feature]} · ${words[locale].action}`;
+    const selector = places[feature], expected = `${words[locale][feature]}\u00a0· ${words[locale].action}`;
     const state = await shadow(page, (c, { selector, expected }) => {
       const r = c.shadowRoot, line = r.querySelector(selector);
       return { text: line.textContent, lines: [...r.querySelectorAll('[data-consent-feature]')].filter(n => n.textContent === expected).length,
@@ -196,7 +199,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
     session.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: { available: false, reason: 'current processing consent required' } };
     c.configure({ session, copy });
   });
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…');
   await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
   const before = await boxes(page, geometry);
   await page.locator('aithema-session >>> .notice button').click();
@@ -205,7 +208,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…', 'drafts keep their separate refusal');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
 
@@ -273,7 +276,7 @@ test('AIT-197 R2 images: the stage uses image consent words', async t => {
     await scene(page, locale, 'light', 390, ['html']);
     await shadow(page, async (c, locale) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); const session = structuredClone(c.session);
       session.conceptVisualKind = 'image'; session.featureMatrix.best.images = session.featureMatrix.best.html; c.configure({ session, copy }); }, locale);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung · Einwilligen…' : 'Images need your consent · Give consent…');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung\u00a0· Einwilligen…' : 'Images need your consent\u00a0· Give consent…');
     await record(t, page, `${locale}-image-line`, { images: true });
   }
 });
@@ -468,6 +471,77 @@ async function noGenericConsent(page, label) {
   return { accessibility: true, exposedCopy: true };
 }
 
+async function capture215(t, page, label, values, interaction = null) {
+  if (interaction !== 'focus') await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+  // A requested hover/focus shot retains that interaction; all other shots have the pointer outside.
+  if (interaction !== 'hover') await page.mouse.move(-10, -10);
+  await frame(page);
+  await shadow(page, async c => {
+    await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+      .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+  });
+  const ready = await shadow(page, c => ({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+    blurred: !c.shadowRoot.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]'),
+    font: getComputedStyle(c).getPropertyValue('--aithema-font').trim() }));
+  assert.equal(ready.reducedMotion, true);
+  if (interaction !== 'focus') assert.equal(ready.blurred, true);
+  const pass = { head: evidenceCommit, label, ...values, ...ready, interaction, viewportOnly: true, baselineFonts: true, pass: true };
+  t.diagnostic(`PASS AIT-215 ${JSON.stringify(pass)}`);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-215'); await mkdir(dir, { recursive: true });
+    await page.screenshot({ path: join(dir, label + '.png'), fullPage: false, captureBeyondViewport: false });
+    await writeFile(join(dir, label + '.json'), JSON.stringify(pass, null, 2));
+  }
+}
+
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent action opens the text item and saves in place, 390/1440`, async t => {
+  const page = await fixture(t);
+  for (const width of [390, 1440]) {
+    await scene(page, locale, 'light', width, ['text']);
+    await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+    await frame(page);
+    const state = await shadow(page, async c => {
+      const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason');
+      return { text: line.textContent, expected: `${copy.featureConsent.text}\u00a0· ${copy.featureConsent.action}`,
+        action: line.querySelector('.consent-action')?.textContent, expectedAction: copy.featureConsent.action,
+        inputDisabled: r.querySelector('textarea').disabled, sendDisabled: r.querySelector('.send').disabled,
+        reasonFits: line.scrollHeight <= line.clientHeight && line.scrollWidth <= line.clientWidth };
+    });
+    assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
+    assert.equal(state.inputDisabled, true); assert.equal(state.sendDisabled, true); assert.equal(state.reasonFits, true, 'two-line reason needs no scrolling');
+    const selectors = ['.composer-shell', '.composer', 'textarea', '.send'];
+    const before = await boxes(page, selectors);
+    await capture215(t, page, `${locale}-light-${width}-composer-action`, { locale, width, ...state, composerBox: before[1] });
+    await page.locator('aithema-session >>> .composer-reason .consent-action').click();
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('dialog.settings').open && r.activeElement?.value === 'models-international';
+    });
+    const target = await shadow(page, c => {
+      const r = c.shadowRoot, rows = [...r.querySelectorAll('.consent-item')];
+      return { focused: r.activeElement.value,
+        tinted: rows.filter(n => getComputedStyle(n, '::before').content !== 'none').map(n => n.querySelector('input').value) };
+    });
+    assert.equal(target.focused, 'models-international'); assert.deepEqual(target.tinted, ['models-international'], 'AIT-197 B tint is on the text consent item only');
+    await page.keyboard.press('Space');
+    await page.locator('aithema-session >>> .consent-save').click();
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return !r.querySelector('dialog.settings').open && !r.querySelector('textarea').disabled && !r.querySelector('.send').disabled;
+    });
+    await frame(page);
+    const saved = await shadow(page, c => ({ sameDocument: globalThis.documentToken === globalThis.c1Document,
+      sameNodes: globalThis.c1Nodes.every(n => n.isConnected), inputEnabled: !c.shadowRoot.querySelector('textarea').disabled,
+      sendEnabled: !c.shadowRoot.querySelector('.send').disabled, actionRemoved: !c.shadowRoot.querySelector('.composer-reason .consent-action') }));
+    assert.deepEqual(saved, { sameDocument: true, sameNodes: true, inputEnabled: true, sendEnabled: true, actionRemoved: true });
+    assert.equal(page.posts.length, 1);
+    assert.deepEqual([...page.posts[0].processing.items].sort(), CONSENT_ITEMS.map(i => i.id).sort());
+    assert.deepEqual(await boxes(page, selectors), before, 'composer, input and send move 0 px after saving consent');
+    if (width === 390) await capture215(t, page, `${locale}-light-${width}-composer-enabled`, { locale, width, ...saved, ...target, layoutShiftPx: 0 });
+  }
+});
+
 for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent in AT, intake, Settings, hover or focus`, { timeout: 120_000 }, async t => {
   const page = await fixture(t);
   const passes = [];
@@ -523,13 +597,20 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent i
         const expected = await row.evaluate(async n => {
           if (!n.dataset.reason?.includes('current processing consent required')) return null;
           const locale = document.documentElement.lang, { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-          return copy.featureConsent[n.dataset.feature ?? 'text'];
+          return copy.help.consentNeeded.replace('{reason}', copy.featureConsent[n.dataset.feature ?? 'text']);
         });
         await row.hover(); await noGenericConsent(page, `${locale}/${width}/${selector}/${index}/hover`);
-        if (expected) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected, 'hover help uses the feature C1 sentence');
+        if (expected) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected, 'hover help uses the feature C1 sentence and the unchanged explanation');
+        if (expected && width === 1440 && selector === '.preset-option' && index === 0) {
+          await capture215(t, page, `${locale}-light-1440-settings-help-hover`, { locale, width, help: expected }, 'hover');
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected);
+        }
         await page.mouse.move(-10, -10); await row.focus();
         await noGenericConsent(page, `${locale}/${width}/${selector}/${index}/focus`);
-        if (expected) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected, 'focus help uses the feature C1 sentence');
+        if (expected) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected, 'focus help uses the feature C1 sentence and the unchanged explanation');
+        if (expected && width === 1440 && selector === '.preset-option' && index === 0) {
+          await capture215(t, page, `${locale}-light-1440-settings-help-focus`, { locale, width, help: expected }, 'focus');
+        }
         assert.deepEqual(await boxes(page, ['dialog.settings', '.settings__header', '.settings__footer']), geometryBefore, 'hover/focus help shifts layout by 0 px');
         await row.dispose();
       }
@@ -561,12 +642,17 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       const lines = Object.fromEntries(['html', 'voice', 'analysis'].map(feature => {
         const selector = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
         const line = c.shadowRoot.querySelector(selector).textContent;
-        if (line !== `${copy.featureConsent[feature]} · ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
+        if (line !== `${copy.featureConsent[feature]}\u00a0· ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
         return [feature, line];
       }));
+      const label = c.shadowRoot.querySelector('.voice-state .consent-line-copy').firstChild;
+      const dot = label.textContent.indexOf('·'), range = document.createRange();
+      range.setStart(label, dot - 2); range.setEnd(label, dot - 1); const letterBox = range.getBoundingClientRect();
+      range.setStart(label, dot); range.setEnd(label, dot + 1); const dotBox = range.getBoundingClientRect();
+      if (letterBox.y !== dotBox.y || dotBox.x < letterBox.right) throw new Error('Rail separator starts a line');
       const r = c.shadowRoot;
       r.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
-      return { lines, locale: document.documentElement.lang, font: getComputedStyle(c).getPropertyValue('--aithema-font').trim() };
+      return { lines, separatorStartsLine: false, locale: document.documentElement.lang, font: getComputedStyle(c).getPropertyValue('--aithema-font').trim() };
     }, locale);
     await page.mouse.move(-10, -10); await frame(page);
     await shadow(page, async c => {
@@ -579,14 +665,14 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
     // The reason's existing slot must keep its geometry when the longer legacy text is replaced.
     const before = await boxes(page, geometry);
     const legacy = await shadow(page, async c => {
-      const r = c.shadowRoot, line = r.querySelector('.composer-reason'), current = line.textContent;
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason'); globalThis.composerConsentNodes = [...line.childNodes];
       const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
       line.textContent = copy.reasons['current processing consent required'];
-      return { current, boxes: ['.band', '.concept-bar', '.understanding', '.notice', '.composer'].map(selector => {
+      return { boxes: ['.band', '.concept-bar', '.understanding', '.notice', '.composer'].map(selector => {
         const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
       }) };
     });
-    await shadow(page, (c, current) => { c.shadowRoot.querySelector('.composer-reason').textContent = current; }, legacy.current);
+    await shadow(page, c => { c.shadowRoot.querySelector('.composer-reason').replaceChildren(...globalThis.composerConsentNodes); });
     assert.deepEqual(legacy.boxes, before, 'feature copy changes layout by 0 px');
     assert.deepEqual(await boxes(page, geometry), before);
     const pass = { head: evidenceCommit, label: `${locale}-${theme}-${width}-consent-missing`, ...state, width, theme,

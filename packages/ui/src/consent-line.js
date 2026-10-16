@@ -19,7 +19,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
   }
   const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
   label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
-  setText(line.querySelector('.consent-line-copy'), `${featureConsentText(copy, feature)} · `);
+  setText(line.querySelector('.consent-line-copy'), `${featureConsentText(copy, feature)}\u00a0· `);
   setText(action, copy.featureConsent.action);
   line.dataset.consentFeature = feature;
   return blocked;

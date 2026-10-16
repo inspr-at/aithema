@@ -75,6 +75,20 @@ function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnecto
 }
 async function opened(h) { h.c.openSettings(); await tick(); return h; }
 
+for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-215 ${locale}: consent help keeps C1 and the safe-choice explanation on hover and focus`, async t => {
+  const h = await opened(fixture(t, { copy }));
+  const row = h.q('.preset-option[data-preset="custom"]');
+  const expected = locale === 'de'
+    ? 'Nachrichten brauchen Ihre Einwilligung · Sie können diese Option wählen. Sie verarbeitet nichts, bevor der Host Ihre Einwilligung dafür hat.'
+    : 'Messages need your consent · You can choose this option. It processes nothing until the host has your consent for it.';
+  row.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
+  assert.equal(h.q('.context-message').textContent, expected, 'hover');
+  row.dispatchEvent(new window.Event('pointerout', { bubbles: true }));
+  row.focus();
+  assert.equal(h.root.activeElement, row);
+  assert.equal(h.q('.context-message').textContent, expected, 'focus');
+});
+
 const guestIdentity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true, pollVerification: false };
 const emailHelp = {
   de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',

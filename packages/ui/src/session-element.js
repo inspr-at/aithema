@@ -868,7 +868,10 @@ export class AithemaSession extends HTMLElement {
       // An upload refusal stands until the person types or attaches again.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
-      setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
+      paintConsentLine(reason, { copy, feature: 'text', text: words,
+        verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
+        open: opener => this.#dialog.openConsent('text', opener) });
+      reason.title = this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
