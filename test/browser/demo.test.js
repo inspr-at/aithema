@@ -1441,10 +1441,22 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     const chipSelector = textChip;
     // The pointer rests on the button and the keyboard presses it, so both anchoring and focus are checked.
     const rowBefore = await restOnRow(page, chipSelector, '.upload-withdraw');
+    await inShadow(page, (c, selector) => {
+      const root = c.shadowRoot, pane = root.querySelector('.transcript-shell'), row = root.querySelector(selector);
+      const samples = window.uploadAnchorSamples = [];
+      const record = type => samples.push({ type, scrollY, scrollTop: pane.scrollTop, paneTop: pane.getBoundingClientRect().top,
+        rowTop: row.getBoundingClientRect().top, slack: pane.style.cssText, active: root.activeElement?.className });
+      record('before');
+      for (const event of ['pointerleave', 'pointerenter', 'focusin', 'focusout', 'scroll']) {
+        pane.addEventListener(event, () => record(event), { capture: true });
+      }
+      new MutationObserver(() => record('mutation')).observe(pane, { attributes: true, subtree: true, childList: true });
+    }, chipSelector);
     await inShadow(page, (c, selector) => c.shadowRoot.querySelector(`${selector} .upload-withdraw`).focus({ preventScroll: true }), chipSelector);
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'upload-withdraw');
     await page.keyboard.press('Enter');
     await until(page, selector => document.querySelector('aithema-session').shadowRoot.querySelector(selector).dataset.state === 'withdrawn', chipSelector);
+    t.diagnostic(JSON.stringify(await page.evaluate(() => window.uploadAnchorSamples)));
     sameRow(rowBefore, await rowBoxes(page, chipSelector), 'accepted → withdrawn at 1440 px');
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('upload') && c.shadowRoot.activeElement.dataset.state), 'withdrawn', 'focus stays on the withdrawn row');
     assert.deepEqual((await chips())[0], { name: 'Datei zurückgezogen', size: '', state: '', withdraw: null });
