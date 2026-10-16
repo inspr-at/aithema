@@ -1,6 +1,9 @@
 import { isConsentReason } from '../../core/src/settings.js';
 import { node, setText } from './dom.js';
 
+// Keep each separator with the preceding copy or action when a reason wraps.
+export const reasonSeparator = '\u00a0· ';
+
 /** One native, underlined action for every reason line, including its first paint. */
 export function reasonAction(label, activate) {
   const action = node('button', 'consent-action', label); action.type = 'button';
@@ -21,7 +24,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
   }
   const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
   label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
-  setText(line.querySelector('.consent-line-copy'), `${copy.featureConsent[feature]} · `);
+  setText(line.querySelector('.consent-line-copy'), `${copy.featureConsent[feature]}${reasonSeparator}`);
   setText(action, copy.featureConsent.action);
   line.dataset.consentFeature = feature;
   return blocked;

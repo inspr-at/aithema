@@ -1080,7 +1080,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await until(page, key => sessionStorage.getItem(key) === null, journalKey);
     await waitForShadow(page, '.status__label', { text: 'Connected' });
-    await waitForShadow(page, '.composer-reason', { text: 'Session paused' });
+    await waitForShadow(page, '.composer-reason', { text: 'Conversation paused' });
     await new Promise(resolve => setTimeout(resolve, 1000));
     assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts the pause');
     assert.deepEqual(pauses, [], 'no pause change without the person');
@@ -1593,8 +1593,8 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await sameControls(baseline, 'four files accepted'); if (width === 400) await shot('four-accepted');
     await page.evaluate(() => { window.failUploads = true; });
     const retryChooser = await uploadChooser(page); await retryChooser.accept(paths.slice(0, 2));
-    const exhausted = locale === 'de' ? '2 Dateien nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen'
-      : '2 files not uploaded: the server is busy right now · Try again · Discard';
+    const exhausted = locale === 'de' ? '2 Dateien nicht hochgeladen: Der Server ist gerade ausgelastet\u00a0· Erneut versuchen\u00a0· Verwerfen'
+      : '2 files not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard';
     await until(page, words => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === words, exhausted);
     assert.equal(await page.evaluate(() => window.exhaustedAttempts), 3);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.attach').getAttribute('aria-disabled')), 'false');
@@ -1617,7 +1617,7 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
     await until(page, () => document.querySelector('aithema-session').session.paused);
     const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), `${refusal} · ${copy.uploads.discard}`);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), `${refusal}\u00a0· ${copy.uploads.discard}`);
     await sameControls(baseline, 'paused refusal');
     if (width === 400) await shot('retry-refused', [copy.uploads.discard]);
     await shot('paused', [copy.uploads.discard]);
@@ -1728,8 +1728,8 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
       await waitForShadow(page, '.upload-retry');
       assert.equal(await page.evaluate(() => window.retryAttempts.length) - attempts, 3, 'exhaust exactly three attempts');
       const busy = locale => locale === 'de'
-        ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen`
-        : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again · Discard`;
+        ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet\u00a0· Erneut versuchen\u00a0· Verwerfen`
+        : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard`;
       assert.equal(await line(), busy(source));
       // A refused retry must not leave a stale flag after resume and a locale change.
       await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());

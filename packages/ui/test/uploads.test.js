@@ -295,7 +295,7 @@ test('the truthful retry line appears only after three failed attempts, honoring
   t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 2);
   t.mock.timers.tick(9999); await tick(); assert.equal(attempts, 2);
   t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 3);
-  assert.equal(root.querySelector('.composer-reason').textContent, '1 file not uploaded: the server is busy right now · Try again · Discard');
+  assert.equal(root.querySelector('.composer-reason').textContent, '1 file not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard');
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
   t.mock.timers.tick(60_000); await tick(); assert.equal(attempts, 3, 'no fourth attempt');
 });
@@ -313,8 +313,8 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219: ${copy.d
   assert.equal(root.querySelector('.upload-retry'), null, 'no exhausted action during the second attempt');
   t.mock.timers.tick(10000); await tick(); await tick();
   const expected = copy === de
-    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen`
-    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again · Discard`;
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet\u00a0· Erneut versuchen\u00a0· Verwerfen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard`;
   assert.equal(root.querySelector('.composer-reason').textContent, expected);
   assert.equal(posts().length, 3); assert.equal(c.session.uploads.length, 0);
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
@@ -338,7 +338,7 @@ test('AIT-219: retry retains only unsent batches after an earlier batch succeeds
   t.mock.timers.tick(5000); await tick(); await tick();
   t.mock.timers.tick(10000); await tick(); await tick();
   assert.equal(c.session.uploads.length, 1);
-  assert.equal(root.querySelector('.composer-reason').textContent, '2 files not uploaded: the server is busy right now · Try again · Discard');
+  assert.equal(root.querySelector('.composer-reason').textContent, '2 files not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard');
   failing = false;
   root.querySelector('.upload-retry').click(); await tick(); await tick();
   assert.deepEqual(calls.filter(call => call.options.method === 'POST').slice(4).map(call => call.options.body.getAll('files').map(f => f.name)), [['refused.txt'], ['unsent.txt']]);
@@ -371,8 +371,8 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: 
   const files = Array.from({ length: count }, (_, i) => file(`retained-${i}.txt`));
   const source = copy === de ? 'de' : 'en', target = source === 'de' ? 'en' : 'de';
   const busy = locale => locale === 'de'
-    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen`
-    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again · Discard`;
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet\u00a0· Erneut versuchen\u00a0· Verwerfen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now\u00a0· Try again\u00a0· Discard`;
   const line = () => root.querySelector('.composer-reason').textContent;
   const shortcut = line();
   await exhaust(t, root, files);
@@ -383,8 +383,8 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: 
   assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'a pause removes retry without a refused click');
   assert.equal(await c.changeLocale(source), true);
   assert.equal(line(), copy === de
-    ? 'Dateien können nicht angehängt werden: Gespräch pausiert · Verwerfen'
-    : 'Files cannot be attached: Session paused · Discard');
+    ? 'Dateien können nicht angehängt werden: Gespräch pausiert\u00a0· Verwerfen'
+    : 'Files cannot be attached: Conversation paused\u00a0· Discard');
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
   assert.equal(await c.changeLocale(target), true);
   assert.equal(line(), busy(target), 'a resolved refusal returns to the full retained-file count');
@@ -405,7 +405,7 @@ for (const copy of [de, en]) {
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
     const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
     assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'no retry while paused');
-    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal} · ${copy.uploads.discard}`);
+    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal}\u00a0· ${copy.uploads.discard}`);
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
     const discard = root.querySelector('.upload-discard');
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
@@ -427,7 +427,7 @@ for (const copy of [de, en]) {
     const refusal = ceiling === 'count' ? copy.uploads.tooMany.replace('{files}', '1')
       : copy.uploads.sessionFull.replace('{size}', '4 B');
     assert.equal(Boolean(root.querySelector('.upload-retry')), false, 'no retry while over limits');
-    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal} · ${copy.uploads.discard}`);
+    assert.equal(root.querySelector('.composer-reason').textContent, `${refusal}\u00a0· ${copy.uploads.discard}`);
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
     state(c, { id: 'takes-last-slot', state: 'withdrawn', withdrawn: true, erased: true });
     assert.equal(root.querySelector('.composer-reason').textContent, busy);
@@ -442,7 +442,7 @@ for (const copy of [de, en]) {
     await exhaust(t, root, [file('retained.txt'), file('tool.exe')]);
     const refused = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'tool.exe'));
     assert.equal(root.querySelector('.composer-reason').textContent,
-      `${refused} · ${copy.uploads.notUploaded.one} · ${copy.uploads.tryAgain} · ${copy === de ? 'Verwerfen' : 'Discard'}`);
+      `${refused}\u00a0· ${copy.uploads.notUploaded.one}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy === de ? 'Verwerfen' : 'Discard'}`);
     root.querySelector('textarea').dispatchEvent(new window.Event('input'));
     assert.ok(root.querySelector('.composer-reason').textContent.startsWith(refused), 'typing cannot swallow a refusal while files are retained');
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
@@ -459,7 +459,7 @@ for (const copy of [de, en]) test(`AIT-219 round 6: ${copy.display.locale} a bus
   const replacement = copy === de ? 'Die zuvor nicht hochgeladenen Dateien wurden durch die neue Auswahl ersetzt.'
     : 'The previously unuploaded files were replaced by the new selection.';
   assert.equal(root.querySelector('.composer-reason').textContent,
-    `${replacement} · ${copy.uploads.notUploaded.other.replace('{count}', '2')} · ${copy.uploads.tryAgain} · ${copy === de ? 'Verwerfen' : 'Discard'}`);
+    `${replacement}\u00a0· ${copy.uploads.notUploaded.other.replace('{count}', '2')}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy === de ? 'Verwerfen' : 'Discard'}`);
   root.querySelector('.upload-discard').click();
   assert.deepEqual(await retainedFiles(c), []);
 });
@@ -587,7 +587,7 @@ test('gating: unavailable uploads keep Attach focusable, say the server reason a
   // A pause closes uploading with its own reason.
   const paused = setup(t, { feature: { available: true, reason: null } });
   paused.c.receive({ sessionId: paused.c.session.id, seq: paused.c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(paused.root.querySelector('.attach').title, 'Files cannot be attached: Session paused');
+  assert.equal(paused.root.querySelector('.attach').title, 'Files cannot be attached: Conversation paused');
 });
 
 test('dropping files on the conversation uploads them; the overlay is absolutely placed and leaves on drop', async t => {

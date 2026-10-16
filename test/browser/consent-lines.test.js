@@ -110,7 +110,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
   for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const feature of ['html', 'voice', 'analysis']) {
     const label = `${locale}-${theme}-${width}-${feature}`;
     await scene(page, locale, theme, width, [feature]);
-    const selector = places[feature], expected = `${words[locale][feature]} · ${words[locale].action}`;
+    const selector = places[feature], expected = `${words[locale][feature]}\u00a0· ${words[locale].action}`;
     const state = await shadow(page, (c, { selector, expected }) => {
       const r = c.shadowRoot, line = r.querySelector(selector);
       return { text: line.textContent, lines: [...r.querySelectorAll('[data-consent-feature]')].filter(n => n.textContent === expected).length,
@@ -194,7 +194,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
     session.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: { available: false, reason: 'current processing consent required' } };
     c.configure({ session, copy });
   });
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…');
   await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
   const before = await boxes(page, geometry);
   await page.locator('aithema-session >>> .notice button').click();
@@ -203,7 +203,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…', 'drafts keep their separate refusal');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
 
@@ -271,7 +271,7 @@ test('AIT-197 R2 images: the stage uses image consent words', async t => {
     await scene(page, locale, 'light', 390, ['html']);
     await shadow(page, async (c, locale) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); const session = structuredClone(c.session);
       session.conceptVisualKind = 'image'; session.featureMatrix.best.images = session.featureMatrix.best.html; c.configure({ session, copy }); }, locale);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung · Einwilligen…' : 'Images need your consent · Give consent…');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung\u00a0· Einwilligen…' : 'Images need your consent\u00a0· Give consent…');
     await record(t, page, `${locale}-image-line`, { images: true });
   }
 });
@@ -364,7 +364,7 @@ for (const feature of ['voice', 'html']) test(`AIT-197 R2 High: removing only ${
   await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   assert.equal(page.posts[0].granted, true); assert.equal(await shadow(page, c => c.session.consentWithdrawn), false);
-  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]} · ${words.de.action}`);
+  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]}\u00a0· ${words.de.action}`);
 });
 
 for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AIT-197 R3 ${locale}: paused consent with ${project ? 'earlier project' : 'only off-topic turns'}, 390/1440 L/D`, { timeout: 120_000 }, async t => {

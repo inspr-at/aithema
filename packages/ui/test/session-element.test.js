@@ -91,7 +91,7 @@ test('unsolicited live renders keep focused summaries and keyed aside items in p
   assert.ok(root.querySelectorAll('.questions li')[1] === questions[1], 'an unchanged item after a grown one keeps its node');
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.ok([...root.querySelectorAll('.features li')].every((row, i) => row === features[i]) && features.length > 0, 'feature rows keep their nodes');
-  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  assert.match(root.querySelector('.features').textContent, /Conversation paused/);
 });
 test('empty aside lists say so quietly once assessed and stay hidden before', () => {
   const c = setup(), root = c.shadowRoot;
@@ -560,13 +560,13 @@ test('pause and consent gate sends and preset rows immediately while cached unde
   preset.dispatchEvent(new window.Event('pointerenter'));
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
-  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  assert.match(root.querySelector('.features').textContent, /Conversation paused/);
   assert.equal(root.querySelector('.status__label').textContent, en.connecting, 'the status line keeps its connection state during pause');
   assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
   assert.equal(root.querySelector('.readiness').style.visibility, '');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
   preset.dispatchEvent(new window.Event('pointerleave'));
-  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  assert.match(root.querySelector('.features').textContent, /Conversation paused/);
   root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
   root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
   c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
@@ -720,7 +720,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
-    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent · Give consent…');
+    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent\u00a0· Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });
@@ -961,7 +961,7 @@ for (const copy of [de, en]) for (const reason of ['not configured', 'budget den
   c.configure({ session, copy });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.notice').textContent, reason === 'current processing consent required'
-    ? `${copy.featureConsent.analysis} · ${copy.featureConsent.action}` : copy.reasons[reason]);
+    ? `${copy.featureConsent.analysis}\u00a0· ${copy.featureConsent.action}` : copy.reasons[reason]);
   assert.equal(root.querySelector('.notice button') !== null, reason === 'current processing consent required');
   assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), reason !== 'current processing consent required', 'the consent action stays interactive');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');

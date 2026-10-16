@@ -248,7 +248,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     assert.equal(pausedAfterCall.overview, idle.overview, `${label}: F6 overview keeps its last content`);
     assert.equal(pausedAfterCall.summary, idle.summary);
     assert.equal(pausedAfterCall.footer, locale === 'de' ? 'Verbunden' : 'Connected', `${label}: F6 footer keeps connection status`);
-    assert.equal(pausedAfterCall.composer, locale === 'de' ? 'Gespräch pausiert' : 'Session paused');
+    assert.equal(pausedAfterCall.composer, locale === 'de' ? 'Gespräch pausiert' : 'Conversation paused');
     await page.mouse.move(0, 500); await settle(); await capture('paused-after-call');
     await clickPause();
     const resumed = await page.evaluate(() => globalThis.readEndedRail());

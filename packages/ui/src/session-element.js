@@ -1,4 +1,4 @@
-import { paintConsentLine, reasonAction } from './consent-line.js';
+import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
@@ -896,10 +896,10 @@ export class AithemaSession extends HTMLElement {
         else if (!refusal && !action) {
           action = reasonAction('', () => { void this.#attach(this.#retryFiles, true); });
           action.classList.add('upload-retry'); action.setAttribute('aria-describedby', 'upload-retry-reason');
-          reason.insertBefore(action, discard); reason.insertBefore(document.createTextNode(' · '), discard);
+          reason.insertBefore(action, discard); reason.insertBefore(document.createTextNode(reasonSeparator), discard);
         }
-        const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(' · ');
-        setText(reason.querySelector('span'), `${facts} · `);
+        const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
+        setText(reason.querySelector('span'), `${facts}${reasonSeparator}`);
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else setText(reason, words);

@@ -277,7 +277,7 @@ export const en = {
   purposeDirection: 'Is this more about a new solution, about how you work, or both?',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'AI assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
-  paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
+  paused: 'Conversation paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',
   composer: 'Your message', placeholder: 'Type your next message here\u00a0…', placeholderVoice: 'Just start talking – or type.', placeholderFullHold: 'Just keep talking.', send: 'Send',
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Summary', signals: 'Signals', questions: 'Open questions',
@@ -436,7 +436,7 @@ export const en = {
   // Server feature verdicts are stable machine reasons; show them in the page language.
   reconcilingLong: "The call's costs aren't confirmed yet. Your text is kept.",
   reasons: {
-    'session paused': 'Session paused', 'current processing consent required': 'Processing consent required',
+    'session paused': 'Conversation paused', 'current processing consent required': 'Processing consent required',
     'consent port unavailable': 'Consent check unavailable', 'not configured': 'Not configured',
     'unavailable on device': 'Not available on this device', 'plugin not registered': 'Provider not installed',
     'plugin not in preset': 'Provider not part of this processing choice', 'preset not configured': 'Not set up by this host',
