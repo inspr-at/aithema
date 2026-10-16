@@ -1,7 +1,7 @@
 import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { componentInvocation, boundedEvents } from '../../composed-voice/src/component.js';
+import { componentInvocation, boundedEvents } from '../../../packages/core/src/voice-components.js';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
 // Speech API PCM is float32 LE. It must never be sent to a PCM16 player.

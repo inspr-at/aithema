@@ -40,7 +40,8 @@
   "version": "261015164601.0.0",
   "license": "AGPL-3.0-only",
   "files": [
-    "src/"
+    "src/",
+    "!src/voice-components.js"
   ],
   "repository": {
     "type": "git",

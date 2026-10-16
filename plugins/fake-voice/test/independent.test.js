@@ -9,7 +9,7 @@ import { assertVoicePorts, assertVoiceSession } from '../../../packages/core/src
 
 test('AIT-102 grep: fake pipeline has no provider imports, factory, SDK, manifest or token protocol', async () => {
   for (const path of ['plugins/fake-voice/src/client.js', 'plugins/fake-voice/src/server.js', 'plugins/fake-voice/src/manifest.js',
-    'packages/server/src/local-voice.js', 'demo/fake-voice.js']) {
+    'packages/server/src/dev/local-voice.js', 'packages/server/src/dev/local-voice-manifest.js', 'demo/fake-voice.js']) {
     const source = await readFile(new URL('../../../' + path, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /elevenlabs|conversationToken|signedUrl|mintConversation|createVoiceProvider|startSession/iu, path);
   }
