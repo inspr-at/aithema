@@ -493,7 +493,7 @@ export class AithemaSession extends HTMLElement {
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
     this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
-      // Preserve a resting upload's action target without retaining reading room while following.
+      // Growth preserves the upload target; shrink reservations release on row exit or scrolling.
       if (this.#follow && !this.#hovered()?.closest('.upload') && !this.#fold.folded) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
