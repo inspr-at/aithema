@@ -138,3 +138,32 @@ JSON (head `be9a268d7e`). Unit run `be9a268d7e-87742` passed 118/118 in 1.344
 seconds: handlers, storage, safeguards and the shard guard. This includes the signed
 merge's optional settlement error field, boot/reconnect durability and partial-lane
 recovery. Subsequent changes record this evidence only.
+
+
+## AIT-221: shared Retry follows the first failure
+
+When reply/reaction and understanding both fail on the current input revision,
+the existing Retry button sits in the reply failure notice, first in reading
+order. It keeps the existing handler: one explicit request retries both failed
+lanes, reaction first. Status updates retain its node and keyboard focus.
+Overview-only failure still uses AIT-198's inline overview Retry; reaction-only
+failure retains its footer Retry. There is exactly one visible Retry. The
+configured AIT-242 project action returns when Retry leaves the footer; its
+existing CSS still hides it while a footer Retry occupies the row.
+
+Red-before: test commit `1ae0eb8af1`, mbp2606 run `1ae0eb8af1-47389`, fails the
+first-failure placement assertion in all eight DE/EN × 390/1440 × light/dark
+cases. Fix `55250cf108`, remote run `55250cf108-54980`, passes the full changed
+browser file (26/26, 60.692487 s), including unchanged AIT-198/AIT-212 exact
+0 px guards and AIT-242's footer matrix. The expanded check reuses one page,
+iterates states in-page, verifies overview-only placement, project visibility,
+keyboard focus, and one settled attempt per failed lane after a single click.
+No `process.env.CI` reads were added or changed.
+
+The measured file weight is 80 s (round 60.692487 s up to 70, plus 10 s margin).
+The six planned shards are 410/420/420/420/420/420 s; shard count is unchanged.
+Final-head viewport evidence belongs at
+`/Users/markus/Code/aithema-evidence/AIT-221/<head>/`: two failures, overview-only
+and recovered states at 390/1024/1440 × light/dark × DE/EN, reduced motion,
+pinned Chrome baseline fonts, settled animations and blurred controls. The
+390 captures also show the overview and footer in separate viewports.

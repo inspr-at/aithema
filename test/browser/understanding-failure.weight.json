@@ -1,6 +1,6 @@
 {
   "seconds": 77.513,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings. Previous workload only: AIT-221 merged; refresh this series from the next green CI before handoff.",
   "timing": {
     "schema": 1,
     "window": 20,
