@@ -49,6 +49,9 @@ export const questionCardStyles = `
 .conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { flex:none; margin-top:0; }
 .turn[data-start-only] { padding-block:0; }
 .turn[data-start-only] > strong { display:none; }
+.voice-signal[data-read-full] :is(.voice-state,.voice-caption,.voice-wave) { visibility:hidden; }
+.voice-read-full-mini { position:absolute; inset:0; z-index:1; min-height:44px; padding:0; font-size:12px;
+  color:var(--aithema-accent); text-decoration:underline; }
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
 /* Latest is a floating action, never an invisible row below the last turn. */

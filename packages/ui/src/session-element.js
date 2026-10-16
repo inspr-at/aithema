@@ -564,26 +564,39 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     shell.scrollTop = shell.scrollHeight;
     const latest = shell.querySelector('.turn:last-child');
-    latest?.removeAttribute('data-start-only');
-    const readFull = latest?.querySelector('.turn-read-full');
+    for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
+    const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
+    let mini = signal?.querySelector('.voice-read-full-mini');
     if (readFull) readFull.hidden = true;
+    if (mini) mini.hidden = true;
+    signal?.removeAttribute('data-read-full');
     if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
         latest.toggleAttribute('data-start-only', room < 88);
-        if (room >= 88) {
-        let button = readFull;
-        if (!button) {
-          button = node('button', 'turn-read-full'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
-          button.addEventListener('click', () => {
-            this.shadowRoot.querySelector('.voice-reply-text').textContent = latest.querySelector('.turn-text').textContent;
-            const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
-            if (!dialog.open) dialog.showModal();
-          });
-          latest.append(button);
-        }
-        button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
+        const openFullReply = row => {
+          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
+          const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+          if (!dialog.open) dialog.showModal();
+        };
+        if (room < 88 && signal) {
+          // The band already has a 44px status slot; use it when the keyboard
+          // leaves only a line of transcript. Neither dock nor card changes size.
+          if (!mini) {
+            mini = node('button', 'voice-read-full-mini'); mini.type = 'button'; mini.setAttribute('aria-haspopup', 'dialog');
+            mini.addEventListener('click', () => openFullReply(shell.querySelector('.turn:last-child')));
+            signal.append(mini);
+          }
+          mini.hidden = false; setText(mini, this.#copy.voiceReadFullReply); signal.setAttribute('data-read-full', '');
+        } else {
+          let button = readFull;
+          if (!button) {
+            button = node('button', 'turn-read-full'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
+            button.addEventListener('click', () => openFullReply(latest));
+            latest.append(button);
+          }
+          button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
         }
         shell.scrollTop += latest.getBoundingClientRect().top - top;
       }

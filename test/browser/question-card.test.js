@@ -485,6 +485,15 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               });
               await nextFrame(page);
               assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qopts').scrollLeft), 0, 'an unrelated re-render resets chips to their suggested first answer');
+              if (height === 320) {
+                const fallback = await shadow(page, c => {
+                  const r = c.shadowRoot, button = r.querySelector('.voice-read-full-mini'), b = button?.getBoundingClientRect(), band = r.querySelector('.band').getBoundingClientRect();
+                  return { visible: Boolean(button && !button.hidden), text: button?.textContent, height: b?.height,
+                    inside: Boolean(b && b.top >= band.top && b.bottom <= band.bottom) };
+                });
+                assert.equal(fallback.visible && fallback.inside && fallback.height >= 44, true, `320px keeps a full read action in the band: ${JSON.stringify(fallback)}`);
+                assert.equal(fallback.text, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
+              }
               await shot(`keyboard-${height}`, height);
               assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
               // Shift+Tab from the composer reaches the final answer through
