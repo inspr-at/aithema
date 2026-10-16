@@ -47,9 +47,12 @@ export async function hostChromeCheck(t) {
       for (const voice of [false, true]) {
         await shadow(page, async (c, { locale, voice, brandMode }) => {
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
           const session = structuredClone(window.chromeSeed); session.locale = locale; session.transcript = []; session.uploads = [];
+          session.settings.voice = voice ? 'offered' : 'off';
+          session.engine.voice = { id: voice ? 'offered' : 'off', offered: voice, label: 'Local evidence' };
           session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: voice, reason: voice ? null : 'not configured' } };
-          c.querySelectorAll('[slot="legal"], [slot="brand"]').forEach(n => n.remove());
+          c.querySelectorAll('[slot="legal"], [slot="brand"], [slot="footer"]').forEach(n => n.remove());
           const brand = document.createElement('h1'); brand.slot = 'brand'; brand.textContent = brandMode === 'long' ? 'START · Augmentoring — a deliberately very long host brand for truncation' : '  START\n  ';
           const legal = document.createElement('nav'); legal.slot = 'legal'; legal.style.cssText = 'display:flex;gap:0';
           for (const [href, text] of [['/imprint', locale === 'de' ? 'Impressum' : 'Imprint'], ['/privacy', locale === 'de' ? 'Datenschutz' : 'Privacy']]) {
@@ -60,7 +63,7 @@ export async function hostChromeCheck(t) {
           c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
           c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
           c.setAttribute('motion', 'off');
-          c.configure({ copy, session, voiceClients: voice ? { offered: {} } : {}, host: { library: true, version: { version: '261017010000.0.0', version_scheme: 'inspr-calver-3', commit: 'abcdef1234' } } });
+          c.configure({ copy, session, voiceClients: voice ? { offered: { manifest } } : {}, host: { library: true, version: { version: '261017010000.0.0', version_scheme: 'inspr-calver-3', commit: 'abcdef1234' } } });
           document.documentElement.lang = locale; scrollTo(0, 0);
         }, { locale, voice, brandMode });
         await settle();
@@ -68,8 +71,8 @@ export async function hostChromeCheck(t) {
         for (const stage of ['entrance', 'ready', 'conversation']) {
           if (stage === 'ready') await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings: { ...c.session.settings, origin: 'chosen', revision: 1 } } }));
           if (stage === 'conversation') await shadow(page, c => {
-            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'u', role: 'user', content: 'We need a simple project portal.' } });
-            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'a', role: 'assistant', content: 'Which details should the portal show?', inputRevision: 1 } });
+            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'u', role: 'user', content: c.session.locale === 'de' ? 'Wir verlieren jede Woche Stunden beim Abgleich von Eingangsrechnungen.' : 'We lose hours every week reconciling incoming invoices.' } });
+            c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'a', role: 'assistant', content: c.session.locale === 'de' ? 'Eine Freigabe, die oft eine Woche dauert, ist ein guter Ansatzpunkt. Wer gibt heute frei, und woran hängt es meistens?' : 'An approval that often takes a week is a good starting point. Who approves it today, and what usually holds it up?', inputRevision: 1 } });
           });
           await settle();
           const metrics = await shadow(page, (c, voice) => {

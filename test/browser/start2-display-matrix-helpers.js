@@ -272,7 +272,7 @@ export async function displayMatrix(t, section) {
         const context = `${width}/${theme}/${locale}: ${JSON.stringify(footer)}`;
         assert.ok(footer.zones[1].left - footer.zones[0].right >= (width < 600 && footer.legal ? 7.5 : 23.5) && footer.zones[2].left - footer.zones[1].right >= (width < 600 && footer.legal ? 7.5 : 23.5), context);
         assert.ok(footer.zones.every(n => n.left >= 0 && n.right <= width + .5 && Math.abs(n.top - footer.zones[0].top) <= .5), context);
-        if (footer.connected) { assert.ok(Math.abs(footer.digits - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
+        if (footer.connected) { assert.ok(Math.abs(footer.timer.left - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
         assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
         assert.ok(footer.amount >= 600); assert.equal(footer.total, 400); assert.equal(footer.unit, 400);
         assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 680);

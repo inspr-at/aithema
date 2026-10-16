@@ -617,7 +617,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
     // Reserve the longest steady status in this locale; action messages use the existing popup.
-    reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
+    reconcile(status.querySelector('.status__sizer'), (this.#voiceBound ? [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab] : [this.#copy.connected]).map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
     // Keep the same live message node, anchored to the dock while it is a toast.
     // The footer's sizer still reserves its steady status width.

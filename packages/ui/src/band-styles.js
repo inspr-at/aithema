@@ -233,7 +233,7 @@ ${headerGeometry('.band')}
 .band-identity .band-orb { flex:none; }
 .band .wordmark { margin:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
   font:400 18px/1.25 var(--aithema-display); letter-spacing:.005em; }
-slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit !important; color:inherit !important; letter-spacing:inherit !important; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .conversations-toggle { width:168px; gap:8px; padding:0 12px; justify-content:center; font-size:15.5px; }
 .conversations-toggle span { display:inline; }
 .conversations-toggle > svg:first-child { display:block; }
@@ -241,6 +241,7 @@ slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit; color:in
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 .footer-right { grid-column:3; min-width:0; }
 .display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
+.display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
 .host-legal { display:flex; align-items:center; min-width:0; margin-left:10px; font:inherit; color:inherit; }
 slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
 slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-height:44px; padding:0 8px; text-decoration:underline; text-underline-offset:3px; }
@@ -252,7 +253,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 .version-details .build-label { order:3; }
 .footer-info .footer-popup { padding:11px 13px 12px; background:${palette.light.ink}; box-shadow:0 0 0 1px var(--aithema-line),0 12px 30px -14px rgba(0,0,0,.45); }
 .footer-popup .phone-status { display:none; color:var(--aithema-muted); }
-.phone-status .connection-timer::before { content:'${reasonSeparator}'; }
+.connection-timer::before { content:'${reasonSeparator}'; }
 /* A legal host without a credit balance matches the approved two ends at
    tablet widths too. Credit-enabled hosts retain their existing compact rules. */
 @media(min-width:900px) {
@@ -273,6 +274,8 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .connection-timer { grid-column:1; }
 }
 @media(width < 600px) {
+  .edge-column { top:12px; }
+  .fold { top:calc(var(--band-height,68px) - 8px); }
   .band-identity { gap:10px; max-width:none; }
   .band .wordmark { font-size:16.5px; }
   .conversations-toggle { width:44px; min-width:44px; padding:0; }
@@ -286,7 +289,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .engine-info { width:44px; }
   .host-legal { margin-left:4px; }
   .footer-info .phone-status { display:block; }
-  .footer-info .connection-timer { grid-column:auto; min-width:0; }
+  .footer-info .connection-timer { grid-column:auto; min-width:8ch; }
   .display-foot:has(.host-legal:not([hidden])) .host-credits__track { display:none; }
 }
 :host([motion="off"]) * { animation:none !important; }
