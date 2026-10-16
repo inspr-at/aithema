@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
@@ -8,6 +9,9 @@ import { componentInvocation, boundedEvents } from '../../../packages/core/src/v
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
 export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
 const STT_MODEL = 'scribe_v2_realtime', TTS_MODEL = 'eleven_flash_v2_5';
+// Realtime commit guide: transcript processing starts after the first 2 s of audio.
+// Pad short inputs at endpointing without adding a wall-clock endpoint delay.
+const STT_MIN_BYTES = 2 * 32_000;
 export const componentManifest = deepFreeze({ id: 'elevenlabs', version: '0.0.0', apiVersion: '^1.0.0',
   kinds: ['stt', 'tts'], placement: 'server', entrypoints: { server: './src/components.js' },
   vendor: { name: 'ElevenLabs', url: 'https://elevenlabs.io' },
@@ -75,7 +79,7 @@ async function openSocket(connect, request, options) {
 function hooks(role, model, config, reconcileReceipt) {
   const rate = role === 'stt' ? config.sttMicroPerSecond : config.ttsMicroPerCharacter;
   return { manifest: componentManifest, model, format: role === 'stt' ? STT_FORMAT : TTS_FORMAT,
-    estimateCost: request => cost(role === 'stt' ? request.maxDurationMs / 1000 : [...speechText(request.text)].length + 1, rate),
+    estimateCost: request => cost(role === 'stt' ? Math.max(2, request.maxDurationMs / 1000) : [...speechText(request.text)].length + 1, rate),
     usageCost: usage => cost(usage.quantity, rate),
     // No receipt endpoint or tariff can establish actual billing offline. OPS supplies
     // authenticated, attempt-bound evidence later; absent evidence retains reservation.
@@ -100,10 +104,16 @@ function speechText(text) {
 // That HTTP example does not promise a WebSocket upgrade header; absence is explicit.
 async function identifiedInvocation(options, spec) {
   if (typeof options?.report !== 'function') throw new PluginError('not-admitted');
-  let identity = null;
+  let identity = null, matchingKey;
   const invocation = await componentInvocation({ ...options, report: terminal => options.report({ ...terminal, identity,
-    ...(identity === null ? { identityReason: `${spec.role}-provider-identity-not-observed` } : {}) }) }, spec);
-  return { ...invocation, identify(field, value) {
+    ...(identity === null ? { identityReason: spec.role === 'tts' ? 'no-request-id' : 'stt-provider-identity-not-observed' } : {}),
+    ...(matchingKey ? { matchingKey: { ...matchingKey, endedAt: new Date().toISOString() } } : {}) }) }, spec);
+  return { ...invocation,
+    dispatch() {
+      invocation.dispatch();
+      if (spec.matchingKey) matchingKey = { ...spec.matchingKey, startedAt: new Date().toISOString() };
+    },
+    identify(field, value) {
     if (typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value)) identity = { ...identity, [field]: value };
   } };
 }
@@ -137,16 +147,32 @@ export function createElevenLabsSTT({ enabled = false, config: raw, consent, res
           started = true;
           invocation.identify('sessionId', event.session_id);
           pump = (async () => {
+            let pending;
+            const send = async (chunk, commit) => {
+              await voiceOperation(opts, () => socket.send(JSON.stringify({ message_type: 'input_audio_chunk',
+                audio_base_64: chunk.toString('base64'), commit, sample_rate: 16000 })));
+            };
             for (;;) {
               const item = await voiceOperation(opts, () => iterator.next()); if (item.done) break;
               if (!(item.value instanceof Uint8Array) || !item.value.byteLength || item.value.byteLength % 2 || item.value.byteLength > 64_000) throw new PluginError('limit');
               bytes += item.value.byteLength;
               if (bytes > 1_920_000 || cost(bytes / 32_000, config.sttMicroPerSecond) > options.attempt.maxMicro) throw new PluginError('limit');
-              await voiceOperation(opts, () => socket.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: Buffer.from(item.value).toString('base64'), commit: false, sample_rate: 16000 })));
+              // Retain one owned chunk so queue exhaustion can commit real audio.
+              if (pending) await send(pending, false);
+              pending = Buffer.from(item.value);
             }
-            // Queue exhaustion is the server endpoint, never a browser final.
+            if (!pending) throw new PluginError('invalid-output', 'Missing speech audio');
+            if (bytes < STT_MIN_BYTES) {
+              if (cost(STT_MIN_BYTES / 32_000, config.sttMicroPerSecond) > options.attempt.maxMicro) throw new PluginError('limit');
+              pending = Buffer.concat([pending, Buffer.alloc(STT_MIN_BYTES - bytes)]);
+              bytes = STT_MIN_BYTES;
+            }
+            // The coordinator ends its queue at the 500 ms VAD endpoint. The API
+            // Messages example attaches commit=true to audio, not an empty chunk.
+            // OPS 2026-10-16: empty commit accepted but final text was lost.
+            // Sources: README protocol evidence and test/fixtures/ait-250/.
             committed = true;
-            await voiceOperation(opts, () => socket.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: '', commit: true, sample_rate: 16000 })));
+            await send(pending, true);
           })();
           pump.catch(error => { pumpError = error; cleanup.abort(); stop(); });
         } else if (['partial_transcript', 'committed_transcript'].includes(event.message_type)) {
@@ -190,7 +216,9 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
       const wireText = speechText(text), characters = [...wireText].length + 1, amount = cost(characters, config.ttsMicroPerCharacter);
       if (typeof voice !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(voice) || format !== TTS_FORMAT.encoding) throw new TypeError('Saved voice and PCM16 24 kHz required');
       if (amount > options?.attempt?.maxMicro) throw new PluginError('not-admitted');
-      const invocation = await identifiedInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL });
+      const invocation = await identifiedInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL,
+        matchingKey: { voiceId: voice, modelId: TTS_MODEL, characterCount: characters,
+          textSha256: createHash('sha256').update(` ${wireText}`).digest('hex') } });
       const opts = { ...options, signal: invocation.signal }; let socket, stop, completed = false, total = 0;
       try {
         await coverage(consent, TTS_MODEL, config, 'speak', opts);
@@ -207,8 +235,8 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
         }
         for await (const wire of boundedEvents(socket.events, opts)) {
           const event = decode(wire);
-          // API page examples use is_final; AsyncAPI uses isFinal. See fixture unverified list.
-          if (event.is_final === true) {
+          // OPS live probe 2026-10-16 observed only isFinal (AsyncAPI spelling).
+          if (event.isFinal === true) {
             if (!total || event.audio != null) throw new PluginError('invalid-output');
             invocation.usage(characters, amount, 'configured-character-tariff'); completed = true; break;
           }

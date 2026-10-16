@@ -182,7 +182,13 @@ for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate e
     if (spec.role === 'stt') assert.deepEqual(report.identity, { sessionId: 'fixture-session' });
     if (spec.role === 'tts') {
       assert.deepEqual(report.identity, ttsRequestId ? { requestId: ttsRequestId } : null);
-      assert.equal(report.identityReason, ttsRequestId ? undefined : 'tts-provider-identity-not-observed');
+      assert.equal(report.identityReason, ttsRequestId ? undefined : 'no-request-id');
+      assert.equal(report.matchingKey.voiceId, 'fixture-voice');
+      assert.equal(report.matchingKey.modelId, 'eleven_flash_v2_5');
+      assert.equal(report.matchingKey.characterCount, 8); // initialization + 'Danke. '
+      assert.match(report.matchingKey.textSha256, /^[a-f0-9]{64}$/u);
+      assert.ok(Date.parse(report.matchingKey.endedAt) >= Date.parse(report.matchingKey.startedAt));
+      assert.equal(report.matchingKey.text, undefined);
     }
   }
 });

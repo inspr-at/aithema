@@ -68,7 +68,7 @@ export function validateQualificationPlan(plan) {
   if (plan.corpus.some(item => !Number.isSafeInteger(item?.leadingSilenceMs) || item.leadingSilenceMs < 20_000)) {
     throw new Error('Corpus requires declared leading silence of at least 20000 ms in each identical lane WAV');
   }
-  if (plan.checks.ttsFinalFlag.spelling !== 'is_final') throw new Error('Adapter expects is_final; resolve protocol spelling before run');
+  if (plan.checks.ttsFinalFlag.spelling !== 'isFinal') throw new Error('Adapter expects isFinal; resolve protocol spelling before run');
 }
 
 /** Both lanes consume the same unmodified PCM16 mono WAV. Check the declared

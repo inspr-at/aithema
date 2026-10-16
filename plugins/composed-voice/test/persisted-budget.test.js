@@ -170,3 +170,20 @@ test('concurrent in-flight receipts cannot release reservations or overbook the 
   assertInvariant(); assert.equal(b.snapshot().exposureMicro, 25_000_000);
   claims[1].report({ attemptId: 'b', outcome: 'uncertain' }); assertInvariant();
 });
+
+
+test('AIT-250: history matching metadata drops raw text and malformed or unbounded keys', async t => {
+  const h = await fixture(t), budget = h.open(); t.after(() => budget.close());
+  const key = { voiceId: 'fixture-voice', modelId: 'eleven_flash_v2_5', characterCount: 7,
+    textSha256: 'a'.repeat(64), startedAt: '2026-10-16T11:54:59.287Z', endedAt: '2026-10-16T11:55:01.201Z' };
+  const invalid = [{ voiceId: 'x'.repeat(129) }, { modelId: 'unsafe model' }, { characterCount: 243 }, { characterCount: -1 },
+    { textSha256: 'raw text' }, { startedAt: 'invalid' }, { endedAt: '2026-10-16T11:54:58.287Z' }];
+  for (const [index, mutation] of [{}, ...invalid].entries()) {
+    const attemptId = `matching-${index}`, claim = await budget.admit(specification(attemptId, 1000));
+    await claim.attempt.consume(); claim.report({ attemptId, outcome: 'uncertain', identity: null, identityReason: 'no-request-id',
+      matchingKey: { ...key, text: 'must never persist', ...mutation } });
+    const row = budget.snapshot().records.find(row => row.attemptId === attemptId);
+    assert.deepEqual(row.matchingKey, index === 0 ? key : undefined);
+    assert.ok(!JSON.stringify(row).includes('must never persist')); assert.equal(row.exposureMicro, 1000);
+  }
+});
