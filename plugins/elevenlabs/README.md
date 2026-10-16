@@ -276,7 +276,13 @@ the server and in the browser (AIT-127, AIT-175). Hosts configure DE/EN openers;
 `aiNoticeText(language)` supplies a neutral default. Opening copy must include
 the matching "KI-Assistenz" or "AI assistant" disclosure, omit the other
 language's disclosure, and be at most 1000 characters. This checks structure;
-the host is responsible for what its copy means. Continuations stay empty.
+the host is responsible for what its copy means. Hosts may also configure
+`spokenContinuations: {de, en}` with the same disclosure rules. The server passes
+`{hasPriorTurns}` as the second argument to `presentation(locale, context)`;
+saved, active conversation turns select the continuation for a fresh voice start
+or an explicit Resume that replaces the transport. Automatic transport recovery
+stays empty. Continuation copy uses the already allowed per-call first-message
+override; it does not change the managed agent's opening or permissions.
 Model, prompt, credential and custom-LLM overrides are rejected. Startup receives
 `spokenOpeners: {de, en}`, enables both platform fields on the receipt-owned
 agent, and checks exact read-back against the configured base-language opener.

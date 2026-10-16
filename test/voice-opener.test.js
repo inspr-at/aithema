@@ -17,6 +17,10 @@ const neutral = {
   de: 'Hallo, hier ist die KI-Assistenz. Wie kann ich Ihnen helfen?',
   en: 'Hello, this is an AI assistant. How can I help you?',
 };
+const resumed = {
+  de: 'Schön, dass Sie wieder da sind – Ihre KI-Assistenz ist bereit, das Gespräch fortzusetzen.',
+  en: 'Welcome back – your AI assistant is ready to pick up where we left off.',
+};
 const options = (storage, fake) => ({ storage, templateAgentId: 'template-agent', apiBaseUrl: fake.endpoint,
   publicOrigin: 'https://start2.example.test', resolveSecret: () => 'stub-key', log() {}, values: {} });
 
@@ -30,7 +34,7 @@ for (const locale of ['de', 'en']) {
     assert.equal(AI_NOTICE[locale].voice, locale === 'de' ? 'Gesprochene Antworten nutzen eine synthetische Stimme.' : 'Spoken replies use a synthetic voice.');
   });
 
-  test(`AIT-175: ${locale} start2 opener reaches the SDK exactly; continuation stays empty`, async t => {
+  test(`AIT-175 / AIT-241: ${locale} new and resumed greetings reach the SDK; automatic recovery stays silent`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage();
     t.after(() => storage.close());
     const host = await createVoiceHost(options(storage, fake)); t.after(() => host.close());
@@ -38,10 +42,16 @@ for (const locale of ['de', 'en']) {
     assert.equal(host.presentation(locale).agent.firstMessage, start2[locale]);
     const callbacks = elevenLabsCallbackPort.bindCallbacks({ secrets: createFacadeSecrets(),
       presentation: host.presentation, getCall() {}, buildRequest() {}, admitReasoning() {} });
-    for (const continuation of [false, true]) {
-      const prepared = callbacks.prepareCallback({ callId: 'stub-call', binding: host.binding, locale, continuation });
+    for (const state of [
+      { continuation: false, hasPriorTurns: false },
+      { continuation: false, hasPriorTurns: true },
+      { continuation: true, hasPriorTurns: true },
+      { continuation: true, hasPriorTurns: true, explicitResume: true },
+    ]) {
+      const prepared = callbacks.prepareCallback({ callId: 'stub-call', binding: host.binding, locale, ...state });
       const overrides = prepared.request.overrides;
-      assert.deepEqual(overrides, { agent: { language: locale, firstMessage: continuation ? '' : start2[locale] } });
+      const firstMessage = state.continuation && !state.explicitResume ? '' : state.hasPriorTurns ? resumed[locale] : start2[locale];
+      assert.deepEqual(overrides, { agent: { language: locale, firstMessage } });
       assert.deepEqual(voiceOverrides(overrides), overrides);
       const sdk = fakeSdk();
       const client = createElevenLabsClient({ sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
