@@ -292,6 +292,12 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .footer-info .connection-timer { grid-column:auto; min-width:8ch; }
   .display-foot:has(.host-legal:not([hidden])) .host-credits__track { display:none; }
 }
+/* Credit-enabled hosts also fit the existing 320px embedding contract. The
+   approved 390px frame retains its normal type and spacing. Targets stay 44px. */
+@media(width < 360px) {
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
+}
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }
