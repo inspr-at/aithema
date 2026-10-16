@@ -78,8 +78,7 @@ function deferredReply(t, text) {
   const release = Promise.withResolvers();
   let finished = false, cancelled = false, pendingRead = false, signal;
   t.after(() => release.resolve());
-  const executor = createVoiceReplyExecutor({ execute(_envelope, options) {
-    signal = options.signal;
+  const readerExecutor = createVoiceReplyExecutor({ execute() {
     const parts = [{ type: 'operation', replyId: 'reply' }, { type: 'delta', text }];
     return { operation: { key: 'reply-operation', callId: 'provider-pacing', providerSessionId: 'segment', ordinal: 1 },
       events: new ReadableStream({
@@ -96,6 +95,7 @@ function deferredReply(t, text) {
         cancel() { cancelled = true; },
       }, { highWaterMark: 0 }) };
   } });
+  const executor = { execute(envelope, options) { signal = options.signal; return readerExecutor.execute(envelope, options); } };
   return { executor, release: release.resolve, get finished() { return finished; }, get cancelled() { return cancelled; },
     get pendingRead() { return pendingRead; }, get signal() { return signal; } };
 }
