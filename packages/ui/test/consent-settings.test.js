@@ -26,6 +26,30 @@ for (const copy of [de, en]) test(`AIT-197 ${copy.display.locale}: host-mapped c
   h.root.querySelector('.consent-save').click(); await h.done.promise;
   assert.deepEqual(h.saves, [{ granted: true, processing: { contract: 'v1', items: ['host-speech', 'host-model'] } }]);
 });
+
+for (const copy of [de, en]) for (const mock of [false, true]) test(`AIT-231 ${copy.display.locale}: ${mock ? 'mock' : 'real'} documents retain every described item`, async t => {
+  const h = fixture(t, copy, { load: async () => ({ contract: 'persistent-v1', mock,
+    selected: ['host-speech'], features: { voice: ['host-speech', 'host-model'] }, items: [
+      { id: 'host-speech', version: 'speech-v2', title: 'Host speech', recipients: 'Speech recipient', text: 'Speech purpose' },
+      { id: 'host-model', version: 1, title: 'Host model', recipients: 'Model recipient', text: 'Model purpose' },
+    ] }) });
+  await h.editor.open('voice');
+  assert.deepEqual([...h.root.querySelectorAll('input')].map(box => [box.value, box.checked]), [['host-speech', true], ['host-model', false]]);
+  assert.ok(h.root.textContent.includes('Speech recipient'));
+  assert.ok(h.root.textContent.includes('Model purpose'));
+  assert.equal(h.root.querySelector('.consent-save').disabled, false);
+  assert.equal(h.root.querySelector('.consent-intro').textContent, mock
+    ? `${copy.host.consentPage.mockNotice} ${copy.host.consentPage.intro}` : copy.processingConsent.intro);
+});
+
+test('AIT-231: invalid described items leave the existing visitor failure state without editable data', async t => {
+  const h = fixture(t, en, { document: { contract: 'v1', selected: [], features: { voice: ['speech'] },
+    items: [{ id: 'speech', version: 1, title: 'Speech', recipients: 'Processor', text: '' }] } });
+  await h.editor.open('voice');
+  assert.equal(h.root.querySelector('.consent-status').textContent, en.host.consentFailed);
+  assert.equal(h.root.querySelector('.consent-save').disabled, true);
+  assert.equal(h.root.querySelectorAll('input').length, 0);
+});
 test('AIT-197: missing mapping fails closed and a closed editor ignores a late document', async t => {
   const h = fixture(t); await h.editor.open('analysis');
   assert.equal(h.root.querySelector('.consent-save').disabled, true);
