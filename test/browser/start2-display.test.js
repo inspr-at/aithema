@@ -1509,7 +1509,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
     ['not-configured', 'not configured'], ['off', 'visuals off'], ['low', 'budget'],
     ['unavailable', 'unavailable'], ['request', null], ['draft-ready', null], ['draft-ready-quote-missing', null],
   ];
-  const capture = async file => {
+  const capture = async (file, cropBand = true) => {
     if (!evidence) return;
     await shadow(page, async c => {
       c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
@@ -1517,10 +1517,10 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     });
     await page.mouse.move(-1, -1);
-    const clip = await shadow(page, c => {
+    const clip = cropBand ? await shadow(page, c => {
       const root = c.shadowRoot, a = root.querySelector('.band').getBoundingClientRect(), b = root.querySelector('.concept-bar').getBoundingClientRect();
       return { x: 0, y: Math.max(0, a.top), width: innerWidth, height: Math.min(innerHeight, b.bottom) - Math.max(0, a.top) };
-    });
+    }) : undefined;
     await page.screenshot({ path: join(evidence, file), clip, captureBeyondViewport: false });
   };
   for (const locale of ['de', 'en']) for (const width of [390, 320]) {
@@ -1618,6 +1618,6 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
   });
   await page.$eval('.demo-strip', n => n.scrollIntoView({ block: 'end' }));
   assert.doesNotMatch(await page.$eval('.demo-strip', n => n.textContent), /Klick-Dummy|click-dummy|\bfake\b|\bmock\b/iu);
-  await capture('ait246-r4-1440-light-de-demo-header.png');
+  await capture('ait246-r4-1440-light-de-demo-header.png', false);
   if (evidence) await writeFile(join(evidence, 'ait246-r4-geometry.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', checks }, null, 2));
 });
