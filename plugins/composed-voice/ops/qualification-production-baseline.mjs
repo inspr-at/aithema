@@ -14,6 +14,20 @@ export function baselineOrigin(value) {
   } catch { throw new TypeError('Explicit HTTPS non-loopback baselineOrigin required'); }
 }
 
+/** One reservation covers the production conversation AND its facade reasoning.
+ * OPS supplies/attests both ceilings; no default reasoning allowance. */
+export function baselineAttemptCeiling(binding) {
+  const reasoning = binding?.baselineReasoningCeilingMicro, rate = binding?.baseline?.microPerMinute, seconds = binding?.maxDurationSeconds;
+  if (!Number.isSafeInteger(rate) || rate < 0 || !Number.isSafeInteger(seconds) || seconds < 1) {
+    throw new TypeError('Explicit baseline conversation tariff and duration required');
+  }
+  const conversation = Math.ceil(rate * seconds / 60);
+  const total = conversation + reasoning;
+  if (!Number.isSafeInteger(reasoning) || reasoning < 0 || !Number.isSafeInteger(conversation) || conversation < 0 ||
+    !Number.isSafeInteger(total)) throw new TypeError('Explicit safe baseline reasoning and conversation ceiling required');
+  return total;
+}
+
 /** File format: JSON { username, password }. Running user is mba on OPS's host.
  * Same inode/owner/mode/NOFOLLOW/NONBLOCK checks as loadQualificationKeys. */
 export async function loadBaselineAuth(path, { uid = process.getuid() } = {}) {
@@ -62,6 +76,7 @@ export async function prepareBaselinePage(page, origin, auth, allowRequest) {
 export async function runProductionBaseline({ page, binding, item, runId, admit, onTiming, consentDecision,
   bounded, abort, recordIdentity, auth, preflight, boundConversation }) {
   const origin = baselineOrigin(binding.baselineOrigin), base = binding.baseline;
+  const maxMicro = baselineAttemptCeiling(binding);
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
   const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure;
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
@@ -137,9 +152,9 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     if (responseFailure || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity.visitorSessionId ?? '')) throw new Error();
     const spec = { attemptId: `qualification-${randomUUID()}`, lane: 'baseline', role: 'reasoning',
       provider: base.plugin, model: base.model, operation: 'start', accountRef: base.accountRef, endpoint: base.endpoint,
-      maxMicro: Math.ceil(base.microPerMinute * binding.maxDurationSeconds / 60),
+      maxMicro,
       request: { baselineOrigin: origin, agentId: base.agentId, visitorSessionId: identity.visitorSessionId,
-        maxDurationSeconds: binding.maxDurationSeconds } };
+        maxDurationSeconds: binding.maxDurationSeconds, baselineReasoningCeilingMicro: binding.baselineReasoningCeilingMicro } };
     admission = await bounded(admit(spec)); identity.attemptId = spec.attemptId; await save();
     const conversationDeadlineAt = Date.now() + binding.maxDurationSeconds * 1000;
     await bounded(boundConversation(conversationDeadlineAt));

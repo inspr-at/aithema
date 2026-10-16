@@ -5,7 +5,7 @@
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
   const trace = [], pcm = [], contexts = new Set();
-  let responseReady = false, agentSink;
+  let agentSink, speechEndAt, lastVoicedEndAt;
   let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure;
   const emit = event => { if (trace.length >= 100_000) failure = true; else trace.push(event); };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
@@ -17,7 +17,7 @@ export function installBaselineProbe() {
     let sink = sinks.get(context);
     if (!sink) {
       sink = context.createScriptProcessor(1024, 1, 1);
-      const pending = []; let observer;
+      const pending = []; let observer, voicedSince;
       const observe = () => {
         clearTimeout(observer);
         if (!armed || failure) return;
@@ -32,6 +32,14 @@ export function installBaselineProbe() {
       const rendered = (samples, at, timestamp) => {
         const voiced = rms(samples) >= 0.015;
         if (agentSink && agentSink !== sink) return;
+        if (voiced) voicedSince ??= at;
+        else voicedSince = undefined;
+        if (firstAudioAt === undefined) {
+          // Attribute by device time, never by asynchronous transcript saves.
+          // Output that starts before the corpus speech ends is the opener;
+          // exclude its entire voiced run, including a tail after speech end.
+          if (speechEndAt === undefined || voicedSince < speechEndAt || at < speechEndAt) return;
+        }
         if (voiced) {
           if (firstAudioAt === undefined) {
             agentSink = sink; firstAudioAt = at;
@@ -51,7 +59,7 @@ export function installBaselineProbe() {
         }
       };
       sink.onaudioprocess = event => {
-        if (!armed || failure || !hypothesis || !responseReady) return; // Exclude the production opener.
+        if (!armed || failure) return;
         if (pending.length * 1024 / context.sampleRate >= 8) { failure = true; return; } // browser-audio.js maxQueuedSeconds.
         pending.push({ samples: Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume()),
           time: event.playbackTime - event.inputBuffer.duration });
@@ -97,6 +105,14 @@ export function installBaselineProbe() {
         emit({ kind: 'capture', captureAt, receivedAt, voiced, durationMs: samples.length / context.sampleRate * 1000,
           captureFrame: frame, contextSampleRate: context.sampleRate, byteLength: samples.length * 2, wavFrame: frames });
         frames += samples.length;
+        if (firstAudioAt === undefined) {
+          if (voiced) { lastVoicedEndAt = captureAt + samples.length / context.sampleRate * 1000; speechEndAt = undefined; }
+          else if (lastVoicedEndAt !== undefined) {
+            // Last voiced packet's END uses the same clock/definition as the
+            // evaluator; silence only confirms the boundary, adding no delay.
+            speechEndAt = lastVoicedEndAt;
+          }
+        }
         if (voiced && captureAt >= firstAudioAt) bargeInAt ??= captureAt;
       };
       const silence = context.createGain(); silence.gain.value = 0;
@@ -114,19 +130,18 @@ export function installBaselineProbe() {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
       if (armed && url.origin === location.origin && /\/voice\/[^/]+\/events$/u.test(url.pathname)) {
         const event = JSON.parse(init?.body).event;
-        if (!hypothesis && bargeInAt === undefined && event.type === 'final' && event.role === 'user' &&
+        if (!hypothesis && event.type === 'final' && event.role === 'user' &&
           event.userTurnOrdinal === 1 && typeof event.text === 'string' && event.text.trim()) hypothesis = event.text;
-        if (hypothesis && event.type === 'final' && event.role === 'assistant') responseReady = true;
       }
     } catch { /* Not a production final-user persistence request. */ }
     return fetch(input, init);
   };
   window.qualificationBaselineProbe = {
     arm() { armed = true; },
-    diagnostics() { return { armed, hasHypothesis: !!hypothesis, responseReady, firstAudioAt, bargeInAt, stoppedAt, failure,
+    diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, failure,
       counts: Object.fromEntries(['capture', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(e => e.kind === kind).length])),
       voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
-    complete() { return !!failure || [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite); },
+    complete() { return !!failure || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite); },
     result() {
       if (failure || !hypothesis || !pcm.length || ![firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Incomplete production media evidence');
       // Chunk conversion avoids argument/string limits for bounded PCM evidence.

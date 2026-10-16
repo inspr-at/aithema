@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { probePhysicalOutput, findRefusedOutputFlags } from './qualification-output-probe.mjs';
-import { baselineOrigin, loadBaselineAuth, runProductionBaseline } from './qualification-production-baseline.mjs';
+import { baselineOrigin, baselineAttemptCeiling, loadBaselineAuth, runProductionBaseline } from './qualification-production-baseline.mjs';
 import { matchQualificationEntities } from './qualification-live-server.mjs';
 import { launchLocalBrowser } from './qualification-browser.mjs';
 
@@ -43,6 +43,7 @@ export function createQualificationHost(options = {}) {
       if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !isAbsolute(item?.wavPath ?? '')) throw new TypeError('Sample identity and absolute corpus wavPath required');
       const launchArgs = options.launchArgs ?? [];
       if (findRefusedOutputFlags(launchArgs).length || launchArgs.some(arg => /fake-audio|user-data-dir|use-fake-device/u.test(arg))) throw new TypeError('Qualification capture/output flags cannot be overridden');
+      if (lane === 'baseline') baselineAttemptCeiling(options.binding);
       const targetOrigin = lane === 'baseline' ? baselineOrigin(options.binding?.baselineOrigin) : hostOrigin;
       // Authentication is mandatory for the internal production gate. Refuse
       // before launch/admission; candidate never opens or receives this file.

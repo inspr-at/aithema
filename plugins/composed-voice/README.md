@@ -419,7 +419,7 @@ the template with these options. There are **no successful accounting defaults**
 | `sampleTimeoutMs` | Hard wall-clock deadline for launch plus each sample, default and maximum 1,200,000 ms (20 min). CLI `--sample-timeout-ms` forwards this option to the OPS factory. |
 | `verifyCeiling(spec)` | OPS account operation on the flagged host. Return the matching verified ceiling proof described above, including request digest, evidence reference and future expiry. Called at preflight, admission and consume. Missing port throws at factory construction. |
 | `verifyReceipt(receipt, storedAttempt)` | OPS authenticates the server-observed receipt on the flagged host; return exactly `true` only for a matching trusted receipt. Missing port throws. |
-| `reconcile({ snapshot, reconcile, baselineSessions })` | OPS fetches/authenticates/persists receipts, including ElevenLabs conversation GET for each labelled production baseline session; calls supplied `reconcile(receipt)`. `baselineSessions` includes attempt, visitor and provider conversation identities, also persisted privately on failures. Pending receipts retain exposure. Missing port throws. |
+| `reconcile({ snapshot, reconcile, baselineSessions })` | OPS fetches/authenticates/persists receipts, including ElevenLabs conversation GET and every OpenRouter generation of each labelled start2 baseline session; calls supplied `reconcile(receipt)`. `baselineSessions` includes attempt, visitor and provider conversation identities, also persisted privately on failures. Pending receipts retain exposure. Missing port throws. |
 | `runSample({ item, lane, runId, admit, onTiming })` | `item.wavPath` is an absolute corpus WAV on mbp2606; `item.id`/`sampleId` identify the server sample. Launch a fresh profile; candidate opens `hostOrigin`, baseline opens `binding.baselineOrigin`. Admit every dispatch, then return `{ physicalBrowserMedia, hypothesis, entities, ttsPCM: Uint8Array, ttsFormat: { encoding, sampleRateHz, channels } }`. Candidate hypothesis/PCM come from the server; baseline hypothesis comes from production's final-user callback and PCM from the injected Web Audio tap. Baseline adds `baselineSession` with production visitor/conversation IDs. References stay in the CLI. `onTiming(event)` receives the browser's event values unchanged. |
 | `close()` | Abort active samples and kill owned browser process groups; it has no host-process lifecycle authority. |
 
@@ -542,6 +542,7 @@ module. Missing or malformed money settings refuse construction.
 | `baselineOrigin` | Required canonical HTTPS production origin, without path, credentials, query or trailing slash. Loopback/localhost refuse; no default. Chrome runs production's normal visitor/consent/voice flow there. |
 | `baselineAuthFile` | Optional binding field, but required to run the baseline behind start2's basic-auth gate; missing refuses before admission. Absolute mba-owned 0600 regular non-symlink file containing JSON `{ "username": "...", "password": "..." }`. Inode, owner, mode and 16 KiB bound use the same checks as `loadQualificationKeys`. |
 | `baseline` | ElevenLabs processing binding whose `model` equals its existing `agentId`, plus explicit integer `microPerMinute >= 0`; proof must cover the whole agent conversation, including its provider-managed reasoning/STT/TTS. |
+| `baselineReasoningCeilingMicro` | Required explicit nonnegative safe integer micro-USD ceiling for **all start2 facade OpenRouter reasoning** in one baseline conversation, including opener, replies, interruptions and retries. No default; OPS attests it together with the ElevenLabs ceiling. |
 | `maxDurationSeconds` | Explicit positive integer, at most 60 (`MAX_SAMPLE_SECONDS`, within the composed grant window). Determines the paid baseline ceiling and sample deadline. |
 | `reasoningAttempts` | Explicit 1 or 2 (`MAX_REASONING_ATTEMPTS`); retries are new admissions with `retryOf`, within the same Rule C operation. Only a transport/provider failure before any text permits retry. |
 
@@ -584,24 +585,44 @@ WAV speech-end and barge-in timeline. The ScriptProcessor observation block is
 1024 frames; RMS 0.015, trace 100,000 events and PCM 16 MB use the existing
 candidate/evaluator limits. No fixture timing offset reconstructs evidence.
 Production's first final user callback (ordinal 1) supplies the hypothesis; later
-barge-in finals and tentative transcripts are excluded. The production opener is
-excluded by waiting for the assistant response after that user final before
-collecting output PCM. Missing transcript, PCM, clocks or complete interruption
-evidence fails the sample.
+barge-in finals and tentative transcripts are excluded. Reply attribution uses
+physical capture/output timing against the corpus utterance's speech end,
+independently of transcript persistence. The opener's voiced runs that start
+before speech end are excluded in full, including tails after speech end. The
+first voiced reply block starts both `firstAudioAt` and retained PCM even if the
+assistant final arrives later or never arrives. Barge-in still means the next
+voiced capture at or after that reply onset. Missing user transcript, PCM, clocks
+or complete interruption evidence fails the sample.
 
 Before voice start, Node admits exactly one baseline attempt and awaits its
 consume acknowledgment. Its ceiling is
-`ceil(binding.baseline.microPerMinute * binding.maxDurationSeconds / 60)`, covering
-the whole agent conversation. The spec uses `lane: baseline`, `role: reasoning`,
+`ceil(binding.baseline.microPerMinute * binding.maxDurationSeconds / 60) + binding.baselineReasoningCeilingMicro`,
+covering the whole ElevenLabs conversation **and start2 facade OpenRouter reasoning**
+inside the same persisted **$25 shared cap**. The spec uses `lane: baseline`, `role: reasoning`,
 `provider: elevenlabs`, `operation: start`; its request includes the production
-visitor ID and hard duration. Duplicate start, recovery, resume/takeover and
+visitor ID, hard duration and explicit reasoning ceiling. Duplicate start, recovery, resume/takeover and
 replay requests refuse. The browser process watchdog acknowledges a shortened
 absolute deadline before consume, so a stalled Node/CDP operation cannot extend
 paid media. Normal visitor close starts 250 ms before that deadline; the browser
 group is killed at the bound. This is a shutdown allowance inside the bound.
 Dispatched attempts report **uncertain**, with no invented zero charge. Only
-OPS's authenticated ElevenLabs conversation GET through `verifyReceipt` /
-`reconcile` releases exposure.
+OPS's authenticated **combined** receipt through `verifyReceipt` / `reconcile`
+releases exposure: it must reconcile the ElevenLabs conversation GET **plus all
+OpenRouter generation receipts of the labelled start2 visitor/call session**,
+including any opener, reply, interruption and retry reasoning. An ElevenLabs-only
+receipt is incomplete and must not pass `verifyReceipt`; until both sides are
+complete, the terminal stays uncertain and the full combined ceiling stays
+reserved. OPS supplies the aggregate actual `chargedMicro` under the baseline
+attempt's identity. The generic ledger delegates receipt completeness and
+provider authentication to OPS's required `verifyReceipt` port.
+
+OPS's additional inputs for this baseline are the account-verified
+`binding.baselineReasoningCeilingMicro`, its combined ceiling proof, the labelled
+start2 session-to-OpenRouter-generation mapping, and authenticated receipts for
+both billing sides. Coordinator constraint for OPS: cap **all OpenRouter spending
+across the whole plan at ≤ $8** (candidate plus baseline, including retries),
+within Markus's $25 total. OPS sizes the plan/reservations and account controls to
+that constraint; it is an operator input, not a hard-coded code allowance.
 
 Basic-auth values are opened only for the baseline. A CDP `Fetch.authRequired`
 handler provides them only for a Basic **server** challenge whose origin exactly

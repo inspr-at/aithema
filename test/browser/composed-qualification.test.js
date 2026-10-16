@@ -255,8 +255,8 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
         boundConversation: async deadline => { watchdog = setTimeout(() => abort.abort(new Error('fixture duration watchdog')), deadline - Date.now()); },
         admit: async spec => {
           assert.equal(production.dispatches.length, 0, 'durable admission precedes production conversation');
-          // Before the cost fix, keep this independent timing regression at the existing 80-micro reservation.
-          assert.equal(spec.maxMicro, 80);
+          // Synthetic tariff: 600 micro/min * 8 s / 60 + 25 reasoning micro.
+          assert.equal(spec.maxMicro, 105);
           return { attempt: { async consume() { assert.equal(production.dispatches.length, 0); } }, report: async terminal => reports.push(terminal) };
         },
       });
@@ -286,8 +286,8 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       assert.doesNotMatch(JSON.stringify({ evidence, identities, result, logs, requests: production.requests }), /SYNTHETIC_BASIC_AUTH_SENTINEL|fixture-operator|x-aithema-qualification-control|LOOPBACK_OWNER|API_KEY/);
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-160-production-${mediaElement ? 'webrtc' : 'web-audio'}.json`),
-          JSON.stringify({ fixtureOnly: true, evidence, baselineSession: result.baselineSession, pcmBytes: result.ttsPCM.byteLength,
+        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-160-production-${mediaElement ? 'webrtc' : 'web-audio'}-${assistantFinal}.json`),
+          JSON.stringify({ fixtureOnly: true, assistantFinal, reference, evidence, baselineSession: result.baselineSession, pcmBytes: result.ttsPCM.byteLength,
             format: result.ttsFormat, reports, otherOriginRequests: production.requests }, null, 2));
       }
     } catch (error) {

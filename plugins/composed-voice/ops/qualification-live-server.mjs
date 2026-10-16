@@ -10,7 +10,7 @@ import { createComposedVoice } from '../src/server.js';
 import { normalizeQualificationEntity } from '../src/qualification.js';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { connectQualificationSocket } from './qualification-live-transport.mjs';
-import { baselineOrigin } from './qualification-production-baseline.mjs';
+import { baselineOrigin, baselineAttemptCeiling } from './qualification-production-baseline.mjs';
 
 // Source: qualification-server.mjs bounds sample PCM to 16 MB and sample life
 // to two minutes; relay.js grants expire within the coordinator's 60 s window.
@@ -26,7 +26,7 @@ const invalidBinding = () => { throw new TypeError('Explicit valid qualification
 export function validateQualificationBinding(raw) {
   try {
     const b = structuredClone(raw);
-    if (!b || Object.keys(b).some(key => !['stt', 'tts', 'reasoning', 'baseline', 'baselineOrigin', 'baselineAuthFile', 'maxDurationSeconds', 'reasoningAttempts'].includes(key)) ||
+    if (!b || Object.keys(b).some(key => !['stt', 'tts', 'reasoning', 'baseline', 'baselineOrigin', 'baselineAuthFile', 'baselineReasoningCeilingMicro', 'maxDurationSeconds', 'reasoningAttempts'].includes(key)) ||
       !Number.isSafeInteger(b.maxDurationSeconds) || b.maxDurationSeconds < 1 || b.maxDurationSeconds > MAX_SAMPLE_SECONDS ||
       !Number.isSafeInteger(b.reasoningAttempts) || b.reasoningAttempts < 1 || b.reasoningAttempts > MAX_REASONING_ATTEMPTS) invalidBinding();
     baselineOrigin(b.baselineOrigin);
@@ -57,7 +57,7 @@ export function validateQualificationBinding(raw) {
     // Existing OpenRouter binding validation, including routing/effort/ceilings.
     createBinding(b.reasoning);
     for (const value of [b.stt.microPerSecond * MAX_SAMPLE_SECONDS, b.tts.microPerCharacter * 242,
-      Math.ceil(b.baseline.microPerMinute * b.maxDurationSeconds / 60)]) if (!amount(value)) invalidBinding();
+      baselineAttemptCeiling(b)]) if (!amount(value)) invalidBinding();
     return deepFreeze(b);
   } catch { return invalidBinding(); }
 }

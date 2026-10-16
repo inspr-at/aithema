@@ -227,7 +227,6 @@ test('normal persistent consent ledger covers the exact selected component, reas
   assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope(binding.stt, 'stream')), false);
 });
 
-
 test('baseline reasoning ceiling is required, nonnegative integer micro and safe when combined with the conversation ceiling', () => {
   for (const baselineReasoningCeilingMicro of [undefined, null, -1, .5, '23', Number.MAX_SAFE_INTEGER]) {
     assert.throws(() => validateQualificationBinding({ ...liveBinding(), baselineReasoningCeilingMicro }), /binding/i);
