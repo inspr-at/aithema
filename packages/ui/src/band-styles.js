@@ -132,6 +132,7 @@ export const bandStyles = `
   .concept-rail { grid-area:1/1; }
   .concept-bar .concept-preview-slot { grid-area:2/1; display:grid; justify-items:start; }
   .concept-activity[hidden] { display:grid !important; visibility:hidden; }
+  .concept-activity-text { align-self:center; }
   .concept-preview { padding-inline:0; gap:.5rem; white-space:nowrap; }
   .concept-preview-glyph { width:22px; height:22px; }
   .concept-preview-glyph svg { width:22px; }
