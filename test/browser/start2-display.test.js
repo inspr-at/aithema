@@ -1262,7 +1262,19 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
   await mockIdentityReads(page);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
-  await shadow(page, c => { window.polishSeed = structuredClone(c.session); });
+  await shadow(page, c => {
+    window.polishSeed = structuredClone(c.session);
+    const fetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const response = await fetch(url, init);
+      if ((init.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname.endsWith('/settings')) {
+        // Keep the real catalog, with the scene's acknowledged selection.
+        const catalog = await response.json();
+        return Response.json({ ...catalog, processingPreset: c.session.processingPreset, settings: c.session.settings, engine: c.session.engine });
+      }
+      return response;
+    };
+  });
   const stable = ['.band', '.audio-rail', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
   const capture = async (label, state, detail = {}) => {
     await shadow(page, async c => {
@@ -1299,8 +1311,8 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
       s.featureMatrix = { [s.processingPreset]: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key,
         ['html', 'images'].includes(key) ? { available: !reason, reason } : { available: true, reason: null }])) };
-      s.conceptVisualKind = 'html'; s.conceptCost = state === 'quote-missing' ? null : { maxMicro: 400_000 };
-      s.concepts = []; s.conceptStatus = { phase: 'idle' };
+      s.conceptVisualKind = 'html'; s.conceptCost = state.includes('quote-missing') ? null : { maxMicro: 400_000 };
+      s.concepts = state === 'draft-ready-quote-missing' ? [{ id: 'polish-ready', mediaType: 'text/html', turnIds: ['polish-user'], referenceIds: [], archived: false }] : []; s.conceptStatus = { phase: 'idle' };
       c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
@@ -1330,6 +1342,10 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
         await page.click(actionNode);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-tab="model"]').getAttribute('aria-selected')), 'true');
+        if (state === 'device') {
+          assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.preset-option[data-preset="device"]')), true);
+          await capture(label, 'device-preset-settings');
+        }
         await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
       } else if (action === 'draftsRetry') {
         // Retry reads a snapshot; it must never request or charge for a draft.
@@ -1352,18 +1368,28 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
           const a = link.getBoundingClientRect(), b = create.getBoundingClientRect();
           const range = document.createRange(); range.selectNodeContents(link.querySelector('[data-copy]'));
           const other = document.createRange(); other.selectNodeContents(create.querySelector('span'));
+          const reason = root.querySelector('.export-reason');
           return { disabled: link.getAttribute('aria-disabled'), href: link.getAttribute('href'), why: link.title,
+            reason: reason?.textContent, reasonVisible: Boolean(reason?.checkVisibility()),
+            described: link.getAttribute('aria-describedby') === reason?.id, tabIndex: link.tabIndex, role: link.getAttribute('role'),
             underline: getComputedStyle(link).textDecorationLine, lines: range.getClientRects().length, projectLines: other.getClientRects().length,
             stacked: b.top >= a.bottom, right: Math.max(a.right, b.right) };
         });
         if (width < 480) { assert.equal(footer.lines, 1); assert.equal(footer.projectLines, 1); }
         else { assert.ok(footer.lines <= 2); assert.ok(footer.projectLines <= 2); }
         assert.equal(footer.stacked, width < 480); assert.ok(footer.right <= width);
-        if (state === 'device') { assert.equal(footer.disabled, 'true'); assert.equal(footer.href, null); assert.equal(footer.underline, 'none'); assert.equal(footer.why, copy.deviceExportUnavailable); }
-        else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); }
+        if (state === 'device') { assert.equal(footer.disabled, 'true'); assert.equal(footer.href, null); assert.equal(footer.underline, 'none'); assert.equal(footer.why, copy.deviceExportUnavailable);
+          assert.equal(footer.reason, copy.deviceExportUnavailable); assert.equal(footer.reasonVisible, true);
+          assert.equal(footer.described, true); assert.equal(footer.tabIndex, 0); assert.equal(footer.role, 'link'); }
+        else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); assert.equal(footer.reasonVisible, false); }
         await capture(label, `${state}-footer`, footer);
       }
     }
+    await configure('draft-ready-quote-missing', null); await finishWorkspaceEntry(page);
+    const ready = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.concept-activity-text').textContent,
+      recovery: Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action')) }));
+    assert.deepEqual(ready, { text: copy.conceptDraftReady.replace('{number}', '1'), recovery: false });
+    await capture(label, 'draft-ready-quote-missing', ready);
     await configure('option-unoffered', 'visuals not offered'); await finishWorkspaceEntry(page);
     for (const [platform, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
       await page.evaluate(platform => Object.defineProperty(navigator, 'platform', { configurable: true, value: platform }), platform);
@@ -1395,10 +1421,9 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
     }
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
   }
-  assert.equal(checks.length, 156, 'every changed state at every width, locale and theme');
+  assert.equal(checks.length, 180, 'every changed state at every width, locale and theme');
   if (evidence) await writeFile(join(evidence, 'ait246-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', fonts: 'Chrome baseline UI/display stacks pinned', checks }, null, 2));
 });
-
 
 test('AIT-246 round 2 regressions: visible export reason, device preset destination and existing drafts without a quote', { timeout: 60_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-polish-round2-'));
@@ -1412,7 +1437,12 @@ test('AIT-246 round 2 regressions: visible export reason, device preset destinat
   await shadow(page, c => { window.round2Seed = structuredClone(c.session); });
   const configure = (device, items = []) => shadow(page, async (c, { device, items }) => {
     const { en } = await import('/packages/ui/src/i18n/en.js');
+    const { inputRevision } = await import('/packages/core/src/session.js');
     const s = structuredClone(window.round2Seed);
+    s.paused = false; s.pauseReason = null;
+    s.transcript = [{ id: 'round2-user', role: 'user', content: 'A bakery website.' }, { id: 'round2-reply', role: 'assistant', content: 'How should customers order?' }];
+    s.transcript[1].inputRevision = inputRevision(s);
+    s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
     s.settings.origin = 'chosen'; s.processingPreset = device ? 'device' : 'best';
     s.conceptVisualKind = 'html'; s.conceptCost = null; s.concepts = items;
     s.conceptStatus = { phase: 'idle' };
