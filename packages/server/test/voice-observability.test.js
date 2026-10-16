@@ -281,7 +281,8 @@ for (const sink of ['collect', 'throw', 'reject']) test(`AIT-139: consent revoke
         yield { type: 'delta', text: 'Private late' }; yield { type: 'completion', text: 'Private partialPrivate late' };
       } finally {
         settlements++;
-        ledger.settle(claim.claimId, { attemptId: attempt.attemptId, outcome: 'completed', chargedMicro: 7 });
+        ledger.settle(claim.claimId, { attemptId: attempt.attemptId, outcome: 'completed', chargedMicro: 7,
+          usage: { inputTokens: 8, outputTokens: 4 } });
       }
     })() };
   });

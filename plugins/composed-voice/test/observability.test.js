@@ -50,7 +50,8 @@ test('AIT-139: composed capture, retries, truncated history and partial replies 
           }
         } finally {
           settlements++;
-          ledger.settle(claim.claimId, { attemptId: attempt.attemptId, outcome: 'completed', chargedMicro: 7 });
+          ledger.settle(claim.claimId, { attemptId: attempt.attemptId, outcome: 'completed', chargedMicro: 7,
+          usage: { inputTokens: 8, outputTokens: 4 } });
         }
       })() };
     }, options);
