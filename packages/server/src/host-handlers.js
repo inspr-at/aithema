@@ -125,7 +125,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const paused = storage.get(id).paused, guard = storage.creditState(id);
     if (host.credits?.ownerGuard !== false && host.wallet && ownerToken) {
       const ownerGuard = storage.ownerCreditState(ownerToken);
-      if (ownerGuard ? ownerGuard.paused !== paused : paused) storage.setOwnerPaused(ownerToken, paused);
+      if (ownerGuard ? ownerGuard.paused !== paused : paused) storage.setOwnerPaused(ownerToken, paused, id);
     }
     if (guard && guard.paused !== paused) conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
   }
@@ -271,10 +271,17 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         }
         if ((action === 'delete' || action === 'reset') && request.method === 'POST') {
           await body(request, []);
+          const resetPause = action === 'reset' ? storage.ownerCreditState(ownerToken)?.paused : undefined;
           const result = await port[action](id);
           if (!storage.get(id).tombstone) throw new Error('Host erasure unconfirmed');
           if (action === 'delete') return json({ ...result, providerDeletion: 'not-confirmed' });
           storage.authorize(result.id, ownerToken);
+          // Reset erases the source first. Carry its preference into the replacement's lifetime.
+          if (typeof resetPause === 'boolean') {
+            if (resetPause && !storage.get(result.id).paused) publish(result.id, storage.pause(result.id, true, { ownerToken }));
+            storage.setOwnerPaused(ownerToken, resetPause, result.id);
+            syncPause(result.id, ownerToken);
+          }
           const response = json({ ...result, session: await snapshot(result.id), providerDeletion: 'not-confirmed' }, 201);
           if (ownership.created) ownership.created(response, ownerToken, request);
           return response;

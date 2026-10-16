@@ -531,6 +531,45 @@ For the plugin contract and the text, voice and image onboarding steps, see
 [Adding a model](plugins.md#adding-a-model). The standalone external package proof
 uses host configuration and public exports without core or server changes.
 
+### Provider seats and the host privacy link
+
+A private binding's `legal.countries` lists the **recipients' seat**, using ISO
+3166-1 alpha-2 country codes (for example `['US', 'IE']`). It does not establish
+or guarantee a processing location. For qualified bindings the public catalog
+exposes these countries as `facts.hostCountries`; the host-countries privacy
+gauge says “Providers based in …” and explains that processing may occur
+elsewhere. The EU preset's admission/enforcement semantics are under review
+with LEAD; this wording change does not alter them. Existing enforced country
+policies retain their separate restriction wording.
+
+The gauge localizes country names with `Intl.DisplayNames` and joins them with
+`Intl.ListFormat` (long conjunction). The UI explicitly overrides the `US`
+display name to **“USA” in German** and **“the US” in English**, so `['US', 'IE']`
+reads “USA und Irland” / “the US and Ireland”.
+
+Mark the host privacy-policy anchor with **`data-aithema-privacy`** in the
+component's `legal` slot. The marker works on a directly slotted anchor or on
+an anchor inside a slotted wrapper; text and URL names are never guessed:
+
+```html
+<aithema-session>
+  <nav slot="legal">
+    <a href="/legal/privacy" data-aithema-privacy>Privacy policy</a>
+    <a href="/legal/imprint">Imprint</a>
+  </nav>
+</aithema-session>
+```
+
+For host countries, the help detail's “Datenschutzerklärung” / “privacy policy”
+becomes a link to that anchor's web URL (relative URLs are resolved against the
+host document). A host `target="_blank"` is preserved with `noopener noreferrer`.
+Without a marked HTTP(S) link in the legal slot, the phrase stays plain text.
+The privacy gauge accepts keyboard focus so the help link is reachable without
+hovering. Host training metadata never implies “no training”; that wording
+continues to belong to the existing enforced EU path. On subsequent catalog
+reads, host qualification is recomputed at the runtime's `now()`; expired
+binding evidence no longer qualifies the quality gauge.
+
 ## Shipped plugins
 
 The following imports are checked against actual exports. They are factories,

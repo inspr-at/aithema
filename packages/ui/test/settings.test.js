@@ -374,8 +374,8 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const host of [fal
         host ? copy.gauges.details.quality.hostQualified : copy.gauges.details.quality.unverified],
       ['cost', host ? 'hostPriceReviewed' : 'unverified', host ? copy.gauges.short.cost.hostPriceReviewed : copy.gauges.short.cost.unverified,
         host ? copy.gauges.details.cost.hostPriceReviewed : copy.gauges.details.cost.unverified],
-      ['privacy', host ? 'restricted' : 'unverified', host ? 'FR, US' : copy.gauges.short.privacy.unverified,
-        host ? copy.gauges.details.privacy.restricted.replace('{countries}', 'FR, US') : copy.gauges.details.privacy.unverified],
+      ['privacy', host ? 'hostCountries' : 'unverified', host ? copy.gauges.short.privacy.hostCountries.replace('{countries}', locale === 'de' ? 'Frankreich und USA' : 'France and the US') : copy.gauges.short.privacy.unverified,
+        host ? copy.gauges.details.privacy.hostCountries.replace('{countries}', locale === 'de' ? 'Frankreich und USA' : 'France and the US') : copy.gauges.details.privacy.unverified],
     ]) {
       const gauge = h.q(`[data-gauge="${kind}"]`);
       assert.equal(gauge.dataset.state, state);
@@ -392,7 +392,7 @@ test('AIT-262 host summaries preserve ratings, free/device states and the least 
   const model = { facts: facts({ free: false, hostQualified: true, hostCountries: ['FR'], hostTraining: true, hostPriceReviewed: true }) };
   const input = { preset: 'best', model, effort: 'none' };
   assert.deepEqual(hostSettingsGauges(input).cost, { state: 'hostPriceReviewed', fill: 0 }, 'a boolean cannot set a relative price level');
-  assert.equal(hostSettingsGauges(input).privacy.state, 'restricted', 'EU countries alone do not claim no training');
+  assert.equal(hostSettingsGauges(input).privacy.state, 'hostCountries', 'EU countries alone do not claim no training');
   assert.equal(hostSettingsGauges({ ...input, voice: { facts: facts({ free: false }) } }).cost.state, 'unverified');
   assert.equal(hostSettingsGauges({ ...input, voice: { facts: facts() } }).privacy.state, 'unverified');
   assert.equal(hostSettingsGauges({ ...input, visuals: { facts: facts({ processingLocations: ['US'] }) } }).privacy.state, 'declared');
@@ -414,7 +414,7 @@ for (const lane of ['model', 'voice', 'visuals']) {
   for (const preset of ['best', 'custom']) test(`AIT-262 host countries strengthen ${preset} privacy for ${lane}`, () => {
     for (const processingLocations of [['unverified'], ['US']]) {
       const input = { preset, [lane]: { facts: facts({ processingLocations, hostCountries: ['FR'] }) } };
-      assert.deepEqual(hostSettingsGauges(input).privacy, { state: 'restricted', fill: 55, enforced: true, countries: ['FR'] });
+      assert.deepEqual(hostSettingsGauges(input).privacy, { state: 'hostCountries', fill: 55, enforced: false, countries: ['FR'] });
     }
   });
 }
@@ -432,6 +432,91 @@ test('AIT-262 without host countries all base gauges stay unchanged', () => {
       model: { facts: facts({ hostCountries }) }, voice: { facts: facts() }, visuals: { facts: facts() }, effort: 'none' };
     assert.deepEqual(hostSettingsGauges(input), settingsGauges(input));
   }
+});
+
+const countryCopy = {
+  de: { single: 'USA', pair: 'USA und Irland', other: 'Irland',
+    short: 'Anbieter mit Sitz in ',
+    detail: countries => `Die Anbieter, die Ihre Eingaben erhalten, haben ihren Sitz in ${countries}. Wo verarbeitet wird, kann davon abweichen; Details stehen in der Datenschutzerklärung.`,
+    policy: 'Datenschutzerklärung' },
+  en: { single: 'the US', pair: 'the US and Ireland', other: 'Ireland',
+    short: 'Providers based in ',
+    detail: countries => `The providers that receive your input are based in ${countries}. Processing may take place elsewhere; see the privacy policy for details.`,
+    policy: 'privacy policy' },
+};
+for (const [locale, copy] of Object.entries({ de, en })) {
+  for (const countries of [['US'], ['US', 'IE'], ['IE']]) for (const privacyLink of ['none', 'wrapped', 'direct']) {
+    test(`AIT-270 ${locale}: provider seats ${countries} with ${privacyLink} privacy link`, async t => {
+      const h = fixture(t, { copy, loadCatalog(catalog) {
+        catalog.settings.voice = 'off';
+        catalog.presets.best.models[0].facts = facts({ hostCountries: countries, hostTraining: true });
+        return catalog;
+      } });
+      // Labels and URL names are deliberately unrelated to privacy: only the marker counts.
+      h.c.innerHTML = '<a slot="legal" href="/wrong">Privacy / Datenschutz</a>';
+      if (privacyLink !== 'none') {
+        const link = '<a data-aithema-privacy href="https://host.example.test/legal?lang=' + locale + '" target="_blank">Host terms</a>';
+        h.c.insertAdjacentHTML('beforeend', privacyLink === 'direct' ? link.replace('<a ', '<a slot="legal" ') : '<nav slot="legal">' + link + '</nav>');
+      }
+      await opened(h);
+      const gauge = h.q('[data-gauge="privacy"]'), expected = countryCopy[locale];
+      const names = countries.length === 2 ? expected.pair : countries[0] === 'US' ? expected.single : expected.other;
+      assert.equal(gauge.dataset.state, 'hostCountries');
+      assert.equal(gauge.querySelector('.gauge__detail').textContent, expected.short + names);
+      assert.ok(gauge.getAttribute('aria-label').endsWith(expected.detail(names)));
+      assert.doesNotMatch(gauge.textContent + gauge.getAttribute('aria-label'), /beschränkt auf|restricted to|limited to|ohne Training|without training|no training/iu);
+      gauge.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
+      const message = h.q('.context-message');
+      assert.ok(message.textContent.endsWith(expected.detail(names)));
+      const link = message.querySelector('a');
+      assert.equal(Boolean(link), privacyLink !== 'none');
+      if (link) {
+        assert.equal(link.textContent, expected.policy);
+        assert.equal(link.href, `https://host.example.test/legal?lang=${locale}`);
+        assert.equal(link.target, '_blank'); assert.ok(link.rel.includes('noopener'));
+        gauge.dispatchEvent(new window.Event('pointerout', { bubbles: true }));
+        assert.equal(message.querySelector('a'), link, 'the link survives moving from the gauge to the help line');
+        link.focus();
+        assert.equal(h.root.activeElement, link, 'rendering help keeps the focused link');
+      } else assert.ok(message.textContent.includes(expected.policy));
+    });
+  }
+  test(`AIT-270 ${locale}: enforced restrictions and the EU preset keep their wording`, async t => {
+    for (const [policy, state, countries] of [[{ countries: ['US'] }, 'restricted', ['US']],
+      [{ residency: 'eu', noTraining: true }, 'eu', null]]) {
+      const input = { preset: state === 'eu' ? 'eu' : 'custom', info: { policy }, model: { facts: facts({ hostCountries: ['IE'] }) } };
+      assert.deepEqual(hostSettingsGauges(input).privacy, { state, fill: state === 'eu' ? 70 : 55, enforced: true, countries });
+    }
+    const h = await opened(fixture(t, { copy, loadCatalog(catalog) {
+      catalog.settings.voice = 'off';
+      catalog.presets.best.policy = { residency: 'eu', noTraining: true };
+      catalog.presets.best.models[0].facts = facts({ hostCountries: ['US'], hostTraining: false });
+      return catalog;
+    } }));
+    const gauge = h.q('[data-gauge="privacy"]');
+    assert.equal(gauge.dataset.state, 'eu');
+    assert.equal(gauge.querySelector('.gauge__detail').textContent, copy.gauges.short.privacy.eu);
+    assert.ok(gauge.getAttribute('aria-label').endsWith(copy.gauges.details.privacy.eu));
+  });
+  for (const lane of ['model', 'voice', 'visuals']) for (const countries of [['US'], ['FR']]) {
+    test(`AIT-270 ${locale}: training:true for ${lane} in ${countries} never claims no training`, () => {
+      for (const processingLocations of [['unverified'], ['EU']]) for (const policy of [undefined, { residency: 'eu' }]) {
+        const input = { preset: 'best', info: { policy }, [lane]: { facts: facts({ processingLocations, hostTraining: true, hostCountries: countries }) } };
+        const gauge = hostSettingsGauges(input).privacy;
+        assert.equal(gauge.state, 'hostCountries');
+        assert.doesNotMatch(copy.gauges.short.privacy[gauge.state] + copy.gauges.details.privacy[gauge.state], /ohne Training|without training|no training/iu);
+      }
+    });
+  }
+}
+test('AIT-270 privacy links require a legal-slot marker and a web URL', async t => {
+  const h = fixture(t, { loadCatalog(catalog) {
+    catalog.settings.voice = 'off'; catalog.presets.best.models[0].facts = facts({ hostCountries: ['US'] }); return catalog;
+  } });
+  h.c.innerHTML = '<a data-aithema-privacy href="https://wrong.example.test/">Outside legal slot</a><a slot="legal" data-aithema-privacy href="javascript:alert(1)">Invalid</a>';
+  await opened(h);
+  h.q('[data-gauge="privacy"]').dispatchEvent(new window.Event('pointerover', { bubbles: true }));
+  assert.equal(h.q('.context-message a'), null);
 });
 
 test('hover, focus and saves change text in fixed boxes only: no control moves under the pointer', async t => {

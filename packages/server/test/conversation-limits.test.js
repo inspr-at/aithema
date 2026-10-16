@@ -4,6 +4,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from 
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { temporaryDb } from '../../../test/helpers.js';
 import { request } from '../../../test/plugin-fixtures.js';
+import { inputRevision } from '@inspr/aithema-core';
 
 const HOUR = 60 * 60_000, epoch = 1_800_000_000_000, owner = 'deadline-owner';
 function fixture(t, { path, at = epoch, ownerGuard = false } = {}) {
@@ -164,6 +165,113 @@ test('AIT-261: legacy owner guard recovery keeps the exact deadline on its origi
   assert.equal(restored.storage.creditState(original.id).endsAt, epoch + HOUR);
   assertEnded(restored, original.id);
   assert.equal(restored.storage.creditState(other.id), null, 'another conversation cannot inherit the legacy timer');
+});
+
+for (const paused of [true, false]) for (const deletion of ['retention', 'session', 'owner', 'withdrawal with erasure']) {
+  test(`AIT-268: ${deletion} removes pause=${paused}, deadline and refusal rows`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const f = fixture(t, { ownerGuard: true }), session = await f.create();
+    const ownerHash = f.storage.get(session.id).ownerHash;
+    const seed = (id, token) => {
+      f.storage.setOwnerPaused(token, paused, id);
+      f.storage.transitionCredits(id, token, { type: 'start', now: epoch });
+      f.storage.setLaneFailure(id, { lane: 'reaction', inputRevision: inputRevision(f.storage.get(id)) });
+    };
+    seed(session.id, owner);
+    const ids = [session.id];
+    if (deletion === 'owner') {
+      const other = await f.create(); ids.push(other.id); seed(other.id, owner);
+    }
+    const foreign = f.storage.create({ ownerToken: 'foreign-owner' }); seed(foreign.id, 'foreign-owner');
+    const ownerRows = () => f.storage.db.prepare('SELECT * FROM owner_credit_guards WHERE owner_hash=?').all(ownerHash);
+    assert.equal(ownerRows().length, 1, 'the preference must exist before deletion');
+    for (const id of ids) for (const table of ['conversation_credit_guards', 'lane_failures']) {
+      assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE session_id=?`).get(id).n, 1);
+    }
+    if (deletion === 'retention') {
+      f.storage.db.prepare('UPDATE session_retention SET last_activity=1 WHERE session_id=?').run(session.id);
+      assert.deepEqual(await f.handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
+    } else if (deletion === 'owner') {
+      assert.equal((await f.handlers.eraseSession({ sessionId: session.id, visitor: true })).erasedSessions, 2);
+    } else {
+      if (deletion === 'withdrawal with erasure') assert.equal((await f.call(`/api/sessions/${session.id}/consent`, { granted: false })).status, 200);
+      assert.equal((await f.call(`/api/sessions/${session.id}/erase`, {})).status, 200);
+    }
+    assert.deepEqual(ownerRows(), [], 'no owner hash or pause preference survives in the owner table');
+    for (const id of ids) for (const table of ['conversation_credit_guards', 'lane_failures']) {
+      assert.deepEqual(f.storage.db.prepare(`SELECT * FROM ${table} WHERE session_id=?`).all(id), [], table);
+    }
+    assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 1, 'foreign preference survives');
+    assert.ok(f.storage.creditState(foreign.id), 'foreign deadline survives');
+    assert.equal(f.storage.laneFailures(foreign.id).length, 1, 'foreign refusal survives');
+    assert.equal((await f.create()).paused, false, 'erased preference cannot seed New');
+  });
+}
+
+test('AIT-268: a manual pause carries over New/reset and restart, then follows replacement session erasure', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), source = await f.create();
+  const ownerHash = f.storage.get(source.id).ownerHash;
+  assert.equal((await f.call(`/api/sessions/${source.id}/pause`, { paused: true })).status, 200);
+  assert.equal((await f.create()).paused, true);
+  const reset = await (await f.call(`/api/library/${source.id}/reset`, {})).json();
+  assert.equal(reset.session.paused, true);
+  await f.close();
+  const restarted = fixture(t, { path, ownerGuard: true });
+  assert.equal((await restarted.create()).paused, true);
+  const record = JSON.parse(restarted.storage.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).record);
+  assert.deepEqual(record, { sessionId: reset.id, paused: true });
+  assert.equal(restarted.storage.creditState(reset.id), null, 'a pause preference is never migrated as a deadline');
+  restarted.storage.transitionCredits(reset.id, owner, { type: 'start', now: epoch });
+  assert.equal(restarted.storage.creditState(reset.id).endsAt, epoch + HOUR);
+  assert.equal((await restarted.call(`/api/sessions/${reset.id}/erase`, {})).status, 200);
+  assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards WHERE owner_hash=?').get(ownerHash).n, 0);
+  assert.equal((await restarted.create()).paused, false);
+});
+
+test('AIT-268: startup binds legacy pause rows and removes orphaned or erased guards', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const path = await temporaryDb(), f = fixture(t, { path, ownerGuard: true }), live = await f.create();
+  const ownerHash = f.storage.get(live.id).ownerHash;
+  const erased = f.storage.create({ ownerToken: 'erased-owner' }); f.storage.erase(erased.id);
+  const withdrawn = f.storage.create({ ownerToken: 'withdrawn-owner' }); f.storage.reviseConsent(withdrawn.id, false);
+  const orphanHash = 'a'.repeat(64);
+  for (const legacyOwnerHash of [ownerHash, erased.ownerHash, withdrawn.ownerHash, orphanHash]) {
+    f.storage.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?)').run(legacyOwnerHash, JSON.stringify({ paused: true }));
+  }
+  f.storage.db.prepare('INSERT INTO conversation_credit_guards VALUES (?,?)').run(erased.id, JSON.stringify({ sessionId: erased.id, paused: true }));
+  await f.close();
+  const restarted = fixture(t, { path, ownerGuard: true });
+  assert.deepEqual(restarted.storage.db.prepare('SELECT * FROM owner_credit_guards').all().map(row => ({ ...row, record: JSON.parse(row.record) })),
+    [{ owner_hash: ownerHash, record: { paused: true, sessionId: live.id } }]);
+  assert.deepEqual(restarted.storage.db.prepare('SELECT * FROM conversation_credit_guards WHERE session_id=?').all(erased.id), []);
+  assert.equal((await restarted.create()).paused, true);
+  assert.equal((await restarted.call(`/api/sessions/${live.id}/erase`, {})).status, 200);
+  assert.equal(restarted.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 0);
+});
+
+test('AIT-268: pause lifetime binding rejects a foreign or erased source session', t => {
+  const f = fixture(t), source = f.storage.create({ ownerToken: owner });
+  assert.throws(() => f.storage.setOwnerPaused('foreign-owner', true, source.id), /not found/iu);
+  f.storage.erase(source.id);
+  assert.throws(() => f.storage.setOwnerPaused(owner, true, source.id), /erased/iu);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 0);
+});
+
+for (const via of ['request', 'host']) test(`AIT-268: ${via} consent withdrawal removes owner pause without resetting the live deadline`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t, { ownerGuard: true }), session = await f.create();
+  assert.equal((await f.call(`/api/sessions/${session.id}/pause`, { paused: true })).status, 200);
+  const clock = f.storage.transitionCredits(session.id, owner, { type: 'start', now: epoch }).state;
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 1);
+  if (via === 'host') await f.handlers.withdrawConsent(session.id);
+  else assert.equal((await f.call(`/api/sessions/${session.id}/consent`, { granted: false })).status, 200);
+  assert.deepEqual(f.storage.db.prepare('SELECT * FROM owner_credit_guards').all(), []);
+  assert.deepEqual(f.storage.creditState(session.id), clock, 'withdrawal cannot renew the conversation clock');
+  assert.equal((await f.create()).paused, false);
+  f.storage.reviseConsent(session.id, true);
+  f.at(epoch + HOUR);
+  assert.throws(() => f.runtime.conversationLimits.assertOpen(session.id), { code: 'not-admitted', message: 'one-hour' });
 });
 
 test('AIT-261: inherited voice deadline also refuses separately admitted STT/TTS components', async t => {
