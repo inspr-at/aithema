@@ -596,6 +596,39 @@ test('a host can map each voice option to its own browser client; the rail start
   assert.deepEqual(started, ['fake-voice']);
 });
 
+for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-267 ${locale}: model labels wait for the first catalog and survive a pending refresh`, async t => {
+  const loads = [Promise.withResolvers(), Promise.withResolvers()];
+  t.after(() => loads.forEach(load => load.resolve()));
+  let reads = 0;
+  const h = fixture(t, { copy, origin: 'chosen', loadCatalog: async catalog => {
+    await loads[reads++].promise;
+    catalog.presets.best.models = [{ ...models[0], id: 'default', label: 'Anthropic via OpenRouter' }];
+    return catalog;
+  } });
+  h.server.session.settings.model = 'default';
+  h.server.session.engine.model = { id: 'default', label: 'Anthropic via OpenRouter' };
+  h.c.configure({ copy, session: structuredClone(h.server.session) });
+  h.c.openSettings();
+  const value = () => h.q('[data-select="model"] .select__value').textContent;
+  assert.equal(value(), copy.settings.loadingOption, 'the first render must not claim a fallback model label');
+  await tick();
+  assert.equal(value(), copy.settings.loadingOption, 'the label stays pending until the catalog resolves');
+  assert.equal(h.q('[data-select="model"] .select__button').disabled, true);
+  assert.equal(h.q('#settings-options-model').children.length, 0, 'no provisional model options');
+  loads[0].resolve(); await tick();
+  const expected = copy.catalogLabels['Anthropic via OpenRouter'];
+  assert.equal(value(), expected);
+  assert.equal(h.q('#settings-options-model [data-value="default"] strong').textContent, expected);
+  assert.equal(h.q('[data-select="model"] .select__button').disabled, false);
+  assert.deepEqual(h.posts, [], 'opening settings does not save a selection');
+  h.dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
+  h.c.openSettings(); await tick();
+  assert.equal(reads, 2);
+  assert.equal(value(), expected, 'reopening reuses the catalog while its refresh is pending');
+  loads[1].resolve(); await tick();
+  assert.equal(value(), expected);
+});
+
 // AIT-234: hold the first catalog so a fast explicit choice precedes its defaults.
 test('AIT-234: Custom chosen before the catalog loads applies Custom defaults, never Best values', async t => {
   const held = Promise.withResolvers(); t.after(() => held.resolve());
