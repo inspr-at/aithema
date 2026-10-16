@@ -43,8 +43,9 @@ export const questionCardStyles = `
   mask-image:linear-gradient(to bottom,transparent,#000 var(--qfade-start),#000 calc(100% - var(--qfade-end)),transparent); }
 .qopts[data-more-start] { --qfade-start:24px; }
 .qopts[data-more-end] { --qfade-end:24px; }
-.conversation:has(.qcard:not([hidden])) { row-gap:.5rem; }
+.workspace[data-stage="live"] .conversation { row-gap:.5rem; }
 .conversation:has(.qcard:not([hidden])) .transcript-shell { padding-bottom:0; }
+.conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { margin-top:0; }
 /* Latest is a floating action, never an invisible row below the last turn. */
 .transcript-shell .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 @media(max-width:600px) {

@@ -90,6 +90,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = r.querySelector('.turn:last-child').getBoundingClientRect();
           return { box: [bubble.x, bubble.y, bubble.width, bubble.height], gap: r.querySelector('.qcard').getBoundingClientRect().top - bubble.bottom,
             turnGap: parseFloat(getComputedStyle(shell.querySelector('ol')).rowGap),
+            shell: [shell.getBoundingClientRect().top, shell.getBoundingClientRect().bottom, shell.clientHeight, shell.scrollHeight, shell.scrollTop],
+            reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),
+            limit: r.querySelector('.qcard').style.getPropertyValue('--question-card-limit'),
+            notices: [r.querySelector('.voice-notices').getBoundingClientRect().height, r.querySelector('.voice-notices').style.minHeight],
             startVisible: bubble.top >= shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop) - 1 };
         });
         const assertRest = async state => {
@@ -182,8 +186,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.deepEqual(geometry.likely, [true, false, false]); assert.ok(geometry.arrows.every(arrow => arrow[0] === 30 && arrow[1] === 30));
         assert.equal(geometry.heading, locale === 'de' ? 'Offene Frage' : 'Open question');
         assert.equal(geometry.horizontalOverflow, false); assert.notEqual(geometry.arrowFills[0], geometry.arrowFills[1]);
-        const cardRest = await assertRest('card');
         await shot('card');
+        const cardRest = await assertRest('card');
         const point = await shadow(page, c => { const b = c.shadowRoot.querySelectorAll('.qopt')[1].getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; });
         await page.mouse.move(...point); await nextFrame(page);
         const hoverFill = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('.qopt .go')[1]).backgroundColor);
