@@ -12,7 +12,17 @@ import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
-import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+
+// Observe completed rendering instead of paying a fixed 120ms after every
+// state. Timed reveal checks still own their explicit animation clocks.
+const settle = page => shadow(page, async c => {
+  await document.fonts.ready;
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+    .filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime))
+    .map(a => a.finished.catch(() => {})));
+});
 
 // CI keeps every assertion, including paint samples. Evidence-only captures run
 // separately on the remote runner (or nightly) without spending PR runner time.
@@ -80,7 +90,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
         await shadow(page, async c => { const pane = c.shadowRoot.querySelector('.transcript-shell');
           const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           pane.scrollTop = 1; await frame(); pane.scrollTop = 0; await frame(); });
-        await settle();
+        await settle(page);
       }
       png = Buffer.from(await page.screenshot({ fullPage: false })); paintAttempts++;
       if (state !== 'not-scrolled') break;
@@ -123,7 +133,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     // Wait for its actual live paint, then reset the fixture's scroll anchor.
     await finishWorkspaceEntry(page);
     await shadow(page, c => { c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0); });
-    await page.mouse.move(0, 500); await settle();
+    await page.mouse.move(0, 500); await settle(page);
     assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off', `${label}: stable paint through the real motion preference`);
     const baseline = await boxes(page, selectors);
     const bandBox = baseline[0], clip = { x: 0, y: bandBox[1], width, height: bandBox[3] };
@@ -277,7 +287,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
         document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy); window.scrollTo(0, 0);
       }, { locale, verification, state });
       await page.click('aithema-session >>> .settings-open'); await page.click('aithema-session >>> [data-tab="general"]');
-      await page.mouse.move(0, 0); await settle();
+      await page.mouse.move(0, 0); await settle(page);
       const geometry = await shadow(page, c => {
         const root = c.shadowRoot, message = root.querySelector('.context-message'), box = message.getBoundingClientRect();
         const range = document.createRange(); range.selectNodeContents(message);
@@ -308,7 +318,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
         await page.hover(`aithema-session >>> ${control}`);
         sameBoxes(positions, await boxes(page, controls), `${context}: help on hover moves no control`);
       }
-      await page.mouse.move(0, 0); await settle();
+      await page.mouse.move(0, 0); await settle(page);
       if (evidence) {
         const name = `ait-147-settings-general-verification-${state}-${locale}-${width}-${theme}.png`;
         await page.screenshot({ path: join(evidence, name) }); files.push(name);
@@ -346,7 +356,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
       document.documentElement.lang = locale; window.scrollTo(0, 0);
     }, { locale, state });
     await page.click('aithema-session >>> .settings-open'); await page.click('aithema-session >>> [data-tab="general"]');
-    await shadow(page, c => c.shadowRoot.querySelector('.host-verify').scrollIntoView({ block: 'nearest' })); await settle();
+    await shadow(page, c => c.shadowRoot.querySelector('.host-verify').scrollIntoView({ block: 'nearest' })); await settle(page);
     const entry = await shadow(page, c => {
       const root = c.shadowRoot, section = root.querySelector('.host-verify'), button = section.querySelector('.verify-entry');
       const rect = section.getBoundingClientRect(), hit = root.elementFromPoint(rect.x + 8, rect.y + 8);
@@ -430,7 +440,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     const name = `${state}-${width}-${theme}-${locale}.png`;
     if (evidence) {
       await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-      await page.mouse.move(-1, -1); await settle();
+      await page.mouse.move(-1, -1); await settle(page);
       // Reopen from the verified outer-ring click after clearing capture focus/hover.
       if (state === 'orb-hit-area-open') await shadow(page, c => c.shadowRoot.querySelector('.band-orb [role="button"]').click());
       await shadow(page, async c => {
@@ -449,7 +459,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     const before = await frame.$eval('#design', n => n.value);
     await shadow(page, c => { globalThis.canvasFrameBefore = c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe');
       c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }); });
-    await settle();
+    await settle(page);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe') === globalThis.canvasFrameBefore), true);
     assert.equal(await frame.$eval('#value', n => n.textContent), '1'); assert.equal(await frame.$eval('#design', n => n.value), before);
     assert.equal(await frame.evaluate(() => document.activeElement.id), 'design', 'typing focus stays in the same browsing context');
@@ -494,7 +504,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       // The point is in the target's outer ring, beyond the painted 40px orb.
       await page.mouse.click(target[0] + 1, target[1] + 22);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'open');
-      await settle(); sameBoxes(bandBefore, await layoutBoxes(page, ['.band-orb', '.band', '.settings-open']), 'orb activation does not shift the band layout');
+      await settle(page); sameBoxes(bandBefore, await layoutBoxes(page, ['.band-orb', '.band', '.settings-open']), 'orb activation does not shift the band layout');
       await shot('orb-hit-area-open', locale, theme, width);
       checks.push({ locale, theme, width, visual, target });
     }
@@ -517,7 +527,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
         const before = await boxes(page, selectors);
         await page.click('aithema-session >>> .conversations-toggle');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
-        await settle();
+        await settle(page);
         const menu = await shadow(page, c => {
           const root = c.shadowRoot, n = root.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
           const anchor = root.querySelector('.conversations-toggle').getBoundingClientRect();
@@ -600,7 +610,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
   const settled = async state => {
     await until(page, (state) => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === state, state);
     await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
-    await settle();
+    await settle(page);
   };
   const placeholder = () => shadow(page, c => c.shadowRoot.querySelector('textarea').placeholder);
   const controls = () => shadow(page, c => ['.voice-input', '.voice-output'].map(selector => {
@@ -612,7 +622,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.session?.id);
-    await page.select('#theme', theme); await configure(locale); await settle();
+    await page.select('#theme', theme); await configure(locale); await settle(page);
     await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click()); await settled('listening');
     const placeholders = { listening: await placeholder() }; assert.equal(placeholders.listening, copy.placeholderVoice);
     const selectors = ['.band', '.audio-rail', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'];
@@ -694,7 +704,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
   const recovered = async recovery => {
     await push({ type: 'recovered', recovery });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-notice--recovered').textContent);
-    await settle();
+    await settle(page);
   };
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 1024, 390], theme, 8, 'display-notices')) {
@@ -740,7 +750,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       }, locale);
       await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
-      await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+      await page.evaluate(async () => { await document.fonts.ready; }); await settle(page);
       const before = await layoutBoxes(page, selectors);
       const sameNoticeBoxes = (after, context) => {
         if (width !== 390) { sameBoxes(before, after, context); return; }
@@ -849,7 +859,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
         globalThis.noticeObserver.observe(live, { childList: true, subtree: true, characterData: true });
       });
       // Provider speaking/listening repaints the rail but never rewrites its notice live region.
-      await push({ type: 'speaking' }); await push({ type: 'listening' }); await settle();
+      await push({ type: 'speaking' }); await push({ type: 'listening' }); await settle(page);
       assert.equal(await page.evaluate(() => { globalThis.noticeObserver.disconnect(); return globalThis.noticeAnnouncements.length; }), 0);
       await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').focus()); await page.keyboard.press('Enter');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
@@ -862,15 +872,15 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       await page.keyboard.press('Escape');
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.className), 'voice-repeat', 'Escape returns keyboard focus');
-      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle();
+      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle(page);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
-      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle();
+      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle(page);
       await push({ type: 'waiting', reason: 'recovery-failed' });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'waiting');
       for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
         const tooltip = await shadow(page, (c, name) => c.shadowRoot.querySelector(`.voice-${name}`).title, name);
         assert.equal(tooltip, wording.tooltip);
-        await shadow(page, (c, cell) => c.shadowRoot.querySelector(`.voice-cell--${cell}`).focus(), cell); await settle();
+        await shadow(page, (c, cell) => c.shadowRoot.querySelector(`.voice-cell--${cell}`).focus(), cell); await settle(page);
         assert.equal(await shadow(page, (c, cell) => getComputedStyle(c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`)).visibility, cell), 'visible');
         const tooltipBox = await shadow(page, (c, cell) => {
           const b = c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`).getBoundingClientRect();
@@ -880,14 +890,14 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
           `${label}: ${name} tooltip fits the viewport: ${JSON.stringify(tooltipBox)}`);
         await shot(`waiting-${name}-tooltip`, label);
       }
-      await push({ type: 'partial', role: 'user', turnId: 'next', text: 'Next utterance' }); await settle();
+      await push({ type: 'partial', role: 'user', turnId: 'next', text: 'Next utterance' }); await settle(page);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), '');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
       sameNoticeBoxes(await layoutBoxes(page, selectors), `${label}: clearing does not shift layout`);
       const cleared = await noticeLayout('cleared');
       assert.equal(cleared.rows.length, 0, 'cleared notices leave all reserved room below');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-      await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click()); await settle();
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click()); await settle(page);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), false);
       checks.push({ viewport: { width, height: width === 390 ? 844 : 900 }, locale, theme, geometry, layoutChecks, capture: 'viewport',
         restored: copy.voiceRecovered, unconfirmed: copy.voiceUserUnconfirmed, incomplete: wording.notice, repeat: wording.button,
@@ -1136,7 +1146,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
     await configure(locale);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
-    await page.mouse.move(0, 0); await settle();
+    await page.mouse.move(0, 0); await settle(page);
     const notice = await page.$('aithema-session >>> .ai-notice');
     await notice.evaluate(n => n.scrollIntoView({ block: 'center' }));
     const footerBefore = await boxes(page, ['.display-foot', '.ai-notice', '.host-credits', '.footer-right']);
@@ -1316,7 +1326,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
         };
         const retrySnapshot = await shadow(page, c => c.session), windowSeedId = retrySnapshot.id;
         await page.setRequestInterception(true); page.on('request', interceptor);
-        await page.click(actionNode); await until(page, () => true); await settle();
+        await page.click(actionNode); await until(page, () => true); await settle(page);
         page.off('request', interceptor); await page.setRequestInterception(false);
         assert.equal(reads, 1); assert.equal(paidRequests, 0);
       }

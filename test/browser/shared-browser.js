@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from './start2-display-helpers.js';
 
-let launch, directory, resetPage, crashed = false;
+let launch, directory, resetPage, launchConfiguration, crashed = false;
 const fixtures = [];
 after(async () => {
   // Finish every fixture reset before closing the file-owned protocol connection.
@@ -19,10 +19,11 @@ after(async () => {
   }
 });
 
-export async function browserForFile() {
+export async function browserForFile(options = {}) {
+  const configuration = JSON.stringify(options);
   if (launch) {
     const previous = await launch.catch(() => null);
-    if (!previous?.connected || crashed) {
+    if (!previous?.connected || crashed || configuration !== launchConfiguration) {
       if (previous?.connected) await previous.close();
       launch = undefined; resetPage = undefined; crashed = false;
       if (directory) await rm(directory, { recursive: true, force: true });
@@ -30,10 +31,11 @@ export async function browserForFile() {
     }
   }
   launch ??= (async () => {
+    launchConfiguration = configuration;
     directory = await mkdtemp(join(tmpdir(), 'aithema-shared-chrome-'));
-    const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
+    const browser = await puppeteer.launch({ ...options, executablePath: await browserPath(), headless: true, pipe: true,
       userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH },
-      args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+      args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), ...(options.args ?? [])] });
     // Storage commands need a page target's storage partition.
     resetPage = await browser.newPage();
     return browser;

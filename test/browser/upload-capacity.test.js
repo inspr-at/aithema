@@ -1,18 +1,35 @@
 import { mockConsent } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import puppeteer from './launch.js';
+import { browserForFile } from './shared-browser.js';
 import { samePaint } from './png-pixels.js';
-import { browserPath } from '../../scripts/install-test-browser.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import {
-  waitTimeout, content, waitForShadow, shadowFocus, startDemo, stopDemo, preparePage,
+  content, waitForShadow, shadowFocus, startDemo, stopDemo, preparePage,
   inShadow, box, until, uploadChooser, startTyping, sendTurn, revealed,
 } from './demo-helpers.js';
+
+// Delay arithmetic, Retry-After, cancellation, and the no-early-POST contract
+// run with controlled clocks in packages/ui/test/uploads.test.js. Keep every
+// real-browser upload/retention/paint assertion, without sleeping 5+10 seconds
+// for each exhaustion. Only the upload retry timer uses this test clock.
+async function fastUploadBackoff(page) {
+  await page.evaluate(() => {
+    const schedule = window.setTimeout.bind(window);
+    window.uploadBackoffDelays = [];
+    window.setTimeout = (callback, delay, ...args) => {
+      if (new Error().stack.includes('#waitForUploadRetry')) {
+        window.uploadBackoffDelays.push(delay);
+        return schedule(callback, 0, ...args);
+      }
+      return schedule(callback, delay, ...args);
+    };
+  });
+}
 
 // Computed decoration can still be clipped by the scrolling reason slot. Compare the
 // actual action pixels with the underline removed, while preserving geometry and focus.
@@ -118,15 +135,14 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     });
     const paths = Array.from({ length: 4 }, (_, i) => join(directory, `large-${i}.txt`));
     for (const path of paths) await writeFile(path, Buffer.alloc(11 * 1024 * 1024, 97));
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-      env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
-      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage(); await preparePage(page, locale === 'de' ? ['de-DE', 'de'] : ['en-US', 'en']);
     await page.setViewport({ width, height: 900 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
+    await fastUploadBackoff(page);
     await sendTurn(page, locale === 'de' ? 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international' : `We are a bakery and want a preorder app. ${content}`);
     await waitForShadow(page, 'aside .notice', { text: (locale === 'de' ? de : en).final }); await revealed(page);
     // Keep the real route/extractors for accepted requests. Fail limits discovery and inject one
@@ -305,6 +321,8 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     const questionToast = await toastGeometry(); await shot('question-toast');
     await sameControls(cardControls, 'toast with question card');
     if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, refusal, baseline, toast, questionToast, resent, transcript, actionRecords }, null, 2));
+    assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(5000), 'production upload backoff reached the controlled clock');
+    assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(10000), 'production second retry reached the controlled clock');
     assert.deepEqual(problems, []);
     t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; paused offers Discard only; resume restores retry with no upload; every shot has exact accessible button names/roles and shared computed underlines; toast gap 8 px above dock and question card, no card/composer/button intersection; one DOM row per turn.`);
   });
@@ -320,15 +338,14 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
     });
     const paths = [join(directory, 'brief.txt'), join(directory, 'notes.txt')];
     for (const path of paths) await writeFile(path, 'Retained locale-switch fixture.');
-    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-      env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
-      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    browser = await browserForFile();
     const page = await browser.newPage(); await preparePage(page, source === 'de' ? ['de-DE', 'de'] : ['en-US', 'en']);
     await page.setViewport({ width, height: 900 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
+    await fastUploadBackoff(page);
     await page.evaluate(() => {
       const original = window.fetch.bind(window); window.retryAttempts = [];
       window.fetch = async (url, options = {}) => {
@@ -395,5 +412,7 @@ for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390,
       t.diagnostic(`PASS ${width} ${source.toUpperCase()}→${target.toUpperCase()} ${theme}, ${count} file(s): exact full retry line; 0 px movement; three attempts, no resend; exact accessible buttons and shared computed underlines; discard removes the line.`);
     }
     if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-r7-${width}-${source}-to-${target}-${theme}-assertions.json`), JSON.stringify({ width, source, target, theme, records }, null, 2));
+    assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(5000), 'production upload backoff reached the controlled clock');
+    assert.ok((await page.evaluate(() => window.uploadBackoffDelays)).includes(10000), 'production second retry reached the controlled clock');
     assert.deepEqual(problems, []);
   });

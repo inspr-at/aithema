@@ -2,13 +2,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile, appendFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from './launch.js';
+import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
 import audit from '../fixtures/consent-copy-audit.json' with { type: 'json' };
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
-import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
 const features = { uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
@@ -31,8 +31,7 @@ async function fixture(t, real = false, purpose = false) {
   const demo = await startChild(new URL(real ? '../fixtures/consent-lines-server.js' : '../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     ...(purpose ? { AITHEMA_PURPOSE_FIXTURE: '1' } : {}), AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const browser = await browserForFile();
   let closed = false;
   const close = async () => { if (closed) return; closed = true; await browser.close(); await demo.kill(); };
   t.after(close);
