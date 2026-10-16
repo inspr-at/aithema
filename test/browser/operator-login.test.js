@@ -269,6 +269,8 @@ test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/
           const line = `PASS head=${evidenceCommit} AIT-223 ${locale}-${theme}-${width}/${state}: text=${JSON.stringify(first.text)}, href=${first.href ?? 'none'}, separators=${first.separators} aria-hidden, logout margin=0px, row=44px, first-frame final, 0px shift, focus restored`;
           passLines.push(line); t.diagnostic(line);
           await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+          await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+          assert.equal(await shadow(page, c => c.session.settings.origin), 'chosen', 'Done waits for the explicit settings confirmation');
           assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), false, 'flow continues after capture');
         }
         assert.deepEqual(frames[1], frames[0], 'admin availability preserves dialog, footer and row height');
