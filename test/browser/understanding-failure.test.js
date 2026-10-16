@@ -38,6 +38,7 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
       const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       session.transcript = [{ id: 'person', role: 'user', content: 'A bakery preorder app.' }, { id: 'reply', role: 'assistant', content: 'Which payment methods?' }];
+      session.transcript[1].inputRevision = inputRevision(session);
       session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
       Object.assign(session.understanding, { inputRevision: inputRevision(session), summary: 'A bakery preorder app.', readinessAssessed: true });
       c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
