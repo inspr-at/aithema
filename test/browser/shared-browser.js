@@ -2,7 +2,7 @@
 // Run only through remote-browser.sh or CI.
 import { after } from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { browserPath } from './start2-display-helpers.js';
@@ -32,7 +32,7 @@ export async function browserForFile() {
   launch ??= (async () => {
     directory = await mkdtemp(join(tmpdir(), 'aithema-shared-chrome-'));
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, pipe: true,
-      userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH, HOME: homedir() },
+      userDataDir: join(directory, 'chrome'), env: { PATH: process.env.PATH },
       args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
     // Storage commands need a page target's storage partition.
     resetPage = await browser.newPage();

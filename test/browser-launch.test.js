@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, isAbsolute } from 'node:path';
-import browserLauncher, { launchTimeout } from './browser/launch.js';
+import { browserStep } from './browser/browser-step.js';
+import browserLauncher, { launchTimeout, navigationTimeout, boundPage } from './browser/launch.js';
 
 async function fixture(t, hangs, extra = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'launch-test-'));
@@ -82,6 +83,10 @@ test('concurrent launches isolate HOME, profile, cache and temp despite caller H
     ...f.options, env: { ...f.options.env, HOME: '/caller-home-must-never-be-used' },
   })));
   t.after(() => Promise.all(browsers.map(browser => browser.close())));
+  if (process.platform === 'darwin') for (const browser of browsers) {
+    assert.ok(browser.process().spawnargs.includes('--disable-metal-shader-cache'));
+    assert.ok(browser.process().spawnargs.includes('--enable-gpu'));
+  }
   const attempts = (await Promise.all(fixtures.map(f => f.attempts()))).flat();
   assert.equal(attempts.length, 2);
   for (const key of ['profile', 'home', 'tmpdir', 'cache', 'config']) {
@@ -92,4 +97,34 @@ test('concurrent launches isolate HOME, profile, cache and temp despite caller H
       assert.ok(path && !path.startsWith('..') && !isAbsolute(path), `${key} must stay inside the run`);
     }
   }
+});
+
+test('navigation has a hard deadline and identifies its test file', async () => {
+  let defaults, observed;
+  const page = { setDefaultNavigationTimeout(value) { defaults = value; },
+    async goto(_url, options) { observed = options; throw new Error('navigation timeout'); } };
+  boundPage(page, 'orb-reveal.test.js');
+  assert.equal(defaults, navigationTimeout);
+  for (const [requested, expected] of [[0, 30_000], [120_000, 30_000], [500, 500]]) {
+    await assert.rejects(page.goto('http://fixture/', { timeout: requested, waitUntil: 'domcontentloaded' }), /orb-reveal.test.js: page.goto failed: navigation timeout/u);
+    assert.equal(observed.timeout, expected);
+    assert.equal(observed.waitUntil, 'domcontentloaded');
+  }
+});
+
+test('a stalled WebSocket upgrade is bounded and cleaned before retry', async t => {
+  const f = await fixture(t, 1, { AIT_LAUNCH_HANDSHAKE: '1' });
+  const browser = await browserLauncher.launch(f.options);
+  t.after(() => browser.close());
+  const attempts = await f.attempts();
+  assert.equal(attempts.length, 2);
+  assert.throws(() => process.kill(attempts[0].pid, 0), { code: 'ESRCH' });
+  await assert.rejects(access(attempts[0].profile), { code: 'ENOENT' });
+  assert.deepEqual(f.messages, ['infra: browser launch (retry 1/1)']);
+});
+
+test('fixture latches fail with the file and step instead of waiting for the file deadline', async () => {
+  await assert.rejects(browserStep('confirmation-design.test.js: server POST arrival',
+    () => new Promise(() => {}), 20), /confirmation-design.test.js: server POST arrival: exceeded 20 ms/u);
+  assert.equal(await browserStep('ready', async () => 'value'), 'value');
 });

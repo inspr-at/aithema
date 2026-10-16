@@ -2,6 +2,7 @@
 // answer startup commands without starting Chrome or creating a page.
 import { appendFileSync, readFileSync, mkdirSync, writeFileSync, createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { WebSocketServer } from 'ws';
+import { createServer } from 'node:http';
 const { AIT_LAUNCH_RECORD: record, AIT_LAUNCH_HANGS: hangs, AIT_LAUNCH_ERROR: error } = process.env;
 let previous = [];
 try { previous = readFileSync(record, 'utf8').trim().split('\n').map(JSON.parse); } catch {}
@@ -16,7 +17,12 @@ writeFileSync(`${profile}/startup-marker`, 'created by failed launch');
 appendFileSync(record, JSON.stringify({ pid: process.pid, profile, home: process.env.HOME, tmpdir: process.env.TMPDIR, cache: process.env.XDG_CACHE_HOME, config: process.env.XDG_CONFIG_HOME }) + '\n');
 if (error) { console.error('deliberate non-timeout launch failure'); process.exit(1); }
 if (previous.length < Number(hangs)) {
-  setInterval(() => {}, 60_000); // The only deliberate hang in these tests.
+  if (process.env.AIT_LAUNCH_HANDSHAKE === '1') {
+    // Emit a valid endpoint but never complete its HTTP upgrade. An endpoint
+    // discovery timeout alone cannot bound this stage of WS startup.
+    const server = createServer(); server.on('upgrade', () => {});
+    server.listen(0, '127.0.0.1', () => console.error(`DevTools listening on ws://127.0.0.1:${server.address().port}/devtools/browser/fake`));
+  } else setInterval(() => {}, 60_000); // Deliberate startup hang.
 } else {
   const respond = (raw, send) => {
     const { id, method } = JSON.parse(raw);
