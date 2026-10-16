@@ -6,6 +6,11 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
+import { fullMatrix } from './matrix-coverage.js';
+
+// PR artifacts must not enable evidence-only captures or the exhaustive sweep.
+// Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
+const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
 
 import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
@@ -27,7 +32,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     t.after(() => browser.close());
-    const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
+    const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
     const accessibility = await page.createCDPSession(), accessibilityChecks = [];
     // Chrome's full accessibility snapshot includes the session's shadow root.
     const optionSnapshot = async heading => {
@@ -431,7 +436,12 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
           });
           try {
-            const heights = [844, 508, ...Array.from({ length: 21 }, (_, index) => 460 + 8 * index), 320, 844];
+            // The compact rule has one 620px breakpoint. PRs sample both sides
+            // and the boundary in every locale/theme, retaining two resizes and
+            // all 24 frame assertions. Evidence keeps the exhaustive 8px sweep.
+            const heights = fullMatrix
+              ? [844, 508, ...Array.from({ length: 21 }, (_, index) => 460 + 8 * index), 320, 844]
+              : [844, 508, 460, 612, 620, 320, 844];
             for (const height of heights) {
               const samples = await shadow(page, async (c, height) => {
                 const card = c.shadowRoot.querySelector('.qcard'), states = [];
@@ -675,7 +685,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
   t.after(() => demo.kill());
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
   t.after(() => browser.close());
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, checks = [];
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -692,7 +702,9 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
   if (evidence) await mkdir(evidence, { recursive: true });
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+  // The no-drafts fold rule is width/theme independent; retain a phone and
+  // desktop visibility/zero-shift probe in each locale. Evidence covers all 12.
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of (fullMatrix ? [1440, 1024, 390] : [theme === 'light' ? 390 : 1024])) {
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
     await page.select('#theme', theme);
     await page.evaluate(async locale => {
@@ -719,7 +731,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
       await page.mouse.move(-1, -1);
       await shadow(page, async c => {
         c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
-        await Promise.all(c.shadowRoot.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
       });
       await nextFrame(page);
       await page.screenshot({ path: join(evidence, `ait-229-${label}-${state}.png`), fullPage: false });
@@ -728,6 +740,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
       await page.evaluate(question => globalThis.noDraftsReply(question ? [{ text: 'Yes' }, { text: 'No' }] : []), question);
       await nextFrame(page);
       assert.equal(await shown(page), question, `${label}: final options own the question card`);
+      await shot(question ? 'no-drafts-question-before-fold' : 'no-drafts-transcript-before-fold');
       const before = await boxes(page, ['.transcript-shell', '.composer', '.display-foot']);
       await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await nextFrame(page);
       const state = await shadow(page, c => {
@@ -764,5 +777,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     await shot('drafts-removed'); checks.push({ locale, theme, width, shiftPx: 0 });
   }
   if (globalThis.noDraftsInterceptionError) throw globalThis.noDraftsInterceptionError;
-  if (evidence) await writeFile(join(evidence, 'ait-229-checks.json'), JSON.stringify({ checks, viewport: true, reducedMotion: true, blurred: true, fontStack: 'Chrome baseline' }, null, 2));
+  assert.equal(checks.length, fullMatrix ? 12 : 4, 'every no-drafts locale/theme/width probe completes');
+  if (evidence) await writeFile(join(evidence, 'ait-229-checks.json'), JSON.stringify({
+    ticket: 'AIT-229', commit: /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], createdAt: new Date().toISOString(), checks, viewport: true, reducedMotion: true, blurred: true, fontStack: 'Chrome baseline' }, null, 2));
 });
