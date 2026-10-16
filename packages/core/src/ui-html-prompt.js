@@ -81,7 +81,7 @@ export function revisionOf(html) {
 }
 // Keep untrusted data from closing the prompt's own delimiters.
 const json = value => JSON.stringify(value, null, 2).replaceAll('<', '\\u003c');
-/** Host spec + untrusted visitor data → OpenRouter messages; validates bounds before any spend. */
+/** Host spec + untrusted visitor data → chat messages; validates bounds before any spend. */
 export function buildMessages(spec, feedback, previousHtml) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) fail();
   if (Object.keys(spec).some(k => !['prompt', 'understanding', 'visitorWords', 'language', 'revision', 'references'].includes(k))) fail();

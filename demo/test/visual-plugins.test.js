@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PluginRegistry, createMockReasoning, processingScope, verifyHTMLArtifact } from '@inspr/aithema-core';
-import { SQLiteStorage, createPluginRuntime, createSpendCap, localHTMLBinding, localImageBinding, imagePluginBinding } from '@inspr/aithema-server';
+import { SQLiteStorage, createPluginRuntime, createSpendCap, localHTMLBinding, localImageBinding, imagePluginBinding, mockPresets } from '@inspr/aithema-server';
 import { manifest as htmlManifest, buildMessages, callCeilingMicro, htmlArtifact } from '@inspr/aithema-plugin-claude-html';
 import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images';
 import { previousDocument } from '@inspr/aithema-plugin-claude-html/html-artifact';
@@ -87,5 +87,36 @@ test('AIT-211: host preserves live/off modes, Claude exact prices and separate g
     assert.equal(presets.best.choices.defaults.visuals, 'claude-html');
     assert.deepEqual(presets.best.choices.visuals.map(option => option.id), ['claude-html', 'openai-images']);
     assert.deepEqual(presets.best.choices.visuals[1].binding.imageCost, binding.imageCost);
+  } finally { storage.close(); }
+});
+
+for (const estimated of [19, undefined]) test(`AIT-211: runtime admits an independent HTML adapter using ${estimated ? 'its cost port' : 'the full binding ceiling'}`, async () => {
+  const config = htmlConfig({ AITHEMA_HTML_MODE: 'claude',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/claude-opus-5.5': { prompt: 1.4e-6, completion: 1.4e-5 } }) });
+  const binding = { ...config.binding, plugin: 'host-html' }, request = { hostSpecific: 'independent request format' };
+  const observed = [];
+  const plugin = { manifest: { ...htmlManifest, id: binding.plugin }, binding,
+    health: async () => ({ available: true }), generate() {}, edit() {},
+    ...(estimated === undefined ? {} : { estimateCost(value, operation) { observed.push({ value, operation }); return estimated; } }) };
+  const reasoning = createMockReasoning(), presets = mockPresets(), storage = new SQLiteStorage();
+  presets.best.plugins.push(binding.plugin); presets.best.bindings.html = binding;
+  presets.best.policy = { endpoints: [binding.endpoint] };
+  const runtime = createPluginRuntime({ storage, reasoning, presets,
+    registry: new PluginRegistry().register(reasoning).register(plugin),
+    consent: { coverage: ({ scope, consentRevision }) => ({ ...scope, scope, consentRevision,
+      covered: true, checkedAt: Date.now(), expiresAt: Date.now() + 5000 }) } });
+  try {
+    const created = storage.create({ ownerToken: 'test-visitor' });
+    storage.reviseConsent(created.id, true);
+    const session = storage.get(created.id);
+    storage.append(created.id, 'concept.state', { intent: { ...session.conceptIntent,
+      visualIntent: { id: 'wish' }, pending: { id: 'render' } }, status: { phase: 'pending' } });
+    const admitted = await runtime.admit({ session: storage.get(created.id), lane: 'concept', operation: 'generate', request,
+      options: { deadlineAt: Date.now() + 5000, visualKind: 'html' } });
+    assert.equal(runtime.budget.used(created.id), estimated ?? binding.maxMicro);
+    if (estimated !== undefined) assert.ok(observed.some(call => call.value === request && call.operation === 'generate'));
+    await admitted.options.report({ attemptId: admitted.options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+    admitted.finish();
+    assert.equal(runtime.budget.used(created.id), 0);
   } finally { storage.close(); }
 });

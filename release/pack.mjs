@@ -90,7 +90,8 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   const packages = packageVersions(files, source);
   // Public plugin release versions share the canonical coordinate; apiVersion remains a separate protocol.
   for (const [path, bytes] of files) {
-    if (/^packages\/core\/src\/(?:plugins|extractor)\.js$/u.test(path) || /^plugins\/[^/]+\/src\/(?:index|manifest)\.js$/u.test(path)) {
+    if (/^packages\/core\/src\/(?:plugins|extractor)\.js$/u.test(path) ||
+      /^packages\/server\/src\/local-(?:html|images)\.js$/u.test(path) || /^plugins\/[^/]+\/src\/(?:index|manifest)\.js$/u.test(path)) {
       files.set(path, Buffer.from(bytes.toString().replace(/\bversion:\s*(['"])0\.0\.0\1/gu, `version: '${source.version}'`)));
     }
   }
