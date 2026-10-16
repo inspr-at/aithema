@@ -17,6 +17,9 @@ test('AIT-160 CLI: fake pair through different-port tunnel, admitted retry and b
   let local, target, child;
   const forwarder = createServer(socket => {
     const upstream = connect({ host: '127.0.0.1', port: target });
+    // Match an interactive ssh tunnel: tiny PCM POSTs must not wait for Nagle's
+    // delayed ACK cycle on either half of this byte-for-byte TCP forwarder.
+    socket.setNoDelay(true); upstream.setNoDelay(true);
     for (const stream of [socket, upstream]) { sockets.add(stream); stream.on('close', () => sockets.delete(stream)); stream.on('error', () => { socket.destroy(); upstream.destroy(); }); }
     socket.pipe(upstream); upstream.pipe(socket);
   });
