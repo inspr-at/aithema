@@ -294,6 +294,16 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         }), true, 'options fade only toward more content and the suggestion uses normal text weight');
         await shot('bounded-options');
         const answerBoxes = await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']);
+        const maskBoxes = await boxes(page, ['.qcard', '.qopts', '.composer']);
+        await shadow(page, c => { const opts = c.shadowRoot.querySelector('.qopts'); opts.scrollTop = opts.scrollHeight; });
+        await nextFrame(page);
+        assert.equal(await shadow(page, c => {
+          const opts = c.shadowRoot.querySelector('.qopts');
+          return opts.hasAttribute('data-more-start') === (opts.scrollTop > 1) && !opts.hasAttribute('data-more-end');
+        }), true, 'at the option list end, only the edge toward earlier content fades');
+        assert.deepEqual(await boxes(page, ['.qcard', '.qopts', '.composer']), maskBoxes, 'changing option fades moves the layout exactly 0 px');
+        await shadow(page, c => { c.shadowRoot.querySelector('.qopts').scrollTop = 0; });
+        await nextFrame(page);
         await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
         for (let index = 1; index < 4; index++) {
           await page.keyboard.press('Tab'); await nextFrame(page);
@@ -451,7 +461,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                   placeholderWidth: context.measureText(input.placeholder).width,
                   inputWidth: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
               });
-              assert.equal(chips.scrollLeft, 0, 'chips enter compact mode at scrollLeft 0');
+              assert.equal(chips.scrollLeft, 0, `390×${height}: chips enter compact mode at scrollLeft 0`);
               assert.equal(chips.suggestionFirst && chips.fullyVisible, true, `the suggestion is first and fully visible: ${JSON.stringify(chips)}`);
               assert.equal(chips.name, chips.text, 'the accessible name is the full label');
               assert.equal(chips.ellipsis, 'ellipsis');
@@ -476,6 +486,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 const r = c.shadowRoot, row = [...r.querySelectorAll('.qopt')].at(-1), b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
                 return r.activeElement === row && b.height >= 44 && b.top >= v.top - 1 && b.bottom <= v.bottom + 1 && b.left >= v.left - 1 && b.right <= v.right + 1;
               }), true, 'Tab reaches an answer and brings its whole target into view');
+              assert.equal(await shadow(page, c => {
+                const opts = c.shadowRoot.querySelector('.qopts');
+                return opts.hasAttribute('data-more-start') && !opts.hasAttribute('data-more-end');
+              }), true, 'at the final chip, only the edge toward earlier answers fades');
               keyboardChecks.push({ locale, theme, width, height, ...keyboard, chips, reachableByTab: true });
 
             }

@@ -46,8 +46,7 @@ export const questionCardStyles = `
 .workspace[data-stage="live"] .conversation { row-gap:.5rem; }
 .conversation:has(.qcard:not([hidden])) .transcript-shell { display:flex; flex-direction:column; padding-bottom:0; }
 .conversation:has(.qcard:not([hidden])) .transcript-shell > ol { flex:none; margin-top:auto; }
-.conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { flex:none; }
-.conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { margin-top:0; }
+.conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { flex:none; margin-top:0; }
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
 /* Latest is a floating action, never an invisible row below the last turn. */
@@ -201,7 +200,7 @@ export class QuestionCard {
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);
     const opts = this.card.querySelector('.qopts');
-    if (compact && !wasCompact) opts.scrollLeft = 0;
+    if (compact && (!wasCompact || viewportChanged)) opts.scrollLeft = 0;
     this.fadeOptions();
     const height = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
     if (this.height === height) {
