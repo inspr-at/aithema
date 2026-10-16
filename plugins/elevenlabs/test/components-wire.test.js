@@ -27,10 +27,10 @@ test('AIT-160: ElevenLabs STT sends documented PCM16/manual-commit frames after 
   assert.deepEqual(await stt.negotiateAudioFormat([STT_FORMAT], {}), STT_FORMAT);
   const events = await run('stt', stt, options(reports));
   assert.deepEqual(events, [{ text: 'Grüß', final: false }, { text: 'Grüß Gott', final: true }]);
-  assert.deepEqual(sent, [sttWire.chunk(Buffer.alloc(3200).toString('base64')), sttWire.chunk('', true)]);
+  assert.deepEqual(sent, [sttWire.chunk(Buffer.alloc(64_000).toString('base64'), true)]);
   assert.equal(closes, 1); assert.equal(reports.length, 1);
-  assert.equal(reports[0].usage.quantity, 0.1); assert.equal(reports[0].usage.unit, 'seconds');
-  assert.equal(reports[0].chargedMicro, 1); assert.equal(reports[0].usage.estimated, true);
+  assert.equal(reports[0].usage.quantity, 2); assert.equal(reports[0].usage.unit, 'seconds');
+  assert.equal(reports[0].chargedMicro, 20); assert.equal(reports[0].usage.estimated, true);
   assert.deepEqual(reports[0].identity, { sessionId: sttWire.session().session_id });
   assert.equal(stt.estimateCost({ maxDurationMs: 30000 }), 300);
 });
@@ -48,7 +48,7 @@ test('AIT-160: ElevenLabs TTS streams explicit PCM16/24k and includes trailing w
   assert.equal(closed, 1); assert.equal(reports.length, 1); assert.equal(reports[0].usage.quantity, 7);
   assert.equal(reports[0].chargedMicro, 14); assert.equal(tts.estimateCost({ text: 'Hallo' }), 14);
   assert.ok(unverified.length);
-  assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, 'tts-provider-identity-not-observed');
+  assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, 'no-request-id');
 });
 
 for (const role of ['stt', 'tts']) test(`AIT-248: ${role} preserves a returned upgrade request-id and no invalid ID`, async () => {
@@ -98,7 +98,7 @@ for (const role of ['stt', 'tts']) {
       const adapter = setup(role, { connect: () => ({ send() {}, close() {}, events: (async function* () { yield* frames; })() }) });
       await assert.rejects(run(role, adapter, options(reports)), { code: 'invalid-output' });
       assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
-      assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, `${role}-provider-identity-not-observed`);
+      assert.equal(reports[0].identity, null); assert.equal(reports[0].identityReason, role === 'tts' ? 'no-request-id' : 'stt-provider-identity-not-observed');
     }
   });
   test(`AIT-160: ${role} successful estimates retain maximum, reconcile only attempt-bound evidence`, async () => {

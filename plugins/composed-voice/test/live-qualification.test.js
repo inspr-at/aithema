@@ -10,7 +10,7 @@ const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40
   { kind: 'playback-start', firstAudioAt: 900, outputTimestamp: { contextTime: 0.9, performanceTime: 900 } },
   { kind: 'capture', voiced: true, captureAt: 1000, durationMs: 40 }, { kind: 'playback-stop', stoppedAt: 1100 } ];
 const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH', leadingSilenceMs: 20000 }],
-  checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'is_final' } : {}) }])),
+  checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'isFinal' } : {}) }])),
   ceilingChecks: [{ provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture', operation: 'stream', maxMicro: 100, request: { seconds: 1 } }] });
 
 test('OPS entry point refuses missing operator flag, persisted budget, checklist and pricing before dispatch', async () => {
@@ -75,8 +75,8 @@ test('unverified pricing and unresolved final-flag spelling prevent all sample/p
   let calls = 0;
   const host = { runSample() { calls++; }, verifyCeiling: async () => null, verifyReceipt: async () => false, reconcile() { calls++; } };
   await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: plan(), host, outputDirectory: directory }), /Verified provider attempt ceiling/);
-  const unresolved = plan(); unresolved.checks.ttsFinalFlag.spelling = 'isFinal';
-  await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: unresolved, host, outputDirectory: directory }), /Adapter expects is_final/);
+  const unresolved = plan(); unresolved.checks.ttsFinalFlag.spelling = 'is_final';
+  await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: unresolved, host, outputDirectory: directory }), /Adapter expects isFinal/);
   assert.equal(calls, 0);
 });
 

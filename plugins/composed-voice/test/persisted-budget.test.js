@@ -68,7 +68,10 @@ test('AIT-248: provider terminal IDs survive restart into OPS snapshot and verif
     { generationId: 'gen-fixture', identity: { generationId: 'gen-fixture' }, servedModel: 'fixture/model' },
     { identity: { sessionId: 'fixture-session', requestId: 'fixture-stt-request' } },
     { identity: { requestId: 'fixture-tts-request' } },
-    { identity: null, identityReason: 'tts-provider-identity-not-observed' },
+    { identity: null, identityReason: 'no-request-id', matchingKey: {
+      voiceId: 'fixture-voice', modelId: 'eleven_flash_v2_5', characterCount: 7,
+      textSha256: 'a'.repeat(64), startedAt: '2026-10-16T11:54:59.287Z', endedAt: '2026-10-16T11:55:01.201Z',
+    } },
   ];
   for (const [index, value] of evidence.entries()) {
     const attemptId = `identity-${index}`, claim = await budget.admit(specification(attemptId, 1000));

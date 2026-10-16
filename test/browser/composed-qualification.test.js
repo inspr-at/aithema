@@ -85,7 +85,7 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
     ceilingChecks: [{ provider: 'fixture', model: 'fixture', operation: 'stream', accountRef: 'offline-fixture',
       endpoint: 'https://fixture.invalid/stream', maxMicro: 100, request: { fixture: true } }],
     checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'FAKE ONLY; no live qualification',
-      ...(key === 'ttsFinalFlag' ? { spelling: 'is_final' } : {}) }])) };
+      ...(key === 'ttsFinalFlag' ? { spelling: 'isFinal' } : {}) }])) };
   await writeFile(planPath, JSON.stringify(plan));
   await writeFile(hostPath, `
 import { createQualificationHost as template } from ${JSON.stringify(new URL('../../plugins/composed-voice/ops/qualification-host-template.mjs', import.meta.url).href)};

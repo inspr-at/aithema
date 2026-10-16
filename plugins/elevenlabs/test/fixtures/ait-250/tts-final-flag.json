@@ -1,0 +1,58 @@
+{
+  "schema": "ait160.live-probe.v1",
+  "probe": "tts-final-flag",
+  "startedAt": "2026-10-16T11:54:59.287Z",
+  "finishedAt": "2026-10-16T11:55:01.201Z",
+  "status": "failed",
+  "model": "eleven_flash_v2_5",
+  "voiceId": "MGG5Irb57ATHvyIeTEYo",
+  "outputFormat": "pcm_24000",
+  "requestIdHeaderPresent": false,
+  "keysSeen": [
+    "alignment",
+    "audio",
+    "isFinal",
+    "normalizedAlignment"
+  ],
+  "finalFlagKeysSeen": [
+    "isFinal"
+  ],
+  "finalFlagTrueKeys": [
+    "isFinal"
+  ],
+  "audioBytes": 102540,
+  "adapterCompatibleFinal": false,
+  "pcm": {
+    "encoding": "pcm_s16le",
+    "sampleRateHz": 24000,
+    "channels": 1,
+    "sampleCount": 51270,
+    "durationSeconds": 2.13625,
+    "rms": 0.1356523069114779,
+    "nonSilent": true,
+    "formatBasis": "Requested raw PCM; integer decode is a plausibility check, not independent format metadata"
+  },
+  "accountModels": {
+    "httpStatus": 200,
+    "modelIds": [
+      "eleven_v4",
+      "eleven_v4_turbo",
+      "eleven_v3",
+      "eleven_v3_conversational",
+      "eleven_multilingual_v2",
+      "eleven_flash_v2_5",
+      "eleven_turbo_v2_5",
+      "eleven_turbo_v2",
+      "eleven_flash_v2",
+      "eleven_english_sts_v2",
+      "eleven_multilingual_sts_v2"
+    ],
+    "sttFound": false,
+    "ttsFound": true
+  },
+  "voice": {
+    "httpStatus": 200,
+    "found": true
+  },
+  "pcmOutputAndAccountModelsObserved": false
+}
