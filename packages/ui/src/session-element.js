@@ -1058,7 +1058,7 @@ export class AithemaSession extends HTMLElement {
         }
         if (voicePartial) { row.dataset.voiceTranscript = 'partial'; row.setAttribute('aria-hidden', 'true'); row.setAttribute('aria-live', 'off'); }
         else if (row.dataset.voiceTranscript) {
-          delete row.dataset.voiceTranscript;
+          row.dataset.voiceTranscript = 'final';
           row.style.removeProperty('--voice-min-height'); row.style.removeProperty('--voice-min-width');
           row.querySelector('.voice-provisional')?.remove();
         }
@@ -1066,7 +1066,7 @@ export class AithemaSession extends HTMLElement {
         // Redacted rows keep their height only while the pointer rests on the transcript.
         if (!hovered) row.style.minHeight = '';
         row.querySelector('.speaker-name').textContent = t.role === 'user' ? copy.you : copy.assistant;
-        if (row.dataset.voiceTranscript) {
+        if (voicePartial) {
           let label = row.querySelector('.voice-provisional');
           if (!label) { label = node('span', 'voice-provisional'); label.setAttribute('aria-hidden', 'true'); row.querySelector('strong').append(label); }
           label.textContent = copy.voiceProvisional;

@@ -226,7 +226,8 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .user .speaker-sign { background:none; } .speaker-sign svg { width:12px; height:12px; }
 .turn.user { padding-right:2.8rem; }
 .turn span { white-space:pre-wrap; } .turn.partial { color:var(--aithema-muted); }
-.turn[data-voice-transcript] { animation:none; min-height:var(--voice-min-height,0px); min-width:min(var(--voice-min-width,0px),var(--turn-max-width)); }
+.turn[data-voice-transcript] { animation:none; }
+.turn[data-voice-transcript="partial"] { min-height:var(--voice-min-height,0px); min-width:min(var(--voice-min-width,0px),var(--turn-max-width)); }
 .turn.user.partial { border-color:transparent; box-shadow:none; background:color-mix(in srgb,var(--aithema-accent) 5%,var(--aithema-paper)); }
 .turn.user.partial::before { border-color:transparent; }
 .voice-provisional { font-weight:400; }

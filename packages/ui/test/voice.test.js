@@ -1199,7 +1199,7 @@ for (const order of ['provider first', 'SSE first']) test(`AIT-235 ${order}: fin
   assert.equal(row.hasAttribute('aria-hidden'), false);
   assert.equal(row.querySelector('.voice-provisional'), null);
   assert.equal(row.querySelector('.turn-text').hasAttribute('tabindex'), false);
-  assert.equal(row.hasAttribute('data-voice-transcript'), false, 'normal bubble sizing applies');
+  assert.equal(row.dataset.voiceTranscript, 'final', 'the promoted row does not replay its entrance animation');
   assert.equal(row.style.getPropertyValue('--voice-min-height'), '');
   assert.equal(row.style.getPropertyValue('--voice-min-width'), '');
   await emit(partial);
