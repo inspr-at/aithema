@@ -257,6 +257,22 @@ test('AIT-268: pause lifetime binding rejects a foreign or erased source session
   assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 0);
 });
 
+for (const via of ['request', 'host']) test(`AIT-268: ${via} consent withdrawal removes owner pause without resetting the live deadline`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t, { ownerGuard: true }), session = await f.create();
+  assert.equal((await f.call(`/api/sessions/${session.id}/pause`, { paused: true })).status, 200);
+  const clock = f.storage.transitionCredits(session.id, owner, { type: 'start', now: epoch }).state;
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM owner_credit_guards').get().n, 1);
+  if (via === 'host') await f.handlers.withdrawConsent(session.id);
+  else assert.equal((await f.call(`/api/sessions/${session.id}/consent`, { granted: false })).status, 200);
+  assert.deepEqual(f.storage.db.prepare('SELECT * FROM owner_credit_guards').all(), []);
+  assert.deepEqual(f.storage.creditState(session.id), clock, 'withdrawal cannot renew the conversation clock');
+  assert.equal((await f.create()).paused, false);
+  f.storage.reviseConsent(session.id, true);
+  f.at(epoch + HOUR);
+  assert.throws(() => f.runtime.conversationLimits.assertOpen(session.id), { code: 'not-admitted', message: 'one-hour' });
+});
+
 test('AIT-261: inherited voice deadline also refuses separately admitted STT/TTS components', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { createComposedVoiceCoordinator } = await import('../src/composed-voice.js');

@@ -236,7 +236,7 @@ export class SQLiteStorage {
       }
       this.db.exec("CREATE TRIGGER events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;");
       this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
-      this.db.prepare("DELETE FROM owner_credit_guards WHERE json_extract(record,'$.sessionId')=?").run(id);
+      this.#deleteOwnerCreditGuard(id);
     });
   }
   create(options = {}) {
@@ -336,6 +336,9 @@ export class SQLiteStorage {
       this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
         .run(session.ownerHash, JSON.stringify({ sessionId, paused }));
     });
+  }
+  #deleteOwnerCreditGuard(id) {
+    this.db.prepare("DELETE FROM owner_credit_guards WHERE json_extract(record,'$.sessionId')=?").run(id);
   }
   /** Only trusted reducers enter here. State and its public events commit together. */
   transitionHost(id, update, guard = {}) {
@@ -877,7 +880,7 @@ export class SQLiteStorage {
       }
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
       this.clearLaneFailures(id);
-      this.db.prepare("DELETE FROM owner_credit_guards WHERE json_extract(record,'$.sessionId')=?").run(id);
+      this.#deleteOwnerCreditGuard(id);
       this.db.prepare('DELETE FROM conversation_credit_guards WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
@@ -891,6 +894,9 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard);
       conversationUnchanged = conversationUnchanged === true && granted && !session.consentWithdrawn;
       if (!conversationUnchanged) this.#invalidate(id, undefined, false, !granted);
+      // Forget cross-conversation pause on withdrawal. Keep this live conversation's
+      // deadline so granting consent again cannot restart its hour.
+      if (!granted) this.#deleteOwnerCreditGuard(id);
       const event = this.#append(session, 'consent.revised', { granted, at: new Date().toISOString(),
         ...(conversationUnchanged ? { conversationUnchanged: true } : {}) });
       if (granted) {
