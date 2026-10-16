@@ -212,6 +212,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         const fullCardNames = width === 390 && theme === 'light' ? await optionSnapshot(geometry.heading) : undefined;
         await shot('card');
         const cardRest = await assertRest('card');
+        // The two-row rail can bound the option list sooner with Linux fonts.
+        // Bring the next target into its own scrollport before placing the pointer.
+        await shadow(page, c => c.shadowRoot.querySelectorAll('.qopt')[1].scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }));
+        await nextFrame(page);
         const point = await shadow(page, c => { const b = c.shadowRoot.querySelectorAll('.qopt')[1].getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; });
         await page.mouse.move(...point); await nextFrame(page);
         const hoverFill = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('.qopt .go')[1]).backgroundColor);
