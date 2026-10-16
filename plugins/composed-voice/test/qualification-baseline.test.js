@@ -74,7 +74,7 @@ test('baseline missing auth refuses before browser, control or admission', async
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence } = {}) {
+async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal } = {}) {
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
@@ -98,8 +98,10 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       response('/api/sessions/production-visitor/voice', { providerSessionId: 'conv_fake', callId: 'fake-call', epoch: 0 });
     }
   };
-  page.waitForFunction = async () => { if (duration) await expiry.promise; };
+  page.waitForFunction = async () => { if (duration) await expiry.promise; if (mediaRefusal) throw new Error('Synthetic media wait timeout'); };
   page.evaluate = async (fn, input) => {
+    if (fn.toString().includes('Probe?.diagnostics') && mediaRefusal) return { hasHypothesis: true, firstAudioAt: mediaRefusal === 'missing-barge-in' ? 100 : undefined };
+    if (fn.toString().includes('Probe?.trace')) return [{ kind: 'capture', captureAt: 10, voiced: true, durationMs: 64 }];
     if (fn.toString().includes('Probe?.diagnostics')) return { failure: invalidEvidence, hasHypothesis: false };
     if (fn.toString().includes('Probe.result') && invalidEvidence) throw new Error('Invalid production media evidence');
     if (fn.toString().includes('Probe.result')) return { hypothesis: 'Wien', ttsPCM: Buffer.from(new Float32Array([0.5]).buffer).toString('base64'),
@@ -470,4 +472,12 @@ test('baseline scripted utterance waits for final, speaking/listening edge AND o
   h.mode('listening'); assert.equal(starts, 0, 'must observe drained output too');
   h.emit(h.audio, .4, 0); assert.equal(starts, 1);
   h.emit(h.audio, .5, 0); assert.equal(starts, 1);
+});
+
+for (const reason of ['missing-first-audio', 'missing-barge-in']) test(`production runSample ${reason} is a sample refusal with uncertain exposure`, async t => {
+  const h = await productionFixture(t, { mediaRefusal: reason });
+  await assert.rejects(h.run(), error => { assert.equal(error.reason, reason); return true; });
+  assert.equal(h.evidence.length, 1); assert.equal(h.evidence[0].reason, reason);
+  assert.equal(h.timings.length, 1); assert.equal(h.timings[0].kind, 'capture');
+  assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
 });

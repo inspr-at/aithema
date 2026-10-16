@@ -247,7 +247,12 @@ for (const phase of ['verifyCorpus', 'runSample', 'evidence', 'ttsConfig', 'pcm'
       },
     });
     const { options } = fixture;
-    if (phase === 'verifyCorpus') Object.defineProperty(options.plan.corpus[0], 'utterancePath', { get() { throw abort; } });
+    if (phase === 'verifyCorpus') {
+      // Plan validation now checks both paths; inject the fault at the subsequent
+      // corpus read so this still verifies the post-claim diagnostic phase.
+      const path = options.plan.corpus[0].utterancePath; let reads = 0;
+      Object.defineProperty(options.plan.corpus[0], 'utterancePath', { get() { if (reads++ < 2) return path; throw abort; } });
+    }
     if (phase === 'runSample') {
       const run = options.host.runSample;
       options.host.runSample = async args => { await run(args); throw abort; };

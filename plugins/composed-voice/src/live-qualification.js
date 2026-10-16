@@ -37,7 +37,7 @@ function blindWav(pcm, format) {
 const FAILURE_MESSAGES = new Set([
   'Media evidence bound exceeded', 'Real capture/output/barge-in evidence required',
   'Incomplete corpus WAV', 'PCM16 mono corpus WAV required', 'Invalid corpus sample rate',
-  'Declared leading silence exceeds corpus WAV', 'Corpus leading silence must contain zero PCM before user speech',
+  'Corpus WAV bound exceeded', 'Absolute corpus utterancePath and bargeInPath required',
   'PCM16 mono corpus WAV data required', 'Explicit lane TTS model and saved voice required',
   'Explicit valid ElevenLabs voice settings required', 'Blind PCM audio and explicit format required',
   'Invalid blind PCM format', 'Invalid blind PCM sample', 'Qualification budget blocked',
@@ -86,7 +86,13 @@ async function writeFailure(outputDirectory, context, error) {
   } catch { /* The durable ledger remains authoritative if diagnostics cannot be stored. */ }
 }
 export class IncompleteMediaEvidence extends Error {
-  constructor(reason) { super('Real capture/output/barge-in evidence required'); this.reason = reason; }
+  constructor(reason) {
+    super('Real capture/output/barge-in evidence required');
+    if (!['media-wait-limit', 'missing-first-audio', 'missing-speech-end', 'missing-barge-in', 'missing-playback-stop'].includes(reason)) {
+      throw new TypeError('Unknown qualification media refusal');
+    }
+    this.reason = reason;
+  }
 }
 
 export const PRELIVE_CHECKS = Object.freeze([

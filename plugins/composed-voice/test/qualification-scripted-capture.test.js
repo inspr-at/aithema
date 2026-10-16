@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { installScriptedCapture } from '../ops/qualification-scripted-capture.mjs';
-import { createQualificationMediaProbe } from '../src/live-qualification.js';
+import { createQualificationMediaProbe, IncompleteMediaEvidence } from '../src/live-qualification.js';
 
 function sourceFixture() {
   const contexts = [], starts = [], stops = [];
@@ -79,7 +79,7 @@ test('late observed onset refuses scheduling instead of playing an unanchored se
 
 // Execute the real page harness with fake media ports, so refusal returned from
 // page.evaluate retains the trace rather than throwing past the run coordinator.
-async function pageFixture(reason) {
+async function pageFixture(reason, { type = 'waiting', firstAudio = false } = {}) {
   const source = (await readFile(new URL('../ops/qualification-page.js', import.meta.url), 'utf8'))
     .replace(/^import .*;\n/gmu, '');
   let onTiming, sourceTiming, started = false, connected = false, closed = false;
@@ -88,13 +88,14 @@ async function pageFixture(reason) {
     createPCMCapture: () => {}, createNetworkRelayClient: () => {},
     createComposedBrowserMedia: () => ({ async connect() {
       connected = true;
-      return { events: (async function* () { yield { type: 'waiting', reason }; })(), async close() {} };
+      return { events: (async function* () { yield { type, reason }; })(), async close() {} };
     } }),
     qualificationScriptedCapture: { subscribe(fn) { sourceTiming = fn; return () => {}; },
       startUtterance() {
         assert.equal(connected, true); started = true;
         sourceTiming({ kind: 'capture', captureAt: 1, voiced: true, durationMs: 64 });
         onTiming({ kind: 'playback-scheduled', scheduledAt: 10 });
+        if (firstAudio) onTiming({ kind: 'playback-start', firstAudioAt: 10 });
       }, firstAudio() {}, async close() { closed = true; } },
   };
   runtime.window = runtime;
@@ -111,4 +112,17 @@ test('candidate ready precedes utterance; media waiting limit returns one value-
 test('unrelated media waiting errors keep abort semantics', async () => {
   const h = await pageFixture('transport-failed');
   await assert.rejects(h.run(), /Qualification media waiting: transport-failed/);
+});
+
+for (const firstAudio of [false, true]) test(`ended sample refuses missing ${firstAudio ? 'barge-in' : 'first audio'} without aborting`, async () => {
+  const h = await pageFixture('closed', { type: 'ended', firstAudio });
+  const result = await h.run();
+  assert.equal(result.refusal, firstAudio ? 'missing-barge-in' : 'missing-first-audio');
+  assert.equal(result.trace.length, firstAudio ? 3 : 2);
+});
+
+test('external refusal reasons cannot insert values into diagnostics', () => {
+  assert.throws(() => new IncompleteMediaEvidence('PRIVATE_EXTERNAL_REASON'), error => {
+    assert.equal(error.message, 'Unknown qualification media refusal'); return true;
+  });
 });
