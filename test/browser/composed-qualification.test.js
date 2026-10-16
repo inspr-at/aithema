@@ -221,12 +221,13 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
 import { startFakeProductionOrigin } from '../fixtures/qualification-production-origin.mjs';
 import { runProductionBaseline } from '../../plugins/composed-voice/ops/qualification-production-baseline.mjs';
 import { createQualificationMediaProbe } from '../../plugins/composed-voice/src/live-qualification.js';
+import { installScriptedCapture } from '../../plugins/composed-voice/ops/qualification-scripted-capture.mjs';
 
 test('AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-production-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  // Same 20 s leading silence in both lanes, then an utterance with an
-  // internal pause and barge-in at 21.8 s; these are synthetic fixture inputs.
+  // Preserve the old combined fixture only for deliberate opener overlap.
+  // Success cases use separate scripted clips with the same internal pause.
   const rate = 48000, frames = rate * 24, wav = Buffer.alloc(44 + frames * 2), wavPath = join(directory, 'corpus.wav');
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
@@ -236,8 +237,10 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
   const scenarios = [false, true].flatMap(mediaElement => ['before-audio', 'after-audio', 'missing'].map(assistantFinal => ({ mediaElement, assistantFinal })));
   scenarios.push({ mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
     { mediaElement: true, assistantFinal: 'missing', opener: 'normal', overlap: true });
-  // The six valid cases use identical launch flags and capture input. Keep a
-  // single browser with fresh pages; the overlap corpus gets its own launch.
+  const clips = { utterance: { sampleRateHz: rate, pcm: wav.subarray(44 + rate * 20 * 2, 44 + rate * 20.5 * 2).toString('base64') },
+    bargeIn: { sampleRateHz: rate, pcm: wav.subarray(44 + rate * 21.8 * 2, 44 + rate * 22.3 * 2).toString('base64') } };
+  // Reuse one browser for all six scripted cases; overlap controls keep their
+  // intentionally early fake capture and existing separate launches.
   let browser, browserCapture;
   t.after(async () => { await browser?.close(); });
   for (const { mediaElement, assistantFinal, opener, overlap } of scenarios) await t.test(
@@ -251,17 +254,20 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       capturePath = join(directory, `invalid-${opener}.wav`); await writeFile(capturePath, invalid);
     }
     const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener });
-    if (browserCapture !== capturePath) {
+    const captureMode = overlap ? capturePath : 'scripted';
+    if (browserCapture !== captureMode) {
       await browser?.close();
-      browserCapture = capturePath;
+      browserCapture = captureMode;
       browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
       args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         // Test-only fake renderer makes this hermetic on CI hosts with no audio
         // hardware. The real launcher refuses this flag before admission.
-        '--disable-audio-output', '--disable-features=AudioServiceSandbox', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${capturePath}`,
-        '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+        '--disable-audio-output', '--disable-features=AudioServiceSandbox',
+        ...(overlap ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${capturePath}`, '--use-fake-ui-for-media-stream'] : []),
+        '--autoplay-policy=no-user-gesture-required'] });
     }
     const page = await browser.newPage(), logs = [], reports = [], identities = [], refusals = [], probe = createQualificationMediaProbe();
+    if (!overlap) await page.evaluateOnNewDocument(installScriptedCapture, clips);
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
     const abort = new AbortController(); let watchdog;
     const expired = new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
@@ -307,7 +313,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       assert.ok(evidence.firstAudioAt < reference.userFinalAt - 100, 'buffer retains reply audio before ordinal-1 user final');
       if (assistantFinal === 'after-audio') assert.ok(evidence.firstAudioAt < reference.finalAt - 100);
       if (assistantFinal === 'missing') assert.equal(reference.finalAt, undefined);
-      assert.ok(evidence.bargeInAt > evidence.firstAudioAt + 300, 'barge-in remains the next voiced corpus segment');
+      assert.ok(Math.abs(evidence.bargeInAt - evidence.firstAudioAt - 800) < 150, 'barge-in follows observed reply onset within source-block resolution');
 
       assert.equal(result.baselineSession.visitorSessionId, 'production-visitor');
       assert.equal(result.baselineSession.providerSessionId, 'conv_production');
