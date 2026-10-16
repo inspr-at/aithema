@@ -1,8 +1,9 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
-import { mkdir, open, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { evaluateQualification, QUALIFICATION_THRESHOLDS } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
+import { readQualificationCorpus } from './qualification-corpus.js';
 import { validateVoiceSettings } from '../../elevenlabs/src/voice-settings.js';
 
 const BLIND_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
@@ -36,7 +37,7 @@ function blindWav(pcm, format) {
 const FAILURE_MESSAGES = new Set([
   'Media evidence bound exceeded', 'Real capture/output/barge-in evidence required',
   'Incomplete corpus WAV', 'PCM16 mono corpus WAV required', 'Invalid corpus sample rate',
-  'Declared leading silence exceeds corpus WAV', 'Corpus leading silence must contain zero PCM before user speech',
+  'Corpus WAV bound exceeded', 'Absolute corpus utterancePath and bargeInPath required',
   'PCM16 mono corpus WAV data required', 'Explicit lane TTS model and saved voice required',
   'Explicit valid ElevenLabs voice settings required', 'Blind PCM audio and explicit format required',
   'Invalid blind PCM format', 'Invalid blind PCM sample', 'Qualification budget blocked',
@@ -44,8 +45,8 @@ const FAILURE_MESSAGES = new Set([
   'Invalid transcript', 'Entity evidence required', 'Qualification lane has zero valid samples',
   'Qualification refusal limit reached',
 ]);
-const TIMING_KINDS = new Set(['capture', 'playback-start', 'playback-stop', 'playback-scheduled',
-  'opener-finished', 'opener-drained', 'opener-final', 'user-final', 'invalid-evidence']);
+const TIMING_KINDS = new Set(['capture', 'playback-start', 'playback-stop', 'playback-stop-request', 'playback-rendered', 'playback-scheduled',
+  'opener-finished', 'opener-drained', 'opener-final', 'user-final', 'invalid-evidence', 'capture-outcome']);
 const TIMING_FIELDS = ['at', 'captureAt', 'receivedAt', 'durationMs', 'captureFrame', 'contextSampleRate',
   'firstAudioAt', 'scheduledAt', 'contextStart', 'requestedAt', 'stoppedAt', 'speechEndAt'];
 function traceSummary(trace = []) {
@@ -55,6 +56,7 @@ function traceSummary(trace = []) {
     const row = { kind };
     for (const key of TIMING_FIELDS) if (Number.isFinite(event?.[key])) row[key] = event[key];
     if (typeof event?.voiced === 'boolean') row.voiced = event.voiced;
+    if (['interrupt', 'control', 'teardown', 'rendered-silence'].includes(event?.origin)) row.origin = event.origin;
     const timestamp = event?.outputTimestamp;
     if (timestamp) row.outputTimestamp = Object.fromEntries(['contextTime', 'performanceTime']
       .filter(key => Number.isFinite(timestamp[key])).map(key => [key, timestamp[key]]));
@@ -84,8 +86,14 @@ async function writeFailure(outputDirectory, context, error) {
     }
   } catch { /* The durable ledger remains authoritative if diagnostics cannot be stored. */ }
 }
-class IncompleteMediaEvidence extends Error {
-  constructor(reason) { super('Real capture/output/barge-in evidence required'); this.reason = reason; }
+export class IncompleteMediaEvidence extends Error {
+  constructor(reason) {
+    super('Real capture/output/barge-in evidence required');
+    if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
+      throw new TypeError('Unknown qualification media refusal');
+    }
+    this.reason = reason;
+  }
 }
 
 export const PRELIVE_CHECKS = Object.freeze([
@@ -112,10 +120,10 @@ export function createQualificationMediaProbe() {
       const voiced = trace.filter(e => e.kind === 'capture' && e.voiced);
       const speechEndAt = Math.max(...voiced.filter(e => e.captureAt < firstAudioAt).map(e => e.captureAt + e.durationMs));
       const bargeInAt = Math.min(...voiced.filter(e => e.captureAt >= firstAudioAt).map(e => e.captureAt));
-      const stoppedAt = Math.min(...trace.filter(e => e.kind === 'playback-stop' && e.stoppedAt >= bargeInAt).map(e => e.stoppedAt));
-      if (!Number.isFinite(firstAudioAt)) throw new IncompleteMediaEvidence('missing-first-audio');
-      if (!Number.isFinite(speechEndAt)) throw new IncompleteMediaEvidence('missing-speech-end');
-      if (!Number.isFinite(bargeInAt)) throw new IncompleteMediaEvidence('missing-barge-in');
+      const stoppedAt = Math.min(...trace.filter(e => e.kind === 'playback-stop' && e.origin !== 'teardown' && e.stoppedAt >= bargeInAt).map(e => e.stoppedAt));
+      // Missing observations cannot establish a timing miss. Lane runners may
+      // explicitly refuse a healthy sample at their evidence deadline.
+      if (![firstAudioAt, speechEndAt, bargeInAt].every(Number.isFinite)) throw new Error('Incomplete qualification evidence');
       if (!Number.isFinite(stoppedAt)) throw new IncompleteMediaEvidence('missing-playback-stop');
       return { speechEndAt, firstAudioAt, bargeInAt, stoppedAt, trace: structuredClone(trace) };
     },
@@ -127,49 +135,10 @@ export function validateQualificationPlan(plan) {
     !Array.isArray(plan.ceilingChecks) || !plan.ceilingChecks.length ||
     PRELIVE_CHECKS.some(key => plan.checks?.[key]?.verified !== true || !plan.checks[key].reference) ||
     !['is_final', 'isFinal'].includes(plan.checks.ttsFinalFlag.spelling)) throw new Error('Verified pre-live checklist and pricing plan required');
-  if (plan.corpus.some(item => !Number.isSafeInteger(item?.leadingSilenceMs) || item.leadingSilenceMs < 20_000)) {
-    throw new Error('Corpus requires declared leading silence of at least 20000 ms in each identical lane WAV');
+  if (plan.corpus.some(item => !['utterancePath', 'bargeInPath'].every(key => typeof item?.[key] === 'string' && item[key].startsWith('/')))) {
+    throw new Error('Absolute corpus utterancePath and bargeInPath required');
   }
   if (plan.checks.ttsFinalFlag.spelling !== 'isFinal') throw new Error('Adapter expects isFinal; resolve protocol spelling before run');
-}
-
-/** Both lanes consume the same unmodified PCM16 mono WAV. Check the declared
- * prefix before either dispatch; no per-lane padding, seek or retry is allowed. */
-export async function verifyCorpusLeadingSilence(item) {
-  const file = await open(item.wavPath, 'r');
-  try {
-    const size = (await file.stat()).size;
-    const read = async (length, position) => {
-      const bytes = Buffer.alloc(length);
-      if ((await file.read(bytes, 0, length, position)).bytesRead !== length) throw new Error('Incomplete corpus WAV');
-      return bytes;
-    };
-    const header = await read(12, 0);
-    if (header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') throw new Error('PCM16 mono corpus WAV required');
-    if (header.readUInt32LE(4) + 8 > size) throw new Error('Incomplete corpus WAV');
-    let format;
-    for (let at = 12, chunks = 0; at + 8 <= size && chunks < 128; chunks++) {
-      const chunk = await read(8, at), length = chunk.readUInt32LE(4), start = at + 8;
-      if (start + length > size) throw new Error('Incomplete corpus WAV');
-      if (chunk.toString('ascii', 0, 4) === 'fmt ' && length >= 16) {
-        const fmt = await read(16, start);
-        if (fmt.readUInt16LE(0) !== 1 || fmt.readUInt16LE(2) !== 1 || fmt.readUInt16LE(12) !== 2 || fmt.readUInt16LE(14) !== 16) throw new Error('PCM16 mono corpus WAV required');
-        format = fmt.readUInt32LE(4);
-        if (format < 8000 || format > 96000) throw new Error('Invalid corpus sample rate');
-      }
-      if (chunk.toString('ascii', 0, 4) === 'data' && format) {
-        const needed = Math.ceil(item.leadingSilenceMs * format / 1000) * 2;
-        if (!Number.isSafeInteger(needed) || needed < 1 || needed >= length) throw new Error('Declared leading silence exceeds corpus WAV');
-        for (let offset = 0; offset < needed; offset += 65536) {
-          const bytes = await read(Math.min(65536, needed - offset), start + offset);
-          if (bytes.some(value => value !== 0)) throw new Error('Corpus leading silence must contain zero PCM before user speech');
-        }
-        return;
-      }
-      at = start + length + length % 2;
-    }
-    throw new Error('PCM16 mono corpus WAV data required');
-  } finally { await file.close(); }
 }
 
 /** OPS supplies an account-specific host with existing Rule C, consent,
@@ -206,19 +175,20 @@ async function executeLiveQualification({ operatorApproved = false, budgetPath, 
     const samples = { candidate: [], baseline: [] }, blind = [], answerKey = [];
     for (const [index, item] of plan.corpus.entries()) {
       at('verifyCorpus', index + 1);
-      await verifyCorpusLeadingSilence(item);
+      await readQualificationCorpus(item);
       const pair = [];
       for (const lane of ['candidate', 'baseline']) {
         const probe = createQualificationMediaProbe();
         // The OPS browser forwards these onTiming events from its physical ports.
         // Every component/reasoning attempt and retry must use this shared admit.
         at('runSample', index + 1, lane, probe);
-        const result = await host.runSample({ item, lane, runId: plan.runId,
-          admit: spec => budget.admit({ ...spec, lane, runId: plan.runId }), onTiming: probe.onTiming });
-        at('evidence', index + 1, lane, probe);
-        let media;
-        try { media = probe.evidence(); }
-        catch (error) {
+        let result, media;
+        try {
+          result = await host.runSample({ item, lane, runId: plan.runId,
+            admit: spec => budget.admit({ ...spec, lane, runId: plan.runId }), onTiming: probe.onTiming });
+          at('evidence', index + 1, lane, probe);
+          media = probe.evidence();
+        } catch (error) {
           if (!(error instanceof IncompleteMediaEvidence)) throw error;
           refusals.push({ sample: index + 1, lane, reason: error.reason, trace: probe.summary() });
           const state = refusalState[lane];

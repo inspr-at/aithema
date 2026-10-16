@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
 import { loadBaselineAuth, installBaselineAuth } from '../ops/qualification-production-baseline.mjs';
 
 const secret = 'FAKE_BASIC_AUTH_VALUE_NEVER_IN_EVIDENCE';
@@ -70,17 +71,17 @@ test('baseline missing auth refuses before browser, control or admission', async
   const host = createQualificationHost({ binding, hostOrigin: 'http://127.0.0.1:4567', runDirectory: dir,
     ownerHeaders: { cookie: 'LOOPBACK_OWNER_NEVER_BASELINE' }, controlCapability: 'a'.repeat(64),
     verifyCeiling() {}, verifyReceipt() {}, reconcile() {}, launchBrowser() { assert.fail('must not launch'); } });
-  await assert.rejects(host.runSample({ item: { id: 'fake', wavPath: path }, lane: 'baseline', runId: 'fake',
+  await assert.rejects(host.runSample({ item: { id: 'fake', utterancePath: path, bargeInPath: path }, lane: 'baseline', runId: 'fake',
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence } = {}) {
+async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
   cdp.send = async (method, params) => { sent.push({ method, params }); };
   page.createCDPSession = async () => cdp;
-  page.evaluateOnNewDocument = async fn => { assert.equal(fn.name, 'installBaselineProbe'); };
+  page.evaluateOnNewDocument = async fn => { assert.ok(['installQualificationOutputProbe', 'installBaselineProbe'].includes(fn.name)); };
   page.url = () => binding.baselineOrigin + '/';
   const response = (path, body) => page.emit('response', { url: () => binding.baselineOrigin + path, ok: () => true,
     request: () => ({ method: () => 'POST' }), json: async () => body });
@@ -98,17 +99,24 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       response('/api/sessions/production-visitor/voice', { providerSessionId: 'conv_fake', callId: 'fake-call', epoch: 0 });
     }
   };
-  page.waitForFunction = async () => { if (duration) await expiry.promise; };
+  page.waitForFunction = async () => { if (duration) await expiry.promise; if (mediaRefusal) { const error = new Error('Synthetic media wait timeout'); error.name = 'TimeoutError'; throw error; } };
   page.evaluate = async (fn, input) => {
-    if (fn.toString().includes('Probe?.diagnostics')) return { failure: invalidEvidence, hasHypothesis: false };
-    if (fn.toString().includes('Probe.result') && invalidEvidence) throw new Error('Invalid production media evidence');
+    if (/Probe\??\.diagnostics/u.test(fn.toString())) {
+      if (diagnosticsMissing) return undefined;
+      return { failure: invalidEvidence, hasHypothesis: true, speechEndAt: 50,
+        firstAudioAt: mediaRefusal === 'late-first-audio' ? undefined : 100,
+        bargeInAt: mediaRefusal === 'missing-playback-stop' ? 200 : undefined,
+        source: { started: true, barged: mediaRefusal !== 'late-first-audio' } };
+    }
+    if (/Probe\??\.trace/u.test(fn.toString())) return [{ kind: 'capture', captureAt: 10, voiced: true, durationMs: 64 }];
+    if (fn.toString().includes('Probe.result') && (invalidEvidence || resultError)) throw new Error('Invalid production media evidence');
     if (fn.toString().includes('Probe.result')) return { hypothesis: 'Wien', ttsPCM: Buffer.from(new Float32Array([0.5]).buffer).toString('base64'),
       ttsFormat: { encoding: 'pcm_f32le', sampleRateHz: 48000, channels: 1 }, trace: [
         { kind: 'capture', voiced: true, captureAt: 10, durationMs: 40 },
         { kind: 'playback-start', firstAudioAt: 100 }, { kind: 'capture', voiced: true, captureAt: 200, durationMs: 40 },
         { kind: 'playback-stop', stoppedAt: 250 },
       ] };
-    if (input?.visitorSessionId) order.push('stop');
+    if (input?.visitorSessionId) { order.push('stop'); if (afterResultError) throw new Error('Post-result protocol failure'); }
   };
   const run = () => runProductionBaseline({ page, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
     auth: { username: 'fake-operator', password: secret }, consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
@@ -160,7 +168,7 @@ test('binding hard duration stops an idle production conversation and reports un
   assert.equal(h.evidence[0].status, 'invalid'); assert.equal(h.evidence[0].reason, 'duration-bound');
 });
 
-test('baseline launcher gets fresh profile and corpus flags, with no loopback headers, control or provider credentials', async t => {
+test('baseline launcher gets fresh profile and scripted capture, with no loopback headers, control or provider credentials', async t => {
   const { dir, path } = await fixture(t), launches = [], permissions = [], evaluations = [];
   const forbidden = ['LOOPBACK_OWNER_SENTINEL', 'b'.repeat(64), 'PROVIDER_KEY_SENTINEL', secret];
   const page = new EventEmitter();
@@ -170,6 +178,11 @@ test('baseline launcher gets fresh profile and corpus flags, with no loopback he
   page.evaluate = async (...args) => evaluations.push(args.map(String));
   page.goto = async url => { assert.equal(url, binding.baselineOrigin + '/'); return { ok: () => false }; };
   page.setExtraHTTPHeaders = () => assert.fail('Baseline must not receive owner headers');
+  const corpus = join(dir, 'utterance.wav'), wav = Buffer.alloc(46);
+  wav.write('RIFF'); wav.writeUInt32LE(38, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(2, 40);
+  await writeFile(corpus, wav);
   const host = createQualificationHost({ binding: { ...binding, baselineAuthFile: path },
     hostOrigin: 'http://127.0.0.1:4567', runDirectory: dir, ownerHeaders: { cookie: forbidden[0] }, controlCapability: forbidden[1],
     keys: { ELEVENLABS_API_KEY: forbidden[2] }, verifyCeiling() {}, verifyReceipt() {}, reconcile() {},
@@ -179,13 +192,12 @@ test('baseline launcher gets fresh profile and corpus flags, with no loopback he
         newPage: async () => page, async close() {} };
     } });
   t.after(() => host.close());
-  for (let i = 0; i < 2; i++) await assert.rejects(host.runSample({ item: { id: 'one', wavPath: path }, lane: 'baseline', runId: 'fake',
+  for (let i = 0; i < 2; i++) await assert.rejects(host.runSample({ item: { id: 'one', utterancePath: corpus, bargeInPath: corpus }, lane: 'baseline', runId: 'fake',
     admit() { assert.fail('Navigation failed before admission'); }, onTiming() {} }), /Production baseline failed/);
   assert.notEqual(launches[0].userDataDir, launches[1].userDataDir);
   assert.deepEqual(permissions, [binding.baselineOrigin, binding.baselineOrigin]);
   for (const launch of launches) {
-    assert.ok(launch.args.includes(`--use-file-for-fake-audio-capture=${path}`));
-    assert.ok(launch.args.includes('--use-fake-device-for-media-stream'));
+    assert.ok(!launch.args.some(arg => /fake-device|fake-audio|fake-ui/.test(arg)));
     assert.deepEqual(launch.ignoreDefaultArgs, ['--mute-audio']);
   }
   for (const value of forbidden) assert.equal(JSON.stringify({ launches, evaluations }).includes(value), false);
@@ -193,8 +205,11 @@ test('baseline launcher gets fresh profile and corpus flags, with no loopback he
 
 import { runInNewContext } from 'node:vm';
 import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
+import { installQualificationOutputProbe } from '../ops/qualification-output-timing.js';
+import { pageFixture } from './qualification-page-fixture.js';
 
-async function probeFixture() {
+async function probeFixture(scripted) {
+  if (scripted && !scripted.diagnostics) scripted.diagnostics = () => ({ started: true, barged: false });
   const contexts = [], observers = []; let now = 0;
   class Element { attachShadow() { return {}; } }
   class MutationObserver {
@@ -222,15 +237,17 @@ async function probeFixture() {
   }
   class MediaStream {}
   class MediaElement { play() {} }
-  const runtime = { Element, MutationObserver, document: {}, AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
+  const runtime = { qualificationScriptedCapture: scripted, Element, MutationObserver, document: {}, AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
     navigator: { mediaDevices: { getUserMedia: async () => new MediaStream() } },
     location: { origin: binding.baselineOrigin, href: binding.baselineOrigin + '/' }, URL,
     performance: { now: () => now }, fetch: async () => ({}), setTimeout, clearTimeout,
     btoa: value => Buffer.from(value, 'binary').toString('base64') };
   runtime.window = runtime;
+  runInNewContext(`(${installQualificationOutputProbe.toString()})()`, runtime);
   runInNewContext(`(${installBaselineProbe.toString()})()`, runtime);
   const probe = runtime.qualificationBaselineProbe; probe.arm();
   await runtime.navigator.mediaDevices.getUserMedia({ audio: true });
+  if (scripted) new Context({ sampleRate: 16000 });
   const capture = contexts[0];
   const audio = new Context(), other = new Context();
   new Node(audio).connect(audio.destination); new Node(other).connect(other.destination);
@@ -247,21 +264,25 @@ async function probeFixture() {
     await final({ type: 'final', role: 'assistant', turnId: 'opener', text: 'AI notice. How can I help?' });
     now = 200; mode('listening'); emit(audio, .25, 0);
   };
-  return { probe, capture, audio, other, emit, final, mode, opener };
+  const silence = (context, time) => {
+    for (let i = 0; i < 48; i++) emit(context, time + i * 1024 / context.sampleRate, 0);
+  };
+  return { probe, capture, audio, other, emit, silence, final, mode, opener };
 }
 
 test('injected probe ignores silence in unrelated audio contexts after barge-in', async () => {
-  const { probe, capture, audio, other, emit, final, opener } = await probeFixture();
+  const { probe, capture, audio, other, emit, silence, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .6, 0);
   for (const event of [{ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' }, { type: 'final', role: 'assistant', text: 'Danke.' }]) {
     await final(event);
   }
   emit(audio, 1, .2); emit(capture, 2, .2);
-  emit(other, 2.1, 0);
+  silence(other, 2.1);
   assert.equal(probe.complete(), false, 'a silent microphone graph cannot establish agent stop');
   emit(audio, 2.2, .2); assert.equal(probe.complete(), false, 'agent is still audible');
-  emit(audio, 2.3, 0); assert.equal(probe.complete(), true);
+  emit(audio, 2.3, 0); assert.equal(probe.complete(), false, 'one quiet block cannot establish stop');
+  silence(audio, 2.3); assert.equal(probe.complete(), true);
   const result = probe.result();
   assert.equal(result.hypothesis, 'Wien'); assert.ok(result.ttsPCM.length > 0);
   assert.equal(result.trace.filter(event => event.kind === 'playback-stop').length, 1);
@@ -304,7 +325,7 @@ for (const ceiling of [undefined, null, -1, .5, '23', Number.MAX_SAFE_INTEGER]) 
 }
 
 for (const assistantFinal of ['late', 'missing']) test(`probe retains reply before ordinal-1 final with ${assistantFinal} reply final`, async () => {
-  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  const { probe, capture, audio, emit, silence, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .7, 0);
   emit(audio, 1, .2); emit(audio, 1.2, .1);
@@ -313,7 +334,7 @@ for (const assistantFinal of ['late', 'missing']) test(`probe retains reply befo
   assert.equal(probe.diagnostics().firstAudioAt, undefined);
   await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
   if (assistantFinal === 'late') await final({ type: 'final', role: 'assistant', turnId: 'reply', text: 'Danke.' });
-  emit(capture, 2, .2); emit(audio, 2.1, .1); emit(audio, 2.2, 0);
+  emit(capture, 2, .2); emit(audio, 2.1, .1); silence(audio, 2.2);
   assert.equal(probe.complete(), true);
   const result = probe.result(), start = result.trace.find(event => event.kind === 'playback-start');
   assert.ok(Math.abs(start.firstAudioAt - 1000) < .001);
@@ -327,7 +348,7 @@ for (const assistantFinal of ['late', 'missing']) test(`probe retains reply befo
 });
 
 test('probe internal utterance pause cannot promote output before the ordinal-1 final', async () => {
-  const { probe, capture, audio, emit, final, opener } = await probeFixture();
+  const { probe, capture, audio, emit, silence, final, opener } = await probeFixture();
   await opener();
   emit(capture, .5, .2); emit(capture, .6, 0); // Internal pause, not utterance completion.
   emit(audio, .65, .6); emit(audio, .75, 0); // Output during the internal pause is not the final reply.
@@ -335,7 +356,7 @@ test('probe internal utterance pause cannot promote output before the ordinal-1 
   emit(audio, 1, .2);
   assert.equal(probe.diagnostics().firstAudioAt, undefined);
   await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
-  emit(capture, 2, .2); emit(audio, 2.2, 0);
+  emit(capture, 2, .2); silence(audio, 2.2);
   assert.equal(probe.complete(), true);
   const evidence = probe.result();
   assert.ok(Math.abs(evidence.trace.find(e => e.kind === 'playback-start').firstAudioAt - 1000) < .001);
@@ -452,4 +473,96 @@ test('production navigation failure is setup-failed rather than invalid media', 
   assert.equal(h.evidence[0].reason, 'setup-failed');
   assert.doesNotMatch(JSON.stringify(h.evidence), /PRIVATE_SETUP_SENTINEL|hypothesis|ttsPCM/);
   assert.equal(h.reports.length, 0);
+});
+
+test('baseline scripted utterance waits for final, speaking/listening edge AND output drain', async () => {
+  let starts = 0;
+  const scripted = { subscribe() {}, startUtterance() { starts++; }, firstAudio() {} };
+  const h = await probeFixture(scripted);
+  h.mode('speaking'); h.emit(h.audio, .1, .6); h.emit(h.audio, .2, 0);
+  assert.equal(starts, 0, 'sentence silence is not opener completion');
+  await h.final({ type: 'final', role: 'assistant', text: 'Opener' });
+  h.emit(h.audio, .3, 0); assert.equal(starts, 0, 'final alone is insufficient');
+  h.mode('listening'); assert.equal(starts, 0, 'must observe drained output too');
+  h.emit(h.audio, .4, 0); assert.equal(starts, 1);
+  h.emit(h.audio, .5, 0); assert.equal(starts, 1);
+});
+
+for (const reason of ['late-first-audio', 'missing-playback-stop']) test(`production runSample ${reason} is a sample refusal with uncertain exposure`, async t => {
+  const h = await productionFixture(t, { mediaRefusal: reason });
+  await assert.rejects(h.run(), error => { assert.equal(error.reason, reason); return true; });
+  assert.equal(h.evidence.length, 1); assert.equal(h.evidence[0].reason, reason);
+  assert.equal(h.timings.length, 1); assert.equal(h.timings[0].kind, 'capture');
+  assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
+});
+
+for (const options of [{ diagnosticsMissing: true }, { resultError: true }, { afterResultError: true },
+  { invalidEvidence: 'closure-uncertain' }, { invalidEvidence: 'start-failed' }]) {
+  test(`production error stays an abort: ${JSON.stringify(options)}`, async t => {
+    const h = await productionFixture(t, options);
+    await assert.rejects(h.run(), error => { assert.equal(error.reason, undefined); return /Production baseline failed/u.test(error.message); });
+    assert.equal(h.evidence.length, 1);
+    assert.ok(!['late-first-audio', 'missing-playback-stop'].includes(h.evidence[0].reason));
+    const persisted = await productionFixture(t, options);
+    await assertFailureDiagnostic(t, persisted.run, 'baseline');
+  });
+}
+
+test('late baseline user final consumes source refusal and completes before a duration timer', async () => {
+  let capture;
+  const scripted = { subscribe(fn) { capture = fn; }, startUtterance() {}, diagnostics: () => ({ started: true, barged: false, refusal: 'late-first-audio' }),
+    firstAudio() { capture({ kind: 'capture-outcome', status: 'refused', reason: 'late-first-audio' }); }, async close() {} };
+  const h = await probeFixture(scripted);
+  await h.opener();
+  capture({ kind: 'capture', voiced: true, captureAt: 500, receivedAt: 600, durationMs: 64 });
+  h.emit(h.audio, 1, .2); h.emit(h.audio, 2, .2);
+  await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  assert.equal(h.probe.complete(), true);
+  assert.equal(h.probe.result().refusal, 'late-first-audio');
+  assert.equal(h.probe.diagnostics().failure, undefined);
+  await h.probe.close();
+});
+
+// Both real lane runners consume the same rendered trace, including a near-
+// threshold block. Neither an interrupt request nor still-voiced output stops it.
+for (const reversed of [false, true]) test(`candidate and baseline use the same rendered silence stop timestamp (reversed ${reversed})`, async () => {
+  const baseline = await probeFixture();
+  await baseline.opener();
+  baseline.emit(baseline.capture, .5, .2); baseline.emit(baseline.capture, .6, 0);
+  await baseline.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  baseline.emit(baseline.audio, 1, .2);
+  if (!reversed) baseline.emit(baseline.capture, 2, .2);
+  const outputTrace = [{ at: 1000, durationMs: 1024 / 48, rms: Math.fround(.2), voiced: true }];
+  const frames = [[2, .2], [2.1, .0021], [2.2, .0019],
+    ...Array.from({ length: 47 }, (_, i) => [2.2 + (i + 1) * 1024 / 48000, 0])];
+  for (const [seconds, level] of frames) {
+    baseline.emit(baseline.audio, seconds, level);
+    outputTrace.push({ at: seconds * 1000, contextTime: seconds, durationMs: 1024 / 48, rms: Math.fround(level), voiced: level >= .002,
+      timestamp: { contextTime: seconds + .1, performanceTime: (seconds + .1) * 1000 } });
+  }
+  if (reversed) baseline.emit(baseline.capture, 2, .2);
+  const candidate = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true,
+    outputTrace, firstAudioAt: 1000, bargeInAt: 1900, stopBeforeSource: reversed });
+  const result = await candidate.run();
+  const stop = trace => trace.find(row => row.kind === 'playback-stop').stoppedAt;
+  assert.equal(result.refusal, undefined);
+  assert.ok(Math.abs(stop(result.trace) - stop(baseline.probe.result().trace)) < .001);
+  assert.equal(stop(result.trace), 2200);
+  await baseline.probe.close();
+});
+
+for (const gapMs of [120, 250]) test(`baseline sustained silence resets after a ${gapMs} ms gap and resumed speech`, async () => {
+  const h = await probeFixture();
+  await h.opener();
+  h.emit(h.capture, .5, .2); h.emit(h.capture, .6, 0);
+  await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  h.emit(h.audio, 1, .2); h.emit(h.capture, 2, .2);
+  for (let ms = 0; ms < gapMs; ms += 20) h.emit(h.audio, 2.1 + ms / 1000, 0, 48 * Math.min(20, gapMs - ms));
+  assert.equal(h.probe.complete(), false);
+  h.emit(h.audio, 2.1 + gapMs / 1000, .1);
+  assert.equal(h.probe.complete(), false);
+  h.silence(h.audio, 2.5);
+  assert.equal(h.probe.complete(), true);
+  assert.equal(h.probe.result().trace.find(row => row.kind === 'playback-stop').stoppedAt, 2500);
+  await h.probe.close();
 });

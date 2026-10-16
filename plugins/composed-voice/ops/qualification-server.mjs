@@ -216,8 +216,8 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       if (path === '/composed/qualification/control' && !authorized(request)) return new Response(null, { status: 403 });
       // Worklet fetches do not inherit Puppeteer's page-only authentication
       // headers. These exact key-free assets need only the flagged origin guard.
-      if (request.method === 'GET' && (asset.test(path) || path === '/composed/qualification-page.js')) {
-        const file = path === '/composed/qualification-page.js' ? new URL('./qualification-page.js', import.meta.url) : new URL('../../..' + path, import.meta.url);
+      if (request.method === 'GET' && (asset.test(path) || ['/composed/qualification-page.js', '/composed/qualification-output-timing.js'].includes(path))) {
+        const file = path.startsWith('/composed/') ? new URL('.' + path.slice('/composed'.length), import.meta.url) : new URL('../../..' + path, import.meta.url);
         try { return new Response(await readFile(file), { headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } }); }
         catch { return new Response(null, { status: 404 }); }
       }

@@ -51,14 +51,14 @@ export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioC
 /** Explicit wire formats and one scheduling cursor preserve fragment order.
  * stop() cancels every scheduled source synchronously, including future audio. */
 export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContext, onTiming = () => {},
-  clock = () => performance.now(), maxQueuedSeconds = 8 } = {}) {
+  clock = () => performance.now(), maxQueuedSeconds = 8, observeOutput = () => {} } = {}) {
   let context, cursor = 0;
   const sources = new Set();
-  const stop = () => {
+  const stop = ({ origin = 'control' } = {}) => {
     const requestedAt = clock();
     for (const row of sources) { clearTimeout(row.timer); row.source.stop(); row.source.disconnect(); row.resolve(); }
     sources.clear(); cursor = context?.currentTime ?? 0;
-    onTiming({ kind: 'playback-stop', requestedAt, stoppedAt: clock(), outputLatency: context?.outputLatency ?? null,
+    onTiming({ kind: 'playback-stop', origin, requestedAt, stoppedAt: clock(), outputLatency: context?.outputLatency ?? null,
       outputTimestamp: context?.getOutputTimestamp?.() ?? null });
   };
   return Object.freeze({
@@ -80,20 +80,20 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
       }
 
       const resuming = context.resume(); cursor = start + duration;
-      const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination);
+      const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination); observeOutput(source);
       const completion = Promise.withResolvers(), row = { source, resolve: completion.resolve }; sources.add(row);
       source.onended = () => { clearTimeout(row.timer); sources.delete(row); source.disconnect(); completion.resolve(); };
       source.start(start);
-      void resuming.catch(error => { completion.reject(error); stop(); });
-      const observeOutput = () => {
+      void resuming.catch(error => { completion.reject(error); stop({ origin: 'teardown' }); });
+      const observeStart = () => {
         if (!sources.has(row)) return;
         const timestamp = context.getOutputTimestamp?.();
         if (timestamp?.contextTime >= start && timestamp.performanceTime > 0) {
           onTiming({ kind: 'playback-start', replyId, firstAudioAt: timestamp.performanceTime - (timestamp.contextTime - start) * 1000,
             outputTimestamp: timestamp });
-        } else row.timer = setTimeout(observeOutput, 10);
+        } else row.timer = setTimeout(observeStart, 10);
       };
-      observeOutput();
+      observeStart();
       const scheduledAt = clock() + (start - context.currentTime) * 1000;
       onTiming({ kind: 'playback-scheduled', replyId, scheduledAt, contextStart: start, sampleRateHz, channels, format,
         // getOutputTimestamp maps the actual audio device clock to performance time.
@@ -101,6 +101,6 @@ export function createPCMPlayer({ AudioContext: Context = globalThis.AudioContex
       return completion.promise;
     },
     stop,
-    async close() { stop(); await context?.close(); context = undefined; },
+    async close() { stop({ origin: 'teardown' }); await context?.close(); context = undefined; },
   });
 }

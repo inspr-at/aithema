@@ -1,18 +1,20 @@
 /** Injected with evaluateOnNewDocument. No secrets, expected text or product
  * imports. Observe the production graph and final-user persistence unchanged.
  * PCM/trace bounds: qualification-live-server.mjs / live-qualification.js.
- * RMS .015: browser-audio.js. 1024 frames: ScriptProcessor's supported size,
+ * Output RMS/stop window: qualification-output-timing.js. Capture RMS .015:
+ * browser-audio.js. 1024 frames: ScriptProcessor's supported size,
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
-  const trace = [], pcm = [], buffered = [], contexts = new Set(), observers = [];
+  const trace = [], pcm = [], rendered = [], buffered = [], contexts = new Set(), observers = [];
+  const outputProbe = window.qualificationOutputProbe;
   let agentSink, speechStartAt, speechEndAt, lastVoicedEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt;
   let openerSpeaking = false, bufferedBytes = 0;
-  let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure;
+  let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure, refusal;
   const emit = event => { if (trace.length >= 100_000) failure ??= 'trace-bound'; else trace.push(event); };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
   const nativeConnect = AudioNode.prototype.connect;
   const nativeDisconnect = AudioNode.prototype.disconnect;
-  const sinks = new WeakMap(), tapped = new WeakSet();
+  const tapped = new WeakSet();
   // The production rail exposes the SDK's speaking/listening lifecycle. Its
   // first speaking -> listening edge AND first assistant final identify opener
   // completion. Neither sentence silence nor elapsed time can establish it.
@@ -38,77 +40,52 @@ export function installBaselineProbe() {
   Element.prototype.attachShadow = function(...args) {
     const root = nativeAttachShadow.apply(this, args); watch(root); return root;
   };
-  const attribute = ({ samples, at, timestamp, voiced, voicedSince, sampleRateHz }) => {
+  const observeStop = () => {
+    if (stoppedAt !== undefined) return;
+    const stop = outputProbe.stop(rendered, bargeInAt);
+    if (stop) { stoppedAt = stop.stoppedAt; emit(stop); }
+  };
+  const attribute = ({ samples, at, timestamp, rms, voiced, voicedSince, contextTime, durationMs, sampleRateHz }) => {
     if (!hypothesis || failure || at < speechEndAt || voiced && voicedSince < speechEndAt) return;
     if (voiced && firstAudioAt === undefined) {
       firstAudioAt = at;
       emit({ kind: 'playback-start', firstAudioAt, outputTimestamp: timestamp });
+      window.qualificationScriptedCapture?.firstAudio(firstAudioAt);
       // Capture callbacks may precede the asynchronously persisted user final.
       bargeInAt = trace.find(e => e.kind === 'capture' && e.voiced && e.captureAt >= firstAudioAt)?.captureAt;
     }
     if (firstAudioAt === undefined || stoppedAt !== undefined) return;
     if (format && format.sampleRateHz !== sampleRateHz) { failure = 'output-format'; return; }
     format = { encoding: 'pcm_f32le', sampleRateHz, channels: 1 };
-    if (!voiced && bargeInAt !== undefined && at >= bargeInAt) {
-      stoppedAt = at; emit({ kind: 'playback-stop', stoppedAt, outputTimestamp: timestamp }); return;
-    }
+    rendered.push({ at, timestamp, rms, voiced, contextTime, durationMs }); observeStop();
+    if (stoppedAt !== undefined) return;
     bytes += samples.byteLength;
     if (bytes > 16_000_000) { failure = 'pcm-bound'; return; }
-    pcm.push(samples);
+    pcm.push({ samples, at });
   };
   function output(source, volume = () => 1) {
-    const context = source.context;
-    let sink = sinks.get(context);
-    if (!sink) {
-      sink = context.createScriptProcessor(1024, 1, 1);
-      const pending = []; let observer, voicedSince;
-      const observe = () => {
-        clearTimeout(observer);
-        if (!armed || failure) return;
-        const timestamp = context.getOutputTimestamp();
-        while (pending.length && timestamp.performanceTime > 0 && timestamp.contextTime >= pending[0].time) {
-          const { samples, time } = pending.shift();
-          rendered(samples, timestamp.performanceTime + (time - timestamp.contextTime) * 1000, timestamp);
+    outputProbe.tap(source, block => {
+      const { at, voiced, sink } = block;
+      if (agentSink && agentSink !== sink) return;
+      if (voiced) agentSink ??= sink;
+      if (speechStartAt === undefined) {
+        if (voiced) openerDrainedAt = undefined;
+        // Drain only the opener's graph after its completion signals.
+        else if (agentSink === sink && [openerFinalAt, openerFinishedAt].every(Number.isFinite) &&
+          at >= Math.max(openerFinalAt, openerFinishedAt) && openerDrainedAt === undefined) {
+          openerDrainedAt = at; emit({ kind: 'opener-drained', at });
+          window.qualificationScriptedCapture?.startUtterance();
         }
-        // Same 10 ms rendered-clock observation interval as browser-audio.js.
-        if (pending.length) observer = setTimeout(observe, 10);
-      };
-      const rendered = (samples, at, timestamp) => {
-        const voiced = rms(samples) >= 0.015;
-        if (agentSink && agentSink !== sink) return;
-        if (voiced) { agentSink ??= sink; voicedSince ??= at; }
-        else voicedSince = undefined;
-        if (speechStartAt === undefined) {
-          if (voiced) openerDrainedAt = undefined;
-          // Drain only the graph that rendered the opener, after its own
-          // completion signals. A pause between opener sentences cannot pass.
-          else if (agentSink === sink && [openerFinalAt, openerFinishedAt].every(Number.isFinite) &&
-            at >= Math.max(openerFinalAt, openerFinishedAt) && openerDrainedAt === undefined) {
-            openerDrainedAt = at; emit({ kind: 'opener-drained', at });
-          }
-          return;
-        }
-        if (at < speechStartAt || agentSink !== sink) return;
-        const block = { samples, at, timestamp, voiced, voicedSince, sampleRateHz: context.sampleRate };
-        if (hypothesis) attribute(block);
-        else {
-          bufferedBytes += samples.byteLength;
-          if (bufferedBytes > 16_000_000) { failure = 'reply-buffer-bound'; return; }
-          buffered.push(block);
-        }
-      };
-      sink.onaudioprocess = event => {
-        if (!armed || failure) return;
-        if (pending.length * 1024 / context.sampleRate >= 8) { failure = 'output-queue-bound'; return; } // browser-audio.js maxQueuedSeconds.
-        pending.push({ samples: Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume()),
-          time: event.playbackTime - event.inputBuffer.duration });
-        observe();
-      };
-      const silence = context.createGain(); silence.gain.value = 0;
-      nativeConnect.call(sink, silence); nativeConnect.call(silence, context.destination);
-      sinks.set(context, sink);
-    }
-    nativeConnect.call(source, sink);
+        return;
+      }
+      if (at < speechStartAt || agentSink !== sink) return;
+      if (hypothesis) attribute(block);
+      else {
+        bufferedBytes += block.samples.byteLength;
+        if (bufferedBytes > 16_000_000) { failure = 'reply-buffer-bound'; return; }
+        buffered.push(block);
+      }
+    }, { volume, enabled: () => armed && !failure, onFault: () => { failure ??= 'output-queue-bound'; } });
   }
   AudioNode.prototype.connect = function(destination, ...args) {
     const result = nativeConnect.call(this, destination, ...args);
@@ -127,32 +104,44 @@ export function installBaselineProbe() {
     }
     return nativePlay.apply(this, args);
   };
+  const capture = event => {
+    if (!armed || failure || refusal) return;
+    if (event.kind === 'capture-outcome') {
+      emit(event);
+      if (event.status === 'refused' && event.reason === 'late-first-audio') refusal = event.reason;
+      else failure = 'scripted-capture-failed';
+      return;
+    }
+    const { captureAt, voiced, durationMs } = event;
+    emit(event);
+    if (voiced && speechStartAt === undefined) {
+      speechStartAt = captureAt;
+      if (![openerFinalAt, openerFinishedAt, openerDrainedAt].every(Number.isFinite) ||
+        captureAt < Math.max(openerFinalAt, openerFinishedAt, openerDrainedAt)) {
+        failure = 'opener-overlap'; emit({ kind: 'invalid-evidence', reason: failure, captureAt }); return;
+      }
+    }
+    if (voiced && !hypothesis) lastVoicedEndAt = captureAt + durationMs;
+    if (voiced && captureAt >= firstAudioAt) { bargeInAt ??= captureAt; observeStop(); }
+  };
+  const scripted = window.qualificationScriptedCapture;
+  const unsubscribe = scripted?.subscribe(capture);
   const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   navigator.mediaDevices.getUserMedia = async function(constraints) {
     const stream = await getUserMedia(constraints);
-    if (armed && constraints?.audio && !tapped.has(stream)) {
+    if (!scripted && armed && constraints?.audio && !tapped.has(stream)) {
       tapped.add(stream);
       const context = new AudioContext({ sampleRate: 16000 }); contexts.add(context);
       const source = context.createMediaStreamSource(stream), sink = context.createScriptProcessor(1024, 1, 1);
       let frames = 0;
       sink.onaudioprocess = event => {
-        if (!armed || failure) return;
         const samples = event.inputBuffer.getChannelData(0), receivedAt = performance.now();
         const frame = Math.round((event.playbackTime - event.inputBuffer.duration) * context.sampleRate);
         const captureAt = receivedAt + (frame / context.sampleRate - context.currentTime) * 1000;
-        const voiced = rms(samples) >= 0.015;
-        emit({ kind: 'capture', captureAt, receivedAt, voiced, durationMs: samples.length / context.sampleRate * 1000,
-          captureFrame: frame, contextSampleRate: context.sampleRate, byteLength: samples.length * 2, wavFrame: frames });
+        capture({ kind: 'capture', captureAt, receivedAt, voiced: rms(samples) >= 0.015,
+          durationMs: samples.length / context.sampleRate * 1000, captureFrame: frame,
+          contextSampleRate: context.sampleRate, byteLength: samples.length * 2, wavFrame: frames });
         frames += samples.length;
-        if (voiced && speechStartAt === undefined) {
-          speechStartAt = captureAt;
-          if (![openerFinalAt, openerFinishedAt, openerDrainedAt].every(Number.isFinite) ||
-            captureAt < Math.max(openerFinalAt, openerFinishedAt, openerDrainedAt)) {
-            failure = 'opener-overlap'; emit({ kind: 'invalid-evidence', reason: failure, captureAt }); return;
-          }
-        }
-        if (voiced && !hypothesis) lastVoicedEndAt = captureAt + samples.length / context.sampleRate * 1000;
-        if (voiced && captureAt >= firstAudioAt) bargeInAt ??= captureAt;
       };
       const silence = context.createGain(); silence.gain.value = 0;
       nativeConnect.call(source, sink); nativeConnect.call(sink, silence); nativeConnect.call(silence, context.destination);
@@ -201,27 +190,39 @@ export function installBaselineProbe() {
           buffered.length = 0; bufferedBytes = 0;
         }
       }
-    } catch { /* Not a production final-user persistence request. */ }
+    } catch { failure ??= 'probe-exception'; }
     return fetch(input, init);
   };
   window.qualificationBaselineProbe = {
     arm() { armed = true; },
-    diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechStartAt, speechEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt, bufferedBytes, firstAudioAt, bargeInAt, stoppedAt, failure,
+    diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechStartAt, speechEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt, bufferedBytes, firstAudioAt, bargeInAt, stoppedAt, failure, refusal, source: scripted?.diagnostics?.(),
+      outputTail: rendered.slice(-6).map(({ at, contextTime, durationMs, rms }) => ({ at, contextTime, durationMs, rms })),
       counts: Object.fromEntries(['capture', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(e => e.kind === kind).length])),
       voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
-    complete() { return !!failure || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite); },
+    trace: () => trace,
+    complete() {
+      const source = scripted?.diagnostics?.();
+      if (scripted && (!source || typeof source.started !== 'boolean' || typeof source.barged !== 'boolean')) failure ??= 'missing-scripted-diagnostics';
+      if (source?.failure) failure ??= 'scripted-capture-failed';
+      if (source?.refusal === 'late-first-audio') refusal ??= source.refusal;
+      else if (source?.refusal) failure ??= 'scripted-capture-failed';
+      return !!failure || !!refusal || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite);
+    },
     result() {
       if (failure) throw new Error(`Invalid production media evidence: ${failure}`);
+      if (refusal) return { trace, refusal };
       if (!hypothesis || !pcm.length || ![firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Incomplete production media evidence');
       // Chunk conversion avoids argument/string limits for bounded PCM evidence.
-      const samples = new Float32Array(bytes / 4); let offset = 0;
-      for (const chunk of pcm) { samples.set(chunk, offset); offset += chunk.length; }
+      const chunks = pcm.filter(block => block.at < stoppedAt).map(block => block.samples);
+      const samples = new Float32Array(chunks.reduce((size, chunk) => size + chunk.length, 0)); let offset = 0;
+      for (const chunk of chunks) { samples.set(chunk, offset); offset += chunk.length; }
       const data = new Uint8Array(samples.buffer); let binary = '';
       for (let i = 0; i < data.length; i += 8192) binary += String.fromCharCode(...data.subarray(i, i + 8192));
       return { hypothesis, trace, ttsPCM: btoa(binary), ttsFormat: format };
     },
     async close() {
-      armed = false;
+      armed = false; unsubscribe?.(); outputProbe.close();
+      await scripted?.close();
       for (const observer of observers) observer.disconnect();
       Element.prototype.attachShadow = nativeAttachShadow;
       HTMLMediaElement.prototype.play = nativePlay; window.fetch = fetch;

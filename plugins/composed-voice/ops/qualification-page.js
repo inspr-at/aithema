@@ -1,48 +1,105 @@
 import { createPCMCapture, createPCMPlayer } from '/plugins/composed-voice/src/browser-audio.js';
 import { createNetworkRelayClient } from '/plugins/composed-voice/src/network-client.js';
 import { createComposedBrowserMedia } from '/plugins/composed-voice/src/client.js';
+import { installQualificationOutputProbe, qualificationObservationWindow } from '/composed/qualification-output-timing.js';
 
 // This hook contains no provider, transcript, accounting or fixture authority.
 window.composedQualification = {
   async run({ grant, headers }) {
     const trace = [], done = Promise.withResolvers();
     done.promise.catch(() => {});
-    let session, firstAudioAt, bargeInAt, stopping = false;
-    const onTiming = event => {
-      if (trace.length >= 100_000) { done.reject(new Error('Timing evidence bound exceeded')); return; }
-      trace.push(event);
-      if (event.kind === 'playback-start') firstAudioAt ??= event.firstAudioAt;
-      if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt && session && !stopping) {
-        bargeInAt = event.captureAt; stopping = true;
-        void session.interrupt().catch(done.reject);
-        // The barge-in is the final capture observation for this corpus item.
-        void session.setInput(false).catch(done.reject);
+    const scripted = window.qualificationScriptedCapture;
+    let session, eventsTask, finished = false, firstAudioAt, bargeInAt, mediaFailure, stoppedAt, teardownAt = Infinity;
+    const outputProbe = installQualificationOutputProbe(), output = [];
+    const fail = error => { mediaFailure ??= error; done.reject(error); };
+    const refuse = reason => {
+      if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
+        throw new Error('Unknown qualification media refusal');
       }
-      if (stopping && event.kind === 'playback-stop' && event.stoppedAt >= bargeInAt) done.resolve();
+      done.resolve({ refusal: reason });
     };
-    const player = createPCMPlayer({ onTiming });
-    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onTiming, onFault: done.reject }),
+    const sourceStatus = () => {
+      const status = scripted.diagnostics();
+      if (!status || typeof status.started !== 'boolean' || typeof status.barged !== 'boolean') throw new Error('Missing scripted capture diagnostics');
+      if (status.failure) throw new Error(`Scripted capture failed: ${status.failure}`);
+      if (status.refusal) refuse(status.refusal);
+      return status;
+    };
+    const finishTiming = () => {
+      try {
+        const status = sourceStatus();
+        if (status.refusal) return;
+        if (status.started && firstAudioAt === undefined && trace.some(event => event.kind === 'capture' && event.voiced)) refuse('late-first-audio');
+        else if (Number.isFinite(bargeInAt)) refuse('missing-playback-stop');
+        else throw new Error('Incomplete scripted capture evidence');
+      } catch (error) { fail(error); }
+    };
+    const onTiming = event => {
+      if (finished) return;
+      try {
+        if (trace.length >= 100_000) throw new Error('Timing evidence bound exceeded');
+        trace.push(event);
+        if (event.kind === 'capture-outcome') {
+          if (event.status === 'refused') refuse(event.reason);
+          else throw new Error(`Scripted capture failed: ${event.reason}`);
+        }
+        if (event.kind === 'playback-start' && firstAudioAt === undefined) {
+          firstAudioAt = event.firstAudioAt; scripted.firstAudio(firstAudioAt); sourceStatus();
+          // Source callbacks and rendered output callbacks can arrive out of order.
+          bargeInAt = trace.find(row => row.kind === 'capture' && row.voiced && row.captureAt >= firstAudioAt)?.captureAt;
+        }
+        // Both lanes use the injected stream's onset in the SOURCE clock. Only
+        // the product's own capture/VAD/turn logic may interrupt its playback.
+        if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt) bargeInAt ??= event.captureAt;
+        if (event.kind === 'playback-stop-request' && event.origin !== 'interrupt') teardownAt = Math.min(teardownAt, event.requestedAt);
+        // Output and source callbacks can arrive out of order. Select by their
+        // rendered/source timestamps, never by delivery order or stop request.
+        const stop = outputProbe.stop(output, bargeInAt, teardownAt);
+        if (stop && stoppedAt === undefined) { stoppedAt = stop.stoppedAt; trace.push(stop); done.resolve({}); }
+      } catch (error) { fail(error); }
+    };
+    const player = createPCMPlayer({
+      onTiming(event) { onTiming(event.kind === 'playback-stop' ? { ...event, kind: 'playback-stop-request' } : event); },
+      observeOutput: source => outputProbe.tap(source, block => {
+        if (finished) return;
+        output.push({ at: block.at, timestamp: block.timestamp, rms: block.rms, voiced: block.voiced,
+          contextTime: block.contextTime, durationMs: block.durationMs });
+        onTiming({ kind: 'playback-rendered', at: block.at, rms: block.rms, voiced: block.voiced,
+          contextTime: block.contextTime, durationMs: block.durationMs, outputTimestamp: block.timestamp });
+      }, { onFault: fail }),
+    });
+    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: fail }),
       openRelay: createNetworkRelayClient({ headers }) });
-    const timer = setTimeout(() => done.reject(new Error('Physical capture/output/barge-in evidence timed out')), 50_000);
-    let failure;
+    const timer = setTimeout(finishTiming, qualificationObservationWindow(grant.opaque.spendDeadlineAt));
+    const unsubscribe = scripted.subscribe(onTiming);
     try {
       session = await media.connect(grant);
-      void (async () => {
-        for await (const event of session.events) if (event.type === 'waiting' || event.type === 'ended') {
-          done.reject(new Error(`Qualification media ${event.type}: ${event.reason}`));
+      scripted.startUtterance(); sourceStatus();
+      eventsTask = (async () => {
+        for await (const event of session.events) {
+          if (event.type === 'ended' && event.reason === 'closed') finishTiming();
+          else if (event.type === 'waiting' || event.type === 'ended') {
+            // Only the normal end of an otherwise healthy sample is eligible
+            // for timing classification. Every failure reason remains an abort.
+            fail(new Error(`Qualification media ${event.type}: ${event.reason}`));
+          }
         }
-      })().catch(done.reject);
-      await done.promise;
-      return trace;
+      })().catch(fail);
+      const result = await done.promise;
+      sourceStatus();
+      if (mediaFailure) throw mediaFailure;
+      return { trace, ...result };
     } catch (error) {
-      failure = error;
-      const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
+      const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop', 'playback-stop-request', 'playback-rendered'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
       counts.voiced = trace.filter(event => event.kind === 'capture' && event.voiced).length;
       throw new Error(`${error.message}; device evidence ${JSON.stringify(counts)}`, { cause: error });
     } finally {
-      clearTimeout(timer);
-      try { await session?.close().catch(error => { if (!failure) throw error; }); }
-      finally { await player.close(); }
+      finished = true; clearTimeout(timer); unsubscribe(); outputProbe.close();
+      try {
+        await session?.close(); await eventsTask;
+        if (mediaFailure) throw mediaFailure;
+      }
+      finally { try { await player.close(); } finally { await scripted.close(); } }
     }
   },
 };

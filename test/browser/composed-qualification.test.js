@@ -70,19 +70,17 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
   const sentinel = 'SENTINEL_FAKE_KEYS_FILE_NO_PROVIDER';
   const keysFile = join(directory, 'provider.keys');
   await writeFile(keysFile, `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`, { mode: 0o600 });
-  // Fake microphone uses a real WAV: utterance, endpointing silence, barge-in.
-  const wavPath = join(directory, 'corpus.wav'), rate = 48000, frames = rate * 24, wav = Buffer.alloc(44 + frames * 2);
+  // Separate scripted inputs: immediate utterance and a shared barge-in clip.
+  const utterancePath = join(directory, 'utterance.wav'), bargeInPath = join(directory, 'barge-in.wav');
+  const rate = 48000, frames = rate / 2, wav = Buffer.alloc(44 + frames * 2);
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
-  for (let i = 0; i < frames; i++) {
-    const voiced = i >= rate * 20 && i < rate * 20.5 || i >= rate * 21.8;
-    wav.writeInt16LE(voiced ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12_000) : 0, 44 + i * 2);
-  }
-  await writeFile(wavPath, wav);
+  for (let i = 0; i < frames; i++) wav.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12_000), 44 + i * 2);
+  await writeFile(utterancePath, wav); await writeFile(bargeInPath, wav);
   const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), budget = join(directory, 'qualification.sqlite'), output = join(directory, 'evidence');
   initializeQualificationBudget({ path: budget });
-  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', wavPath, reference: 'Wien', expected: 'Wien', leadingSilenceMs: 20000 }],
+  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', utterancePath, bargeInPath, reference: 'Wien', expected: 'Wien' }],
     ceilingChecks: [{ provider: 'fixture', model: 'fixture', operation: 'stream', accountRef: 'offline-fixture',
       endpoint: 'https://fixture.invalid/stream', maxMicro: 100, request: { fixture: true } }],
     checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'FAKE ONLY; no live qualification',
@@ -116,7 +114,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'fake price evidence', expiresAt: Date.now() + 60000 }),
     verifyReceipt: async () => true,
     async reconcile({ snapshot, reconcile }) {
-      for (const row of snapshot.records.filter(row => row.state === 'settled' && !row.receipt)) {
+      for (const row of snapshot.records.filter(row => row.state === 'settled' && row.dispatchedAt && !row.receipt)) {
         await reconcile({ attemptId: row.attemptId, receiptId: row.attemptId, provider: row.provider, model: row.model,
           operation: row.operation, accountRef: row.accountRef, endpoint: row.endpoint, chargedMicro: 1, estimated: false });
       }
@@ -129,10 +127,10 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
 `);
   if (process.platform === 'darwin') {
     for (const [name, args] of [
-      ['with-fake-capture', ['--fake-capture-wav', wavPath]],
+      ['with-fake-capture', ['--fake-capture-wav', utterancePath]],
       ['without-fake-capture', []],
-      ['forced-fake-output', ['--fake-capture-wav', wavPath, '--force-fake-output']],
-      ['forced-missing-output', ['--fake-capture-wav', wavPath, '--force-missing-output']],
+      ['forced-fake-output', ['--fake-capture-wav', utterancePath, '--force-fake-output']],
+      ['forced-missing-output', ['--fake-capture-wav', utterancePath, '--force-missing-output']],
     ]) {
       const reportPath = join(directory, `${name}.json`);
       const probeChild = spawn(process.execPath, [fileURLToPath(new URL('../../plugins/composed-voice/ops/qualification-output-probe.mjs', import.meta.url)),
@@ -190,15 +188,48 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   }
   assert.equal(code, 0, `${stderr}\nFixture dispatches: ${JSON.stringify(ports.dispatches)}`); assert.match(stdout, /tunnel-fake-proof/);
   const report = JSON.parse(await readFile(join(output, 'report.json'))), observations = JSON.parse(await readFile(join(output, 'observations.json')));
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-tunnel-cli.json'), JSON.stringify({
+      fixtureOnly: true, bindPort: target, browserOrigin: hostOrigin, report, observations, dispatches: ports.dispatches,
+    }, null, 2));
+  }
   assert.equal(report.candidate.wer, 0); assert.equal(report.baseline.wer, 0); assert.equal(report.candidate.qualified, false);
   assert.deepEqual(report.tts, {
     candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
     baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
   });
-  assert.equal(report.budget.records.length, 5); assert.equal(ports.dispatches.length, 5);
-  assert.deepEqual(new Set(report.budget.records.map(row => row.attemptId)), new Set(ports.dispatches));
-  assert.equal(report.budget.records.filter(row => row.retryOf).length, 1);
-  assert.ok(report.budget.records.every(row => row.state === 'settled' && row.receipt && row.dispatchedAt));
+  // The source and consumer use independent capture clocks. During sustained
+  // silence confirmation the interruption can finish STT and reasoning even
+  // when playback revision changes suppress its TTS. Bound each role to the two
+  // scripted turns and keep every admission/dispatch check.
+  const candidate = report.budget.records.filter(row => row.lane === 'candidate');
+  const stt = candidate.filter(row => row.role === 'stt');
+  const reasoning = candidate.filter(row => row.role === 'reasoning');
+  const replies = candidate.filter(row => row.role === 'tts');
+  assert.ok(stt.length === 1 || stt.length === 2);
+  assert.ok(reasoning.length === 2 || reasoning.length === 4);
+  assert.ok(reasoning.length / 2 <= stt.length, 'each reasoning pair needs its own scripted STT turn');
+  assert.ok(replies.length === 1 || replies.length === 2);
+  assert.ok(replies.length <= reasoning.length / 2, 'TTS needs a completed reasoning pair');
+  assert.equal(report.budget.records.filter(row => row.lane === 'baseline').length, 1);
+  assert.equal(report.budget.records.length, 1 + reasoning.length + replies.length + stt.length);
+  const consumed = report.budget.records.filter(row => row.dispatchedAt), dispatched = new Set(ports.dispatches);
+  for (const attemptId of dispatched) assert.ok(consumed.some(row => row.attemptId === attemptId), 'every dispatch has a consumed admission');
+  // Product VAD may admit the interruption STT immediately before the observed
+  // playback stop closes the sample. A consumed claim can then be cancelled
+  // before the fixture dispatches; it must retain its uncertain terminal.
+  const consumedBeforeTeardown = consumed.filter(row => !dispatched.has(row.attemptId));
+  assert.ok(consumedBeforeTeardown.length <= 1);
+  for (const row of consumedBeforeTeardown) {
+    assert.equal(row.role, 'stt'); assert.equal(row.attemptId, stt[1]?.attemptId);
+    assert.equal(row.outcome, 'uncertain');
+  }
+  const retries = report.budget.records.filter(row => row.retryOf);
+  assert.equal(retries.length, reasoning.length / 2);
+  for (const retry of retries) assert.ok(reasoning.some(row => !row.retryOf && row.attemptId === retry.retryOf));
+  assert.ok(report.budget.records.every(row => row.state === 'settled' &&
+    (row.dispatchedAt ? row.receipt : row.outcome === 'cancelled' && row.exposureMicro === 0)));
   for (const lane of ['candidate', 'baseline']) {
     const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, physicalBrowserMedia } = observations[lane][0];
     assert.equal(physicalBrowserMedia.verified, true);
@@ -207,28 +238,29 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     assert.ok(['', 'default'].includes(physicalBrowserMedia.sinkId));
     assert.ok(physicalBrowserMedia.outputLatency > 0);
     assert.ok(speechEndAt < firstAudioAt && firstAudioAt <= bargeInAt && bargeInAt <= stoppedAt);
+    assert.ok(Math.abs(bargeInAt - firstAudioAt - 800) < 150, `${lane}: barge-in onset uses the shared injected-source clock`);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));
     assert.ok(trace.some(event => event.kind === 'playback-start' && event.outputTimestamp.contextTime > 0 && event.outputTimestamp.performanceTime > 0));
-    assert.ok(trace.some(event => event.kind === 'playback-stop' && event.outputTimestamp));
+    const stop = trace.find(event => event.kind === 'playback-stop');
+    assert.equal(stop.origin, 'rendered-silence');
+    assert.ok(stop.outputTimestamp && stop.confirmationOutputTimestamp);
+    assert.ok(stop.silenceDurationMs >= 1000 && stop.confirmedAt > stop.stoppedAt);
+    assert.ok(stop.outputRmsThreshold > 0);
+    if (lane === 'candidate') assert.ok(trace.some(event => event.kind === 'playback-stop-request' && event.origin === 'interrupt'));
   }
   assert.equal(JSON.parse(await readFile(join(output, 'blind.json'))).length, 2);
-  if (process.env.AITHEMA_EVIDENCE_DIR) {
-    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-tunnel-cli.json'), JSON.stringify({
-      fixtureOnly: true, bindPort: target, browserOrigin: hostOrigin, report, observations, dispatches: ports.dispatches,
-    }, null, 2));
-  }
 });
 
 import { startFakeProductionOrigin } from '../fixtures/qualification-production-origin.mjs';
 import { runProductionBaseline } from '../../plugins/composed-voice/ops/qualification-production-baseline.mjs';
 import { createQualificationMediaProbe } from '../../plugins/composed-voice/src/live-qualification.js';
+import { installScriptedCapture } from '../../plugins/composed-voice/ops/qualification-scripted-capture.mjs';
 
 test('AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin', { timeout: 240_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-production-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  // Same 20 s leading silence in both lanes, then an utterance with an
-  // internal pause and barge-in at 21.8 s; these are synthetic fixture inputs.
+  // Preserve the old combined fixture only for deliberate opener overlap.
+  // Success cases use separate scripted clips with the same internal pause.
   const rate = 48000, frames = rate * 24, wav = Buffer.alloc(44 + frames * 2), wavPath = join(directory, 'corpus.wav');
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
@@ -236,14 +268,17 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
   for (let i = 0; i < frames; i++) wav.writeInt16LE(i >= rate * 20 && i < rate * 20.15 || i >= rate * 20.3 && i < rate * 20.5 || i >= rate * 21.8 ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000) : 0, 44 + i * 2);
   await writeFile(wavPath, wav);
   const scenarios = [false, true].flatMap(mediaElement => ['before-audio', 'after-audio', 'missing'].map(assistantFinal => ({ mediaElement, assistantFinal })));
-  scenarios.push({ mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
+  scenarios.push({ mediaElement: false, assistantFinal: 'missing', lateUserFinal: true },
+    { mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
     { mediaElement: true, assistantFinal: 'missing', opener: 'normal', overlap: true });
-  // The six valid cases use identical launch flags and capture input. Keep a
-  // single browser with fresh pages; the overlap corpus gets its own launch.
+  const clips = { utterance: { sampleRateHz: rate, pcm: wav.subarray(44 + rate * 20 * 2, 44 + rate * 20.5 * 2).toString('base64') },
+    bargeIn: { sampleRateHz: rate, pcm: wav.subarray(44 + rate * 21.8 * 2, 44 + rate * 22.3 * 2).toString('base64') } };
+  // Reuse one browser for all six scripted cases; overlap controls keep their
+  // intentionally early fake capture and existing separate launches.
   let browser, browserCapture;
   t.after(async () => { await browser?.close(); });
-  for (const { mediaElement, assistantFinal, opener, overlap } of scenarios) await t.test(
-    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: ${overlap ? `refuse ${opener} opener overlap` : `assistant final ${assistantFinal}`}`, async () => {
+  for (const { mediaElement, assistantFinal, opener, overlap, lateUserFinal } of scenarios) await t.test(
+    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: ${overlap ? `refuse ${opener} opener overlap` : lateUserFinal ? 'late user final refuses' : `assistant final ${assistantFinal}`}`, async () => {
     let capturePath = wavPath;
     if (overlap) {
       // Deliberately invalid corpus: first speech .2.. .5 s, so an opener
@@ -252,18 +287,21 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       for (let i = rate * .2; i < rate * .5; i++) invalid.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000), 44 + i * 2);
       capturePath = join(directory, `invalid-${opener}.wav`); await writeFile(capturePath, invalid);
     }
-    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener });
-    if (browserCapture !== capturePath) {
+    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener, ...(lateUserFinal ? { userFinalDelayMs: 1500 } : {}) });
+    const captureMode = overlap ? capturePath : 'scripted';
+    if (browserCapture !== captureMode) {
       await browser?.close();
-      browserCapture = capturePath;
+      browserCapture = captureMode;
       browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
       args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         // Test-only fake renderer makes this hermetic on CI hosts with no audio
         // hardware. The real launcher refuses this flag before admission.
-        '--disable-audio-output', '--disable-features=AudioServiceSandbox', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${capturePath}`,
-        '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+        '--disable-audio-output', '--disable-features=AudioServiceSandbox',
+        ...(overlap ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${capturePath}`, '--use-fake-ui-for-media-stream'] : []),
+        '--autoplay-policy=no-user-gesture-required'] });
     }
     const page = await browser.newPage(), logs = [], reports = [], identities = [], refusals = [], probe = createQualificationMediaProbe();
+    if (!overlap) await page.evaluateOnNewDocument(installScriptedCapture, clips);
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
     const abort = new AbortController(); let watchdog;
     const expired = new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
@@ -285,6 +323,13 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
           return { attempt: { async consume() { assert.equal(production.dispatches.length, 0); } }, report: async terminal => reports.push(terminal) };
         },
       });
+      if (lateUserFinal) {
+        await assert.rejects(pending, error => error.reason === 'late-first-audio');
+        assert.equal(abort.signal.aborted, false, 'source refusal must finish before the duration watchdog');
+        assert.equal(refusals.length, 1); assert.equal(refusals[0].reason, 'late-first-audio');
+        assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+        return;
+      }
       if (overlap) {
         await assert.rejects(pending, /invalid evidence \(opener-overlap\)/);
         assert.equal(production.dispatches.length, 1); assert.ok(production.stopped >= 1);
@@ -294,6 +339,9 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       }
       result = await pending;
       const evidence = probe.evidence();
+      const stop = result.trace.find(event => event.kind === 'playback-stop');
+      assert.ok(stop.silenceDurationMs >= 1000 && stop.confirmedAt > stop.stoppedAt);
+      assert.ok(stop.confirmationOutputTimestamp && stop.outputRmsThreshold > 0);
       assert.ok(evidence.speechEndAt < evidence.firstAudioAt && evidence.firstAudioAt <= evidence.bargeInAt && evidence.bargeInAt <= evidence.stoppedAt);
       assert.equal(result.hypothesis, 'Wien', 'later final barge-in phrase is excluded');
       assert.ok(result.ttsPCM.byteLength > 0); assert.equal(result.ttsFormat.encoding, 'pcm_f32le');
@@ -309,7 +357,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       assert.ok(evidence.firstAudioAt < reference.userFinalAt - 100, 'buffer retains reply audio before ordinal-1 user final');
       if (assistantFinal === 'after-audio') assert.ok(evidence.firstAudioAt < reference.finalAt - 100);
       if (assistantFinal === 'missing') assert.equal(reference.finalAt, undefined);
-      assert.ok(evidence.bargeInAt > evidence.firstAudioAt + 300, 'barge-in remains the next voiced corpus segment');
+      assert.ok(Math.abs(evidence.bargeInAt - evidence.firstAudioAt - 800) < 150, 'barge-in follows observed reply onset within source-block resolution');
 
       assert.equal(result.baselineSession.visitorSessionId, 'production-visitor');
       assert.equal(result.baselineSession.providerSessionId, 'conv_production');

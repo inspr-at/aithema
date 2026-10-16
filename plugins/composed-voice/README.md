@@ -444,7 +444,7 @@ the template with these options. There are **no successful accounting defaults**
 | `verifyCeiling(spec)` | OPS account operation on the flagged host. Return the matching verified ceiling proof described above, including request digest, evidence reference and future expiry. Called at preflight, admission and consume. Missing port throws at factory construction. |
 | `verifyReceipt(receipt, storedAttempt)` | OPS authenticates the server-observed receipt on the flagged host; return exactly `true` only for a matching trusted receipt. Missing port throws. |
 | `reconcile({ snapshot, reconcile, baselineSessions })` | OPS fetches/authenticates/persists receipts, including ElevenLabs conversation GET and every OpenRouter generation of each labelled start2 baseline session; calls supplied `reconcile(receipt)`. `baselineSessions` includes attempt, visitor and provider conversation identities, also persisted privately on failures. Pending receipts retain exposure. Missing port throws. |
-| `runSample({ item, lane, runId, admit, onTiming })` | `item.wavPath` is an absolute corpus WAV on mbp2606; `item.id`/`sampleId` identify the server sample. Launch a fresh profile; candidate opens `hostOrigin`, baseline opens `binding.baselineOrigin`. Admit every dispatch, then return `{ physicalBrowserMedia, hypothesis, entities, ttsPCM: Uint8Array, ttsFormat: { encoding, sampleRateHz, channels } }`. Candidate hypothesis/PCM come from the server; baseline hypothesis comes from production's final-user callback and PCM from the injected Web Audio tap. Baseline adds `baselineSession` with production visitor/conversation IDs. References stay in the CLI. `onTiming(event)` receives the browser's event values unchanged. |
+| `runSample({ item, lane, runId, admit, onTiming })` | `item.utterancePath` and `item.bargeInPath` are absolute PCM16 mono WAVs on mbp2606; `item.id`/`sampleId` identify the server sample. Launch a fresh profile; candidate opens `hostOrigin`, baseline opens `binding.baselineOrigin`. Admit every dispatch, then return `{ physicalBrowserMedia, hypothesis, entities, ttsPCM: Uint8Array, ttsFormat: { encoding, sampleRateHz, channels } }`. Candidate hypothesis/PCM come from the server; baseline hypothesis comes from production's final-user callback and PCM from the injected Web Audio tap. Baseline adds `baselineSession` with production visitor/conversation IDs. References stay in the CLI. `onTiming(event)` receives the browser's event values unchanged. |
 | `close()` | Abort active samples and kill owned browser process groups; it has no host-process lifecycle authority. |
 
 AIT's **reference server** `ops/qualification-live-server.mjs` returns `{ networkRelay, createSample }`. Construct the
@@ -648,8 +648,9 @@ Audio output, including the SDK's WebRTC media element through a silent parallel
 Web Audio tap. Device frames/output timestamps supply the same capture,
 playback-start and playback-stop event contract as the candidate, including the
 WAV speech-end and barge-in timeline. The ScriptProcessor observation block is
-1024 frames; RMS 0.015, trace 100,000 events and PCM 16 MB use the existing
-candidate/evaluator limits. No fixture timing offset reconstructs evidence.
+1024 frames; capture RMS 0.015, trace 100,000 events and PCM 16 MB use the existing
+candidate/evaluator limits. Output has its own level criterion and sustained
+stop window below. No fixture timing offset reconstructs evidence.
 Production's first final user callback (ordinal 1) supplies the hypothesis and
 anchors reply attribution. Capture silence is never a committed utterance end:
 internal pauses cannot release reply evidence. Rendered output is buffered
@@ -676,6 +677,50 @@ claiming that admitted media was invalid.
 Missing ordinal-1 final cannot release buffered output: the existing duration,
 wall-clock, trace and PCM bounds stop it and retain uncertain exposure.
 Barge-in remains the next voiced capture at or after the original reply onset.
+
+### Sustained rendered-output stop
+
+Both lanes call the same `installQualificationOutputProbe().stop()` implementation
+in `ops/qualification-output-timing.js`. `stoppedAt` is the start of the first
+**1000 ms continuous silent run after barge-in**, confirmed only after its entire
+last PCM block has rendered according to `getOutputTimestamp()`. The confirmation
+window is evidence collection; the 300 ms interruption pass bar still measures
+from barge-in to the run's **start**. Speech resuming within the window resets
+the run. Missing blocks, invalid levels/durations, and blocks crossing barge-in
+or teardown cannot fill a run. Chromium stamps ScriptProcessor buffers with the
+context frame at main-thread dispatch (`ScriptProcessorHandler::FireProcessEvent`),
+so adjacent timestamps can shift in phase. Continuity allows up to half a block
+of dispatch jitter; a whole missing block breaks the run. Only delivered PCM
+counts toward its duration, and the rendered-clock interval must independently
+reach 1000 ms: faster or duplicate callback delivery cannot shorten the window.
+No sustained run before the
+existing observation deadline is `missing-playback-stop`; there is no extension
+of the paid duration. Stop requests alone cannot establish this evidence.
+
+The 1000 ms minimum is a conservative engineering choice informed by
+[Heldner & Edlund (2010), *Pauses, gaps and overlaps in conversations*, Table 2](https://staff.fnwi.uva.nl/r.fernandezrovira/teaching/cosp/cosp2016/docs/HeldnerEdlund2010.pdf)
+(DOI `10.1016/j.wocn.2010.08.002`): their literature compilation reports
+within-utterance pauses with mean 300 ms, median 280 ms and SD 210 ms. One second
+is more than three times that mean and rejects word gaps of 120/250 ms as well
+as longer 600/980 ms gaps in the regressions. This is a finite observation policy,
+not a claim that all human speech pauses are shorter than a second. The existing
+offline reply fixtures are continuous synthetic tones
+(`test/fixtures/composed-qualification-provider.mjs` and
+`test/fixtures/qualification-production-origin.mjs`), not recordings of TTS speech;
+they cannot establish a real-speech intra-utterance p99. The literature supplies
+the duration rationale rather than inventing a speech percentile from those tones.
+
+Output silence uses **RMS < 0.01 × peak pre-barge-in rendered reply-block RMS**
+(-40 dB relative amplitude, `20 × log10(0.01)`). This ratio is the single
+output-level constant shared by both lanes, separate from capture's absolute
+0.015 VAD threshold. It is an explicit relative attenuation criterion derived
+from each sample's own reply level, not a microphone noise assumption. The
+reference is frozen to pre-barge-in reply blocks, excluding the baseline opener;
+neither a fading tail nor resumed output can move it. An above-threshold fade
+tail remains output; a sub-threshold tail can begin the quiet run. A missing or
+zero reference cannot prove a stop. The trace records `outputRmsThreshold`,
+`silenceDurationMs`, `confirmedAt`, and both output timestamps so the decision
+can be inspected. Blind reply PCM is still cut at `stoppedAt`, not confirmation.
 
 Before voice start, Node admits exactly one baseline attempt and awaits its
 consume acknowledgment. Its ceiling is
@@ -797,16 +842,16 @@ OPS still supplies exactly:
   `reasoningAttempts: 1` by default (an explicit 2 remains separately admitted);
 - the verified whole-conversation `binding.baseline.microPerMinute` tariff and
   explicit `binding.maxDurationSeconds` hard bound of 1–120 seconds, with account-specific rounding;
-- corpus WAVs generated by the coordinator with **at least 20,000 ms of zero
-  PCM leading silence**, declared as `leadingSilenceMs: 20000` (or a longer
-  explicit integer duration) on **every** `plan.corpus` item. Use the same
-  unmodified PCM16 mono WAV for candidate and baseline. This leaves time for
-  start2's multi-sentence AI notice, connection and actual output drain before
-  the person speaks. Include that silence within the explicit conversation
-  duration and cost ceilings. Twenty seconds is an input allowance, never proof that
-  the opener finished: a slower opener invalidates that sample without an
-  in-attempt retry. The harness validates the declared zero-PCM prefix before
-  dispatching either lane; do not trim, seek, shift timestamps or pad one lane;
+- separate corpus inputs generated by the coordinator: each `plan.corpus` item
+  supplies absolute `utterancePath` and `bargeInPath`, plus its existing `id`,
+  `reference` and `expected`. Emit one `utterance.wav` per item containing ONLY
+  that utterance, and a shared `barge-in.wav` containing ONLY the interruption
+  phrase (the same path can be reused by every item). Both inputs are RIFF WAV,
+  PCM16 little endian, mono, 8–96 kHz, nonempty, at most 16 MB each. Trim leading
+  and trailing silence from the two clips; do not concatenate the phrase, add a
+  20 s prefix, or encode a reply/barge-in offset. Internal speech pauses stay.
+  The harness validates both inputs before either dispatch and feeds identical
+  bytes to both lanes. `leadingSilenceMs` is optional, ignored and unnecessary;
 - the explicit non-secret binding, current consent decision, and plan (corpus WAVs,
   reference sentences, `expected` string or string array, checklist and ceilings);
 - the installed Chrome path and required output-device/protocol probes;
@@ -874,15 +919,36 @@ export function createQualificationHost(cli) {
      node demo/server.js
    ```
 
-5. Corpus WAVs live on mbp2606, accessible to mba. Chrome
-   uses `--use-fake-device-for-media-stream`,
-   `--use-file-for-fake-audio-capture=<item.wavPath>`,
-   `--use-fake-ui-for-media-stream`, `--autoplay-policy=no-user-gesture-required`
-   and `--disable-features=AudioServiceSandbox` so macOS audio can read the WAV.
-   Puppeteer's default `--mute-audio` is removed. The hook disables echo
-   cancellation/noise suppression. Include the declared **20 s minimum leading
-   silence**, utterance, endpoint silence and a later voiced segment for barge-in;
-   timestamps are never synthesized/shifted.
+5. Corpus clips live on mbp2606, accessible to mba. Before either navigation,
+   CDP `Page.addScriptToEvaluateOnNewDocument` (via `evaluateOnNewDocument`, the
+   baseline instrumentation mechanism) installs the same `getUserMedia` override
+   in both lanes. It returns an AudioContext MediaStreamAudioDestinationNode
+   stream. The utterance starts after candidate `media.connect()` is ready, or
+   after baseline's existing opener final + speaking/listening edge + observed
+   output drain. The source schedules the barge-in phrase **800 ms after the
+   observed first reply audio**, using exactly the `playback-start` timestamp
+   forwarded to the probe. One source constant documents this delay. Silence
+   follows each clip until the sample ends. A late observation that cannot meet
+   that delay refuses capture; it never starts a blind second user turn.
+
+   Capture RMS/frame observations use the injected source's AudioContext clock:
+   `captureAt = performance.now() + (captureFrame / sampleRate - currentTime) * 1000`,
+   sampled together at callback delivery. This is the existing probe mapping to
+   monotonic performance time, with source frames rather than a WAV start offset.
+   Speech end and barge-in still come from voiced capture blocks; first audio and
+   stop still come from the existing device/output probe. Scheduled source times
+   never substitute for observed evidence. Source capture resolution is 1024 /
+   16000 = 64 ms; output observations retain their existing device resolution.
+
+   The runner no longer uses `--use-fake-device-for-media-stream`,
+   `--use-file-for-fake-audio-capture` or `--use-fake-ui-for-media-stream`.
+   It retains `--autoplay-policy=no-user-gesture-required`,
+   `--disable-features=AudioServiceSandbox`, microphone origin permission, and
+   removal of Puppeteer's default `--mute-audio`. The 4c physical output gate,
+   actual command-line/process/user binding and output-substituting flag refusals
+   remain mandatory. The standalone key-free output probe still supports its
+   legacy fake-capture option for 4c comparison/negative-control evidence above;
+   run its no-fake-capture mode for the current runner topology.
 6. From an OPS checkout of the PR 4d head named in the coordinator handoff
    (record its full SHA with the run evidence), run:
 
@@ -918,6 +984,8 @@ export function createQualificationHost(cli) {
    the original exception is rethrown. If evidence storage itself is unavailable,
    the durable ledger is still authoritative.
 
+   `Qualification media waiting: limit` refuses the sample with fixed reason
+   `media-wait-limit`, including when returned from the browser evaluation.
    Incomplete media (missing first audio, pre-reply voiced capture, voiced
    barge-in capture, or playback-stop at/after barge-in) refuses that lane's sample
    without retrying. The run aborts immediately with phase `refusal-limit` when
@@ -978,7 +1046,7 @@ keys** (Rule C shares the consent/holds row). The automated output probe supplem
 | Checklist key(s) | OPS evidence required from this topology |
 | --- | --- |
 | `authenticatedRelay` | Flagged loopback bind; authenticated same-origin POST; wrong owner/origin and revoked grants denied. For the alternative, record tunnel ports and SSH protection; **TLS N/A: loopback by design**. |
-| `physicalBrowserMedia` | WAV identity/hash and capture flags; recorded `physicalBrowserMedia` with default sink, positive latency, both advancing clocks and the running user's OS default-output record; diagnostic real/fake labels/counts; both mba with/without-capture reports with actual CDP command line and verified Chrome/probe UIDs, plus measured fake-output refusal; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
+| `physicalBrowserMedia` | Both clip identities/hashes and scripted-source mode; recorded `physicalBrowserMedia` with default sink, positive latency, both advancing clocks and the running user's OS default-output record; diagnostic real/fake labels/counts; both mba with/without-capture reports with actual CDP command line and verified Chrome/probe UIDs, plus measured fake-output refusal; unchanged capture frame/sample-rate and output timestamps, 64 ms source capture resolution and device output resolution; permission, stop and failure evidence. |
 | `consentAndHolds`, `ruleCAndNoSilentRerun` | Exact stored owner/processing scopes; Rule C envelope/store; immediate revoke, holds and AIT-138 fresh generation recovery; persisted run identity refusing rerun; every reasoning/retry routed through the shared admit. |
 | `verifiedTariffsAndRounding` | Host account proofs matching each exact request/digest, lane, component/model and retry ceiling; whitespace, initialization, rounding, minimums and duration coverage; one persisted $25 cap. |
 | `authenticatedReceipts` | Authenticated host usage/receipts for both lanes, components, reasoning and retries; matching attempt/receipt identities and existing settlement reconciliation; pending exposure retained. |
