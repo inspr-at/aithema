@@ -27,6 +27,9 @@ function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feat
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    if (url.endsWith('/locale') && options.method === 'POST') return Response.json({ event: {
+      sessionId: c.session.id, seq: c.session.seq + 1, type: 'session.locale-changed', data: { locale: JSON.parse(options.body).locale },
+    } });
     if (url.endsWith('/uploads') && !options.method) return get ? get() : Response.json({ uploads: c.session.uploads, limits });
     if (url.endsWith('/uploads') && options.method === 'POST') {
       const response = await post?.(options.body, options);
@@ -42,7 +45,7 @@ function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feat
     }
     return Response.json(c.session);
   });
-  c.configure({ copy, session, sessionToken: 'owner-fixture', baseUrl }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, copyForLocale: locale => ({ en, de })[locale], session, sessionToken: 'owner-fixture', baseUrl }); document.body.append(c); t.after(() => c.remove());
   return { c, root: c.shadowRoot, calls };
 }
 const choose = async (root, files) => {
@@ -363,6 +366,37 @@ async function exhaust(t, root, files = [file('retained.txt')]) {
   t.mock.timers.tick(5000); await tick(); await tick();
   t.mock.timers.tick(10000); await tick(); await tick();
 }
+for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219 round 7: ${copy.display.locale} ${count} retained file(s) keep a complete retry line across locale changes`, async t => {
+  const { c, root, calls } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  const files = Array.from({ length: count }, (_, i) => file(`retained-${i}.txt`));
+  const source = copy === de ? 'de' : 'en', target = source === 'de' ? 'en' : 'de';
+  const busy = locale => locale === 'de'
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again · Discard`;
+  const line = () => root.querySelector('.composer-reason').textContent;
+  const shortcut = line();
+  await exhaust(t, root, files);
+  assert.equal(line(), busy(source));
+  assert.equal(await c.changeLocale(target), true);
+  assert.equal(line(), busy(target));
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  root.querySelector('.upload-retry').click(); await tick();
+  assert.equal(await c.changeLocale(source), true);
+  assert.equal(line(), copy === de
+    ? 'Dateien können nicht angehängt werden: Gespräch pausiert · Erneut versuchen · Verwerfen'
+    : 'Files cannot be attached: Session paused · Try again · Discard');
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  assert.equal(await c.changeLocale(target), true);
+  assert.equal(line(), busy(target), 'a resolved refusal returns to the full retained-file count');
+  assert.deepEqual(await retainedFiles(c), files.map(f => f.name));
+  assert.equal(calls.filter(call => call.url.endsWith('/uploads') && call.options.method === 'POST').length, 3, 'locale changes never resend files');
+  root.querySelector('.upload-discard').click();
+  assert.equal(await c.changeLocale(source), true);
+  assert.equal(line(), shortcut, 'no retry fragment remains after discard');
+  assert.equal(root.querySelector('.upload-retry'), null);
+  assert.equal(root.querySelector('.upload-discard'), null);
+  assert.deepEqual(await retainedFiles(c), []);
+});
 for (const copy of [de, en]) {
   test(`AIT-219 round 6: ${copy.display.locale} Try again while paused shows the refusal and still permits discard`, async t => {
     const { c, root, calls } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
