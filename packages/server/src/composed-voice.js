@@ -189,7 +189,6 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         if (!valid()) return;
         const fragment = { drained: Promise.withResolvers(), pending: 0, generated: 0, ended: false };
         fragments.push(fragment);
-        speaking = false;
         return fragment;
       },
       endSpeak(fragment) { fragment.ended = true; drain(); },
@@ -216,6 +215,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             while ((delay = frameEndAt - now() - leadMs) > 0) await playbackDelay(delay, opts);
             if (!valid()) return;
             endAt = Math.max(frameEndAt, now() + durationMs);
+            // Fragment dispatch does not start a new speaking phase. Extra
+            // control polls at sentence boundaries can delay paced PCM.
             if (!speaking) { speaking = true; event({ type: 'speaking' }); }
             await voiceOperation(opts, () => {
               // The speaking event can synchronously trigger silence. Fence

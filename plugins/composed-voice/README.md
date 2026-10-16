@@ -40,6 +40,8 @@ A FIFO drain marker per fragment enforces this even for an empty provider output
 Only one TTS stream per reply is open at a time. An open stream is always drained
 eagerly; the wait happens before the next component admission. All fragments use
 the same pacing cursor, so the lookahead hides synthesis latency at boundaries.
+One `speaking` event starts the continuous reply; fragment dispatch does not add
+control polls at sentence boundaries that could delay PCM delivery.
 
 The enforced per-fragment duration allowance is `fragmentCharacters / 4` seconds.
 The source for the conservative rate is [W3C CSS Speech 1, voice-rate](https://www.w3.org/TR/css-speech-1/#voice-rate),

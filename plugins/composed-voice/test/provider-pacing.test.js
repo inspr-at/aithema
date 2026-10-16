@@ -211,6 +211,7 @@ for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 24
     assert.equal(terminals.length, dispatches.length);
     assert.equal(dispatches[1], terminals[0], 'N+1 opens at the previous provider terminal');
     assert.equal(firstAt, started, 'first frame is immediate');
+    assert.equal(h.events.filter(event => event.type === 'speaking').length, 1, 'one continuous reply speaking phase');
     assert.equal(delivered, 30_000 / 12 * bytesPerSecond);
     assert.equal(delivered, produced); assert.equal(buffered, 0);
     assert.ok(peak <= 2 * fragmentBytes);
