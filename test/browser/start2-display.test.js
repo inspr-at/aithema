@@ -137,6 +137,75 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
   }
 });
 
+test('AIT-270: host-country wording and usable privacy-policy links, DE/EN', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-provider-seats-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await browserForFile(evidenceDirectory ? { args: evidenceBrowserArgs } : {}), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => {
+    window.seatsSeed = c.session;
+    const fetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      if ((init.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname.endsWith('/settings')) {
+        const catalog = await (await fetch(url, init)).json();
+        catalog.settings = c.session.settings; catalog.engine = c.session.engine;
+        catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default',
+          facts: { ...catalog.presets.best.models[0].facts, hostCountries: window.seatsCountries, hostTraining: true } }];
+        return Response.json(catalog);
+      }
+      return fetch(url, init);
+    };
+  });
+  for (const [locale, copy] of [['de', de], ['en', en]]) for (const linked of [false, true]) {
+    await page.setViewport({ width: 1440, height: 1000 });
+    await shadow(page, async (c, locale, linked) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(window.seatsSeed);
+      session.locale = locale; session.settings = { ...session.settings, model: 'default', voice: 'off', visuals: 'off' };
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      window.seatsCountries = linked ? ['US', 'IE'] : ['US'];
+      c.querySelectorAll('[slot="legal"]').forEach(node => node.remove());
+      if (linked) c.insertAdjacentHTML('beforeend', '<nav slot="legal"><a data-aithema-privacy href="/host-privacy">Host document</a></nav>');
+      c.configure({ copy, session }); document.documentElement.lang = locale; c.openSettings();
+    }, locale, linked);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-gauge="privacy"]').dataset.state === 'hostCountries');
+    const names = locale === 'de' ? linked ? 'USA und Irland' : 'USA' : linked ? 'the US and Ireland' : 'the US';
+    const caption = copy.gauges.short.privacy.hostCountries.replace('{countries}', names);
+    await page.focus('aithema-session >>> [data-gauge="privacy"]');
+    const state = await shadow(page, c => {
+      const root = c.shadowRoot, gauge = root.querySelector('[data-gauge="privacy"]'), help = root.querySelector('.context-message');
+      return { caption: gauge.querySelector('.gauge__detail').textContent, help: help.textContent, href: help.querySelector('a')?.getAttribute('href') ?? null };
+    });
+    assert.equal(state.caption, caption);
+    assert.ok(state.help.endsWith(copy.gauges.details.privacy.hostCountries.replace('{countries}', names)));
+    assert.equal(state.href, linked ? `${demo.url}/host-privacy` : null);
+    assert.doesNotMatch(state.help, /beschränkt auf|restricted to|limited to|ohne Training|no training/iu);
+    if (linked) {
+      await page.keyboard.press('Tab');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.textContent), copy.gauges.privacyPolicy);
+      await shadow(page, c => c.shadowRoot.querySelector('.context-message a').addEventListener('click', event => { event.preventDefault(); window.seatsPolicyClicked = true; }));
+      await page.hover('aithema-session >>> [data-gauge="privacy"]');
+      await page.click('aithema-session >>> .context-message a');
+      assert.equal(await page.evaluate(() => window.seatsPolicyClicked), true);
+    }
+    if (evidenceDirectory) for (const width of linked ? [1440, 390] : [1440]) {
+      await mkdir(evidenceDirectory, { recursive: true });
+      await page.setViewport({ width, height: 1000 });
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle(page);
+      await page.screenshot({ path: join(evidenceDirectory, `ait270-${locale}-${linked ? 'linked-pair' : 'plain-us'}-${width}.png`), fullPage: false, captureBeyondViewport: false });
+    }
+    await page.click('aithema-session >>> dialog.settings .done');
+  }
+});
+
 test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-reuse-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {

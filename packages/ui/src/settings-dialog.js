@@ -572,7 +572,7 @@ export class SettingsDialog {
     const message = this.#q('.context-message');
     // Keep the policy link reachable when the pointer leaves the gauge, and
     // preserve the actual focused node when focus moves into the help line.
-    if (message.contains(this.#focused()) || !term && message.querySelector('a[data-aithema-privacy]')) return;
+    if (message.contains(this.#focused()) || (!term || term.dataset.help === 'gauges') && message.querySelector('a[data-aithema-privacy]')) return;
     message.textContent = text;
     if (term?.dataset.gauge !== 'privacy' || term.dataset.state !== 'hostCountries') return;
     const host = this.#dialog.getRootNode().host;
