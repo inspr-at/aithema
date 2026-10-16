@@ -564,9 +564,25 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     shell.scrollTop = shell.scrollHeight;
     const latest = shell.querySelector('.turn:last-child');
+    const readFull = latest?.querySelector('.turn-read-full');
+    if (readFull) readFull.hidden = true;
     if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
-      if (latest.getBoundingClientRect().top < top) shell.scrollTop += latest.getBoundingClientRect().top - top;
+      const room = shell.getBoundingClientRect().bottom - top;
+      if (latest.getBoundingClientRect().height > room) {
+        let button = readFull;
+        if (!button) {
+          button = node('button', 'turn-read-full'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
+          button.addEventListener('click', () => {
+            this.shadowRoot.querySelector('.voice-reply-text').textContent = latest.querySelector('.turn-text').textContent;
+            const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+            if (!dialog.open) dialog.showModal();
+          });
+          latest.append(button);
+        }
+        button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
+        shell.scrollTop += latest.getBoundingClientRect().top - top;
+      }
     }
     this.#latestScrollTop = shell.scrollTop;
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';

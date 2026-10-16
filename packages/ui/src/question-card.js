@@ -48,6 +48,8 @@ export const questionCardStyles = `
 .conversation:has(.qcard:not([hidden])) .transcript-shell > ol { flex:none; margin-top:auto; }
 .conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { flex:none; }
 .conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { margin-top:0; }
+.turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
+  font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
 /* Latest is a floating action, never an invisible row below the last turn. */
 .transcript-shell .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 @media(max-width:600px) {
@@ -182,9 +184,11 @@ export class QuestionCard {
     const limit = Math.max(0, available - replyRoom);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
     const wasCompact = this.card.hasAttribute('data-compact');
-    this.card.removeAttribute('data-compact');
-    let compact = false;
-    if (phone && !this.card.hidden) {
+    let compact = phone && short && !this.card.hidden;
+    // Short viewports need no expanded measurement. Changing display here
+    // would clamp a chip that native keyboard focus has just scrolled into view.
+    if (!compact) this.card.removeAttribute('data-compact');
+    if (phone && !this.card.hidden && !short) {
       const style = this.view.getComputedStyle(this.card);
       const rows = [...this.card.querySelectorAll('.qopt')];
       const floor = Math.max(66, ...rows.map(row => row.getBoundingClientRect().height + 22));
@@ -192,7 +196,7 @@ export class QuestionCard {
       const minimum = floor + this.card.querySelector('.qtext').getBoundingClientRect().height
         + this.card.querySelector('.qhint').getBoundingClientRect().height
         + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 2 * parseFloat(style.rowGap) + 2;
-      compact = short || Math.min(limit, .35 * viewport, viewport - 220) < minimum;
+      compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
     }
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);

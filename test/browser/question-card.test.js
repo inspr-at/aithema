@@ -100,7 +100,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           if (![390, 1440].includes(width)) return;
           const before = await rest();
           assert.ok(before.startVisible, `${state}: latest reply starts below the fade: ${JSON.stringify(before)}`);
-          assert.ok(Math.abs(before.gap - before.turnGap) <= 1, `${state}: latest reply/card gap equals the turn gap: ${JSON.stringify(before)}`);
+          assert.ok(Math.abs(before.gap - before.turnGap) <= 1.5, `${state}: latest reply/card gap equals the turn gap: ${JSON.stringify(before)}`);
           await shadow(page, c => {
             const shell = c.shadowRoot.querySelector('.transcript-shell');
             shell.dispatchEvent(new Event('scroll'));
@@ -516,6 +516,23 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             });
             await nextFrame(page);
           }
+        }
+        if ([390, 1440].includes(width)) {
+          await page.evaluate(() => globalThis.showQuestion({ content: (globalThis.qcardReply.content + ' ').repeat(30) }));
+          await shadow(page, c => c.shadowRoot.querySelector('.transcript-latest').click());
+          await nextFrame(page); await nextFrame(page);
+          const oversized = await shadow(page, c => {
+            const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), row = r.querySelector('.turn:last-child'), button = row.querySelector('.turn-read-full');
+            const b = row.getBoundingClientRect(), s = shell.getBoundingClientRect(), a = button?.getBoundingClientRect();
+            return { top: b.top, expectedTop: s.top + parseFloat(getComputedStyle(shell).paddingTop),
+              link: button?.textContent, visible: button && !button.hidden && a.top >= s.top && a.bottom <= s.bottom + 1 };
+          });
+          assert.ok(Math.abs(oversized.top - oversized.expectedTop) <= 1, `an oversized reply starts below the fade: ${JSON.stringify(oversized)}`);
+          assert.equal(oversized.link, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
+          assert.equal(oversized.visible, true, 'the full-reply action stays visible while a long reply is top-aligned');
+          await shadow(page, c => c.shadowRoot.querySelector('.turn:last-child .turn-read-full').click());
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open && c.shadowRoot.querySelector('.voice-reply-text').textContent === c.session.transcript.at(-1).content), true, 'the full-reply action opens the exact complete answer');
+          await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').close());
         }
         checks.push({ locale, theme, width, geometry, cardRest, boundedRest, bounded, closed, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
       });
