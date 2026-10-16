@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createSpendCap, usdMicro } from '../../../packages/server/src/index.js';
 import { listen } from '../../../packages/server/src/http.js';
 import { createOpenRouterReasoning } from '../src/index.js';
-import { requestCeilingMicro } from '../src/pricing.js';
+import { requestCeilingMicro, modelPriceReviewed } from '../src/pricing.js';
 import { temporaryDb } from '../../../test/helpers.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
 
@@ -209,8 +209,12 @@ test('upgrade preserves existing spend/unknown holds and a free-model charge bre
 test('missing/invalid model prices refuse construction and rebind instead of selecting seed prices', () => {
   for (const prices of [undefined, {}, { 'openai/fixture': { prompt: -1, completion: 1 } },
     { 'openai/fixture': { prompt: 1, completion: Infinity } }, { 'openai/fixture': { prompt: '1', completion: 1 } }]) {
+    assert.equal(modelPriceReviewed(prices, 'openai/fixture'), false);
     assert.throws(() => createOpenRouterReasoning({ model: 'openai/fixture', prices }), /AITHEMA_OPENROUTER_PRICES/);
   }
+  assert.equal(modelPriceReviewed({ 'openai/fixture': price }, 'openai/fixture'), true);
+  assert.equal(modelPriceReviewed({ 'openai/fixture': { prompt: 0, completion: 0 } }, 'openai/fixture'), true);
+  assert.equal(modelPriceReviewed(Object.create({ 'openai/fixture': price }), 'openai/fixture'), false);
   const plugin = createOpenRouterReasoning({ model: 'openai/fixture', prices: { 'openai/fixture': price } });
   assert.throws(() => plugin.bind({ ...plugin.binding, model: 'anthropic/missing' }), /for anthropic\/missing/);
 });
