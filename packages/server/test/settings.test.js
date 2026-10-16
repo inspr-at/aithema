@@ -496,7 +496,7 @@ test('visuals off stops new concept renders without hiding earlier ones; each ar
 test('a conversation keeps a bounded history of choices', async t => {
   const h = host(t), { session } = await h.create();
   for (let i = 0; i < 1000; i++) h.storage.changeSettings(session.id, { processingPreset: 'best', settings: { model: i % 2 ? 'mock' : 'mock/deep',
-    effort: i % 2 ? 'none' : 'low', voice: 'off', visuals: 'off' } }, { ownerToken: owner, baseRevision: i });
+    effort: i % 2 ? 'none' : 'low', voice: 'off', visuals: 'off' } }, { ownerToken: owner, baseRevision: i, confirm: true });
   assert.equal(h.storage.get(session.id).settings.revision, 1000);
   assert.equal((await h.save(session.id, { model: 'mock/deep', effort: 'high' })).status, 413);
   assert.equal((await h.save(session.id, { model: 'mock' })).status, 200, 'resending the current choice stays idempotent');
