@@ -28,7 +28,7 @@ function setup(t, { copy = en, baseUrl = '', uploads = [], transcript = [], feat
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     if (url.endsWith('/uploads') && !options.method) return get ? get() : Response.json({ uploads: c.session.uploads, limits });
     if (url.endsWith('/uploads') && options.method === 'POST') {
-      const response = await post?.(options.body);
+      const response = await post?.(options.body, options);
       if (response) return response;
       const events = options.body.getAll('files').map((f, i) => ({ sessionId: c.session.id, seq: c.session.seq + 1 + i, type: 'upload.state',
         data: { id: `u-${f.name}`, state: 'pending', filename: f.name, bytes: f.size, at: at(30 + i) } }));
@@ -303,6 +303,72 @@ test('busy retry delays handle Retry-After seconds and HTTP dates, with backoff 
   assert.equal(delay('7'), 7000); assert.equal(delay('0'), 5000);
   assert.equal(delay(new Date(now + 12_000).toUTCString()), 12000);
   assert.equal(delay(new Date(now - 1000).toUTCString()), 5000);
+  assert.equal(delay('3600'), 30000);
+  assert.equal(delay(new Date(Date.UTC(2099, 0, 1)).toUTCString(), 1), 30000);
+  assert.equal(delay('-3600'), 5000); assert.equal(delay('-9999', 1), 10000);
+});
+
+test('an hour or a distant HTTP date in Retry-After waits 30 seconds before the next POST', async t => {
+  for (const header of ['3600', 'Thu, 01 Jan 2099 00:00:00 GMT']) await t.test(header, async t => {
+    let attempts = 0;
+    const { root } = setup(t, { post: () => {
+      if (++attempts === 1) return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': header } });
+    } });
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    await choose(root, [file('a.txt')]);
+    t.mock.timers.tick(29999); await tick(); assert.equal(attempts, 1);
+    t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 2);
+    assert.equal(root.querySelectorAll('.upload').length, 1);
+    assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  });
+});
+
+test('removing the element during busy backoff stops all remaining POSTs and leaves its messages alone', async t => {
+  const { c, root, calls } = setup(t, { limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 1 },
+    post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, [file('a.txt'), file('b.txt')]);
+  c.remove();
+  const messages = () => ['.composer-reason', '.status__label'].map(selector => root.querySelector(selector).textContent);
+  const before = messages();
+  t.mock.timers.tick(60000); await tick(); await tick();
+  const posts = calls.filter(call => call.options.method === 'POST');
+  assert.equal(posts.length, 1, 'neither retries nor later batches are sent');
+  assert.equal(posts[0].options.signal?.aborted, true);
+  assert.deepEqual(messages(), before, 'no failure or busy message is painted while detached');
+  document.body.append(c); await tick();
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false', 'a cancelled batch releases Attach on reconnect');
+  t.mock.timers.tick(60000); await tick(); assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+});
+
+test('removing the element while limits load sends no POST and leaves its messages alone', async t => {
+  let release;
+  const { c, root, calls } = setup(t, { get: () => new Promise(resolve => { release = resolve; }) });
+  await choose(root, [file('a.txt')]);
+  c.remove();
+  const before = root.querySelector('.status__label').textContent;
+  release(Response.json({ limits: UPLOAD_LIMITS })); await tick(); await tick();
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 0);
+  assert.equal(root.querySelector('.status__label').textContent, before);
+});
+
+test('removal or reconfiguration aborts an in-flight upload without painting a failure', async t => {
+  for (const action of ['remove', 'configure']) await t.test(action, async t => {
+    let signal, aborted = false;
+    const { c, root, calls } = setup(t, { post: (_form, options) => new Promise((_resolve, reject) => {
+      signal = options.signal;
+      signal?.addEventListener('abort', () => { aborted = true; reject(signal.reason); }, { once: true });
+    }) });
+    await choose(root, [file('a.txt')]);
+    if (action === 'remove') c.remove();
+    else c.configure({ copy: en, session: c.session, sessionToken: 'new-owner' });
+    const before = root.querySelector('.composer-reason').textContent;
+    await tick(); await tick();
+    assert.equal(aborted, true); assert.equal(signal.aborted, true);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
+    assert.equal(root.querySelector('.composer-reason').textContent, before);
+    assert.notEqual(before, en.uploads.failed);
+  });
 });
 
 test('a new session during busy backoff receives no retry of the old files', async t => {
@@ -310,6 +376,7 @@ test('a new session during busy backoff receives no retry of the old files', asy
   t.mock.timers.enable({ apis: ['setTimeout'] });
   await choose(root, [file('a.txt')]);
   c.configure({ copy: en, session: createSession({ demo: true }), sessionToken: 'new-owner' });
+  assert.equal(calls.find(call => call.options.method === 'POST').options.signal?.aborted, true);
   t.mock.timers.tick(5000); await tick(); await tick();
   assert.equal(calls.filter(call => call.options.method === 'POST').length, 1);
 });
