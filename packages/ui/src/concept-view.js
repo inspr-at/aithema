@@ -40,7 +40,7 @@ export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #canvasEpoch = 0; #canvasCopy; #stageFeature;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
-  setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); }
+  setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
   #paintCopy() {
     const { root, copy } = this;
     const [image, draft] = root.querySelectorAll('.concept-preview-sizer');
@@ -200,26 +200,35 @@ export class ConceptView {
     // Consent withdrawal and erasure still clear dependent presentation normally.
     if (initial || !this.#session.paused || consentChanged || this.#session.consentWithdrawn || this.#session.tombstone) {
       const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
-      const disabled = !feature.available && (feature.rawReason ?? feature.reason) === 'visuals off';
-      if ((disabled || line.recovery && (!this.items.length || !feature.available)) && !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError) {
-        // The same native action as C1; only the destination differs.
-        if (!text.querySelector('.drafts-settings-action')) {
-          const label = document.createElement('span'), action = reasonAction('', opener => text.dataset.recovery === 'retry' ? void this.retry?.() : this.settings?.(opener));
-          label.className = 'drafts-disabled-copy'; action.classList.add('drafts-settings-action');
-          label.id = 'drafts-disabled-sentence'; action.setAttribute('aria-describedby', label.id);
-          action.dataset.focusKey = 'drafts-settings'; text.replaceChildren(label, action);
-        }
-        delete text.dataset.consentFeature;
-        text.dataset.recovery = line.recovery ?? 'settings';
-        text.querySelector('.drafts-disabled-copy').textContent = `${disabled ? this.copy.display.draftsDisabled : line.message}${reasonSeparator}`;
-        text.querySelector('.drafts-settings-action').textContent = disabled ? this.copy.display.draftsEnable : line.label;
-      } else paintConsentLine(text, { copy: this.copy, feature: this.visualKind() === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener) });
+      if (!['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError && (!this.items.length || !feature.available)) this.#paintReason(text, feature, words, line);
+      else paintConsentLine(text, { copy: this.copy, feature: this.visualKind() === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener) });
     }
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;
       countdown.textContent = estimate.overdue ? this.copy.conceptOverdue : this.copy.conceptCountdown.replace('{seconds}', estimate.seconds);
     } else { node.value = status.phase === 'ready' ? 100 : 0; countdown.textContent = ''; }
     this.root.querySelector('.concept-rail').dataset.phase = status.phase;
+  }
+  #paintReason(text, feature, words, line) {
+    const disabled = !feature.available && (feature.rawReason ?? feature.reason) === 'visuals off';
+    if (disabled || line.recovery) {
+      // The same native action as C1; only the destination differs.
+      if (!text.querySelector('.drafts-settings-action')) {
+        const label = document.createElement('span'), action = reasonAction('', opener => text.dataset.recovery === 'retry' ? void this.retry?.() : this.settings?.(opener));
+        label.className = 'drafts-disabled-copy'; action.classList.add('drafts-settings-action');
+        label.id = `drafts-${text === this.root.querySelector('.concept-activity-text') ? 'rail' : 'canvas'}-sentence`; action.setAttribute('aria-describedby', label.id);
+        action.dataset.focusKey = 'drafts-settings'; text.replaceChildren(label, action);
+      }
+      delete text.dataset.consentFeature;
+      text.dataset.recovery = line.recovery ?? 'settings';
+      text.querySelector('.drafts-disabled-copy').textContent = `${disabled ? this.copy.display.draftsDisabled : line.message}${reasonSeparator}`;
+      text.querySelector('.drafts-settings-action').textContent = disabled ? this.copy.display.draftsEnable : line.label;
+    } else paintConsentLine(text, { copy: this.copy, feature: this.visualKind() === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener) });
+    const consentLabel = text.querySelector('.consent-line-copy');
+    if (consentLabel) {
+      consentLabel.id = `consent-${text === this.root.querySelector('.concept-activity-text') ? 'rail' : 'canvas'}-sentence`;
+      text.querySelector('.consent-action').setAttribute('aria-describedby', consentLabel.id);
+    }
   }
   // Every control keeps a fixed slot, so state renders at once, also under the pointer (AIT-116 D3).
   render() {
@@ -276,13 +285,14 @@ export class ConceptView {
       if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } });
   }
-  // Existing drafts remain readable when generation is temporarily blocked (e.g. no quote).
-  // A host/preset without drafts never lends the transcript's space to this surface.
+  // Temporary admission restrictions gate requests, not the fold. Only a real
+  // capability loss restores the transcript; cached drafts survive preset exclusion.
   canShowCanvas() {
     if (!this.#session || this.#session.consentWithdrawn || this.#session.tombstone) return false;
     const feature = this.feature({ ignorePause: true });
     if ([this.copy.notConfigured, 'not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device'].includes(feature.rawReason ?? feature.reason)) return false;
-    return feature.available || this.items.length > 0;
+    if ((feature.rawReason ?? feature.reason) === 'plugin not in preset') return this.items.length > 0;
+    return true;
   }
   // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
   suspendCanvas() {
@@ -301,7 +311,16 @@ export class ConceptView {
     const item = this.#session?.consentWithdrawn || this.#session?.tombstone ? null : this.items.at(-1);
     if (this.#canvasCopy !== this.copy.conceptPreview) { draft.copy = this.copy.conceptPreview; this.#canvasCopy = this.copy.conceptPreview; }
     empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
-    if (!item) { this.suspendCanvas(); return; }
+    if (!item) {
+      this.suspendCanvas();
+      const feature = this.feature({ ignorePause: true });
+      const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
+      empty.querySelector('svg').toggleAttribute('hidden', !line.action);
+      const text = empty.querySelector(':scope > span');
+      if (line.action) text.textContent = this.copy.layout.canvasEmpty;
+      else this.#paintReason(text, feature, line.text, line);
+      return;
+    }
     if (draft.dataset.id !== item.id) { draft.dataset.id = item.id; draft.artifact = null; image.removeAttribute('src'); }
     status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
     const bytes = await this.load(item.id);

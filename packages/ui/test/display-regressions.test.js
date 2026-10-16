@@ -227,7 +227,8 @@ for (const copy of [de, en]) for (const kind of ['html', 'image']) {
     root.querySelector('.fold').click();
     assert.equal(root.querySelector('.conversation').hidden, true);
     assert.equal(root.querySelector('.fold-view').hidden, false);
-    assert.equal(root.querySelector('.canvas-empty span').textContent, copy.layout.canvasEmpty);
+    assert.equal(root.querySelector('.canvas-empty > span').textContent, `${copy.display.draftsQuote}\u00a0· ${copy.display.draftsRetry}`);
+    assert.equal(root.querySelector('.canvas-empty .drafts-settings-action').textContent, copy.display.draftsRetry);
     root.querySelector('.fold-strip').click();
     assert.equal(root.querySelector('.conversation').hidden, false);
   });
@@ -252,4 +253,74 @@ for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} missing
   root.querySelector('.fold').click();
   assert.equal(root.querySelector('.conversation').hidden, false);
   assert.equal(root.querySelector('.fold-view').hidden, true);
+});
+
+// Admission restrictions must preserve the current fold even before the first draft.
+for (const copy of [de, en]) for (const [name, reason, cost] of [
+  ['quote-missing', null, null],
+  ['admission-timeout', 'admission deadline', { maxMicro: 400_000 }],
+  ['temporarily-unavailable', 'plugin unhealthy', { maxMicro: 400_000 }],
+  ['consent-needed', 'current processing consent required', { maxMicro: 400_000 }],
+  ['credits-low', 'budget denied', { maxMicro: 400_000 }],
+  ['future-temporary-reason', 'new transient restriction', { maxMicro: 400_000 }],
+]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} ${name} keeps an empty fold and blocks requests`, async t => {
+  const { c, root, calls } = fixture(t, { copy, concepts: [] });
+  receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
+  c.session.conceptCost = { maxMicro: 400_000 };
+  root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+  c.session.conceptCost = cost;
+  c.session.featureMatrix.best.html = reason ? { available: false, reason } : { available: true };
+  receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'idle' } });
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true, 'temporary restriction keeps the fold');
+  assert.equal(root.querySelector('.conversation').hidden, true);
+  assert.equal(root.querySelector('.concept-request').disabled, true);
+  assert.equal(root.querySelector('.concept-request').hidden, true);
+  root.querySelector('.concept-request').click(); await tick();
+  assert.equal(calls.some(url => /\/concepts(?:\/request|\/regenerate)?$/u.test(url)), false, 'no generation request');
+  const notice = root.querySelector('.canvas-empty > span');
+  assert.notEqual(notice.textContent, copy.layout.canvasEmpty, 'empty canvas explains the restriction');
+  if (name === 'quote-missing' || name === 'admission-timeout') assert.equal(notice.querySelector('button').textContent, copy.display.draftsRetry);
+  if (name === 'consent-needed') {
+    assert.equal(notice.querySelector('button').textContent, copy.featureConsent.action);
+    assert.notEqual(notice.querySelector('[id]').id, root.querySelector('.concept-activity-text [id]').id, 'unique accessible labels');
+    notice.querySelector('button').click();
+    assert.equal(root.querySelector('dialog.settings').open, true, 'canvas action opens consent settings');
+  }
+  // The same restriction permits a fresh fold attempt on a capable host.
+  root.querySelector('.fold-strip').click(); root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+});
+
+for (const reason of ['not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device', 'plugin not in preset']) {
+  test(`AIT-229: ${reason} capability loss unfolds an empty canvas and blocks refolding`, async t => {
+    const { c, root, calls } = fixture(t, { concepts: [] });
+    receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
+    root.querySelector('.fold').click();
+    assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+    c.session.featureMatrix.best.html = { available: false, reason };
+    receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'idle' } });
+    assert.equal(root.querySelector('.conversation').hidden, false);
+    assert.equal(root.querySelector('.fold-view').hidden, true);
+    root.querySelector('.fold').click(); root.querySelector('.concept-request').click(); await tick();
+    assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), false);
+    assert.equal(root.querySelector('.concept-request').disabled, true);
+    assert.equal(calls.some(url => /\/concepts(?:\/request|\/regenerate)?$/u.test(url)), false);
+  });
+}
+
+for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} preset-excluded cached draft stays readable with a working choice action`, async t => {
+  const { c, root, calls } = fixture(t, { copy });
+  root.querySelector('.fold').click();
+  const canvas = root.querySelector('.canvas-html'), frame = await ready(canvas);
+  c.session.featureMatrix.best.html = { available: false, reason: 'plugin not in preset' };
+  receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'idle' } }); await tick();
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), true);
+  assert.ok(canvas.shadowRoot.querySelector('iframe') === frame, 'cached draft remains readable');
+  assert.equal(root.querySelector('.concept-request').disabled, true);
+  const line = root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent, `${copy.display.draftsPreset}\u00a0· ${copy.display.draftsChoose}`);
+  line.querySelector('button').click(); await tick();
+  assert.equal(root.querySelector('dialog.settings').open, true);
+  assert.equal(calls.filter(url => url.endsWith('/html')).length, 1, 'cached bytes are reused');
 });

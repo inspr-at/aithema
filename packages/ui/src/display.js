@@ -43,7 +43,7 @@ export function draftsLine({ copy, cost, feature, kind = 'html' }) {
   if (!feature.available && reason === 'not configured') return { state: 'off', text: copy.display.draftsOff, action: false };
   const blocked = !feature.available && ({
     'visuals not offered': 'draftsUnoffered', 'not offered': 'draftsUnoffered',
-    'preset not configured': 'draftsPreset', 'unavailable on device': 'draftsDevice',
+    'preset not configured': 'draftsPreset', 'plugin not in preset': 'draftsPreset', 'unavailable on device': 'draftsDevice',
     'admission deadline': 'draftsTimeout',
   })[reason];
   const recovery = blocked === 'draftsPreset' || blocked === 'draftsDevice' ? 'settings'

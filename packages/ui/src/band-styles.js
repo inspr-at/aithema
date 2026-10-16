@@ -87,6 +87,7 @@ export const bandStyles = `
   border-radius:16px; box-shadow:0 0 0 1px var(--aithema-line); background:color-mix(in srgb,var(--aithema-surface) 60%,transparent); }
 .drafts-canvas > * { grid-area:1/1; min-width:0; min-height:0; }
 .canvas-empty { display:grid; align-content:center; justify-items:center; gap:10px; color:var(--aithema-muted); font-size:13.5px; }
+.canvas-empty > span { text-align:center; }
 .canvas-empty svg { width:34px; height:34px; color:var(--aithema-line-strong); }
 .canvas-image { width:100%; height:100%; object-fit:contain; }
 .canvas-html { width:100%; height:100%; min-height:300px; }

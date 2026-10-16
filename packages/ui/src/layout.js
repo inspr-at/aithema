@@ -57,7 +57,6 @@ export class ConversationFold {
     this.button.title = this.folded ? c.unfold : c.fold;
     this.strip.setAttribute('aria-label', c.unfold);
     setText(this.root.querySelector('.fold-question'), c.openQuestion);
-    setText(this.root.querySelector('.canvas-empty span'), c.canvasEmpty);
   }
   update(session, openQuestion = session.openQuestion) {
     // Capability refreshes can remove drafts while the conversation is folded.
