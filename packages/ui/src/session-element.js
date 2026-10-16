@@ -76,7 +76,7 @@ function textKeys(values) {
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
+  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #postCallMatrix = null;
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
@@ -429,7 +429,7 @@ export class AithemaSession extends HTMLElement {
     // composer/export targets stable; #anchored keeps the element under the pointer in place.
     const shell = root.querySelector('.transcript-shell');
     shell.addEventListener('scroll', () => {
-      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
+      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8 || this.#latestScrollTop !== null && Math.abs(shell.scrollTop - this.#latestScrollTop) <= 1;
       this.#questionCard.scheduleReserve();
       if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
     }, { passive: true });
@@ -455,7 +455,7 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { followsTranscript: () => this.#follow, onNoticesChange: () => {
+    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
       // A last-item notice follows like a message; reading older turns never moves.
       if (this.#follow && !this.#fold.folded) this.#scrollToLatest();
     } });
@@ -560,9 +560,15 @@ export class AithemaSession extends HTMLElement {
   #scrollToLatest() {
     if (this.#fold?.folded) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
-    // Release any card reservation retained while reading before finding the end.
+    // Measure the visible card before finding the latest reply.
     this.#follow = true; this.#questionCard?.reserve();
     shell.scrollTop = shell.scrollHeight;
+    const latest = shell.querySelector('.turn:last-child');
+    if (latest) {
+      const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
+      if (latest.getBoundingClientRect().top < top) shell.scrollTop += latest.getBoundingClientRect().top - top;
+    }
+    this.#latestScrollTop = shell.scrollTop;
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';
   }
   #hovered() {
@@ -865,7 +871,7 @@ export class AithemaSession extends HTMLElement {
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
-      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : root.querySelector('.workspace').hasAttribute('data-phone-short') ? copy.placeholderCompact ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');

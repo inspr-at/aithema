@@ -43,6 +43,7 @@ for (const [copy, heading, suggestion, hint] of [
   for (const row of rows) {
     assert.equal(row.tagName, 'BUTTON'); assert.equal(row.type, 'button'); assert.equal(row.tabIndex, 0);
     assert.equal(row.querySelector('.go').getAttribute('aria-hidden'), 'true');
+    assert.equal(row.getAttribute('aria-label'), row.querySelector('.t').textContent);
     assert.ok(row.getAttribute('aria-describedby').includes('qhint'));
   }
 });
@@ -170,27 +171,23 @@ test('AIT-225: the options scroll region has a translated accessible name and re
   }
 });
 
-test('AIT-225: a held reservation releases only when the scroll position cannot clamp, without following the new end', () => {
+test('AIT-225: shrinking or closing the card reserves only its visible height, including while reading', () => {
   const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}<textarea></textarea>`;
   const shell = root.querySelector('.transcript-shell');
-  Object.defineProperties(shell, { scrollHeight: { value: 1500 }, clientHeight: { value: 300 } });
-  shell.scrollTop = 1200;
-  let following = true, resizes = 0;
-  const card = new QuestionCard({ root, send() {}, followsTranscript: () => following, onResize: () => resizes++ });
+  let following = true;
+  const card = new QuestionCard({ root, send() {}, followsTranscript: () => following });
   card.card.getBoundingClientRect = () => ({ height: 290 });
   card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
   const reserved = () => root.querySelector('.conversation').style.getPropertyValue('--question-card-height');
   assert.equal(reserved(), '290px');
   following = false; card.card.getBoundingClientRect = () => ({ height: 150 });
-  card.reserve(); assert.equal(reserved(), '290px', 'a shorter card must not clamp a reading scroll position');
-  card.update(null, en, false);
-  assert.equal(reserved(), '290px', 'closing a question must not clamp a reading scroll position');
-  following = true; card.reserve();
-  assert.equal(reserved(), '290px', 'following at the old bottom must not release and clamp visible text');
-  shell.scrollTop = 500; following = false; card.reserve();
-  assert.equal(reserved(), '0px'); assert.equal(shell.scrollTop, 500, 'release preserves the reading position');
-  card.reserve(); assert.equal(resizes, 1, 'release must not call the follow callback or cause another scroll');
+  card.reserve(); assert.equal(reserved(), '150px', 'no obsolete band survives a shorter card');
+  card.update(null, en, false); assert.equal(reserved(), '0px', 'closing leaves no empty reservation');
+  for (const event of [new window.Event('scroll'), new window.WheelEvent('wheel', { deltaY: 100 }), new window.KeyboardEvent('keydown', { key: 'End' })]) {
+    shell.dispatchEvent(event); card.reserve();
+    assert.equal(reserved(), '0px', 'scroll intent has no retained band to collapse');
+  }
   card.destroy();
 });
 
@@ -216,39 +213,6 @@ test('AIT-225: scroll and visual viewport resize reservations coalesce into one 
   card.destroy(); assert.deepEqual(cancelled, [2]);
   viewport.dispatchEvent(new view.Event('resize')); view.dispatchEvent(new view.Event('resize'));
   assert.equal(frames.length, 2, 'disconnect removes both resize listeners');
-});
-
-test('AIT-225: returning to the bottom releases a reading hold without waiting for new content or pointer exit', t => {
-  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
-  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}<textarea></textarea>`;
-  const shell = root.querySelector('.transcript-shell'), frames = [];
-  Object.defineProperties(shell, { scrollHeight: { value: 1500 }, clientHeight: { value: 300 } });
-  t.mock.method(view, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
-  let following = true;
-  const card = new QuestionCard({ root, send() {}, followsTranscript: () => following });
-  card.card.getBoundingClientRect = () => ({ height: 290 });
-  card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
-  shell.scrollTop = 1200; following = false;
-  card.update(null, en, false);
-  const reserved = () => root.querySelector('.conversation').style.getPropertyValue('--question-card-height');
-  assert.equal(reserved(), '290px', 'closing preserves the reading box');
-  shell.dispatchEvent(new view.Event('scroll'));
-  assert.equal(frames.length, 1, 'return to the end is coalesced into one frame');
-  frames[0]();
-  assert.equal(reserved(), '0px', 'there is no obsolete gap at the reading bottom');
-  card.reserve(); assert.equal(reserved(), '0px', 'the gap stays released while the reader remains there');
-  for (const event of [new view.WheelEvent('wheel', { deltaY: 100 }), new view.KeyboardEvent('keydown', { key: 'End' })]) {
-    following = true; card.update({ turnId: 'next', question_short: 'Choose?', options }, en, false);
-    following = false; card.update(null, en, false);
-    const count = frames.length;
-    shell.dispatchEvent(event); assert.equal(frames.length, count + 1, `${event.type} releases even at an unchanged scroll offset`);
-    frames.at(-1)(); assert.equal(reserved(), '0px');
-  }
-  card.destroy();
-  shell.dispatchEvent(new view.Event('scroll'));
-  shell.dispatchEvent(new view.WheelEvent('wheel', { deltaY: 100 }));
-  shell.dispatchEvent(new view.KeyboardEvent('keydown', { key: 'End' }));
-  assert.equal(frames.length, 3, 'disconnect removes the end-scroll listeners');
 });
 
 test('AIT-225: desktop reservations do not inspect phone layout styles', t => {

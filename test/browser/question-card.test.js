@@ -18,7 +18,7 @@ const shown = page => shadow(page, c => Boolean(c.shadowRoot.querySelector('.qca
 const still = (before, after, label) => assert.deepEqual(after, before, `${label}: composer controls shift exactly 0 px`);
 
 test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement',
-  { timeout: 120_000 }, async t => {
+  { timeout: 240_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-qcard-'));
     const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
       AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -63,13 +63,50 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 800, 390, 393]) {
       await t.test(`${locale}/${theme}/${width}`, async () => {
         const label = `${locale}-${theme}-${width}`;
-        const shot = async state => { if (evidence) {
-          if (state !== 'bounded-options' || ![390, 393, 1440].includes(width) || width !== 390 && theme !== (locale === 'en' ? 'light' : 'dark')) return;
-          await page.mouse.move(0, 0); await page.mouse.move(-1, -1);
-          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-          await nextFrame(page);
-          const file = `ait-225-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
+        const shot = async (state, height) => { if (evidence) {
+          if (!height && (!['card', 'bounded-options'].includes(state) || ![390, 1440].includes(width))) return;
+          await page.mouse.move(-1, -1);
+          await shadow(page, c => {
+            globalThis.qcardShotFocus = c.shadowRoot.activeElement ?? document.activeElement;
+            c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+          });
+          try {
+            await page.evaluate(async () => {
+              await document.fonts.ready;
+              for (const animation of document.getAnimations()) {
+                if (animation.effect?.getComputedTiming().iterations !== Infinity) await animation.finished.catch(() => {});
+              }
+            });
+            await nextFrame(page); await nextFrame(page);
+            const file = `ait-225-${label}-${state}.png`;
+            await page.screenshot({ path: join(evidence, file), fullPage: false,
+              ...(height ? { clip: { x: 0, y: 0, width, height }, captureBeyondViewport: false } : {}) });
+            files.push(file);
+          } finally {
+            await page.evaluate(() => { globalThis.qcardShotFocus?.focus({ preventScroll: true }); delete globalThis.qcardShotFocus; });
+          }
         } };
+        const rest = () => shadow(page, c => {
+          const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = r.querySelector('.turn:last-child').getBoundingClientRect();
+          return { box: [bubble.x, bubble.y, bubble.width, bubble.height], gap: r.querySelector('.qcard').getBoundingClientRect().top - bubble.bottom,
+            turnGap: parseFloat(getComputedStyle(shell.querySelector('ol')).rowGap),
+            startVisible: bubble.top >= shell.getBoundingClientRect().top + parseFloat(getComputedStyle(shell).paddingTop) - 1 };
+        });
+        const assertRest = async state => {
+          if (![390, 1440].includes(width)) return;
+          const before = await rest();
+          assert.ok(before.startVisible, `${state}: latest reply starts below the fade: ${JSON.stringify(before)}`);
+          assert.ok(Math.abs(before.gap - before.turnGap) <= 1, `${state}: latest reply/card gap equals the turn gap: ${JSON.stringify(before)}`);
+          await shadow(page, c => {
+            const shell = c.shadowRoot.querySelector('.transcript-shell');
+            shell.dispatchEvent(new Event('scroll'));
+            shell.dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }));
+            for (const key of ['End', 'PageDown']) shell.dispatchEvent(new KeyboardEvent('keydown', { key }));
+          });
+          await nextFrame(page);
+          assert.deepEqual((await rest()).box, before.box, `${state}: release moves the latest bubble exactly 0 px`);
+          return before;
+        };
         await page.setViewport({ width, height: width === 390 ? 844 : width === 393 ? 852 : 900 });
         await page.select('#theme', theme);
         await page.evaluate(async locale => {
@@ -145,6 +182,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.deepEqual(geometry.likely, [true, false, false]); assert.ok(geometry.arrows.every(arrow => arrow[0] === 30 && arrow[1] === 30));
         assert.equal(geometry.heading, locale === 'de' ? 'Offene Frage' : 'Open question');
         assert.equal(geometry.horizontalOverflow, false); assert.notEqual(geometry.arrowFills[0], geometry.arrowFills[1]);
+        const cardRest = await assertRest('card');
         await shot('card');
         const point = await shadow(page, c => { const b = c.shadowRoot.querySelectorAll('.qopt')[1].getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; });
         await page.mouse.move(...point); await nextFrame(page);
@@ -243,6 +281,13 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         if (width <= 600) assert.equal(bounded.overflow, true, `the options scroll inside the capped phone card: ${JSON.stringify(bounded)}`);
         assert.equal(bounded.textContained, true, 'long answer text stays inside its own 44px-or-taller row');
         assert.equal(bounded.role, 'region'); assert.ok(bounded.name, 'the options scroll region has an accessible name');
+        const boundedRest = await assertRest('bounded-options');
+        assert.equal(await shadow(page, c => {
+          const r = c.shadowRoot, opts = r.querySelector('.qopts');
+          return opts.hasAttribute('data-more-end') === (opts.scrollHeight > opts.clientHeight + 1) && !opts.hasAttribute('data-more-start')
+            && getComputedStyle(opts).getPropertyValue('--qfade-end').trim() === (opts.scrollHeight > opts.clientHeight + 1 ? '24px' : '0px')
+            && getComputedStyle(r.querySelector('.qopt .t')).fontWeight === getComputedStyle(r.querySelector('.qopt:nth-child(2) .t')).fontWeight;
+        }), true, 'options fade only toward more content and the suggestion uses normal text weight');
         await shot('bounded-options');
         const answerBoxes = await boxes(page, ['.qcard', '.qopts', '.qopt', '.qopt:nth-child(2)', '.composer', 'textarea', '.send']);
         await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
@@ -303,9 +348,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').dispatchEvent(new Event('scroll')));
         await nextFrame(page);
         assert.deepEqual(await readingBox(), releaseBefore, 'releasing held card space keeps the reading anchor at exactly the same box');
-        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'the obsolete reservation is actually released');
-        // Closing at the old bottom may hold the reading box briefly. A reader
-        // who then scrolls to the end must never be left with that empty dock gap.
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').style.getPropertyValue('--question-card-height')), '0px', 'only the visible card reserves space');
+        // Reading anchors survive closing; no retained card band needs a later release.
         await page.mouse.move(-1, -1);
         await page.evaluate(() => globalThis.showQuestion()); await nextFrame(page);
         const bottomPoint = await shadow(page, c => {
@@ -390,6 +434,34 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 `390×${height}: the latest reply ends above the card: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.bubbleBottom >= keyboard.shellTop + 20, `390×${height}: the latest reply remains visible: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.composerBottom <= height && height - keyboard.composerBottom <= 14, 'the composer stays docked to the visible viewport');
+              const chips = await shadow(page, c => {
+                const r = c.shadowRoot, opts = r.querySelector('.qopts'), first = opts.firstElementChild, b = first.getBoundingClientRect(), v = opts.getBoundingClientRect();
+                const input = r.querySelector('textarea'), style = getComputedStyle(input), canvas = document.createElement('canvas'), context = canvas.getContext('2d');
+                context.font = style.font;
+                return { scrollLeft: opts.scrollLeft, suggestionFirst: first.classList.contains('likely'), fullyVisible: b.left >= v.left && b.right <= v.right,
+                  name: first.getAttribute('aria-label'), text: first.querySelector('.t').textContent,
+                  ellipsis: getComputedStyle(first.querySelector('.t')).textOverflow,
+                  moreStart: opts.hasAttribute('data-more-start'), moreEnd: opts.hasAttribute('data-more-end'), overflows: opts.scrollWidth > opts.clientWidth + 1,
+                  fade: getComputedStyle(opts).getPropertyValue('--qfade-end').trim(), placeholder: input.placeholder,
+                  placeholderWidth: context.measureText(input.placeholder).width,
+                  inputWidth: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) };
+              });
+              assert.equal(chips.scrollLeft, 0, 'chips enter compact mode at scrollLeft 0');
+              assert.equal(chips.suggestionFirst && chips.fullyVisible, true, `the suggestion is first and fully visible: ${JSON.stringify(chips)}`);
+              assert.equal(chips.name, chips.text, 'the accessible name is the full label');
+              assert.equal(chips.ellipsis, 'ellipsis');
+              assert.equal(chips.moreStart, false); assert.equal(chips.moreEnd, chips.overflows);
+              assert.equal(chips.fade, chips.overflows ? '24px' : '0px');
+              assert.equal(chips.placeholder, locale === 'de' ? 'Ihre Nachricht …' : 'Your message …');
+              assert.ok(chips.placeholderWidth <= chips.inputWidth, 'the compact placeholder fits on one line');
+              await shadow(page, c => {
+                c.shadowRoot.querySelector('.qopts').scrollLeft = 150;
+                c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } });
+              });
+              await nextFrame(page);
+              assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qopts').scrollLeft), 0, 'an unrelated re-render resets chips to their suggested first answer');
+              await shot(`keyboard-${height}`, height);
+              assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
               // Shift+Tab from the composer reaches the final answer through
               // the browser's native order and scrolls the chip into view.
               await page.keyboard.down('Shift');
@@ -399,14 +471,8 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 const r = c.shadowRoot, row = [...r.querySelectorAll('.qopt')].at(-1), b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
                 return r.activeElement === row && b.height >= 44 && b.top >= v.top - 1 && b.bottom <= v.bottom + 1 && b.left >= v.left - 1 && b.right <= v.right + 1;
               }), true, 'Tab reaches an answer and brings its whole target into view');
-              keyboardChecks.push({ locale, theme, width, height, ...keyboard, reachableByTab: true });
-              if (evidence) {
-                await page.mouse.move(-1, -1);
-                await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-                await nextFrame(page); await nextFrame(page);
-                const file = `ait-225-${label}-keyboard-${height}.png`;
-                await page.screenshot({ path: join(evidence, file), fullPage: false, clip: { x: 0, y: 0, width, height }, captureBeyondViewport: false }); files.push(file);
-              }
+              keyboardChecks.push({ locale, theme, width, height, ...keyboard, chips, reachableByTab: true });
+
             }
             for (const height of [320, 844]) {
               await shadow(page, (c, height) => {
@@ -446,24 +512,25 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             await nextFrame(page);
           }
         }
-        checks.push({ locale, theme, width, geometry, bounded, closed, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
+        checks.push({ locale, theme, width, geometry, cardRest, boundedRest, bounded, closed, controlShiftPx: 0, requests: await page.evaluate(() => globalThis.qcardRequests) });
       });
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
     if (evidence) {
-      assert.equal(files.length, 20, 'eight baseline and twelve keyboard viewport captures are required');
+      assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
+      await writeFile(join(evidence, 'index.md'), `# AIT-225 round 4 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json) · metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
       await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         stabilityPassLines: stabilityChecks.map(check => ({ ...check, viewport: `390×${check.height}`, pass: true })),
-        keyboardPassLines: keyboardChecks.map(({ locale, theme, height, rowHeight, cardTop, bubbleBottom, shellBottom }) => ({
-          locale, theme, viewport: `390×${height}`, pass: true, answerHeightPx: rowHeight, reachableByTab: true,
+        keyboardPassLines: keyboardChecks.map(({ locale, theme, height, rowHeight, cardTop, bubbleBottom, shellBottom, chips }) => ({
+          locale, theme, viewport: `390×${height}`, pass: true, answerHeightPx: rowHeight, reachableByTab: true, chips,
           latestReplyClearancePx: cardTop - bubbleBottom, transcriptClearancePx: cardTop - shellBottom })),
-        passLines: checks.map(({ locale, theme, width, controlShiftPx, bounded }) => ({ locale, theme, width, pass: true,
+        passLines: checks.map(({ locale, theme, width, controlShiftPx, bounded, cardRest, boundedRest }) => ({ locale, theme, width, pass: true,
           states: ['card-with-likely-and-others', 'hover', 'keyboard-focus', 'fold', 'question-without-options-no-card'],
           foldStrip: locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold',
           composerControlShiftPx: controlShiftPx, cardAndComposerShiftPx: 0, dockGapPx: 0, pendingAnswerOptionShiftPx: 0,
-          readingAnchorShiftPx: 0, readingAnchorReleaseShiftPx: 0, cardVh: 100 * bounded.height / bounded.viewport,
+          readingAnchorShiftPx: 0, readingAnchorReleaseShiftPx: 0, cardRest, boundedRest, releaseShiftPx: 0, cardVh: 100 * bounded.height / bounded.viewport,
           latestReplyClearancePx: bounded.top - bounded.bubbleBottom, transcriptClearancePx: bounded.top - bounded.shellBottom })) }, null, 2));
     }
   });

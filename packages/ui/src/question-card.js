@@ -1,7 +1,7 @@
 import { node, reconcile, setText } from './dom.js';
 import { icon } from './icons.js';
 
-// The card and composer share a dock; the transcript reserves the card above it.
+// The card and composer share a dock; only the visible card takes transcript room.
 export const questionCardStyles = `
 .composer-dock { position:relative; min-width:0; }
 .phone-dock-backdrop { display:none; }
@@ -15,7 +15,7 @@ export const questionCardStyles = `
   .workspace[data-phone-keyboard] .conversation { row-gap:4px; }
   .workspace[data-stage="live"] { padding-bottom:calc(var(--phone-dock,138px) + var(--phone-footer,57px) + 24px); }
   .workspace[data-stage="live"] .conversation {
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 36px);
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,138px) - 32px);
     min-height:0; grid-template-rows:auto minmax(0,1fr); }
   .workspace[data-stage="live"] .transcript-shell { height:auto; min-height:0; }
   .transcript-shell > .voice-notices { height:auto; margin-top:8px; }
@@ -38,7 +38,15 @@ export const questionCardStyles = `
 /* Long summaries stay available to AT and in the assistant reply. */
 .qtext { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
 .qopts { display:grid; grid-auto-rows:max-content; align-content:start; min-height:0; gap:2px; margin-top:2px; overflow-y:auto; overscroll-behavior:contain;
-  scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent; }
+  scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent;
+  --qfade-start:0px; --qfade-end:0px;
+  mask-image:linear-gradient(to bottom,transparent,#000 var(--qfade-start),#000 calc(100% - var(--qfade-end)),transparent); }
+.qopts[data-more-start] { --qfade-start:24px; }
+.qopts[data-more-end] { --qfade-end:24px; }
+.conversation:has(.qcard:not([hidden])) { row-gap:.5rem; }
+.conversation:has(.qcard:not([hidden])) .transcript-shell { padding-bottom:0; }
+/* Latest is a floating action, never an invisible row below the last turn. */
+.transcript-shell .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,var(--question-card-limit,35dvh),calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
   .qcard:not([data-compact]) .qopts { min-height:var(--question-options-floor,66px); }
@@ -46,7 +54,8 @@ export const questionCardStyles = `
      the question and one horizontal row. The next chip peeks into view. */
   .qcard[data-compact] { max-height:none; grid-template-rows:auto 44px; padding:6px 10px; gap:4px; }
   .qcard[data-compact] .qtext { -webkit-line-clamp:1; }
-  .qcard[data-compact] .qopts { display:flex; gap:6px; height:44px; margin:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+  .qcard[data-compact] .qopts { display:flex; gap:6px; height:44px; margin:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
+    mask-image:linear-gradient(to right,transparent,#000 var(--qfade-start),#000 calc(100% - var(--qfade-end)),transparent); }
   .qcard[data-compact] .qopt { flex:0 0 auto; max-width:calc(100% - 24px); grid-template-columns:minmax(0,1fr) 30px; }
   .qcard[data-compact] .qopt .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .qcard[data-compact] .tag { display:none; }
@@ -81,7 +90,7 @@ export const questionCardStyles = `
 .qopt .go svg { width:14px; height:14px; }
 .qopt:hover:not(:disabled):not([aria-disabled="true"]) .go, .qopt:focus-visible .go, .qopt.likely .go {
   background:var(--aithema-accent); color:var(--aithema-on-accent); box-shadow:none; }
-.qopt.likely, .qopt.likely:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-accent) 13%,transparent); font-weight:600; }
+.qopt.likely, .qopt.likely:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-accent) 13%,transparent); }
 .qopt:focus-visible { border-radius:10px; outline-offset:-2px; }
 .qopt[aria-disabled="true"] { opacity:.5; cursor:wait; }
 .qopt .tag { font:500 11.5px var(--aithema-font); color:var(--aithema-accent); }
@@ -117,29 +126,19 @@ export class QuestionCard {
       this.followOnResize ??= this.followsTranscript();
       this.scheduleReserve();
     };
-    this.endScroll = event => {
-      if (event.type === 'wheel' && event.deltaY <= 0) return;
-      if (event.type === 'keydown' && (event.shiftKey || !['End', 'PageDown', 'ArrowDown', ' '].includes(event.key))) return;
-      const shell = this.root.querySelector('.transcript-shell');
-      // An explicit return to the end finishes a reading hold, even with the
-      // pointer still in the pane and no further incoming content. Wheel/keys
-      // also cover an attempt to scroll down when already at the old bottom.
-      if (this.held && shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 1) {
-        this.releaseAtEnd = true;
-        this.scheduleReserve();
-      }
-    };
+    this.optionsScroll = () => this.fadeOptions();
+    this.card.querySelector('.qopts').addEventListener('scroll', this.optionsScroll, { passive: true });
     this.connect();
   }
   connect() {
     const Resize = this.root.ownerDocument.defaultView?.ResizeObserver;
     if (Resize) {
       this.observer ??= new Resize(this.scheduleReserve);
-      this.observer.observe(this.card); this.observer.observe(this.root.querySelector('.transcript-shell'));
+      this.observer.observe(this.card); this.observer.observe(this.card.querySelector('.qopts'));
+      this.observer.observe(this.root.querySelector('.transcript-shell'));
     }
     this.view?.addEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.addEventListener('resize', this.viewportResize);
-    for (const type of ['scroll', 'wheel', 'keydown']) this.root.querySelector('.transcript-shell').addEventListener(type, this.endScroll, { passive: true });
   }
   reserve() {
     if (this.root.querySelector('.conversation').hidden) return;
@@ -168,9 +167,13 @@ export class QuestionCard {
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
         - this.root.querySelector('.concept-bar').getBoundingClientRect().height - expandedGap - 36
       : shell.getBoundingClientRect().height + (this.height ?? 0);
-    // Preserve 128px for the latest reply, its fade and the Latest control.
-    const limit = Math.max(0, available - 128);
+    // Give a fitting latest reply its full height, including the top fade.
+    // Very long replies retain a bounded reading pane and open in the full-text dialog.
+    const latest = shell.querySelector('.turn:last-child');
+    const replyRoom = Math.max(128, Math.min((latest?.getBoundingClientRect().height ?? 0) + 26, available - 150));
+    const limit = Math.max(0, available - replyRoom);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
+    const wasCompact = this.card.hasAttribute('data-compact');
     this.card.removeAttribute('data-compact');
     let compact = false;
     if (phone && !this.card.hidden) {
@@ -185,23 +188,24 @@ export class QuestionCard {
     }
     this.card.toggleAttribute('data-compact', compact);
     workspace?.toggleAttribute('data-question-compact', compact);
-    const measured = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
-    const previous = this.height ?? 0, scrollTop = shell.scrollTop;
-    // Releasing space enlarges the scrollport. At the bottom that would clamp
-    // scrollTop and move every visible line. Wait until enough content remains
-    // below the reading position, then release without following the new end.
-    this.held = measured < previous && (!following || this.held);
-    const release = this.held && (this.releaseAtEnd || scrollTop <= Math.max(0, shell.scrollHeight - shell.clientHeight - (previous - measured)));
-    this.releaseAtEnd = false;
-    const height = this.held && !release ? previous : measured;
+    const opts = this.card.querySelector('.qopts');
+    if (compact && !wasCompact) opts.scrollLeft = 0;
+    this.fadeOptions();
+    const height = this.card.hidden ? 0 : this.card.getBoundingClientRect().height;
     if (this.height === height) {
       if (viewportChanged && following) this.onResize?.({ following });
       return;
     }
     this.height = height;
-    this.root.querySelector('.conversation').style.setProperty('--question-card-height', `${height}px`);
-    if (release) { this.held = false; shell.scrollTop = scrollTop; }
-    else this.onResize?.({ following });
+    conversation.style.setProperty('--question-card-height', `${height}px`);
+    this.onResize?.({ following });
+  }
+  fadeOptions() {
+    const opts = this.card.querySelector('.qopts'), horizontal = this.card.hasAttribute('data-compact');
+    const offset = horizontal ? opts.scrollLeft : opts.scrollTop;
+    const end = horizontal ? opts.scrollWidth - opts.clientWidth : opts.scrollHeight - opts.clientHeight;
+    opts.toggleAttribute('data-more-start', offset > 1);
+    opts.toggleAttribute('data-more-end', end - offset > 1);
   }
   update(question, copy, unavailable, sending = false) {
     const focused = this.card.contains(this.root.activeElement);
@@ -228,17 +232,20 @@ export class QuestionCard {
       // Native disabled is reserved for unavailable text input; aria-disabled blocks repeat submissions.
       this.answers.set(button, option.text); button.disabled = unavailable;
       button.setAttribute('aria-disabled', String(sending));
+      button.setAttribute('aria-label', option.text);
       button.classList.toggle('likely', option.likely === true);
       setText(button.querySelector('.t'), option.text); setText(button.querySelector('.tag'), option.likely ? c.suggestion : '');
       button.title = option.likely ? c.likely : '';
     });
     this.reserve();
+    if (this.card.hasAttribute('data-compact')) this.card.querySelector('.qopts').scrollLeft = 0;
+    this.fadeOptions();
   }
   destroy() {
     this.observer?.disconnect();
     this.view?.removeEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.removeEventListener('resize', this.viewportResize);
-    for (const type of ['scroll', 'wheel', 'keydown']) this.root.querySelector('.transcript-shell').removeEventListener(type, this.endScroll);
+    this.card.querySelector('.qopts').removeEventListener('scroll', this.optionsScroll);
     if (this.frame != null) this.view.cancelAnimationFrame(this.frame);
     this.frame = null;
   }
