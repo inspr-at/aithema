@@ -435,13 +435,17 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await page.select('#theme', theme);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-    const session = await shadow(page, async c => {
-      await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
-      const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
+    const session = await shadow(page, async (c, locale) => {
+      // Withdrawal ends a conversation; each case needs a fresh owner conversation.
+      const created = await fetch('/api/library', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale }) });
+      if (!created.ok) throw new Error('Cannot create withdrawal fixture conversation');
+      const { session: fresh } = await created.json();
+      await fetch(`/api/sessions/${fresh.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
+      const session = await fetch(`/api/sessions/${fresh.id}`).then(r => r.json());
       session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
       session.transcript = [{ id: 'withdraw-person', role: 'user', content: 'Wir brauchen eine Website.' }];
       return session;
-    });
+    }, locale);
     page.forceSnapshot = session;
     await shadow(page, async (c, { session, locale }) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); session.locale = locale; c.configure({ session, copy }); }, { session, locale });
     await frame(page);

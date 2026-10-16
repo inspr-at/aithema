@@ -277,7 +277,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 @media(width < 600px) {
   .edge-column { top:12px; }
   .fold { top:calc(var(--band-height,68px) - 8px); }
-  .concept-rail { padding-left:38px; }
+  .concept-rail, .concept-bar .concept-preview-slot { padding-left:38px; }
   .band-identity { gap:10px; max-width:none; }
   .band .wordmark { font-size:16.5px; }
   .conversations-toggle { width:44px; min-width:44px; padding:0; }
