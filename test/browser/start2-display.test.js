@@ -502,40 +502,45 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   assertMatrixCaseCount('display-orb', checks.filter(check => 'target' in check).length);
   await t.test('conversations menu corners stay painted above the second band row at medium widths and fit all header widths', async () => {
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
-      const label = `${locale}/${theme}/${width}`;
-      await scene(locale, theme, width);
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+      // Keep this scene loaded while resizing; menu geometry does not need a new
+      // executable canvas and session render for every width.
+      await scene(locale, theme, 390);
       await shadow(page, async (c, locale) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         c.configure({ copy, session: c.session, host: { library: true } });
       }, locale);
-      const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
-      const before = await boxes(page, selectors);
-      await page.click('aithema-session >>> .conversations-toggle');
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
-      await settle();
-      const menu = await shadow(page, c => {
-        const root = c.shadowRoot, n = root.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
-        const anchor = root.querySelector('.conversations-toggle').getBoundingClientRect();
-        const orb = root.querySelector('.band-orb [role="button"]'), target = orb.getBoundingClientRect();
-        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom,
-          anchor: { left: anchor.left, right: anchor.right, bottom: anchor.bottom },
-          orbHit: orb.contains(root.elementFromPoint(target.left + 1, target.top + 22)),
-          corners: [[b.left + 8, b.top + 8], [b.right - 8, b.top + 8], [b.left + 8, b.bottom - 8], [b.right - 8, b.bottom - 8]]
-            .map(([x, y]) => { const hit = root.elementFromPoint(x, y); return { painted: n.contains(hit), hit: hit?.className }; }) };
-      });
-      assert.ok(menu.left >= 0 && menu.right <= width + .5 && menu.top >= 0 && menu.bottom <= (width === 390 ? 844 : 900), `${label}: menu fits ${JSON.stringify(menu)}`);
-      assert.ok(menu.corners.every(n => n.painted), `${label}: ${JSON.stringify(menu)}`);
-      assert.ok(Math.abs(menu.top - menu.anchor.bottom - 6) <= .5, `${label}: menu opens below its icon`);
-      if (width >= 600) assert.ok(Math.abs(menu.right - menu.anchor.right) <= .5, `${label}: menu aligns with its icon's right edge`);
-      else assert.ok(menu.left <= menu.anchor.left && menu.right >= menu.anchor.right, `${label}: phone menu spans its icon`);
-      assert.equal(menu.orbHit, true, `${label}: menu preserves the orb's outer hit ring`);
-      sameBoxes(before, await boxes(page, selectors), `${label}: opening the menu keeps the band fixed`);
-      await shot('conversations-medium', locale, theme, width);
-      checks.push({ locale, theme, width, menu });
-      await shadow(page, c => c.shadowRoot.querySelector('.conversations-toggle').focus());
-      await page.keyboard.press('Escape');
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
+      for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
+        const label = `${locale}/${theme}/${width}`;
+        await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+        const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
+        const before = await boxes(page, selectors);
+        await page.click('aithema-session >>> .conversations-toggle');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
+        await settle();
+        const menu = await shadow(page, c => {
+          const root = c.shadowRoot, n = root.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
+          const anchor = root.querySelector('.conversations-toggle').getBoundingClientRect();
+          const orb = root.querySelector('.band-orb [role="button"]'), target = orb.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom,
+            anchor: { left: anchor.left, right: anchor.right, bottom: anchor.bottom },
+            orbHit: orb.contains(root.elementFromPoint(target.left + 1, target.top + 22)),
+            corners: [[b.left + 8, b.top + 8], [b.right - 8, b.top + 8], [b.left + 8, b.bottom - 8], [b.right - 8, b.bottom - 8]]
+              .map(([x, y]) => { const hit = root.elementFromPoint(x, y); return { painted: n.contains(hit), hit: hit?.className }; }) };
+        });
+        assert.ok(menu.left >= 0 && menu.right <= width + .5 && menu.top >= 0 && menu.bottom <= (width === 390 ? 844 : 900), `${label}: menu fits ${JSON.stringify(menu)}`);
+        assert.ok(menu.corners.every(n => n.painted), `${label}: ${JSON.stringify(menu)}`);
+        assert.ok(Math.abs(menu.top - menu.anchor.bottom - 6) <= .5, `${label}: menu opens below its icon`);
+        if (width >= 600) assert.ok(Math.abs(menu.right - menu.anchor.right) <= .5, `${label}: menu aligns with its icon's right edge`);
+        else assert.ok(menu.left <= menu.anchor.left && menu.right >= menu.anchor.right, `${label}: phone menu spans its icon`);
+        assert.equal(menu.orbHit, true, `${label}: menu preserves the orb's outer hit ring`);
+        sameBoxes(before, await boxes(page, selectors), `${label}: opening the menu keeps the band fixed`);
+        await shot('conversations-medium', locale, theme, width);
+        checks.push({ locale, theme, width, menu });
+        await shadow(page, c => c.shadowRoot.querySelector('.conversations-toggle').focus());
+        await page.keyboard.press('Escape');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
+      }
     }
   });
   if (evidence) await writeFile(join(evidence, 'display-regressions-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit,
