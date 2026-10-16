@@ -4,6 +4,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider
   SQLiteBudgetLedger, createVoiceCap, VOICE_CAP_REASON, VOICE_DAY_CAP_REASON } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
 import * as core from '@inspr/aithema-core';
+import { beginVoiceInvocation } from '@inspr/aithema-core/live-voice';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
@@ -3204,7 +3205,6 @@ test('AIT-261 negative: periodic voice turns cannot run past the conversation ho
   assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'credits.limit-reached').length, 1);
 });
 
-
 for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: voice refused ${stage} at the hour releases its hold without charging the owner`, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const HOUR = 60 * 60_000;
@@ -3240,7 +3240,7 @@ test('AIT-261: dispatched voice keeps its duration hold at the hour until confir
   h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
   h.advance(HOUR - 1);
   const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'deadline-dispatched' } });
-  const invocation = await core.beginVoiceInvocation(admitted.options, 'deadline-dispatched'); invocation.dispatch();
+  const invocation = await beginVoiceInvocation(admitted.options, 'deadline-dispatched'); invocation.dispatch();
   const id = admitted.options.attempt.attemptId;
   h.advance(1); t.mock.timers.tick(HOUR); await h.handlers.idle();
   assert.equal(h.runtime.budget.get(id).state, 'dispatched');

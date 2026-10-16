@@ -523,13 +523,16 @@ test('credits reads owner and ledger amounts on the server; new/reset get a fres
   const reset = await (await f.call(`/api/library/${s.id}/reset`, {})).json();
   view = await (await f.call(`/api/sessions/${reset.id}/credits`)).json(); assert.equal(view.limitSlot.remainingMs, null); assert.equal(view.balance.owner.committedMicro, 123);
   assert.equal(reset.session.paused, true); assert.equal(view.limitSlot.canStartPaidWork, false);
+  const pausedNew = await f.create(); assert.equal(pausedNew.paused, true);
+  assert.equal((await (await f.call(`/api/sessions/${pausedNew.id}/credits`)).json()).limitSlot.remainingMs, null);
   await f.call(`/api/sessions/${reset.id}/turns`, { clientEventId: 'reset-start', content: 'New conversation' }); await f.handlers.idle();
   f.at(1_350);
   const lengthBefore = f.storage.read(reset.id).length, guardBefore = f.storage.creditState(reset.id);
   view = await (await f.call(`/api/sessions/${reset.id}/credits`)).json(); assert.equal(view.limitSlot.status, 'ending'); assert.equal(view.limitSlot.endReason, 'one-hour');
   for (let i = 0; i < 10; i++) await f.call(`/api/sessions/${reset.id}/credits`);
   assert.equal(f.storage.read(reset.id).length, lengthBefore); assert.deepEqual(f.storage.creditState(reset.id), guardBefore);
-  const next = await f.create(); view = await (await f.call(`/api/sessions/${next.id}/credits`)).json(); assert.equal(view.limitSlot.status, 'ready'); assert.equal(view.limitSlot.remainingMs, null);
+  await f.call(`/api/sessions/${reset.id}/pause`, { paused: false });
+  const next = await f.create(); assert.equal(next.paused, false); view = await (await f.call(`/api/sessions/${next.id}/credits`)).json(); assert.equal(view.limitSlot.status, 'ready'); assert.equal(view.limitSlot.remainingMs, null);
 });
 
 test('configured provider mode has no outbox or verification lock and retains export', async t => {

@@ -766,23 +766,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           throw error;
         }
         const { attemptId } = admission;
-        const claim = budget.claim(attemptId); let dispatched = false, reported = false, deadlineRefused = false;
+        const claim = budget.claim(attemptId); let dispatched = false, reported = false;
         const report = terminal => {
           if (reported) return; reported = true;
-          const receipt = deadlineRefused ? { attemptId, outcome: 'uncertain', closureConfirmed: false, usage: null } : { ...terminal, attemptId };
-          budget.settleVoice(claim.claimId, receipt, { retainReservation: deadlineRefused });
+          const receipt = { ...terminal, attemptId };
+          budget.settleVoice(claim.claimId, receipt);
           if (receipt.closureConfirmed && receipt.usage) this.reconcileVoice(attemptId, receipt);
         };
         try {
           const audio = await adapter.speakText({ text: reply.content, quote }, { ...options,
             attempt: { ...claim, async consume() {
-              try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
+              conversationLimits.assertOpen(session.id);
               current();
               if (result.scope) {
                 const coverage = await coverageFor(session, result.scope, options);
                 if (consentReason(coverage, result.scope, now(), session.consentRevision)) throw new PluginError('not-admitted');
               }
-              try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
+              conversationLimits.assertOpen(session.id);
               current(); claim.consume(); dispatched = true;
             } }, report });
           current();
@@ -821,12 +821,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         voiceExposure: { maxMicro: Math.max(maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
           maxVisitorMicro: Math.max(maxVisitorMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute)) },
         requestSha256: hash(request), bindingSha256: hash(binding) });
-      const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation, deadlineRefused = false;
+      const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
-        if (deadlineRefused) terminal = { attemptId, outcome: 'uncertain', closureConfirmed: false, usage: null };
-        const receipt = budget.settleVoice(claim.claimId, terminal, { retainReservation: deadlineRefused }); reported = true;
-        if (reservation && !deadlineRefused && (!dispatched || terminal.closureConfirmed === true && terminal.outcome !== 'uncertain')) {
-          voiceCap.settle(reservation, dispatched ? terminal.usage.providerSeconds : 0);
+        const receipt = budget.settleVoice(claim.claimId, terminal); reported = true;
+        if (reservation && receipt.outcome !== 'uncertain') {
+          voiceCap.settle(reservation, JSON.parse(receipt.usage).providerSeconds);
         }
         return receipt;
       };
@@ -835,7 +834,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       // The owner/ledger await can finish just before expiry; a separate
       // aggregate reservation still requires current admission authority.
       try { conversationLimits.assertOpen(session.id); }
-      catch (error) { deadlineRefused = true; report({ attemptId, outcome: 'uncertain' }); throw error; }
+      catch (error) { zero(); throw error; }
       // Atomic aggregate admission precedes facade provisioning and provider credentials.
       try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
       catch (error) { zero(); throw error; }
@@ -855,9 +854,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
-        const assertOpen = () => {
-          try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
-        };
+        const assertOpen = () => conversationLimits.assertOpen(session.id);
         assertOpen();
         try {
           if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
@@ -935,10 +932,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const diagnosticLane = options.voiceReply ? 'voice-facade' : lane;
       try { if (budget.startOutcome(attemptId, diagnosticLane)) emitOutcome(diagnosticLane, 'started'); }
       catch { /* Diagnostics cannot interrupt admission. */ }
-      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false, deadlineRefused = false;
+      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false;
       const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
-        if (deadlineRefused) terminal = { attemptId, outcome: 'uncertain' };
         if (reported) {
           // A lane released on cancellation owns settlement; late provider usage
           // cannot reopen or reduce its conservative dispatched charge.
@@ -948,7 +944,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         }
         settlementAborted = Boolean(options.signal?.aborted);
         settlementDispatched = budget.get(attemptId).state === 'dispatched';
-        const settlement = budget.settle(claim.claimId, terminal, rates, { retainReservation: deadlineRefused }); reported = true;
+        const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
         try { Promise.resolve(options.onTerminal?.({ outcome: settlement.outcome })).catch(() => {}); }
         catch { /* Diagnostics cannot interrupt settlement. */ }
         if (typeof terminal.servedModel === 'string' && terminal.servedModel.trim()) producer.model = terminal.servedModel;
@@ -961,9 +957,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         throw new PluginError('not-admitted', reason);
       };
       const consume = () => lane === 'concept' ? renderLimiter.consume(attemptId, session.id, claim.consume) : claim.consume();
-      const assertDispatchOpen = () => {
-        try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
-      };
+      const assertDispatchOpen = () => conversationLimits.assertOpen(session.id);
       const consumeOrRefuse = () => {
         try { return consume(); } catch (error) {
           report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }); refused = true; throw error;
@@ -1002,7 +996,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           }
         } catch (error) { if (!failed) throw error; }
         finally {
-          if (failed && lane === 'understanding' && !deadlineRefused) budget.releaseUnderstandingCredits(attemptId);
+          if (failed && lane === 'understanding') budget.releaseUnderstandingCredits(attemptId);
           try {
             const row = budget.get(attemptId), latest = storage.get(session.id);
             const inputChanged = inputRevision(latest) !== inputRevision(session);

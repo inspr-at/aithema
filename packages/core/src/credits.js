@@ -79,7 +79,7 @@ export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0
  * or ledger; this module's set only guards calls in the current process.
  * beforeReserve is a synchronous server deadline guard, checked immediately
  * before each reservation. If the wallet await crosses that deadline, its hold
- * is retained for host recovery; no ledger reservation or provider dispatch follows.
+ * is released before returning the refusal; no provider dispatch has occurred.
  * SQLiteBudgetLedger already accepts caller IDs, so no ledger change is needed. */
 export async function admitCredits(ledger, request, ownerWallet, { beforeReserve = () => {} } = {}) {
   assertOwnerWalletPort(ownerWallet);
@@ -101,9 +101,11 @@ export async function admitCredits(ledger, request, ownerWallet, { beforeReserve
       if (result.reason === 'attempt-conflict') return { ok: false, reason: 'attempt-conflict', attemptId: snapshot.attemptId };
       return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
     }
-    // Outside the definitive ledger-rejection catch: a clock refusal must never
-    // release a reservation already accepted by the asynchronous owner port.
-    beforeReserve();
+    // A refusal here precedes ledger admission and cannot have dispatched work.
+    try { beforeReserve(); } catch (error) {
+      await ownerWallet.release({ attemptId: snapshot.attemptId });
+      throw error;
+    }
     try {
       return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
     } catch (error) {

@@ -85,6 +85,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       }
       return;
     }
+    // Carry only the manual pause; each conversation keeps its own deadline.
+    if (host.credits?.ownerGuard !== false && ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
+      publish(id, storage.pause(id, true, { ownerToken }));
+    }
     emit(id, storage.transitionHost(id, () => {
       // Older conversations retain their admission policy when adopted by B1.
       const identity = initialIdentity(id, ownerToken, newSession);
@@ -119,6 +123,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       identityTransition(id, ownerToken, { type: 'pause', origin: 'manual', paused: storage.get(id).paused });
     }
     const paused = storage.get(id).paused, guard = storage.creditState(id);
+    if (host.credits?.ownerGuard !== false && host.wallet && ownerToken) storage.setOwnerPaused(ownerToken, paused);
     if (guard && guard.paused !== paused) conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
   }
   function identityResult(id, extra = {}, ownerToken) {

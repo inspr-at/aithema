@@ -312,6 +312,13 @@ export class SQLiteStorage {
     const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(hash(ownerToken));
     return row ? JSON.parse(row.record) : null;
   }
+  // Legacy deadlines migrate to conversation_credit_guards at startup. Only
+  // the owner's manual pause preference carries across New/reset afterwards.
+  setOwnerPaused(ownerToken, paused) {
+    if (!ownerToken || typeof paused !== 'boolean') throw new TypeError('Invalid owner pause');
+    this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
+      .run(hash(ownerToken), JSON.stringify({ paused }));
+  }
   /** Only trusted reducers enter here. State and its public events commit together. */
   transitionHost(id, update, guard = {}) {
     return this.transaction(() => {
