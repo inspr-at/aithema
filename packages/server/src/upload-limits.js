@@ -9,7 +9,7 @@ export function normalizeUploadLimits(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !Object.hasOwn(SERVER_UPLOAD_LIMITS, k))) throw new TypeError('Invalid upload limits');
   return Object.freeze(Object.fromEntries(Object.entries(SERVER_UPLOAD_LIMITS).map(([key, ceiling]) => {
     const n = value[key] ?? ceiling;
-    if (!Number.isSafeInteger(n) || n < 1 || n > ceiling) throw new TypeError('Invalid upload limit');
+    if (!Number.isSafeInteger(n) || n < 1 || n > ceiling) throw new TypeError(`Invalid upload limit ${key}: expected an integer from 1 to ${ceiling}`);
     return [key, n];
   })));
 }
@@ -20,8 +20,11 @@ export function uploadLimitConfig(environment) {
     maxConcurrentRequestsPerDeployment: 'AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS' };
   const configured = {};
   for (const [key, name] of Object.entries(names)) if (environment[name] !== undefined) {
-    if (!/^[1-9]\d*$/u.test(environment[name])) throw new TypeError(`Invalid ${name}`);
-    configured[key] = Number(environment[name]);
+    const n = Number(environment[name]), ceiling = SERVER_UPLOAD_LIMITS[key];
+    if (!/^[1-9]\d*$/u.test(environment[name]) || !Number.isSafeInteger(n) || n > ceiling) {
+      throw new TypeError(`Invalid ${name}: expected an integer from 1 to ${ceiling}`);
+    }
+    configured[key] = n;
   }
   return normalizeUploadLimits(configured);
 }

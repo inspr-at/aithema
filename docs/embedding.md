@@ -259,7 +259,7 @@ raising an override is clamped to the configured ceiling.
 | Total uncompressed ZIP bytes | 48 MiB |
 | ZIP compression ratio | 100:1 per part |
 | Core `UPLOAD_LIMITS.maxRequestBytes` | 21 MiB |
-| Server multipart request default/ceiling | 64 MiB |
+| Server multipart request default/ceiling | 21 MiB (hosts may only lower it) |
 | Server file default/ceiling | 20 MiB |
 | Server files per request / documents per session | 8 / 8 |
 | Server source-byte budget per session | 160 MiB |
@@ -268,8 +268,17 @@ raising an override is clamped to the configured ceiling.
 Uploads use literal `multipart/form-data` file bytes, without base64 encoding.
 The core request budget allows one 20 MiB document plus 1 MiB of form framing;
 the HTTP regression verifies the original bytes reach admission intact. The
-server's existing 64 MiB request budget supports batching, and hosts may lower
-it. The UI plans batches against the server's advertised limits. Only extracted
+server enforces the same 21 MiB request ceiling, which hosts may only lower.
+At most three requests per server process reserve admission from before body
+reads until all their files finish extraction. A full reservation returns a
+retryable HTTP 429 busy (`upload-rate-limit`) before reading the body. The UI
+plans sequential batches against the advertised limits (20 MiB/file and
+21 MiB/request if the limits GET fails) and retries busy responses up to three
+total attempts, waiting 5 then 10 seconds or the longer `Retry-After` delay.
+Busy is shown only after the attempts fail. The conservative default payload
+and worker allowance is **570 MiB**, plus fixed/service overhead, GC/allocator
+slack and watchdog overshoot; see the [memory formula](extractor-limits.md#pending-jobs-and-resident-memory-round-2).
+Only extracted
 text survives completion; truncation remains explicit through `truncated: true`.
 Image-only PDFs remain unreadable without OCR.
 

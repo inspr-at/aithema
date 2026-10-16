@@ -119,7 +119,11 @@ instances: one running request and up to two pending requests. Reservation begin
 before `readBody` and ends only when **every file in that request** is terminal.
 The existing lower request-concurrency settings still apply. A full budget
 returns HTTP **429** with `upload-rate-limit` before reading or parsing the body;
-the UI already presents this as busy/try again. Parsing errors, denied admission,
+the UI sends batches sequentially and retries this busy response up to three
+total attempts, waiting 5 then 10 seconds (or longer if `Retry-After` requires it).
+This is necessary because HTTP 202 retains the reservation through extraction,
+so sequential requests alone can still fill it. Only exhausted attempts show the
+busy/try-again message in the existing notice slot. Parsing errors, denied admission,
 replays, withdrawal, cancellation, deadline expiry and shutdown release reservations.
 
 A separate process-wide FIFO semaphore encloses `storage.uploadBytes`, sniffing,

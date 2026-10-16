@@ -573,6 +573,11 @@ test('defaults, lowering-only config and extension/content sniffing are explicit
   assert.throws(() => normalizeUploadLimits({ maxConcurrentRequestsPerDeployment: SERVER_UPLOAD_LIMITS.maxConcurrentRequestsPerDeployment + 1 }), TypeError);
   assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS: '0' }), TypeError);
   assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_FILES: 'NaN' }), TypeError);
+  for (const value of ['0', '67108864', 'not-a-number', '9007199254740992']) {
+    assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_REQUEST_BYTES: value }), {
+      name: 'TypeError', message: 'Invalid AITHEMA_UPLOAD_MAX_REQUEST_BYTES: expected an integer from 1 to 22020096',
+    });
+  }
   assert.equal(sniffUploadDocument(bytes('plain markdown'), 'notes.md').mediaType, 'text/markdown');
   assert.equal(sniffUploadDocument(pdf(), 'fake.csv').reason, 'unsupported');
 });

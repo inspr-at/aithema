@@ -1382,6 +1382,83 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });
 
+test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted retries keep the composer fixed',
+  { timeout: 120_000 }, async t => {
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-upload-retry-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    const paths = Array.from({ length: 4 }, (_, i) => join(directory, `large-${i}.txt`));
+    for (const path of paths) await writeFile(path, Buffer.alloc(11 * 1024 * 1024, 97));
+    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+      env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(); await preparePage(page, ['de-DE', 'de']);
+    await page.setViewport({ width: 400, height: 900 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    const problems = []; page.on('pageerror', error => problems.push(error.message));
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+    await mockConsent(page); await startTyping(page);
+    // Keep the real route/extractors for accepted requests. Fail limits discovery and inject one
+    // deterministic busy response, since fast extraction can otherwise free the first reservation.
+    await page.evaluate(() => {
+      const original = window.fetch.bind(window);
+      window.uploadAttempts = []; window.exhaustedAttempts = 0;
+      window.fetch = async (url, options = {}) => {
+        if (/\/uploads$/u.test(String(url))) {
+          if (!options.method) return new Response(null, { status: 503 });
+          if (options.method === 'POST') {
+            window.uploadAttempts.push({ names: options.body.getAll('files').map(f => f.name), id: options.body.get('clientEventId') });
+            if (window.failUploads || window.uploadAttempts.length === 4) {
+              if (window.failUploads) window.exhaustedAttempts++;
+              else window.forcedBusy = true;
+              return Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '1' } });
+            }
+          }
+        }
+        return original(url, options);
+      };
+    });
+    const controls = ['.composer', 'textarea', '.attach', '.send'];
+    const settle = () => inShadow(page, async c => {
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => {})));
+    });
+    const geometry = () => Promise.all(controls.map(selector => box(page, selector)));
+    const sameControls = async (before, label) => {
+      await settle(); const after = await geometry();
+      controls.forEach((selector, i) => sameBox(before[i], after[i], `${label} ${selector}`));
+    };
+    const shot = async name => {
+      if (!process.env.AITHEMA_EVIDENCE_DIR) return;
+      await inShadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle();
+      await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${name}.png`), fullPage: false });
+    };
+    await settle(); const baseline = await geometry();
+    const chooser = await uploadChooser(page); await chooser.accept(paths);
+    await until(page, () => window.forcedBusy);
+    assert.notEqual(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), de.uploads.busy);
+    await sameControls(baseline, 'waiting for retry'); await shot('retrying');
+    await until(page, () => {
+      const c = document.querySelector('aithema-session');
+      return c.session.uploads.length === 4 && c.session.uploads.every(u => u.state === 'accepted')
+        && c.shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false';
+    });
+    assert.ok((await page.evaluate(() => window.uploadAttempts)).every(attempt => attempt.names.length === 1), 'fallback batches stay below 21 MiB');
+    await sameControls(baseline, 'four files accepted'); await shot('four-accepted');
+    await page.evaluate(() => { window.failUploads = true; });
+    const retryChooser = await uploadChooser(page); await retryChooser.accept([paths[0]]);
+    await until(page, busy => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === busy, de.uploads.busy);
+    assert.equal(await page.evaluate(() => window.exhaustedAttempts), 3);
+    await sameControls(baseline, 'busy after three attempts'); await shot('busy-exhausted');
+    assert.deepEqual(problems, []);
+    t.diagnostic('Four real 11 MiB documents accepted without manual retry; failed limits GET, transient busy, three-attempt exhaustion, 0 px control movement at 400 px.');
+  });
+
 test('document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)',
   { timeout: 240_000 }, async t => {
     const executablePath = await browserPath(), evidence = process.env.AITHEMA_EVIDENCE_DIR;

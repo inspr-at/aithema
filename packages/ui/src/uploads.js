@@ -2,9 +2,9 @@
 // limits), ported to the AIT-100 B1 owner routes. The server stays authoritative: these checks only
 // say early and in plain words what it would refuse. File contents are never read here.
 
-// The route's defaults (packages/server/src/upload-limits.js); a host can only lower them, and every
-// upload response reports the binding values.
-export const UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequestBytes: 64 * 1024 * 1024,
+// The route's defaults (packages/server/src/upload-limits.js): 20 MiB per document, 21 MiB per
+// request including framing. Hosts can only lower them; limits GET and successful POST report them.
+export const UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequestBytes: 21 * 1024 * 1024,
   maxFilesPerRequest: 8, maxDocumentsPerSession: 8, maxSessionBytes: 160 * 1024 * 1024 });
 // Extensions the server sniffs and extracts; a file without one is left to the server's sniffing.
 export const UPLOAD_EXTENSIONS = Object.freeze(['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md', 'csv', 'json', 'xml']);
@@ -31,6 +31,13 @@ const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, key) => value
 export function uploadLimits(value) {
   return Object.freeze(Object.fromEntries(Object.entries(UPLOAD_LIMITS).map(([key, fallback]) =>
     [key, Number.isSafeInteger(value?.[key]) && value[key] > 0 ? value[key] : fallback])));
+}
+
+/** Back off for 5 then 10 seconds; a server Retry-After can require a longer wait. */
+export function uploadRetryDelay(response, attempt, now = Date.now()) {
+  const header = response.headers.get('retry-after'), seconds = /^\d+$/u.test(header ?? '') ? Number(header) : NaN;
+  const retryAfter = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header ?? '') - now;
+  return Math.max(5000 * 2 ** attempt, Number.isFinite(retryAfter) ? retryAfter : 0);
 }
 // The largest file one request can carry: its own framing for a given file, the shortest framing
 // (no name, no type) for the limits shown before a file is chosen. Never negative; below one byte

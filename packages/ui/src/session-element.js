@@ -18,7 +18,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -1615,7 +1615,7 @@ export class AithemaSession extends HTMLElement {
       if (sessionId === this.#session.id) { this.#uploading = false; this.#render('composer'); }
     }
   }
-  /** One multipart request; returns the plain-words failure, or '' once the server accepted it. */
+  /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
   async #postUploads(files) {
     const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
     form.append('clientEventId', crypto.randomUUID());
@@ -1623,8 +1623,15 @@ export class AithemaSession extends HTMLElement {
     let response, body = null;
     try {
       const path = `${this.#base}/api/sessions/${sessionId}/uploads`;
-      response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken });
-      body = await response.json().catch(() => null);
+      // A 202 retains its reservation through extraction, so even sequential batches can be busy.
+      // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (sessionId !== this.#session.id) return '';
+        response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken });
+        body = await response.json().catch(() => null);
+        if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
+        await new Promise(resolve => setTimeout(resolve, uploadRetryDelay(response, attempt)));
+      }
     } catch { return copy.uploads.failed; }
     if (sessionId !== this.#session.id) return '';
     if (response.ok && body) {
