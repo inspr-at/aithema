@@ -116,7 +116,7 @@ const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: s
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds,
-  generation = 'gen-fixture', ttsRequestId } = {}) {
+  generation = 'gen-fixture', ttsRequestId, replyText = 'Die Bestelllösung lässt sich so genauer planen.' } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
@@ -145,7 +145,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       assert.equal(JSON.parse(init.body).model, liveBinding().reasoning.model);
       assert.deepEqual(JSON.parse(init.body), specs.at(-1).request, 'admission digest covers actual reasoning wire body');
       if (retry && reasoningIndex++ === 0) return new Response('{}', { status: 503 });
-      return new Response(`data: ${JSON.stringify({ id: generation, choices: [{ delta: { content: JSON.stringify({ content: 'Das hilft bei der Planung. Was soll die Lösung verbessern?', question_short: null, options: [], scope: 'in' }) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+      return new Response(`data: ${JSON.stringify({ id: generation, choices: [{ delta: { content: JSON.stringify({ content: replyText, question_short: null, options: [], scope: 'in' }) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
     },
   };
   const configured = liveBinding(); if (durationSeconds) configured.maxDurationSeconds = durationSeconds;
@@ -219,11 +219,11 @@ test('candidate uses real component wire parsers and Rule C; consumes before tra
 });
 
 test('candidate sends the production voice prompt and canonical shaped history, and settings on every TTS connection', async t => {
-  const h = await harness(t);
-  h.storage.append(h.session.id, 'turn.final', { id: 'prior-user', role: 'user', content: 'Wir brauchen eine Bestelllösung.' });
-  h.storage.append(h.session.id, 'turn.final', { id: 'prior-assistant', role: 'assistant', content: 'Für welche Abläufe?' });
+  const h = await harness(t, { replyText: 'Das hilft bei der Planung. Was soll die Lösung verbessern?' });
   h.storage.append(h.session.id, 'turn.final', { id: 'removed', role: 'user', content: 'WITHDRAWN_SHOULD_NOT_REACH_REASONING' });
   h.storage.withdraw(h.session.id, 'removed');
+  h.storage.append(h.session.id, 'turn.final', { id: 'prior-user', role: 'user', content: 'Wir brauchen eine Bestelllösung.' });
+  h.storage.append(h.session.id, 'turn.final', { id: 'prior-assistant', role: 'assistant', content: 'Für welche Abläufe?' });
   const sample = await h.start(), transport = await h.open(sample);
   await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000));
   await h.audioFrame(transport); await h.audioFrame(transport);
