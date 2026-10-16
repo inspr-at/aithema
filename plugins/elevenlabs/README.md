@@ -522,7 +522,12 @@ Conversational AI path, independent of AIT-160's composed STT path. Offline
 inspection establishes support and wiring, not a fresh observation of a live call.
 The conversation shows hypotheses in a muted, labelled provisional user bubble,
 hidden from assistive technology. The saved final promotes the same row and
-retains its footprint; a longer final correction can scroll within that space.
+keeps its position; final text uses normal bubble sizing and can grow. A provider
+final arriving before the saved turn stays in that row until persistence is attached.
+Completed turn ids and ordinals fence late partials. Because tentative events lack
+a provider turn id, the adapter admits a new hypothesis only after the next
+speaking-to-listening boundary. Speaking and assistant finals discard unfinished
+hypotheses.
 Pause, recovery, call end and invalidation discard provisional text. DE/EN labels
 belong to the UI; the transcript text always comes from provider events.
 

@@ -230,9 +230,6 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .turn.user.partial { border-color:transparent; box-shadow:none; background:color-mix(in srgb,var(--aithema-accent) 5%,var(--aithema-paper)); }
 .turn.user.partial::before { border-color:transparent; }
 .voice-provisional { font-weight:400; }
-.turn[data-voice-transcript="final"] { width:var(--voice-final-width,auto); }
-.turn[data-voice-transcript="final"] .turn-text { max-height:var(--voice-final-text-height,none); overflow-y:auto; }
-.turn[data-voice-transcript="final"] .voice-provisional { visibility:hidden; }
 @keyframes turn-in { from { transform:translateY(.35rem); } to { transform:none; } }
 /* START's 20 px x in a reserved 44 px target: opacity changes, geometry does not. */
 .withdraw { position:absolute; top:0; right:0; display:grid; place-items:center; width:44px; height:44px; padding:0; color:var(--aithema-ink); opacity:0; background:none; }

@@ -1148,3 +1148,71 @@ test('AIT-215: retained voice consent refusals use C1 after a locale repaint', t
     }
   }
 });
+
+async function transcriptFixture(t) {
+  const session = createSession({ demo: true }), events = voiceEvents();
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  const identity = { callId: 'transcript-call', providerSessionId: 'transcript-provider' };
+  const client = { manifest, async start() {
+    return { ...identity, events, async close() { events.end(); return { closureConfirmed: true }; },
+      async setInput() {}, async setOutput() {}, async updateContext() {} };
+  } };
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { events.end(); c.configure({ copy: en, session: createSession() }); c.remove(); await tick(); });
+  const root = c.shadowRoot;
+  c.receive({ seq: 1, type: 'turn.final', data: { id: 'earlier', role: 'user', content: 'Earlier turn' } });
+  root.querySelector('.voice-start').click(); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening');
+  const emit = async event => { events.push({ ...identity, ...event }); await tick(); await tick(); };
+  const partial = { type: 'partial', turnId: 'pending:1', role: 'user', text: 'A short hypothesis', userTurnOrdinal: 1 };
+  const final = { type: 'final', turnId: 'saved:1', role: 'user', text: 'A much longer final correction that must grow freely inside the transcript.', userTurnOrdinal: 1 };
+  const save = () => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { ...identity, id: final.turnId,
+    role: 'user', content: final.text, userTurnOrdinal: 1 } });
+  return { c, root, identity, emit, partial, final, save };
+}
+
+for (const order of ['provider first', 'SSE first']) test(`AIT-235 ${order}: final occupies the identical row with no gap or duplicate`, async t => {
+  const { c, root, emit, partial, final, save } = await transcriptFixture(t);
+  const list = root.querySelector('ol'), earlier = list.firstElementChild;
+  await emit(partial); const row = list.querySelector('[data-id="pending:1"]');
+  assert.equal(list.children.length, 2); assert.equal(row.previousElementSibling, earlier);
+  assert.equal(row.getAttribute('aria-hidden'), 'true');
+  row.getBoundingClientRect = () => ({ height: 90, width: 240 });
+  await emit({ ...partial, text: 'Shorter' });
+  assert.equal(row.style.getPropertyValue('--voice-min-height'), '90px');
+  if (order === 'provider first') {
+    await emit(final);
+    assert.equal(list.children.length, 2, 'provider completion never leaves a gap');
+    assert.equal(list.lastElementChild, row);
+    assert.equal(row.querySelector('.turn-text').textContent, final.text);
+    assert.equal(row.getAttribute('aria-hidden'), null);
+    assert.equal(c.session.transcript.length, 1, 'provider text does not manufacture a saved turn');
+    await emit({ type: 'speaking' });
+    assert.equal(list.lastElementChild, row, 'speaking clears hypotheses, but keeps completed text awaiting SSE');
+    save();
+  } else { save(); await emit(final); }
+  assert.equal(list.children.length, 2);
+  assert.equal(list.querySelector('[data-id="saved:1"]'), row);
+  assert.equal(row.previousElementSibling, earlier);
+  assert.equal(row.querySelector('.turn-text').textContent, final.text);
+  assert.equal(row.classList.contains('partial'), false);
+  assert.equal(row.hasAttribute('aria-hidden'), false);
+  assert.equal(row.querySelector('.voice-provisional'), null);
+  assert.equal(row.querySelector('.turn-text').hasAttribute('tabindex'), false);
+  assert.equal(row.hasAttribute('data-voice-transcript'), false, 'normal bubble sizing applies');
+  assert.equal(row.style.getPropertyValue('--voice-min-height'), '');
+  assert.equal(row.style.getPropertyValue('--voice-min-width'), '');
+  await emit(partial);
+  assert.equal(list.children.length, 2, 'late partial cannot resurrect the bubble');
+  assert.equal(list.querySelector('.partial'), null);
+});
+
+for (const boundary of ['speaking', 'provider assistant final', 'saved assistant final']) test(`AIT-235: ${boundary} removes unfinished transcript text`, async t => {
+  const { c, root, identity, emit, partial } = await transcriptFixture(t);
+  await emit(partial); assert.ok(root.querySelector('.turn.user.partial'));
+  if (boundary === 'speaking') await emit({ type: 'speaking' });
+  else if (boundary === 'provider assistant final') await emit({ type: 'final', turnId: 'reply', role: 'assistant', text: 'Reply' });
+  else c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { ...identity, id: 'reply', role: 'assistant', content: 'Reply', inputRevision: inputRevision(c.session) } });
+  assert.equal(root.querySelector('.turn.user.partial'), null);
+  await emit(partial); assert.equal(root.querySelector('.turn.user.partial'), null);
+});
