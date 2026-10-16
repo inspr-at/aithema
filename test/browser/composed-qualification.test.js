@@ -78,7 +78,8 @@ export async function createQualificationHost() {
     ...(process.env.CHROME_PATH ? { CHROME_PATH: process.env.CHROME_PATH } : {}), ...(process.env.CI ? { CI: process.env.CI } : {}) } });
   let stdout = '', stderr = '';
   child.stdout.on('data', bytes => { stdout += bytes; }); child.stderr.on('data', bytes => { stderr += bytes; });
-  const [code] = await once(child, 'exit'); assert.equal(code, 0, stderr); assert.match(stdout, /tunnel-fake-proof/);
+  const [code] = await once(child, 'exit');
+  assert.equal(code, 0, `${stderr}\nFixture dispatches: ${JSON.stringify(ports.dispatches)}`); assert.match(stdout, /tunnel-fake-proof/);
   const report = JSON.parse(await readFile(join(output, 'report.json'))), observations = JSON.parse(await readFile(join(output, 'observations.json')));
   assert.equal(report.candidate.wer, 0); assert.equal(report.baseline.wer, 0); assert.equal(report.candidate.qualified, false);
   assert.equal(report.budget.records.length, 8); assert.equal(ports.dispatches.length, 8);

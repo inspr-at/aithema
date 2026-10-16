@@ -23,11 +23,26 @@ window.composedQualification = {
     const player = createPCMPlayer({ onTiming });
     const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ onTiming, onFault: done.reject }),
       openRelay: createNetworkRelayClient({ headers }) });
-    const timer = setTimeout(() => done.reject(new Error('Physical capture/output/barge-in evidence timed out')), 60_000);
+    const timer = setTimeout(() => done.reject(new Error('Physical capture/output/barge-in evidence timed out')), 50_000);
+    let failure;
     try {
       session = await media.connect(grant);
+      void (async () => {
+        for await (const event of session.events) if (event.type === 'waiting' || event.type === 'ended') {
+          done.reject(new Error(`Qualification media ${event.type}: ${event.reason}`));
+        }
+      })().catch(done.reject);
       await done.promise;
       return trace;
-    } finally { clearTimeout(timer); await session?.close(); await player.close(); }
+    } catch (error) {
+      failure = error;
+      const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
+      counts.voiced = trace.filter(event => event.kind === 'capture' && event.voiced).length;
+      throw new Error(`${error.message}; device evidence ${JSON.stringify(counts)}`, { cause: error });
+    } finally {
+      clearTimeout(timer);
+      try { await session?.close().catch(error => { if (!failure) throw error; }); }
+      finally { await player.close(); }
+    }
   },
 };
