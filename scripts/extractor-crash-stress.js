@@ -37,8 +37,10 @@ test('extractor process file survives repeated execution under CPU pressure', { 
   console.log(`AIT-222 stress: ${version.trim()}, ${process.platform}, ${repeats} files, concurrency ${concurrency}, CPU workers ${cpuWorkers}`);
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT; // This is an independent runner, not its parent's test worker.
+  const pattern = process.env.AITHEMA_EXTRACTOR_STRESS_PATTERN;
   const child = spawn(executable, ['--test', '--test-reporter=spec', `--test-concurrency=${concurrency}`, '--test-timeout=90000',
-    '--import', new URL('./unit-watchdog.js', import.meta.url).href, ...files],
+    '--import', new URL('./unit-watchdog.js', import.meta.url).href,
+    ...(pattern ? [`--test-name-pattern=${pattern}`] : []), ...files],
     { env, stdio: ['ignore', 'pipe', 'inherit'] });
   let output = '';
   child.stdout.on('data', chunk => { output += chunk; process.stdout.write(chunk); });

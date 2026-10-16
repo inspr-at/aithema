@@ -4,6 +4,7 @@ import childProcess from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import { promisify } from 'node:util';
+import { readFile } from 'node:fs/promises';
 import { createTextExtractor } from '../../../plugins/extract-text/src/index.js';
 import { activeExtractorProcessCount, queuedExtractorProcessCount } from '../src/extractor-process.js';
 import { EXTRACTOR_LIMITS, normalizeExtractorLimits } from '../src/extractor.js';
@@ -244,13 +245,20 @@ for (const mode of ['crash', 'signal', 'heap']) {
         child.on(event, (...args) => events.push([event, ...args]));
       }
     });
-    const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`).catch(error => {
+    const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`).catch(async error => {
       console.error('AIT-222 crash timeout state', { events, virtualTimers,
         warnings: warnings.mock.calls.map(call => call.arguments), active: activeExtractorProcessCount(),
         queued: queuedExtractorProcessCount(), children: observed.children.map(({ child }) => ({
           pid: child.pid, killed: child.killed, exitCode: child.exitCode, signalCode: child.signalCode,
           connected: child.connected, closesGot: child._closesGot, closesNeeded: child._closesNeeded,
         })) });
+      if (process.platform === 'linux') {
+        for (const { child } of observed.children) {
+          console.error('AIT-222 child CPU/wait state', await Promise.allSettled([
+            readFile(`/proc/${child.pid}/stat`, 'utf8'), readFile(`/proc/${child.pid}/wchan`, 'utf8'),
+          ]));
+        }
+      }
       throw error;
     });
     await spawning;
