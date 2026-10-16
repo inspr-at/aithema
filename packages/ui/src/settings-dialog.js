@@ -232,7 +232,10 @@ export class SettingsDialog {
     this.#q('.done').addEventListener('click', () => void this.#done());
     this.#q('.save-retry').addEventListener('click', () => { this.#failed = false; void this.#save(true); });
     // The hidden .notice-measure copy is prepended before .notice-body; scope to the visible notice (AIT-245).
-    this.#q('.notice-body .notice-action').addEventListener('click', () => void this.#notice?.action?.());
+    this.#q('.notice-body .notice-action').addEventListener('click', () => {
+      if (this.#notice?.action) void this.#notice.action();
+      else if (this.#loadFailed) void this.reload();
+    });
     for (const selector of ['.footer-consent', '.general-consent-manage']) this.#q(selector).addEventListener('click', () => this.#ports.consent('manage'));
     this.#q('.general-new').addEventListener('click', () => {
       const draft = this.#draft ?? this.#active;
