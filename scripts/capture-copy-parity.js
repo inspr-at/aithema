@@ -86,7 +86,16 @@ test('AIT-228 manual copy evidence: 12 viewport/theme/locale combinations', { ti
       c.shadowRoot.querySelector('.concept-request').scrollIntoView({ block: 'center' });
     });
     await shot(label, 'retry');
-    await shadow(page, c => c.shadowRoot.querySelector('.concept-tab').click());
+    await shadow(page, c => {
+      const nativeFetch = window.fetch;
+      window.fetch = (url, init) => String(url).endsWith('/copy-draft/html')
+        ? Promise.resolve(new Response('<!doctype html><html><head><title>Draft</title></head><body></body></html>', { headers: { 'content-type': 'application/octet-stream' } }))
+        : nativeFetch(url, init);
+      c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' },
+        artifact: { id: 'copy-draft', mediaType: 'text/html', turnIds: ['copy-person'], referenceIds: [], archived: false } } });
+      c.shadowRoot.querySelector('.concept-tab').click();
+    });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-html').state === 'ready');
     await shot(label, 'regenerate');
     await shadow(page, c => c.shadowRoot.querySelector('.concept-close').click());
     // The real mock consent page with a locale-specific session response; all copy is production copy.
