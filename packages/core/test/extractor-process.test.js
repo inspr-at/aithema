@@ -266,6 +266,8 @@ for (const mode of ['crash', 'signal', 'heap']) {
     assert.equal(result.status, 'unreadable'); assert.equal(result.reason, 'limit');
     const { code, signal } = await waitFor(observed.children[0].closed, `${mode} close event`);
     assert.ok(code !== 0 || signal);
+    if (mode === 'crash') assert.equal(code, 1, observed.children[0].trace());
+    if (mode === 'signal') assert.equal(signal, 'SIGTERM');
     if (mode === 'heap') assert.ok(signal === 'SIGABRT' || code === 134, 'actual V8 heap OOM');
     assert.deepEqual(warnings.mock.calls.map(call => call.arguments), [
       ['Extractor child exited without a result; treating as limit', { code, signal }],
