@@ -565,6 +565,9 @@ prompt and safeguard state. Canonical session history, withdrawals, current
 understanding/focus and the latest person input receive the same shaping.
 The purpose-policy JSON is buffered and decoded by the production guard before
 TTS; the default single reasoning attempt cannot hide extra paid retries.
+The reference launcher starts each corpus sample with a fresh consented candidate
+session, matching the baseline's fresh production visitor session. Canonical
+person and assistant history is retained within that sample.
 
 `observations.json` records `ttsConfig: { model, voiceId, voiceSettings }` per
 sample. `report.json.tts.candidate` and `.baseline` list those same configurations

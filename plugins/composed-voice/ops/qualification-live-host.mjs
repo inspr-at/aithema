@@ -68,11 +68,23 @@ export async function launchQualificationHost({ binding: raw, hostOrigin, keysFi
     const cookie = created.headers.get('set-cookie')?.split(';')[0];
     if (!/^aithema-visitor=[a-zA-Z0-9_-]{1,128}$/u.test(cookie ?? '') || !session.id) throw new Error('Qualification visitor owner setup refused');
     const ownerHeaders = { cookie };
-    const documentResponse = await fetchImpl(`${hostOrigin}/api/sessions/${session.id}/consent`, {
-      redirect: 'error', signal: AbortSignal.timeout(15_000), headers: ownerHeaders });
-    if (!documentResponse.ok || (await documentResponse.json()).contract !== consentDecision.contract) throw new Error('Qualification consent contract changed');
-    await post(`/api/sessions/${session.id}/consent`, { granted: true, processing: consentDecision }, ownerHeaders);
-    return { hostOrigin, sessionId: session.id, ownerHeaders, close };
+    const grantConsent = async sessionId => {
+      const documentResponse = await fetchImpl(`${hostOrigin}/api/sessions/${sessionId}/consent`, {
+        redirect: 'error', signal: AbortSignal.timeout(15_000), headers: ownerHeaders });
+      if (!documentResponse.ok || (await documentResponse.json()).contract !== consentDecision.contract) throw new Error('Qualification consent contract changed');
+      await post(`/api/sessions/${sessionId}/consent`, { granted: true, processing: consentDecision }, ownerHeaders);
+    };
+    await grantConsent(session.id);
+    let first = true;
+    return { hostOrigin, sessionId: session.id, ownerHeaders, close,
+      async prepareCandidateSession() {
+        if (first) { first = false; return session.id; }
+        // Baseline creates a fresh visitor session for every corpus sample.
+        // Keep canonical candidate history within the same sample boundary.
+        const next = await (await post('/api/sessions', { locale }, ownerHeaders)).json();
+        if (!/^[A-Za-z0-9_-]{1,128}$/u.test(next.id ?? '')) throw new Error('Qualification visitor setup refused');
+        await grantConsent(next.id); return next.id;
+      } };
   } catch { await close(); throw new Error('Qualification host setup refused; inspect server state privately'); }
 }
 

@@ -20,6 +20,7 @@ export function createQualificationHost(options = {}) {
   const sampleTimeoutMs = options.sampleTimeoutMs ?? 20 * 60_000;
   if (!Number.isSafeInteger(sampleTimeoutMs) || sampleTimeoutMs < 1 || sampleTimeoutMs > 20 * 60_000) throw new TypeError('sampleTimeoutMs must be 1..1200000');
   if (options.launchBrowser !== undefined && typeof options.launchBrowser !== 'function') throw new TypeError('launchBrowser must be a function');
+  if (options.prepareCandidateSession !== undefined && typeof options.prepareCandidateSession !== 'function') throw new TypeError('prepareCandidateSession must be a function');
   if (!options.ownerHeaders || !Object.keys(options.ownerHeaders).length) throw new TypeError('Existing owner authentication headers required');
   if (!/^[a-f0-9]{64}$/u.test(options.controlCapability ?? '')) throw new TypeError('CLI controlCapability required');
   if (Object.keys(options.ownerHeaders).some(name => name.toLowerCase() === 'x-aithema-qualification-control')) throw new TypeError('Control capability must stay out of browser ownerHeaders');
@@ -134,9 +135,10 @@ export function createQualificationHost(options = {}) {
         if (response.status() !== 200) throw new Error('Qualification page refused');
         await bounded(page.waitForFunction(() => window.composedQualification));
         const physicalBrowserMedia = await preflight();
+        const sessionId = options.prepareCandidateSession ? await bounded(options.prepareCandidateSession()) : options.sessionId;
         // Reference sentences stay in the CLI. Expected entities travel only
         // on Node control requests; providers and Chrome receive neither.
-        ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId, ...(options.sessionId ? { sessionId: options.sessionId,
+        ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId, ...(sessionId ? { sessionId,
           expectedEntities: Array.isArray(item.expected) ? item.expected : [item.expected] } : {}) } }, lifetime.signal)));
         polling = (async () => {
           try {

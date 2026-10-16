@@ -32,7 +32,10 @@ test('launcher passes file paths and explicit loopback flags, then uses normal v
     },
     async fetchImpl(url, options) {
       calls.push({ url, options });
-      if (url.endsWith('/api/sessions')) return Response.json({ id: 'fixture-session' }, { status: 201, headers: { 'set-cookie': 'aithema-visitor=fixture-owner; HttpOnly' } });
+      if (url.endsWith('/api/sessions')) {
+        const index = calls.filter(call => call.url.endsWith('/api/sessions')).length;
+        return Response.json({ id: index === 1 ? 'fixture-session' : `fixture-session-${index}` }, { status: 201, headers: { 'set-cookie': 'aithema-visitor=fixture-owner; HttpOnly' } });
+      }
       if (options.method !== 'POST') return Response.json({ contract: decision.contract });
       return Response.json({ granted: true });
     },
@@ -50,6 +53,12 @@ test('launcher passes file paths and explicit loopback flags, then uses normal v
   assert.equal(calls.length, 3);
   assert.deepEqual(JSON.parse(calls[2].options.body), { granted: true, processing: decision });
   assert.equal(calls[2].options.headers.cookie, host.ownerHeaders.cookie);
+  assert.equal(await host.prepareCandidateSession(), 'fixture-session');
+  assert.equal(calls.length, 3, 'first sample uses the newly created empty session');
+  assert.equal(await host.prepareCandidateSession(), 'fixture-session-2');
+  assert.equal(calls.length, 6, 'later samples get fresh canonical history and the same explicit consent decision');
+  assert.equal(calls[3].options.headers.cookie, host.ownerHeaders.cookie);
+  assert.deepEqual(JSON.parse(calls[5].options.body), { granted: true, processing: decision });
   await host.close(); await host.close();
   await assert.rejects(readFile(values.AITHEMA_COMPOSED_BINDING_FILE), { code: 'ENOENT' });
 });

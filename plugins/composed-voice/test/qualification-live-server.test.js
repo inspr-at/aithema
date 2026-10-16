@@ -225,7 +225,8 @@ test('candidate sends the production voice prompt and canonical shaped history, 
   h.storage.append(h.session.id, 'turn.final', { id: 'removed', role: 'user', content: 'WITHDRAWN_SHOULD_NOT_REACH_REASONING' });
   h.storage.withdraw(h.session.id, 'removed');
   const sample = await h.start(), transport = await h.open(sample);
-  await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000)); await h.audioFrame(transport);
+  await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000));
+  await h.audioFrame(transport); await h.audioFrame(transport);
   await sample.close(); const answer = await sample.result;
   const reasoning = h.specs.filter(spec => spec.role === 'reasoning');
   assert.equal(reasoning.length, 1);
