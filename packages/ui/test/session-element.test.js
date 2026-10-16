@@ -698,14 +698,14 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
 
 const paimosOptions = { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 };
 
-for (const state of ['two failures', 'overview-only failure', 'stale', 'pending', 'generating', 'draft', 'empty', 'current', 'recovered']) {
+for (const state of ['two failures', 'overview-only failure', 'stale', 'pending', 'generating', 'draft', 'empty', 'reply-only failure', 'current', 'recovered']) {
   test(`AIT-221 project action requires a current overview: ${state}`, t => {
     const c = setup(), session = c.session;
     session.transcript = [{ id: 'person', role: 'user', content: 'A bakery app.' }];
     const revision = inputRevision(session);
     session.transcript.push({ id: 'reply', role: 'assistant', content: 'Payments?', inputRevision: revision });
     Object.assign(session.understanding, { inputRevision: revision, readinessAssessed: true, summary: 'A bakery app.' });
-    const failures = (state === 'two failures' ? ['reaction', 'understanding'] : state === 'overview-only failure' || state === 'recovered' ? ['understanding'] : [])
+    const failures = (state === 'two failures' ? ['reaction', 'understanding'] : state === 'overview-only failure' || state === 'recovered' ? ['understanding'] : state === 'reply-only failure' ? ['reaction'] : [])
       .map(lane => ({ lane, error: 'reasoning-unavailable', retryable: true }));
     session.operations = { inputRevision: revision, running: state === 'generating' ? ['understanding'] : [], failures, lastFailure: failures.at(-1) ?? null };
     if (state === 'stale' || state === 'pending') session.understanding.inputRevision = 'older';
@@ -717,7 +717,7 @@ for (const state of ['two failures', 'overview-only failure', 'stale', 'pending'
       c.receive({ type: 'lane.status', data: { inputRevision: revision, running: [], failures: [], lastFailure: null } });
       c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
     }
-    const current = ['current', 'recovered'].includes(state), root = c.shadowRoot, create = root.querySelector('.create-project');
+    const current = ['reply-only failure', 'current', 'recovered'].includes(state), root = c.shadowRoot, create = root.querySelector('.create-project');
     assert.equal(root.querySelector('.understanding').dataset.overview, current ? 'current' : 'unavailable');
     assert.equal(create.inert, !current, 'unavailable overview cannot be reached with the keyboard');
     assert.equal(create.hidden, false, 'keep the measured footer slot');
@@ -784,6 +784,7 @@ for (const processingPreset of ['best', 'eu', 'custom']) test(`AIT-242 ${process
     { id: 'erased', role: 'user', content: 'Erased private content', at, erased: true },
     { id: 'withdrawn', role: 'assistant', content: 'Withdrawn reply', at, withdrawn: true },
   ];
+  session.transcript[1].inputRevision = inputRevision(session);
   Object.assign(session.understanding, { inputRevision: inputRevision(session), readinessAssessed: true });
   c.configure({ copy: en, session, sessionToken: 'must-not-be-posted', ...paimosOptions });
   const create = c.shadowRoot.querySelector('.create-project'), submitted = [];

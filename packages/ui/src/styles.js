@@ -359,8 +359,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .understanding > .foot > :is(.create-project,.retry) { grid-area:3/1; justify-self:start; margin-inline-start:0; white-space:nowrap; }
 }
 .create-project { margin-inline-start:auto; padding:0; border-radius:0; text-align:start; text-decoration:underline; }
-/* Retry owns the existing action space during recovery; never add another footer row. */
-.understanding > .foot:has(> .retry:not([hidden])) > .create-project { display:none; }
+/* Reserve the action slot until the overview can become a project. */
+.understanding:not([data-overview="current"]) > .foot > .create-project { visibility:hidden; }
 .export:hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }
 .export svg, .create-project svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 

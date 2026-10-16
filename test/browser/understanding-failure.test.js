@@ -57,8 +57,8 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
       for (const state of ['failure', 'pending', 'normal']) {
         await shadow(page, (c, state) => c.receive({ type: 'lane.status', data: {
           inputRevision: c.session.operations.inputRevision, running: state === 'pending' ? ['understanding'] : [],
-          failures: state === 'failure' ? [{ lane: 'reaction', error: 'reasoning-unavailable', retryable: true }] : [],
-          lastFailure: state === 'failure' ? { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } : null,
+          failures: state === 'failure' ? [{ lane: 'understanding', error: 'reasoning-unavailable', retryable: true }] : [],
+          lastFailure: state === 'failure' ? { lane: 'understanding', error: 'reasoning-unavailable', retryable: true } : null,
         } }), state);
         await settle(page);
         assert.deepEqual(await boxes(page, targets), baseline, `${locale}/${width}/${enabled}/${state}: 0 px surrounding and footer displacement`);
@@ -66,15 +66,15 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
           const create = c.shadowRoot.querySelector('.create-project'), retry = c.shadowRoot.querySelector('.retry');
           const foot = retry.parentElement.getBoundingClientRect(), link = c.shadowRoot.querySelector('.export').getBoundingClientRect();
           const rect = create?.getBoundingClientRect();
-          return { retryHidden: retry.hidden, createVisible: Boolean(create?.getClientRects().length),
+          return { retryHidden: retry.hidden, createVisible: Boolean(create && getComputedStyle(create).visibility === 'visible'),
             sameRow: !rect || !rect.height || (innerWidth < 480 ? rect.top >= link.bottom : rect.top === link.top) && rect.bottom <= foot.bottom && rect.right <= foot.right,
             overlap: Boolean(rect?.width && rect.left < link.right && rect.top < link.bottom) };
         });
-        assert.equal(action.retryHidden, state !== 'failure');
-        assert.equal(action.createVisible, enabled && state !== 'failure', 'footer Retry owns the action space during a failure');
+        assert.equal(action.retryHidden, true, 'overview Retry stays inline');
+        assert.equal(action.createVisible, enabled && state === 'normal', 'only a current overview can become a project');
         assert.equal(action.sameRow, true); assert.equal(action.overlap, false);
         if (state === 'failure') {
-          const retry = await boxes(page, ['.retry']);
+          const retry = await boxes(page, ['.overview-retry']);
           if (!enabled) retryBaseline = retry;
           else assert.deepEqual(retry, retryBaseline, 'project configuration changes Retry position by exactly 0 px');
         }
@@ -457,10 +457,10 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       expectedReply: window.twoFailureCopy,
       atFirstFailure: c.shadowRoot.querySelector('.retry').parentElement === c.shadowRoot.querySelector('.reaction-failure'),
       inFooter: Boolean(c.shadowRoot.querySelector('.understanding > .foot > .retry')),
-      projectVisible: Boolean(c.shadowRoot.querySelector('.create-project').getClientRects().length),
+      projectVisible: getComputedStyle(c.shadowRoot.querySelector('.create-project')).visibility === 'visible',
     }));
     assert.equal(state.atFirstFailure, true, 'the single Retry belongs to the reply notice, the first failure in reading order');
-    assert.equal(state.inFooter, false); assert.equal(state.projectVisible, true, 'project action returns when Retry leaves the footer');
+    assert.equal(state.inFooter, false); assert.equal(state.projectVisible, false, 'failed overview cannot become a project when Retry leaves the footer');
     assert.equal(state.retries, 1); assert.equal(state.reply, state.expectedReply);
     assert.equal(state.overview, locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden.' : "The overview couldn't be built just now.");
     assert.equal(state.inlineHidden, true);
@@ -490,9 +490,9 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       inFooter: Boolean(c.shadowRoot.querySelector('.understanding > .foot > .retry')),
       replyHidden: c.shadowRoot.querySelector('.reaction-failure').hidden,
       retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
-      projectVisible: Boolean(c.shadowRoot.querySelector('.create-project').getClientRects().length),
+      projectVisible: getComputedStyle(c.shadowRoot.querySelector('.create-project')).visibility === 'visible',
     }));
-    assert.deepEqual(overviewOnly, { inline: true, footerHidden: true, inFooter: true, replyHidden: true, retries: 1, projectVisible: true }, 'overview-only keeps AIT-198 inline Retry and releases the project row');
+    assert.deepEqual(overviewOnly, { inline: true, footerHidden: true, inFooter: true, replyHidden: true, retries: 1, projectVisible: false }, 'overview-only keeps AIT-198 inline Retry and reserves the project slot');
     assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelector('.understanding > .foot').children].map(n => n.className)),
       ['export', 'retry', 'export-reason', 'create-project'], 'returning Retry restores DOM index 1 and the original footer tab order');
     assert.deepEqual(await boxes(page, targets), before, 'overview-only transition shifts exactly 0 px');
@@ -528,6 +528,7 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     assert.ok(statsAfter.attempts.slice(-2).every(attempt => attempt.state === 'settled'));
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), true);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.create-project')).visibility), 'visible', 'recovered overview can become a project');
     assert.deepEqual(await boxes(page, targets), before, 'both successful lanes settle in place at exactly 0 px');
     await capture(locale, width, theme, 'recovered');
     passes.push({ head: evidenceCommit, locale, width, theme, retries: 1, lanes: ['reaction', 'understanding'], attemptsPerLane: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true });
