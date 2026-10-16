@@ -398,6 +398,21 @@ for (const copy of [de, en]) {
     assert.deepEqual(await retainedFiles(c), ['retained.txt']);
   });
 }
+for (const copy of [de, en]) test(`AIT-219 round 6: ${copy.display.locale} a busy new pick names the replacement and keeps only its own files`, async t => {
+  const { c, root } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+  await exhaust(t, root);
+  await choose(root, [file('new-a.txt'), file('new-b.txt')]);
+  assert.deepEqual(await retainedFiles(c), [], 'the previous retained list is released as soon as the new pick starts');
+  t.mock.timers.tick(5000); await tick(); await tick();
+  t.mock.timers.tick(10000); await tick(); await tick();
+  assert.deepEqual(await retainedFiles(c), ['new-a.txt', 'new-b.txt']);
+  const replacement = copy === de ? 'Die zuvor nicht hochgeladenen Dateien wurden durch die neue Auswahl ersetzt.'
+    : 'The previously unuploaded files were replaced by the new selection.';
+  assert.equal(root.querySelector('.composer-reason').textContent,
+    `${replacement} · ${copy.uploads.notUploaded.other.replace('{count}', '2')} · ${copy.uploads.tryAgain} · ${copy === de ? 'Verwerfen' : 'Discard'}`);
+  root.querySelector('.upload-discard').click();
+  assert.deepEqual(await retainedFiles(c), []);
+});
 for (const action of ['discard', 'configure', 'disconnect', 'new pick']) test(`AIT-219 round 6: ${action} releases exhausted files from internal storage`, async t => {
   let failing = true;
   const { c, root, calls } = setup(t, { post: () => failing ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : undefined });

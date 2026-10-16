@@ -1481,16 +1481,6 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     }))));
     assert.notEqual(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), de.uploads.busy);
     await sameControls(baseline, 'waiting for retry'); const toast = await toastGeometry();
-    await inShadow(page, async c => {
-      const { inputRevision } = await import('/packages/core/src/session.js');
-      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
-        id: 'ait219-question', role: 'assistant', content: c.session.locale === 'de' ? 'Wer nutzt die App?' : 'Who will use the app?',
-        question_short: c.session.locale === 'de' ? 'Wer nutzt die App?' : 'Who will use the app?',
-        options: [{ text: c.session.locale === 'de' ? 'Unsere Kundschaft' : 'Our customers' }], inputRevision: inputRevision(c.session),
-      } });
-    });
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), false);
-    const questionToast = await toastGeometry(); await shot('question-toast');
     await until(page, () => {
       const c = document.querySelector('aithema-session');
       return c.session.uploads.length === 4 && c.session.uploads.every(u => u.state === 'accepted')
@@ -1511,24 +1501,24 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await sameControls(baseline, 'busy after three attempts'); await shot('busy-exhausted');
     assert.equal(await shadowFocus(page), 'consent-action upload-retry', 'mid-sequence evidence restores focus');
     const actionVisible = await inShadow(page, c => {
-      const r = c.shadowRoot, line = r.querySelector('.composer-reason'), action = r.querySelector('.upload-retry');
-      const outer = line.getBoundingClientRect(), inner = action.getBoundingClientRect();
-      return inner.top >= outer.top && inner.bottom <= outer.bottom;
+      const r = c.shadowRoot, outer = r.querySelector('.composer-reason').getBoundingClientRect();
+      return ['.upload-retry', '.upload-discard'].every(selector => {
+        const inner = r.querySelector(selector).getBoundingClientRect();
+        return inner.top >= outer.top && inner.bottom <= outer.bottom;
+      });
     });
-    assert.equal(actionVisible, true, 'Try again is visible inside the fixed reason slot');
+    assert.equal(actionVisible, true, 'both actions are visible inside the fixed reason slot');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-discard').textContent), locale === 'de' ? 'Verwerfen' : 'Discard');
     // A paused retry must replace stale busy copy with the actual refusal; files stay withdrawable.
-    await inShadow(page, c => {
-      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-      c.shadowRoot.querySelector('.upload-retry').click();
-    });
+    await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
+    await until(page, () => document.querySelector('aithema-session').session.paused);
+    await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').click());
     const refusal = (locale === 'de' ? de : en).uploads.unavailable.replace('{reason}', (locale === 'de' ? de : en).reasons['session paused']);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason span').textContent), `${refusal} · `);
     await shot('retry-refused');
-    await inShadow(page, c => {
-      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
-      c.shadowRoot.querySelector('.upload-retry').focus({ preventScroll: true });
-    });
+    await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
+    await until(page, () => !document.querySelector('aithema-session').session.paused);
+    await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').focus({ preventScroll: true }));
     await page.evaluate(() => { window.failUploads = false; });
     const retryStart = await page.evaluate(() => window.uploadAttempts.length);
     await page.keyboard.press('Enter');
@@ -1546,6 +1536,34 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       rows: [...c.shadowRoot.querySelectorAll('ol > .turn:not(.partial)')].map(row => ({ id: row.dataset.id, content: row.querySelector('.turn-text').textContent })),
     }));
     for (const turn of transcript.turns) assert.equal(transcript.rows.filter(row => row.id === turn.id).length, 1, `one rendered row for turn ${turn.id}`);
+    // Isolate the card fixture after real uploads settle. Its question must not consume a real journal sequence.
+    await inShadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
+      const session = c.session, german = session.locale === 'de';
+      session.transcript.push({ id: 'ait219-question', role: 'assistant',
+        content: german ? 'Wer nutzt die App?' : 'Who will use the app?',
+        question_short: german ? 'Wer nutzt die App?' : 'Who will use the app?',
+        options: [{ text: german ? 'Unsere Kundschaft' : 'Our customers' }], inputRevision: inputRevision(session) });
+      const original = window.fetch.bind(window);
+      window.fetch = async (url, options = {}) => {
+        const path = new URL(url, location.href).pathname;
+        if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        if (/^\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
+        return original(url, options);
+      };
+      c.configure({ copy: german ? de : en, session });
+      window.failUploads = true;
+    });
+    await settle();
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), false);
+    const cardControls = await geometry();
+    const cardChooser = await uploadChooser(page); await cardChooser.accept(paths.slice(0, 1));
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status__label').parentNode.matches('.composer-dock'));
+    const questionToast = await toastGeometry(); await shot('question-toast');
+    await sameControls(cardControls, 'toast with question card');
     if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, refusal, baseline, toast, questionToast, resent, transcript }, null, 2));
     assert.deepEqual(problems, []);
     t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; paused Try again shows its refusal with Discard; toast gap 8 px above dock and question card, no card/composer/button intersection; one DOM row per turn.`);

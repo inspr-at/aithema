@@ -88,7 +88,7 @@ export class AithemaSession extends HTMLElement {
   #paneObserver; #scrollTimers = new Map();
   #questionCard; #disposeVersion;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
-  #uploadController; #uploadRetryTimer = null; #retryFiles = [];
+  #uploadController; #uploadRetryTimer = null; #retryFiles = []; #retryRefused = false;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -352,7 +352,7 @@ export class AithemaSession extends HTMLElement {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       if (e.key === 'Enter' && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.#send(); }
     });
-    root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice) { this.#uploadNotice = ''; this.#render('composer'); } });
+    root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice && !this.#retryFiles.length) { this.#uploadNotice = ''; this.#render('composer'); } });
     this.#mountUploads();
     root.querySelector('.expand').addEventListener('click', () => {
       const details = [...root.querySelectorAll('.cleared details')];
@@ -880,13 +880,19 @@ export class AithemaSession extends HTMLElement {
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       if (this.#retryFiles.length) {
         if (!reason.querySelector('.upload-retry')) {
-          const label = node('span'), action = node('button', 'consent-action upload-retry');
+          const label = node('span'), action = node('button', 'consent-action upload-retry'), discard = node('button', 'consent-action upload-discard');
           label.id = 'upload-retry-reason'; action.type = 'button'; action.setAttribute('aria-describedby', label.id);
-          action.addEventListener('click', () => { void this.#attach(this.#retryFiles); });
-          reason.replaceChildren(label, action);
+          action.addEventListener('click', () => { void this.#attach(this.#retryFiles, true); });
+          discard.type = 'button'; discard.setAttribute('aria-describedby', label.id);
+          discard.addEventListener('click', () => {
+            this.#retryFiles = []; this.#retryRefused = false; this.#uploadNotice = ''; this.#render('composer');
+          });
+          reason.replaceChildren(label, action, document.createTextNode(' · '), discard);
         }
-        setText(reason.querySelector('span'), `${plural(copy.uploads.notUploaded, this.#retryFiles.length)} · `);
+        const facts = [this.#uploadNotice, !this.#retryRefused && plural(copy.uploads.notUploaded, this.#retryFiles.length)];
+        setText(reason.querySelector('span'), `${facts.filter(Boolean).join(' · ')} · `);
         setText(reason.querySelector('.upload-retry'), copy.uploads.tryAgain);
+        setText(reason.querySelector('.upload-discard'), copy.uploads.discard);
       } else setText(reason, words);
       reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
@@ -1590,7 +1596,7 @@ export class AithemaSession extends HTMLElement {
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
   }
-  #uploadRefusal(text) { this.#uploadNotice = text; this.#render('composer'); }
+  #uploadRefusal(text) { this.#uploadNotice = text; this.#retryRefused = Boolean(this.#retryFiles.length); this.#render('composer'); }
   // Limits are the host's (possibly lowered) values; the route defaults hold until they arrive.
   #loadLimits() {
     if (this.#limitsLoad) return this.#limitsLoad;
@@ -1607,20 +1613,22 @@ export class AithemaSession extends HTMLElement {
     this.#limitsLoad = load;
     return load;
   }
-  async #attach(files) {
+  async #attach(files, retry = false) {
     if (!files.length || !this.isConnected) return;
     const copy = this.#copy, sessionId = this.#session.id, refusal = this.#attachRefusal();
     if (refusal) { this.#uploadRefusal(refusal); return; }
     const controller = new AbortController(); this.#uploadController = controller;
     const current = () => !controller.signal.aborted && sessionId === this.#session.id && this.isConnected;
-    this.#retryFiles = []; this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
+    // An admitted new pick replaces the retained set explicitly; a retry reuses that set.
+    const replacement = !retry && this.#retryFiles.length ? copy.uploads.replaced : '';
+    this.#retryFiles = []; this.#retryRefused = false; this.#uploading = true; this.#uploadNotice = replacement; this.#render('composer');
     try {
       await this.#loadLimits();
       if (!current()) return;
       // The host's limits may have arrived just now and leave no room: nothing is sent.
-      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = copy.uploads.impossible; return; }
+      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(' · '); return; }
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
-      const notices = [refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
+      const notices = [replacement, refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0;
@@ -1638,7 +1646,7 @@ export class AithemaSession extends HTMLElement {
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
-      this.#uploadNotice = notices.filter(Boolean).join(' ');
+      this.#uploadNotice = notices.filter(Boolean).join(' · ');
     } finally {
       if (this.#uploadController === controller) {
         this.#uploadController = null; this.#uploading = false;
@@ -1648,7 +1656,7 @@ export class AithemaSession extends HTMLElement {
   }
   #cancelUploads() {
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
-    this.#retryFiles = []; this.#uploadController?.abort();
+    this.#retryFiles = []; this.#retryRefused = false; this.#uploadController?.abort();
   }
   #waitForUploadRetry(delay, signal) {
     if (signal.aborted) return Promise.resolve();
