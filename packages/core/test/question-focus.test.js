@@ -40,3 +40,12 @@ test('a selected public question is not classified as leaked private host guidan
   assert.equal(unsafeReplyOutput(JSON.stringify({ content: question, question_short: question, options: [], scope: 'in' }),
     request.purposePolicy, request.hiddenGuidance), false);
 });
+
+test('snapshot question items follow SSE assessment replacement and erase on withdrawal', () => {
+  const initial = assessed(); initial.openQuestionItems = openQuestionItems(initial);
+  const replaced = applyEvent(initial, { seq: 3, type: 'understanding.updated', data: { ...initial.understanding, openQuestions: ['Budget?'] } });
+  assert.deepEqual(replaced.openQuestionItems, openQuestionItems(replaced));
+  assert.equal(replaced.openQuestionItems[0].question, 'Budget?');
+  const withdrawn = applyEvent(replaced, { seq: 4, type: 'turn.withdrawn', data: { turnId: 'person' } });
+  assert.deepEqual(withdrawn.openQuestionItems, []);
+});

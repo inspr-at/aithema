@@ -1,9 +1,8 @@
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
-import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
+import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
 import { ReplyStream } from '../../core/src/reply.js';
-import { openQuestionItems } from '../../core/src/question-focus.js';
 import { deliverFocusedReply } from './focused-reply.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';

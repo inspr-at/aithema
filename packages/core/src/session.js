@@ -10,6 +10,15 @@ const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]
   !['content', 'question_short', 'options', 'origin', 'model', 'provider', 'engine'].includes(key)));
 export const inputRevision = session => `${session.inputRevision}:${session.conversationConsentRevision ?? session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
+/** IDs belong to one assessment, including replacements at the same input revision. */
+export function openQuestionItems(session) {
+  if (session.tombstone || session.consentWithdrawn || session.understanding.draft ||
+    session.understanding.inputRevision !== inputRevision(session)) return [];
+  return (session.understanding.openQuestions ?? []).map((question, index) => ({
+    id: `q-${session.questionRevision ?? 0}-${index}`, question,
+  }));
+}
+
 function latestReply(session) {
   if (session.tombstone || session.consentWithdrawn) return null;
   const turn = activeTurns(session).at(-1);
@@ -174,5 +183,7 @@ export function applyEvent(session, event) {
     next.conceptIntent = intent;
   }
   next.seq = event.seq;
+  // Snapshot-only convenience data must never retain stale or withdrawn text.
+  if ('openQuestionItems' in next) next.openQuestionItems = openQuestionItems(next);
   return next;
 }

@@ -1,13 +1,5 @@
-import { inputRevision } from './session.js';
-
-/** IDs belong to one assessment, including replacements at the same input revision. */
-export function openQuestionItems(session) {
-  if (session.tombstone || session.consentWithdrawn || session.understanding.draft ||
-    session.understanding.inputRevision !== inputRevision(session)) return [];
-  return (session.understanding.openQuestions ?? []).map((question, index) => ({
-    id: `q-${session.questionRevision ?? 0}-${index}`, question,
-  }));
-}
+import { inputRevision, openQuestionItems } from './session.js';
+export { openQuestionItems } from './session.js';
 
 export function pendingQuestionFocus(session) {
   const focus = session.questionFocus;

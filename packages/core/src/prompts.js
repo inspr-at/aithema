@@ -71,6 +71,6 @@ A question without useful choices has options: []. With no question, use questio
     documentMessageIndex: uploads ? 1 : null,
     draft, locale: session.locale, preset: session.preset, ...(cardReply ? { schema } : {}), ...(policy ? { purposePolicy: policy, offTopicTurns,
       // The host prompt is trusted private guidance. Only the separately supplied
-      // public policy.purpose is excluded from the instructions checked for leaks.
+      // public policy.purpose and selected question text are excluded from leak checks.
       hiddenGuidance: [GENERIC_POLICY, hostPrompt, hiddenPurposeGuidance(policy, session), responseGuidance].join('\n') } : {}) };
 }
