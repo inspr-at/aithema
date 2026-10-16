@@ -41,7 +41,8 @@ function boundedSocket(signal) {
   };
 }
 
-async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), leaseMs = 600_000, spendMs = 600_000 } = {}) {
+async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), leaseMs = 600_000, spendMs = 600_000,
+  fragmentCharacters = 240, format = 'pcm_s16le', onAudio, retainAudio = true } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const published = [], events = [], silences = [], reports = [], sockets = [];
   const release = Promise.withResolvers();
@@ -50,8 +51,8 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
     connect: ({ signal }) => { const socket = boundedSocket(signal); socket.openedAt = Date.now(); sockets.push(socket); return socket; } });
   let turns = 0;
   const coordinator = createComposedVoiceCoordinator({ sessionId: 'provider-pacing', callId: 'provider-pacing', tts,
-    spendDeadlineAt: Date.now() + spendMs, browserLivenessDeadlineAt: Date.now() + leaseMs,
-    outputFormat: 'pcm_s16le', outputAudioFormat: { encoding: 'pcm_s16le', sampleRateHz: 24_000, channels: 1 },
+    spendDeadlineAt: Date.now() + spendMs, browserLivenessDeadlineAt: Date.now() + leaseMs, maxDurationSeconds: 3600, fragmentCharacters,
+    outputFormat: format, outputAudioFormat: { encoding: format, sampleRateHz: 24_000, channels: 1 },
     stt: { async *stream({ audio }) { for await (const _ of audio) { /* drain ingress */ } yield { text: ++turns === 1 ? 'Ja' : '', final: true }; } },
     replyExecutor: { async *execute() {
       yield { type: 'operation', replyId: 'reply' }; yield { type: 'delta', text };
@@ -59,7 +60,7 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
     } }, authorize: async () => true, commitUtterance: async () => {},
     admitComponent: async ({ role }) => ({ attempt: { attemptId: role, claimId: 'claim', maxMicro: 100_000, consume() {} }, report: value => reports.push(value) }),
     relay: { event: value => events.push(value), silence: value => silences.push(value),
-      audio: value => { published.push({ ...value, at: Date.now() }); if (blockRelay) return release.promise; } } });
+      audio: value => { onAudio?.(value); if (retainAudio) published.push({ ...value, at: Date.now() }); if (blockRelay) return release.promise; } } });
   t.after(async () => { await coordinator.close(); release.resolve(); await coordinator.idle(); });
   await coordinator.receiveAudio(speech()); await coordinator.receiveAudio(Buffer.alloc(16_000)); await tick();
   return { coordinator, published, events, silences, reports, sockets,
@@ -136,18 +137,73 @@ test('AIT-258: bounded provider cancellation closes the socket and finishes one 
   assert.equal(h.published.length, count, 'late provider audio cannot refill a dropped queue');
 });
 
-test('AIT-258: overlap queue accepts two 16 MB speaks then fails closed with limit', async t => {
-  let aborted = false, speaks = 0;
-  const h = await setup(t, { blockRelay: true, text: 'First. Second. Third. ', tts: { async *speak(_, { signal }) {
-    const index = ++speaks;
-    signal.addEventListener('abort', () => { aborted = true; }, { once: true });
-    for (let i = 0; i < (index <= 2 ? 250 : 1); i++) yield Buffer.alloc(64_000);
-  } } });
-  await tick();
-  assert.equal(speaks, 3, 'both full per-speak ceilings fit, including the chunk held by the blocked pacer');
-  assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'limit'));
-  assert.equal(h.published.length, 1); assert.equal(aborted, true);
-});
+// 30,000 characters also exceeds the former 32 MB backlog at 10x synthesis.
+for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 240], ['pcm_f32le', 1000]]) {
+  test(`AIT-258: ${format} ${fragmentCharacters}-character fragments keep 30,000 characters at 10x TTS within two buffers`, async t => {
+    const bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
+    const fragmentBytes = fragmentCharacters / 12 * bytesPerSecond;
+    const dispatches = [], terminals = [], relayed = [], spoken = [];
+    let buffered = 0, peak = 0, open = 0, produced = 0, delivered = 0, firstAt, lastAt;
+    const h = await setup(t, { format, fragmentCharacters, text: 'a'.repeat(30_000), retainAudio: false,
+      leaseMs: 3_600_000, spendMs: 3_600_000,
+      onAudio({ bytes }) {
+        const index = bytes[0] - 1;
+        relayed[index] = (relayed[index] ?? 0) + bytes.length;
+        buffered -= bytes.length; delivered += bytes.length;
+        firstAt ??= Date.now(); lastAt = Date.now();
+      },
+      tts: { async *speak({ text }, opts) {
+        const index = dispatches.length;
+        assert.equal(++open, 1, 'only one open TTS provider');
+        if (index >= 2) assert.equal(relayed[index - 2], spoken[index - 2], 'N+2 must wait for N last relayed frame');
+        dispatches.push(Date.now());
+        spoken[index] = text.length / 12 * bytesPerSecond;
+        try {
+          for (let offset = 0; offset < spoken[index];) {
+            const size = Math.min(bytesPerSecond / 2, spoken[index] - offset);
+            // Half a second of speech arrives in 50 ms: exactly 10x real time.
+            if (offset) await new Promise(resolve => setTimeout(resolve, 50));
+            opts.signal.throwIfAborted();
+            buffered += size; produced += size; peak = Math.max(peak, buffered);
+            assert.ok(buffered <= 2 * fragmentBytes, 'retained PCM never exceeds two fragments');
+            offset += size; yield Buffer.alloc(size, index + 1);
+          }
+          terminals.push(Date.now());
+        } finally { open--; }
+      } } });
+    const started = Date.now();
+    await h.advance(2_550_000); await h.coordinator.idle();
+    assert.equal(dispatches.length, Math.ceil(30_000 / fragmentCharacters));
+    assert.equal(terminals.length, dispatches.length);
+    assert.equal(dispatches[1], terminals[0], 'N+1 opens at the previous provider terminal');
+    assert.equal(firstAt, started, 'first frame is immediate');
+    assert.equal(delivered, 30_000 / 12 * bytesPerSecond);
+    assert.equal(delivered, produced); assert.equal(buffered, 0);
+    assert.ok(peak <= 2 * fragmentBytes);
+    assert.ok(peak < 2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000, 'never reaches the derived queue ceiling');
+    assert.ok(lastAt - firstAt >= 2_499_000, 'one-second lead spans the whole reply');
+    assert.equal(h.coordinator.state.state, 'active');
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatches.length, 'accounting once per speak');
+  });
+}
+
+for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 240], ['pcm_f32le', 1000]]) {
+  test(`AIT-258: ${format} ${fragmentCharacters}-character single fragment exceeding derived bound fails with limit`, async t => {
+    const bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
+    const bound = 2 * (fragmentCharacters / 4 * bytesPerSecond) + 64_000;
+    let aborted = false, speaks = 0;
+    const h = await setup(t, { format, fragmentCharacters, blockRelay: true, text: 'a'.repeat(fragmentCharacters),
+      tts: { async *speak(_, { signal }) {
+        speaks++; signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+        for (let bytes = 0; bytes <= bound; bytes += 64_000) yield Buffer.alloc(64_000);
+      } } });
+    await tick();
+    assert.equal(speaks, 1);
+    assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'limit'));
+    assert.equal(h.published.length, 1); assert.equal(aborted, true);
+  });
+}
 
 test('AIT-258: server reply queue also bounds tiny-chunk metadata', async t => {
   const h = await setup(t, { blockRelay: true, tts: { async *speak() { for (let i = 0; i < 1025; i++) yield Buffer.alloc(2); } } });
@@ -163,7 +219,7 @@ for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', '
       const index = ++speaks;
       signal.addEventListener('abort', () => { aborted = true; }, { once: true });
       try {
-        for (let i = 0; i < 250; i++) yield Buffer.alloc(64_000);
+        for (let i = 0; i < 40; i++) yield Buffer.alloc(64_000);
         if (index === 1) return;
         filled.resolve(); await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
       } finally { if (index === 2) finished = true; }
