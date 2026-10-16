@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { browserWorkload, p95, measuredSeconds, parseTimingArtifact, updateMeasurement, assertMeasuredWeight } from '../scripts/browser-timings.js';
 
 const workload = 'a'.repeat(64), sha = 'b'.repeat(40), file = 'test/browser/example.test.js';
@@ -73,4 +75,27 @@ test('workload fingerprints follow test helpers and fixtures without including p
   assert.equal(browserWorkload(file, root), before);
   writeFileSync(join(root, 'test/fixtures/server.js'), 'fixture two');
   assert.notEqual(browserWorkload(file, root), before);
+});
+
+test('the actual Node reporter records the parent once and rejects a real failed run', t => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-timing-reporter-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  const reporter = fileURLToPath(new URL('../scripts/browser-timing-reporter.js', import.meta.url));
+  const run = source => {
+    writeFileSync(join(root, file), source);
+    return spawnSync(process.execPath, ['--test', `--test-reporter=${reporter}`, file], { cwd: root, encoding: 'utf8',
+      env: { PATH: process.env.PATH, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', GITHUB_SHA: sha, BROWSER_TIMING_FILES: JSON.stringify([file]) } });
+  };
+  const passed = run("const { test } = require('node:test'); test('parent', async t => { await t.test('child', async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); });");
+  assert.equal(passed.status, 0, passed.stderr);
+  const observed = parseTimingArtifact(passed.stdout)[file];
+  assert.equal(observed.sample.tests.length, 1);
+  assert.equal(observed.sample.tests[0].name, 'parent');
+  assert.ok(observed.sample.tests[0].seconds >= 0.02, 'parent includes the real nested duration');
+  assert.equal(observed.workload, browserWorkload(file, root));
+  const failed = run("const { test } = require('node:test'); test('failed', () => { throw new Error('intentional timing fixture failure'); });");
+  assert.equal(failed.status, 1);
+  assert.match(failed.stdout, /intentional timing fixture failure/u);
+  assert.throws(() => parseTimingArtifact(failed.stdout), /failed/u);
 });
