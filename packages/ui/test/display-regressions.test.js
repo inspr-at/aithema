@@ -16,13 +16,13 @@ const bytes = new TextEncoder().encode('<!doctype html><html><head><title>Popula
 const artifact = (mediaType = 'text/html') => ({ id: 'draft1', mediaType, turnIds: ['source'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } });
 
-function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse } = {}) {
+function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse, visuals = { available: true }, kind = 'html' } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.settings = { ...session.settings, origin: 'chosen', model, effort: 'none', voice: 'off', visuals: 'off' };
   if (label !== undefined) session.engine = { preset: 'best', model: { id: model, label, offered } };
   session.transcript = concepts.length ? [{ id: 'source', role: 'user', content: 'A populated interactive draft' }] : [];
-  session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = 'html';
-  session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'html', 'images'].map(key => [key, { available: true }])) };
+  session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = kind;
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: visuals, images: visuals } };
   const calls = [];
   t.mock.method(URL, 'createObjectURL', () => 'blob:canvas-regression');
   t.mock.method(URL, 'revokeObjectURL', () => {});
@@ -206,3 +206,27 @@ test('AIT-131: detach removes the conversations outside-click listener and reatt
   document.body.click(); assert.equal(root.querySelector('.conversations-menu').hidden, true);
   c.remove(); document.body.append(c); assert.deepEqual(counts(), { click: 1 }, 'another reconnect does not duplicate the listener');
 });
+
+for (const copy of [de, en]) for (const kind of ['html', 'image']) {
+  test(`AIT-229: ${copy === de ? 'DE' : 'EN'}/${kind} no-drafts host keeps transcript through fold attempts and incoming replies`, t => {
+    const { c, root } = fixture(t, { copy, kind, concepts: [], visuals: { available: false, reason: 'not configured' } });
+    // Exercise both the ordinary conversation and the final open-question card.
+    for (const options of [[], [{ text: 'Yes' }, { text: 'No' }]]) {
+      receive(c, 'turn.final', { id: `question-${options.length}`, role: 'assistant', content: 'Which option?', question_short: 'Which option?', options });
+      root.querySelector('.fold').click();
+      assert.equal(root.querySelector('.conversation').hidden, false, 'the transcript owns the space');
+      assert.equal(root.querySelector('.fold-view').hidden, true, 'no empty canvas or promise');
+      assert.equal(root.querySelector('.workspace').hasAttribute('data-folded'), false);
+      assert.equal(root.querySelector('.concept-activity-text').textContent, copy.display.draftsOff);
+    }
+  });
+  test(`AIT-229: ${copy === de ? 'DE' : 'EN'}/${kind} configured host can show empty canvas without a price quote`, t => {
+    const { root } = fixture(t, { copy, kind, concepts: [] });
+    root.querySelector('.fold').click();
+    assert.equal(root.querySelector('.conversation').hidden, true);
+    assert.equal(root.querySelector('.fold-view').hidden, false);
+    assert.equal(root.querySelector('.canvas-empty span').textContent, copy.layout.canvasEmpty);
+    root.querySelector('.fold-strip').click();
+    assert.equal(root.querySelector('.conversation').hidden, false);
+  });
+}

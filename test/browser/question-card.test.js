@@ -665,3 +665,102 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           latestReplyClearancePx: bounded.top - bounded.bubbleBottom, transcriptClearancePx: bounded.top - bounded.shellBottom })) }, null, 2));
     }
   });
+
+// One page and one server for the full matrix; no provider calls or repeated navigation.
+test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-no-drafts-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  t.after(() => demo.kill());
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+  t.after(() => browser.close());
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    void (async () => {
+      const path = new URL(request.url()).pathname;
+      if (path.endsWith('/events')) return request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' });
+      if (/^\/api\/sessions\/[^/]+$/u.test(path) && request.method() === 'GET') {
+        const snapshot = await page.evaluate(() => globalThis.noDraftsSnapshot);
+        if (snapshot) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot) });
+      }
+      await request.continue();
+    })().catch(error => { globalThis.noDraftsInterceptionError = error; });
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
+      const c = document.querySelector('aithema-session'), copy = { en, de }[locale], session = c.session;
+      session.paused = false; session.pauseReason = null; session.locale = locale; session.settings.origin = 'chosen'; session.concepts = []; session.conceptVisualKind = 'html';
+      session.transcript = [{ id: 'source', role: 'user', content: locale === 'de' ? 'Ein Onlineshop für handgestickte Polster.' : 'An online shop for hand-embroidered cushions.' }];
+      session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, html: { available: false, reason: 'not configured' }, images: { available: false, reason: 'not configured' } };
+      globalThis.noDraftsCopy = copy; globalThis.noDraftsSnapshot = session;
+      c.configure({ copy, session });
+      c.dispatchEvent(new CustomEvent('aithema-locale')); document.documentElement.lang = locale; paintUtilities(copy);
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      globalThis.noDraftsReply = options => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: `question-${c.session.seq}`, role: 'assistant', content: locale === 'de' ? 'Sollen Kunden selbst wählen?' : 'Should customers choose for themselves?',
+        question_short: locale === 'de' ? 'Selbst wählen?' : 'Choose for themselves?', options,
+      } });
+    }, locale);
+    const label = `${locale}-${theme}-${width}`;
+    const shot = async state => {
+      if (!evidence) return;
+      await page.mouse.move(-1, -1);
+      await shadow(page, async c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+        await Promise.all(c.shadowRoot.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      });
+      await nextFrame(page);
+      await page.screenshot({ path: join(evidence, `ait-229-${label}-${state}.png`), fullPage: false });
+    };
+    for (const question of [false, true]) {
+      await page.evaluate(question => globalThis.noDraftsReply(question ? [{ text: 'Yes' }, { text: 'No' }] : []), question);
+      await nextFrame(page);
+      const before = await boxes(page, ['.transcript-shell', '.composer', '.display-foot']);
+      await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await nextFrame(page);
+      const state = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return { folded: r.querySelector('.workspace').hasAttribute('data-folded'), transcript: r.querySelector('.conversation').checkVisibility(),
+          canvas: r.querySelector('.drafts-canvas').checkVisibility(), notice: r.querySelector('.concept-activity-text').textContent,
+          expected: globalThis.noDraftsCopy.display.draftsOff, promiseVisible: r.querySelector('.canvas-empty').checkVisibility() };
+      });
+      assert.equal(state.folded, false, `${label}/${question}: no fold into empty drafts`);
+      assert.equal(state.transcript, true); assert.equal(state.canvas, false); assert.equal(state.promiseVisible, false);
+      assert.equal(state.notice, state.expected);
+      still(before, await boxes(page, ['.transcript-shell', '.composer', '.display-foot']), `${label}/no-drafts-fold`);
+      await shot(question ? 'no-drafts-question' : 'no-drafts-transcript');
+    }
+    // Reconfigure with a real capability, then remove it through the actual feature-refresh path.
+    await shadow(page, c => {
+      const session = c.session; session.featureMatrix.best.html = { available: true }; delete session.conceptCost;
+      globalThis.noDraftsSnapshot = session; c.configure({ copy: globalThis.noDraftsCopy, session });
+      c.shadowRoot.querySelector('.fold').click();
+    });
+    await nextFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.drafts-canvas').checkVisibility()), true);
+    await shot('drafts-configured');
+    await shadow(page, c => {
+      globalThis.noDraftsSnapshot = c.session;
+      globalThis.noDraftsSnapshot.featureMatrix.best.html = { available: false, reason: 'not configured' };
+      globalThis.noDraftsSnapshot.seq += 1; globalThis.noDraftsSnapshot.paused = true;
+      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+    });
+    await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.html.reason === 'not configured');
+    await nextFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').checkVisibility()), true, `${label}: removal unfolds`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.drafts-canvas').checkVisibility()), false);
+    await shot('drafts-removed'); checks.push({ locale, theme, width, shiftPx: 0 });
+  }
+  if (globalThis.noDraftsInterceptionError) throw globalThis.noDraftsInterceptionError;
+  if (evidence) await writeFile(join(evidence, 'ait-229-checks.json'), JSON.stringify({ checks, viewport: true, reducedMotion: true, blurred: true, fontStack: 'Chrome baseline' }, null, 2));
+});
