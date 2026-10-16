@@ -226,4 +226,3 @@ test('normal persistent consent ledger covers the exact selected component, reas
   storage.reviseConsent(session.id, false);
   assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope(binding.stt, 'stream')), false);
 });
-
