@@ -5,7 +5,7 @@ import { createBinding, consentCoverage, processingScope, deepFreeze } from '@in
 import { PluginError } from '@inspr/aithema-core/invocation';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { createVoiceReplyExecutor, createVoiceTurnOperations } from '@inspr/aithema-server';
-import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
+import { createOpenRouterReasoning, manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
 import { createElevenLabsSTT, createElevenLabsTTS, TTS_FORMAT } from '../../elevenlabs/src/components.js';
 import { createComposedVoice } from '../src/server.js';
 import { normalizeQualificationEntity } from '../src/qualification.js';
@@ -49,7 +49,7 @@ export function validateQualificationBinding(raw) {
     if (b.stt.model !== 'scribe_v2_realtime' || !amount(b.stt.microPerSecond) ||
       b.tts.model !== 'eleven_flash_v2_5' || !id(b.tts.voiceId) || !amount(b.tts.microPerCharacter) ||
       !id(b.baseline.agentId) || b.baseline.model !== b.baseline.agentId || !amount(b.baseline.microPerMinute) ||
-      !b.reasoning.model?.includes('/') || !amount(b.reasoning.maxMicro) ||
+      !b.reasoning.model?.includes('/') || !openRouterManifest.models[0].efforts.includes(b.reasoning.effort) || !amount(b.reasoning.maxMicro) ||
       !Number.isSafeInteger(b.reasoning.maxTokens) || b.reasoning.maxTokens < 1 ||
       !Number.isSafeInteger(b.reasoning.maxInputTokens) || b.reasoning.maxInputTokens < 1 ||
       ![b.reasoning.rates?.inputMicro, b.reasoning.rates?.outputMicro].every(amount)) invalidBinding();
@@ -119,7 +119,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       const sampleSignal = signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal;
       const deadlineAt = Date.now() + binding.maxDurationSeconds * 1000, rows = [], jobs = new Set();
       const answer = Promise.withResolvers(); answer.promise.catch(() => {});
-      let sample, closing, hypothesis, pcmBytes = 0;
+      let sample, closing, expiry, hypothesis, pcmBytes = 0;
       const chunks = []; let revision;
       const relevant = lane === 'candidate' ? ['stt', 'tts', 'reasoning'] : ['baseline'];
       const authorize = async () => {
@@ -165,7 +165,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       async function close() {
         if (closing) return closing;
         const done = Promise.withResolvers(); closing = done.promise;
-        cancellation.abort();
+        clearTimeout(expiry); cancellation.abort();
         void (async () => {
           try {
             await sample?.close();
@@ -185,6 +185,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
         return closing;
       }
       const aborted = () => { void close().catch(() => {}); };
+      expiry = setTimeout(aborted, Math.max(0, deadlineAt - Date.now()));
       try {
         revision = storage.authorize(sessionId, owner).consentRevision;
         await authorize();
@@ -222,7 +223,10 @@ async function startCandidateSample(p) {
         let text = '', retryOf;
         for (let index = 0; index < binding.reasoningAttempts; index++) {
           worker.beforeAdmission();
-          const opts = await admission('reasoning', request, reasoning.estimateUncertainCost(request, 'stream'), retryOf);
+          const wireRequest = { model: binding.reasoning.model,
+            messages: [{ role: 'system', content: '' }, ...request.messages], max_tokens: binding.reasoning.maxTokens,
+            ...reasoning.providerOptions(true), stream: true };
+          const opts = await admission('reasoning', wireRequest, reasoning.estimateUncertainCost(request, 'stream'), retryOf);
           if (retryOf) worker.retry('qualification-transport-retry');
           const originalConsume = opts.attempt.consume;
           opts.attempt.consume = async () => {

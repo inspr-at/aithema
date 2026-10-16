@@ -26,7 +26,7 @@ test('live server refuses missing and malformed money binding at construction', 
     const binding = liveBinding(); delete binding[role];
     assert.throws(() => validateQualificationBinding(binding), /binding/i);
   }
-  for (const [role, field, value] of [['stt', 'microPerSecond', undefined], ['tts', 'voiceId', ''],
+  for (const [role, field, value] of [['reasoning', 'effort', 'unsupported'], ['stt', 'microPerSecond', undefined], ['tts', 'voiceId', ''],
     ['baseline', 'agentId', ''], ['reasoning', 'model', ''], ['tts', 'microPerCharacter', -1]]) {
     const binding = liveBinding(); binding[role][field] = value;
     assert.throws(() => validateQualificationBinding(binding), /binding/i);
@@ -108,6 +108,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       }
       observed('reasoning'); assert.equal(init.headers.authorization, `Bearer ${sentinel}`);
       assert.equal(JSON.parse(init.body).model, liveBinding().reasoning.model);
+      assert.deepEqual(JSON.parse(init.body), specs.at(-1).request, 'admission digest covers actual reasoning wire body');
       if (retry && reasoningIndex++ === 0) return new Response('{}', { status: 503 });
       return new Response('data: {"id":"gen-fixture","choices":[{"delta":{"content":"Danke. "},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
     },

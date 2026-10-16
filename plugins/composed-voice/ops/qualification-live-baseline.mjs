@@ -54,7 +54,11 @@ export async function startBaselineSample(p) {
       attemptId: admitted.attempt.attemptId, claimId: admitted.attempt.claimId, maxMicro: admitted.attempt.maxMicro,
       exposureMicro: admitted.attempt.maxMicro, paused: false, pauses: [] };
     save();
-    socket = await voiceOperation(options, () => p.connect({ url: credential.signedUrl, signal }));
+    const opening = Promise.resolve().then(() => p.connect({ url: credential.signedUrl, signal })).then(async value => {
+      if (signal.aborted) { await value.close(); throw new PluginError('cancelled'); }
+      return value;
+    });
+    socket = await voiceOperation(options, () => opening);
     signal.throwIfAborted();
     relay = createComposedRelay({ callId, providerSessionId: record.providerSessionId, expiresAt: deadlineAt,
       spendDeadlineAt: deadlineAt, browserLivenessDeadlineAt: deadlineAt });

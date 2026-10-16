@@ -183,15 +183,15 @@ const qualificationMount = qualificationOps?.createQualificationMount({ ...quali
   control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
+  const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
+  const qualificationPath = new URL(request.url).pathname;
+  if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });
+  const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   const qualificationHold = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/(?:pause|consent|erase|settings|withdraw)$/u.exec(new URL(request.url).pathname);
   if (qualificationPorts.revokeSession && qualificationHold && request.method === 'POST') {
     try { storage.authorize(qualificationHold[1], ownership.token(request)); await qualificationPorts.revokeSession(qualificationHold[1]); }
     catch { return new Response(null, { status: 403 }); }
   }
-  const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
-  const qualificationPath = new URL(request.url).pathname;
-  if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });
-  const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: build.commit ?? deployment.commit, version: build.version, version_scheme: build.version_scheme, release_channel: build.release_channel, release_sequence: build.release_sequence, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
   const adminResponse = await adminHTTP.handle(request); if (adminResponse) return adminResponse;
