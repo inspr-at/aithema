@@ -103,7 +103,7 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci
-      - name: AIT-222 temporary 500 full-file repetitions
+      - name: AIT-222 temporary crash and complete-file repetitions
         run: |
           ulimit -c 0
           node scripts/extractor-crash-stress.js
