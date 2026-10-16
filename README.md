@@ -2270,7 +2270,8 @@ authoritative `limit {reason: 'session'|'voiceVisitor'|'host-limit'}` and `close
 with `now`. AIT-261 persists one guard per conversation in
 `conversation_credit_guards`. The first text turn or runtime admission starts
 its one-hour wall-clock deadline. New/reset get a fresh guard and retain the
-same owner wallet; pause, reconnect and recovery never extend a deadline.
+same owner wallet and manual pause preference; pause, reconnect and recovery
+never extend a deadline.
 Startup re-arms active deadlines and immediately expires overdue guards, including
 legacy owner guards migrated to their original conversation. State and terminal
 events commit in the same transaction. A timer emits `credits.limit-reached`
@@ -2278,8 +2279,10 @@ and `conversation.end-requested` with `one-hour` even without further traffic.
 Runtime admission checks before owner/ledger reservations, voice extensions and
 provider dispatch independently enforce expiry when the timer is delayed.
 Voice inherits the conversation deadline and ends through the existing close
-path. Dispatched text finishes and settles normally; expiry never releases or
-zeroes a reservation, including when usage remains unknown.
+path. Dispatched text finishes and settles normally; its reservation remains
+held through settlement, including when usage remains unknown. A deadline
+refusal before dispatch settles as cancelled at zero cost and releases any
+owner-wallet and voice-cap holds.
 A full outstanding hold only updates the view. An actual denial/elapsed guard
 emits one `conversation.end-requested`; the host stops fresh work, closes transport,
 settles outstanding claims and then records `closed`, preserving the transcript.
