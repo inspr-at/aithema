@@ -56,6 +56,8 @@
       "CI",
       "CI",
       "CI",
+      "CI",
+      "CI",
       "CI"
     ],
     "reason": "Linux headless Chrome sandbox selection"
