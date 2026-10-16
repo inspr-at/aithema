@@ -493,6 +493,11 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 });
                 assert.equal(fallback.visible && fallback.inside && fallback.height >= 44, true, `320px keeps a full read action in the band: ${JSON.stringify(fallback)}`);
                 assert.equal(fallback.text, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
+                const fallbackBoxes = await boxes(page, ['.band', '.qcard', '.composer']);
+                await shadow(page, c => c.shadowRoot.querySelector('.voice-read-full-mini').click());
+                assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open && c.shadowRoot.querySelector('.voice-reply-text').textContent === c.session.transcript.at(-1).content), true, 'the smallest viewport opens the complete current reply');
+                await shadow(page, c => { c.shadowRoot.querySelector('.voice-reply-dialog').close(); c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }); });
+                assert.deepEqual(await boxes(page, ['.band', '.qcard', '.composer']), fallbackBoxes, 'reading the full reply moves band, card and composer exactly 0 px');
               }
               await shot(`keyboard-${height}`, height);
               assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
