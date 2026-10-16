@@ -10,8 +10,6 @@ import { createImageBinding, imagePluginBinding } from './image-binding.js';
 import { localImagesImplementation } from './local-images.js';
 import { localHTMLImplementation } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
-import { buildMessages, callCeilingMicro } from '@inspr/aithema-plugin-claude-html/index';
-import { previousDocument } from '@inspr/aithema-plugin-claude-html/html-artifact';
 import { SQLiteBudgetLedger } from './budget.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
@@ -897,13 +895,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       // Image inputs have separate units; the host's bound includes decoded image
       // tokenization. Account qualification is responsible for this conservative cap.
       if (lane === 'concept' && !html && promptBytes > binding.imageCost.maxInputTokens) throw new PluginError('not-admitted', 'Image input ceiling');
-      let htmlCeiling;
-      if (html) {
-        const { feedback, previousArtifact, ...spec } = request;
-        const { messages } = buildMessages(spec, feedback, previousArtifact ? previousDocument(previousArtifact) : undefined);
-        htmlCeiling = binding.maxMicro === 0 ? 0 : callCeilingMicro(messages, binding);
-      }
-      const ceiling = html ? htmlCeiling : lane === 'concept' ? rates.maxInputTokens * rates.inputMicro + rates.maxOutputTokens * rates.outputMicro
+      // HTML providers own prompt serialization and exact request pricing. A host
+      // without an estimator reserves the entire admitted binding ceiling.
+      const ceiling = html ? (plugin.estimateCost ? plugin.estimateCost(request, operation) : binding.maxMicro)
+        : lane === 'concept' ? rates.maxInputTokens * rates.inputMicro + rates.maxOutputTokens * rates.outputMicro
         : plugin.estimateCost ? plugin.estimateCost(request, operation)
         : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
       const tokenCeiling = lane === 'concept' ? ceiling : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;

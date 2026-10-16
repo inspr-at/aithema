@@ -32,7 +32,10 @@
     "./safeguards": "./src/safeguards.js",
     "./reasoning": "./src/reasoning.js",
     "./reply-opener": "./src/reply-opener.js",
-    "./chat-completions": "./src/chat-completions.js"
+    "./chat-completions": "./src/chat-completions.js",
+    "./ui-html-prompt": "./src/ui-html-prompt.js",
+    "./ui-html-artifact": "./src/ui-html-artifact.js",
+    "./ui-image-artifact": "./src/ui-image-artifact.js"
   },
   "engines": {
     "node": ">=24"

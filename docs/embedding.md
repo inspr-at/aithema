@@ -40,6 +40,15 @@ Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
 Public release downloads need no consumer token. The Linux tag build tests the
 exact published tarballs; historical BSD candidate digests do not cover them.
 
+For HTML and images, the embedding host installs and registers
+`createClaudeHTML` (`@inspr/aithema-plugin-claude-html`) and/or
+`createOpenAIImages` (`@inspr/aithema-plugin-openai-images`) itself. Add their IDs
+and private bindings to the selected preset, mark HTML choices `kind: 'html'`,
+and supply authoritative consent covering their exact processing scopes. Claude
+provides `estimateCost` for exact admission pricing; other HTML adapters may
+provide it or reserve the full binding ceiling. See `demo/visual-plugins.js` and
+`demo/server.js` for host composition. The server does not load provider defaults.
+
 The host supplies durable storage, authoritative identity/ownership and consent,
 and budget policy. The server and UI are mounted independently; the demo is
 an example host, not a dependency of START. A mock-only host can compose them as

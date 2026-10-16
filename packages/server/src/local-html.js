@@ -1,5 +1,16 @@
 import { deepFreeze, beginInvocation, operationScope, verifyHTMLArtifact, PluginError } from '@inspr/aithema-core';
-import { manifest as htmlManifest, htmlArtifact, buildMessages, revisionOf } from '@inspr/aithema-plugin-claude-html/index';
+import { htmlArtifact, previousDocument } from '@inspr/aithema-core/ui-html-artifact';
+import { buildMessages, revisionOf } from '@inspr/aithema-core/ui-html-prompt';
+
+// Deterministic adapters own their metadata; no provider plugin supplies defaults.
+const manifest = deepFreeze({ id: 'fake-html', version: '0.0.0', apiVersion: '^1.0.0',
+  kinds: ['ui-generation'], placement: 'server', entrypoints: { server: './src/index.js' },
+  configSchema: { type: 'object', properties: {}, additionalProperties: false }, vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
+  models: [{ id: 'deterministic-html', operations: ['generate', 'edit'], streaming: false, structured: false,
+    efforts: ['none'], languages: ['en', 'de'], germanQuality: 'unverified', formats: ['text/html'],
+    processingLocations: ['unverified'], qualification: 'unverified', expiresAt: null,
+    evidence: ['https://openrouter.ai/anthropic'],
+    cost: { unit: 'token', inputMicro: null, outputMicro: null, reviewedAt: null } }] });
 
 // No public enrollment: a copied generate cannot authorize another edit.
 const implementations = new WeakMap();
@@ -41,8 +52,13 @@ export function createLocalHTML({ now = () => 0 } = {}) {
     } finally { try { await invocation?.finish(completed); } finally { scope.dispose(); } }
   }
   const generate = (spec, feedback, options) => run('generate', spec, feedback, options);
-  const plugin = Object.freeze({ manifest: deepFreeze({ ...htmlManifest, id: 'fake-html', vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
-    models: [{ ...htmlManifest.models[0], id: 'deterministic-html' }] }), label: 'Fake HTML — local deterministic click-dummy, no provider network',
+  const plugin = Object.freeze({ manifest, label: 'Fake HTML — local deterministic click-dummy, no provider network',
+    estimateCost(request) {
+      if (!request) return 0;
+      const { feedback = '', previousArtifact, ...spec } = request;
+      buildMessages(spec, feedback, previousArtifact ? previousDocument(previousArtifact) : undefined);
+      return 0;
+    },
     generate, edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),
     async health(options) { options.signal?.throwIfAborted(); return { available: true }; } });
   implementations.set(generate, plugin); return plugin;

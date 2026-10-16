@@ -4,14 +4,12 @@ import { createOperatorSessions, createSQLiteOperatorStore } from '@inspr/aithem
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
-import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
+import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
-import { createOpenAIImages } from '@inspr/aithema-plugin-openai-images';
-import { imagePluginBinding } from '@inspr/aithema-server';
 import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
 import { HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core/ui-html';
@@ -27,7 +25,7 @@ import { createProcessingConsent } from './processing-consent.js';
 import { prepareVoiceRuntime, voiceRuntimePorts } from './voice-availability.js';
 import { openRouterConfig } from './openrouter-config.js';
 import { htmlConfig } from './html-config.js';
-import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
+import { htmlPlugin as configureHTML, imagePlugin as configureImages } from './visual-plugins.js';
 import { registerDemoExtractors } from './uploads.js';
 import { createDemoHost } from './host-ports.js';
 import { VISITOR_CREDIT_CEILING_MICRO } from './visitor-credits.js';
@@ -88,9 +86,8 @@ const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provid
 const understandingBinding = openrouter?.understanding ?? privateBinding;
 const spendCap = provider === 'openrouter' || html.mode === 'claude' ? createSpendCap({ storage, account: 'start2-openrouter',
   capMicro: openrouter?.capMicro ?? html.capMicro }) : undefined;
-const htmlPlugin = html.mode === 'fake' ? createLocalHTML() : html.mode === 'claude'
-  ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro, resolveSecret: resolveProviderSecret }) : null;
-const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : {};
+const { plugin: htmlPlugin, binding: selectedHTMLBinding } = configureHTML(html, { spend: spendCap, resolveSecret: resolveProviderSecret });
+const htmlSelection = htmlPlugin ? { html: selectedHTMLBinding } : {};
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
   ? createOpenRouterReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret });
 const secrets = createFacadeSecrets();
@@ -127,9 +124,9 @@ if (voiceHost?.staticSecretRef) {
   secrets.resolve = ref => ref === voiceHost.staticSecretRef ? resolveProviderSecret(ref) : resolve(ref);
 }
 const policy = imageHost?.policy ?? voiceHost?.policy ?? { endpoints: liveBindings.map(b => b.endpoint) };
-const imagePlugin = imageMode === 'fake' ? createLocalImages() : imageHost ? createOpenAIImages({ binding: imagePluginBinding(imageHost.binding),
-  resolveSecret: qualification.enabled ? resolveProviderSecret : imageHost.resolveSecret ?? resolveProviderSecret }) : null;
-const imageSelection = imagePlugin ? { images: imageHost?.binding ?? localImageBinding } : {};
+const { plugin: imagePlugin, binding: selectedImageBinding } = configureImages(imageMode, imageHost, {
+  resolveSecret: qualification.enabled ? resolveProviderSecret : imageHost?.resolveSecret ?? resolveProviderSecret });
+const imageSelection = imagePlugin ? { images: selectedImageBinding } : {};
 function configuredVoicePlugin(binding) {
   return createVoiceProvider({ storage, binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef,
       apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute,
