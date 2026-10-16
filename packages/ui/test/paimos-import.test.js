@@ -51,8 +51,17 @@ test('exactly 512 KiB fits; one UTF-8 byte more drops the oldest whole turn and 
   assert.ok(bytes(trimmed) <= PAIMOS_PAYLOAD_MAX_BYTES);
 });
 
-for (const locale of ['de', 'en']) test(`size limit removes only the necessary oldest turns and localizes the note (${locale})`, () => {
-  const session = fixture(locale);
+test('title truncation preserves supplementary Unicode characters at the 200-code-point boundary', () => {
+  const session = fixture();
+  const title = 'x'.repeat(199) + '🥐';
+  session.understanding.summary = `${title}more\nSecond line`;
+  assert.equal(buildPaimosPayload(session, context).title, title);
+  session.understanding.summary = '';
+  assert.equal(buildPaimosPayload(session, { ...context, fallbackTitle: title + 'more' }).title, title);
+});
+
+for (const locale of ['de', 'en', 'fr']) test(`size limit removes only the necessary oldest turns and localizes the note (${locale})`, () => {
+  const session = fixture(); session.locale = locale;
   session.transcript = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: undefined,
     content: `${index}:` + '漢🥐"\\\n'.repeat(8000), at }));
   const original = structuredClone(session), payload = buildPaimosPayload(session, context);

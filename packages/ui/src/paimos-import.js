@@ -22,13 +22,13 @@ export function buildPaimosPayload(session, { host, fallbackTitle = '' } = {}) {
   const payload = {
     version: 1, source: { product: 'aithema', host, session_id: session.id }, language: session.locale,
     // The overview has no separate project title: use its first summary line.
-    title: (u.summary.trim().split(/\r?\n/u)[0] || fallbackTitle).slice(0, 200),
+    title: Array.from(u.summary.trim().split(/\r?\n/u)[0] || fallbackTitle).slice(0, 200).join(''),
     summary: u.summary, facts: [...u.signals], open_points: [...u.openQuestions],
     transcript: activeTurns(session).map(turn => ({ role: turn.role, text: turn.content, at: turn.at })),
   };
   if (jsonBytes(payload) <= PAIMOS_PAYLOAD_MAX_BYTES) return payload;
 
-  payload.summary = [payload.summary, omittedNote[session.locale]].filter(Boolean).join('\n\n');
+  payload.summary = [payload.summary, omittedNote[session.locale] ?? omittedNote.en].filter(Boolean).join('\n\n');
   let bytes = jsonBytes(payload), start = 0;
   while (bytes > PAIMOS_PAYLOAD_MAX_BYTES && start < payload.transcript.length) {
     bytes -= jsonBytes(payload.transcript[start]) + (start < payload.transcript.length - 1 ? 1 : 0);

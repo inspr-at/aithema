@@ -544,6 +544,7 @@ test('device sends text in this tab only; browser configure/disconnect aborts lo
     c.shadowRoot.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
     await new Promise(r => setImmediate(r));
     assert.equal(calls, 0); assert.deepEqual(c.session.transcript.map(t => t.content), ['Local question', 'Local answer']);
+    assert.ok(c.session.transcript.every(t => !Object.hasOwn(t, 'at')), 'device turns keep their original fields');
     assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
     assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
     assert.equal(c.shadowRoot.querySelector('.export').hasAttribute('href'), false);
@@ -693,6 +694,82 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
     assert.deepEqual(downloaded, [{ href: 'blob:header-owned-fixture', download: 'aithema-session.zip' }]);
     assert.deepEqual(revoked, ['blob:header-owned-fixture']);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+const paimosOptions = { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 };
+
+test('AIT-242 device mode hides the project action and the handler refuses a forced invocation', t => {
+  const c = setup(), submitted = [], createdForms = [];
+  c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), ...paimosOptions });
+  const create = c.shadowRoot.querySelector('.create-project');
+  assert.ok(create);
+  assert.equal(window.getComputedStyle(create).visibility, 'hidden');
+  assert.equal(create.inert, true);
+  const nativeCreate = document.createElement.bind(document);
+  t.mock.method(document, 'createElement', function (name, ...args) {
+    const element = nativeCreate(name, ...args);
+    if (name === 'form') createdForms.push(element);
+    return element;
+  });
+  t.mock.method(window.HTMLFormElement.prototype, 'submit', function () { submitted.push(this); });
+  t.mock.method(globalThis, 'fetch', () => { assert.fail('device project handoff must never fetch'); });
+  // Simulate an invocation that bypasses presentation and interaction restrictions.
+  create.style.visibility = ''; create.inert = false;
+  create.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  assert.deepEqual(createdForms, [], 'refuse before constructing any handoff form');
+  assert.deepEqual(submitted, [], 'never POST device content');
+});
+
+test('AIT-242 switching device to server and back updates the same project action without removing its layout slot', () => {
+  const c = setup();
+  c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), ...paimosOptions });
+  const root = c.shadowRoot, create = root.querySelector('.create-project'), footer = create.parentElement;
+  const children = [...footer.children];
+  for (const processingPreset of ['best', 'device']) {
+    c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset,
+      settings: { ...c.session.settings, revision: c.session.settings.revision + 1 } } });
+    const device = processingPreset === 'device';
+    assert.equal(root.querySelector('.create-project'), create, 'the control survives in-place changes');
+    assert.equal(window.getComputedStyle(create).visibility, device ? 'hidden' : 'visible');
+    assert.equal(create.inert, device);
+    assert.notEqual(window.getComputedStyle(create).display, 'none', 'visibility preserves the footer space');
+    assert.deepEqual([...footer.children], children);
+  }
+});
+
+for (const processingPreset of ['best', 'eu', 'custom']) test(`AIT-242 ${processingPreset} project handoff keeps the v1 download fields unchanged`, t => {
+  const c = setup(), session = createSession({ locale: 'en', processingPreset });
+  const at = '2026-10-16T10:00:00.000Z';
+  Object.assign(session.understanding, { summary: 'A bakery project\nPreorders for neighbors.', signals: ['Phone orders'], openQuestions: ['Payments?'] });
+  session.transcript = [
+    { id: 'person', role: 'user', content: 'Preorders 🥐', at },
+    { id: 'reply', role: 'assistant', content: 'Payments?', at, origin: 'ai-generated', model: 'fixture/model' },
+    { id: 'erased', role: 'user', content: 'Erased private content', at, erased: true },
+    { id: 'withdrawn', role: 'assistant', content: 'Withdrawn reply', at, withdrawn: true },
+  ];
+  c.configure({ copy: en, session, sessionToken: 'must-not-be-posted', ...paimosOptions });
+  const create = c.shadowRoot.querySelector('.create-project'), submitted = [];
+  assert.equal(window.getComputedStyle(create).visibility, 'visible');
+  assert.equal(create.inert, false);
+  t.mock.method(window.HTMLFormElement.prototype, 'submit', function () {
+    assert.equal(this.isConnected, true);
+    assert.equal(this.method, 'post'); assert.equal(this.action, paimosOptions.paimosImportUrl);
+    assert.equal(this.target, '_blank'); assert.equal(this.rel, 'noopener');
+    assert.equal(this.acceptCharset, 'UTF-8'); assert.equal(this.hidden, true);
+    assert.equal(this.elements.length, 1);
+    const field = this.elements[0]; assert.equal(field.type, 'hidden'); assert.equal(field.name, 'payload');
+    submitted.push({ form: this, payload: JSON.parse(field.value) });
+  });
+  t.mock.method(globalThis, 'fetch', () => { assert.fail('project handoff uses only the native form POST'); });
+  create.click();
+  assert.equal(submitted.length, 1);
+  assert.deepEqual(submitted[0].payload, {
+    version: 1, source: { product: 'aithema', host: document.location.host, session_id: session.id }, language: 'en',
+    title: 'A bakery project', summary: session.understanding.summary, facts: ['Phone orders'], open_points: ['Payments?'],
+    transcript: [{ role: 'user', text: 'Preorders 🥐', at }, { role: 'assistant', text: 'Payments?', at }],
+  });
+  assert.equal(submitted[0].form.isConnected, false, 'temporary handoff form is removed');
+  assert.deepEqual(c.session, session, 'handoff leaves the server session unchanged');
 });
 
 test('a reconnect re-reads feature verdicts, so a host restart that dropped consent shows it (D6)', async () => {

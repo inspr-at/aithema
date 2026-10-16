@@ -344,7 +344,6 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.transcript-latest').addEventListener('click', () => this.#scrollToLatest());
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
-    this.#renderMode();
     if (paimosImportUrl(this.#options)) {
       const create = node('button', 'create-project'); create.type = 'button';
       create.innerHTML = `${icon('plus')}<span data-copy="createProject"></span>`;
@@ -352,6 +351,7 @@ export class AithemaSession extends HTMLElement {
       create.addEventListener('click', () => this.#createProject());
       root.querySelector('.understanding > .foot').append(create);
     }
+    this.#renderMode();
     root.querySelector('.export').addEventListener('click', e => {
       if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
       e.preventDefault(); void this.#export();
@@ -683,6 +683,7 @@ export class AithemaSession extends HTMLElement {
     finally { if (url) URL.revokeObjectURL(url); }
   }
   #createProject() {
+    if (this.#session.processingPreset === 'device') return;
     const action = paimosImportUrl(this.#options); if (!action) return;
     const document = this.ownerDocument, form = document.createElement('form');
     try {
@@ -747,6 +748,9 @@ export class AithemaSession extends HTMLElement {
   // Mode-dependent controls; a choice made at conversation start can switch the mode in place.
   #renderMode() {
     const exported = this.shadowRoot.querySelector('.export'), device = this.#session.processingPreset === 'device';
+    const create = this.shadowRoot.querySelector('.create-project');
+    // Keep the footer's space while removing the device handoff from sight and interaction.
+    if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device; }
     if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
     else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
@@ -1836,7 +1840,7 @@ export class AithemaSession extends HTMLElement {
     try {
       await device.connect({ signal: controller.signal, deadlineAt });
       if (!current()) return;
-      this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content, at: new Date().toISOString() } });
+      this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
       if (clearInput && input.value === content) input.value = '';
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
       // The device has no assessment lane: retain its canonical-turns-only context contract.
@@ -1848,7 +1852,7 @@ export class AithemaSession extends HTMLElement {
         const text = reply.push(delta);
         if (text) this.receive({ type: 'turn.partial', data: { id, delta: text, ...origin, inputRevision: revision } });
       }
-      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', ...reply.finish(), ...origin, at: new Date().toISOString(), inputRevision: revision } });
+      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', ...reply.finish(), ...origin, inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
