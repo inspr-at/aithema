@@ -486,6 +486,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 const r = c.shadowRoot, row = [...r.querySelectorAll('.qopt')].at(-1), b = row.getBoundingClientRect(), v = r.querySelector('.qopts').getBoundingClientRect();
                 return r.activeElement === row && b.height >= 44 && b.top >= v.top - 1 && b.bottom <= v.bottom + 1 && b.left >= v.left - 1 && b.right <= v.right + 1;
               }), true, 'Tab reaches an answer and brings its whole target into view');
+              // Native focus need only reveal the target; it may leave a few
+              // pixels after it. Scroll fully to the edge to check that mask.
+              await shadow(page, c => { const opts = c.shadowRoot.querySelector('.qopts'); opts.scrollLeft = opts.scrollWidth; });
+              await nextFrame(page);
               assert.equal(await shadow(page, c => {
                 const opts = c.shadowRoot.querySelector('.qopts');
                 return opts.hasAttribute('data-more-start') && !opts.hasAttribute('data-more-end');

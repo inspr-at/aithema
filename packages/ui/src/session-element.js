@@ -887,7 +887,9 @@ export class AithemaSession extends HTMLElement {
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
-      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : root.querySelector('.workspace').hasAttribute('data-phone-short') ? copy.placeholderCompact ?? copy.placeholder : copy.placeholder;
+      const placeholder = root.querySelector('.workspace').hasAttribute('data-phone-short') ? copy.placeholderCompact ?? copy.placeholder
+        : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');

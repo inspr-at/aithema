@@ -145,6 +145,10 @@ test('AIT-132: card answers use active voice forwarding once, and speaking close
     return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, voiceCallId: body.voiceCallId } });
   });
   c.shadowRoot.querySelector('.voice-start').click(); await tick(); question(c);
+  c.shadowRoot.querySelector('.workspace').setAttribute('data-phone-short', ''); question(c);
+  assert.equal(c.shadowRoot.querySelector('textarea').placeholder, en.placeholderCompact, 'compact mode keeps one-line copy during an active call too');
+  c.shadowRoot.querySelector('.workspace').removeAttribute('data-phone-short'); question(c);
+  assert.equal(c.shadowRoot.querySelector('textarea').placeholder, en.placeholderVoice, 'the expanded composer restores its voice invitation');
   assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.call, 'active');
   c.shadowRoot.querySelector('.voice-input').click(); await tick(); c.shadowRoot.querySelector('.voice-input').click(); await tick();
   assert.equal(shown(c), true); assert.ok(commands.some(([name]) => name === 'input'));
