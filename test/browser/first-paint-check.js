@@ -55,8 +55,8 @@ export async function firstPaintCheck(t) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     releaseModule = undefined;
-    await page.goto(`${demo.url}?theme=${theme}&locale=${locale}`, { waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => window.paintFrames.length >= 2);
+    const navigation = page.goto(`${demo.url}?theme=${theme}&locale=${locale}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.paintFrames?.length >= 2);
     const initial = await page.evaluate(() => ({ defined: Boolean(customElements.get('aithema-session')), boxes: window.paintGeometry(),
       titleVisible: (() => {
         const n = document.querySelector('.wordmark'), r = n.getBoundingClientRect(), s = getComputedStyle(n);
@@ -68,6 +68,7 @@ export async function firstPaintCheck(t) {
     if (evidence) await page.screenshot({ path: join(evidence, `${name}-first-paint.png`), fullPage: false, captureBeyondViewport: false });
     assert.ok(releaseModule, 'host module request held');
     await releaseModule();
+    await navigation;
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
     await settle();
     const loaded = await page.evaluate(() => {
