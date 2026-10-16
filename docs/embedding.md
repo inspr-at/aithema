@@ -585,6 +585,21 @@ Voice, image and HTML bindings have their own validated contracts described in
 the README. The host-port conformance helpers above test library, delivery,
 wallet behavior and failure/recovery; they do not replace live qualification.
 
+`legal.countries` lists the recipients' seat countries (ISO alpha-2); host
+`policy.countries` filters those seats. Optional `legal.processingCountries`
+lists the contractually guaranteed processing locations (ISO alpha-2, non-empty
+when present). The `eu` preset requires both EU-only recipient seats in
+`legal.countries` and EU-only guaranteed processing in `legal.processingCountries`,
+with the existing no-training rule. Recipient seats alone do not establish
+processing residency. A non-EU seat surfaces as `recipient seat outside eu`;
+a missing processing guarantee as `processing countries missing`; a malformed
+guarantee as `processing residency unverified`; and non-EU processing as
+`processing residency denied`. The settings catalog exposes these reasons in
+DE/EN and refuses the choice without switching presets. START hosts using `best`
+need no change; `processingCountries` remains optional for non-eu presets
+(explicit `undefined` is absent under every preset), and their country policy
+filters keep their existing behavior.
+
 For the plugin contract and the text, voice and image onboarding steps, see
 [Adding a model](plugins.md#adding-a-model). The standalone external package proof
 uses host configuration and public exports without core or server changes.
@@ -596,9 +611,9 @@ A private binding's `legal.countries` lists the **recipients' seat**, using ISO
 or guarantee a processing location. For qualified bindings the public catalog
 exposes these countries as `facts.hostCountries`; the host-countries privacy
 gauge says “Providers based in …” and explains that processing may occur
-elsewhere. The EU preset's admission/enforcement semantics are under review
-with LEAD; this wording change does not alter them. Existing enforced country
-policies retain their separate restriction wording.
+elsewhere. The `eu` preset requires both EU-only seats and a separate EU-only
+contractual guarantee in `legal.processingCountries`, as described above.
+Existing enforced country policies retain their separate restriction wording.
 
 The gauge localizes country names with `Intl.DisplayNames` and joins them with
 `Intl.ListFormat` (long conjunction). The UI explicitly overrides the `US`

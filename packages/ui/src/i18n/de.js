@@ -470,6 +470,8 @@ export const de = {
     'binding evidence mismatch': 'Vertrag mit dem Anbieter passt nicht', 'binding evidence not yet valid': 'Vertrag mit dem Anbieter noch nicht gültig',
     'binding evidence expired': 'Vertrag mit dem Anbieter abgelaufen', 'binding invalid': 'Anbieter falsch eingerichtet',
     'processing scope invalid': 'Verarbeitungsumfang ungültig', 'processing residency unverified': 'Verarbeitungsort nicht geprüft',
+    'processing countries missing': 'Verarbeitungsländer fehlen (legal.processingCountries)',
+    'recipient seat outside eu': 'Empfängersitz außerhalb der EU',
     'processing residency denied': 'Verarbeitungsort nicht erlaubt', 'training policy denied': 'Anbieter darf mit den Daten trainieren',
     'endpoint not allowed': 'Adresse des Anbieters nicht erlaubt', 'plugin binding mismatch': 'Anbieter passt nicht zur Einrichtung',
     'plugin kind unsupported': 'Anbieter kann das nicht', 'operation unsupported': 'Anbieter kann das nicht',
