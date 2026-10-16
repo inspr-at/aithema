@@ -196,6 +196,7 @@ export function installBaselineProbe() {
   window.qualificationBaselineProbe = {
     arm() { armed = true; },
     diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechStartAt, speechEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt, bufferedBytes, firstAudioAt, bargeInAt, stoppedAt, failure, refusal, source: scripted?.diagnostics?.(),
+      outputTail: rendered.slice(-6).map(({ at, contextTime, durationMs, rms }) => ({ at, contextTime, durationMs, rms })),
       counts: Object.fromEntries(['capture', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(e => e.kind === kind).length])),
       voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
     trace: () => trace,

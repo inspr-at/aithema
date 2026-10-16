@@ -687,8 +687,13 @@ last PCM block has rendered according to `getOutputTimestamp()`. The confirmatio
 window is evidence collection; the 300 ms interruption pass bar still measures
 from barge-in to the run's **start**. Speech resuming within the window resets
 the run. Missing blocks, invalid levels/durations, and blocks crossing barge-in
-or teardown cannot fill a run. Device context time establishes block continuity
-despite jitter in the mapping to performance time. No sustained run before the
+or teardown cannot fill a run. Chromium stamps ScriptProcessor buffers with the
+context frame at main-thread dispatch (`ScriptProcessorHandler::FireProcessEvent`),
+so adjacent timestamps can shift in phase. Continuity allows up to half a block
+of dispatch jitter; a whole missing block breaks the run. Only delivered PCM
+counts toward its duration, and the rendered-clock interval must independently
+reach 1000 ms: faster or duplicate callback delivery cannot shorten the window.
+No sustained run before the
 existing observation deadline is `missing-playback-stop`; there is no extension
 of the paid duration. Stop requests alone cannot establish this evidence.
 

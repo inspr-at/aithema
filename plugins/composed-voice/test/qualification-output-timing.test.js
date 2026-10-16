@@ -73,6 +73,17 @@ test('sustained output stop uses device continuity despite performance timestamp
   assert.equal(fixture().stop(trace, 99), undefined, 'clock jitter cannot conceal a missing device block');
 });
 
+test('sustained output stop tolerates ScriptProcessor dispatch phase, without counting missing PCM or accelerated delivery', () => {
+  const trace = [...reply(), ...silence(100, 1000).map((entry, i) => ({ ...entry,
+    contextTime: entry.at / 1000 + (i % 2 ? .004 : 0), at: entry.at + (i % 2 ? 4 : 0) }))];
+  assert.equal(fixture().stop(trace, 100).stoppedAt, 100);
+  const missing = trace.filter((_, i) => i !== 20);
+  assert.equal(fixture().stop(missing, 100), undefined, 'phase tolerance cannot count a missing block');
+  const fast = [...reply(), ...silence(100, 1000).map((entry, i) => ({ ...entry,
+    contextTime: (100 + i * 15) / 1000, at: 100 + i * 15 }))];
+  assert.equal(fixture().stop(fast, 100), undefined, 'PCM duration alone cannot shorten the rendered confirmation window');
+});
+
 test('output tap waits for the entire PCM block to render before reporting evidence', () => {
   const timers = [], rendered = [];
   class Node { connect(destination) { return destination; } disconnect() {} }

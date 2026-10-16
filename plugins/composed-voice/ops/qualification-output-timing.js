@@ -42,14 +42,19 @@ export function installQualificationOutputProbe() {
           block.at < bargeInAt || endAt > teardownAt || !Number.isFinite(block.rms) || block.rms < 0 || block.rms >= threshold) {
           start = previous = undefined; durationMs = 0; continue;
         }
-        // Device frames establish continuity without treating timestamp mapping
-        // jitter as missing PCM. The timestamp-only path serves trace replay.
+        // Chromium computes ScriptProcessor playbackTime from CurrentSampleFrame
+        // on MAIN-THREAD dispatch, not when the input buffer filled. Its phase
+        // can move between callbacks (notably Linux's fake renderer). Allow up
+        // to half a block of dispatch phase jitter, but count only delivered PCM
+        // and also require the full rendered-clock window below. A missing whole
+        // block still breaks the run. Source: ScriptProcessorHandler::FireProcessEvent
+        // https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/modules/webaudio/script_processor_handler.cc
         const contiguous = previous && (Number.isFinite(block.contextTime) && Number.isFinite(previous.contextTime)
-          ? Math.abs(block.contextTime - previous.contextTime - previous.durationMs / 1000) < 1e-6
+          ? Math.abs(block.contextTime - previous.contextTime - previous.durationMs / 1000) <= Math.min(block.durationMs, previous.durationMs) / 2000 + 1e-6
           : Math.abs(block.at - previous.at - previous.durationMs) < 1e-3);
         if (!contiguous) { start = block; durationMs = 0; }
         durationMs += block.durationMs; previous = block;
-        if (durationMs + 1e-6 >= MIN_OUTPUT_SILENCE_MS) {
+        if (durationMs + 1e-6 >= MIN_OUTPUT_SILENCE_MS && endAt - start.at + 1e-6 >= MIN_OUTPUT_SILENCE_MS) {
           return { kind: 'playback-stop', stoppedAt: start.at, outputTimestamp: start.timestamp,
             confirmedAt: endAt, confirmationOutputTimestamp: block.timestamp, silenceDurationMs: durationMs,
             outputRmsThreshold: threshold, origin: 'rendered-silence' };
