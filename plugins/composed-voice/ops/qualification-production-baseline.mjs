@@ -65,7 +65,9 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
   const jobs = new Set(); let admission, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure;
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
-  const save = () => recordIdentity({ ...identity });
+  const labels = () => Object.fromEntries(['lane', 'runId', 'sampleId', 'visitorSessionId', 'providerSessionId', 'attemptId', 'callId']
+    .filter(key => identity[key] !== undefined).map(key => [key, identity[key]]));
+  const save = () => recordIdentity(labels());
   const response = value => {
     const url = new URL(value.url());
     if (url.origin !== origin || value.request().method() !== 'POST' || !value.ok()) return;
@@ -162,7 +164,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     await save();
     for (const event of result.trace) onTiming(event);
     return { ...result, physicalBrowserMedia, ttsPCM: new Uint8Array(Buffer.from(result.ttsPCM, 'base64')),
-      baselineSession: { ...identity } };
+      baselineSession: labels() };
   } catch { throw new Error('Production baseline failed; retain uncertain exposure and inspect private session receipts'); }
   finally {
     clearTimeout(durationTimer); clearTimeout(closeTimer);

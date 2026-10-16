@@ -5,7 +5,7 @@
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
   const trace = [], pcm = [], contexts = new Set();
-  let responseReady = false;
+  let responseReady = false, agentSink;
   let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure;
   const emit = event => { if (trace.length >= 100_000) failure = true; else trace.push(event); };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
@@ -31,9 +31,10 @@ export function installBaselineProbe() {
       };
       const rendered = (samples, at, timestamp) => {
         const voiced = rms(samples) >= 0.015;
+        if (agentSink && agentSink !== sink) return;
         if (voiced) {
           if (firstAudioAt === undefined) {
-            firstAudioAt = at;
+            agentSink = sink; firstAudioAt = at;
             emit({ kind: 'playback-start', firstAudioAt, outputTimestamp: timestamp });
           }
           if (format && format.sampleRateHz !== context.sampleRate) { failure = true; return; }
