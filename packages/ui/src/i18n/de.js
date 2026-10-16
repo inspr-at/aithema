@@ -144,7 +144,7 @@ export const de = {
     visuals: 'Visuelle Entwürfe · Ergänzt den schriftlichen Entwurf um generierte Oberflächenskizzen.',
     visualsOff: 'Visuelle Entwürfe aus · Es werden keine Bilder erzeugt.',
     unavailable: 'Nicht verfügbar · {reason}',
-    consentNeeded: 'Einwilligung nötig · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.',
+    consentNeeded: '{reason} · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.',
     limited: 'Derzeit nicht verfügbar · {reason}. Sie können sie trotzdem wählen; sie startet, sobald das behoben ist.',
     consent: 'Einwilligung · Die Wahl eines Modells erteilt nie eine Einwilligung. Der Host fragt gesondert danach.',
     providers: 'Anbieter und Datenverarbeitung · Details zu Ihrer Auswahl und dazu, wie die Anzeigen berechnet werden.',
@@ -511,7 +511,7 @@ export const de = {
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
   // Legal copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
-  featureConsent: { images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
+  featureConsent: { text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
     // START src/lib/i18n.ts:2739 (consentCopy.de.intro).

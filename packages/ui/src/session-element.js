@@ -9,7 +9,7 @@ import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { FEATURES, deviceFeatures } from '../../core/src/presets.js';
-import { SETTINGS_OFF, isDynamicReason, isConsentReason } from '../../core/src/settings.js';
+import { SETTINGS_OFF, isDynamicReason, isConsentReason, CONSENT_REASON } from '../../core/src/settings.js';
 import { aiNotice } from '../../core/src/ai-notice.js';
 import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
@@ -646,7 +646,8 @@ export class AithemaSession extends HTMLElement {
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
     if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
     if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
-    if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
+    if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false,
+      reason: visitor ? reasonText(this.#copy, CONSENT_REASON, feature) : this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
     let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
     if (ignorePause && value.reason === 'session paused' && value.unpaused) value = value.unpaused;
@@ -654,7 +655,7 @@ export class AithemaSession extends HTMLElement {
       value = { ...value, reason: 'budget reconciling' };
     }
     // Shown verdicts speak the page language; decisions keep the server's machine reasons.
-    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason);
+    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason, feature);
     return visitor ? { ...value, rawReason: value.reason, reason } : value;
   }
   // The visitor's consent position for the acknowledged choice, from the server verdicts.
@@ -867,7 +868,10 @@ export class AithemaSession extends HTMLElement {
       // An upload refusal stands until the person types or attaches again.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
-      setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
+      paintConsentLine(reason, { copy, feature: 'text', text: words,
+        verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
+        open: opener => this.#dialog.openConsent('text', opener) });
+      reason.title = this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
@@ -1273,7 +1277,7 @@ export class AithemaSession extends HTMLElement {
     card.addEventListener('click', () => {
       if (this.#chooser.busy) return;
       const refusal = this.#presetRefusal(preset);
-      this.#chooser.error = refusal ? `${this.#copy.presets[preset]}: ${reasonText(this.#copy, refusal)}` : '';
+      this.#chooser.error = refusal ? `${this.#copy.presets[preset]}: ${reasonText(this.#copy, refusal, 'text')}` : '';
       if (!refusal) this.#chooser.choice = preset;
       this.#render('transcript');
     });
@@ -1292,7 +1296,7 @@ export class AithemaSession extends HTMLElement {
       setText(details[0], c.lead[preset]); setText(details[1], c.detail[preset]);
       const refusal = this.#presetRefusal(preset);
       card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(refusal)));
-      if (refusal) card.title = reasonText(copy, refusal); else card.removeAttribute('title');
+      if (refusal) card.title = reasonText(copy, refusal, 'text'); else card.removeAttribute('title');
       setText(card.querySelector('.chooser-option__note'), refusal ? c.unavailable : '');
     });
     setText(section.querySelector('.chooser__summary [role=status]'), this.#chooser.busy ? c.saving : c.summary[choice] ?? c.choose);
@@ -1320,7 +1324,7 @@ export class AithemaSession extends HTMLElement {
     if (sessionId !== this.#session.id) return;
     this.#chooser.busy = false;
     if (!result.ok) {
-      this.#chooser.error = result.error === 'setting-not-allowed' ? copy.settings.notAllowed.replace('{reason}', reasonText(copy, result.body.reason))
+      this.#chooser.error = result.error === 'setting-not-allowed' ? copy.settings.notAllowed.replace('{reason}', reasonText(copy, result.body.reason, 'text'))
         : result.error === 'settings-conflict' ? copy.settings.conflict : copy.chooser.failed;
     }
     this.#render('transcript');
@@ -1635,7 +1639,7 @@ export class AithemaSession extends HTMLElement {
     if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;
     if (response.status === 429) return copy.uploads.busy;
-    if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason));
+    if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason, 'uploads'));
     return copy.uploads.failed;
   }
   #expandLabel() {
