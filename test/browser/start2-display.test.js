@@ -1398,3 +1398,47 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
   assert.equal(checks.length, 156, 'every changed state at every width, locale and theme');
   if (evidence) await writeFile(join(evidence, 'ait246-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', fonts: 'Chrome baseline UI/display stacks pinned', checks }, null, 2));
 });
+
+
+test('AIT-246 round 2 regressions: visible export reason, device preset destination and existing drafts without a quote', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-polish-round2-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.round2Seed = structuredClone(c.session); });
+  const configure = (device, items = []) => shadow(page, async (c, { device, items }) => {
+    const { en } = await import('/packages/ui/src/i18n/en.js');
+    const s = structuredClone(window.round2Seed);
+    s.settings.origin = 'chosen'; s.processingPreset = device ? 'device' : 'best';
+    s.conceptVisualKind = 'html'; s.conceptCost = null; s.concepts = items;
+    s.conceptStatus = { phase: 'idle' };
+    s.featureMatrix = { [s.processingPreset]: { html: { available: !device, reason: device ? 'unavailable on device' : null } } };
+    c.setAttribute('motion', 'off'); c.configure({ copy: en, session: s });
+  }, { device, items });
+  await t.test('disabled export has a visible, associated reason and remains keyboard focusable', async () => {
+    await configure(true); await finishWorkspaceEntry(page);
+    const result = await shadow(page, c => {
+      const link = c.shadowRoot.querySelector('.export'), reason = c.shadowRoot.getElementById(link.getAttribute('aria-describedby'));
+      link.focus();
+      return { focused: c.shadowRoot.activeElement === link, role: link.getAttribute('role'),
+        reason: reason?.textContent, visible: Boolean(reason && reason.checkVisibility()) };
+    });
+    assert.deepEqual(result, { focused: true, role: 'link', reason: en.deviceExportUnavailable, visible: true });
+  });
+  await t.test('device recovery opens and focuses the selected processing preset', async () => {
+    await configure(true); await finishWorkspaceEntry(page);
+    await page.click('aithema-session >>> .drafts-settings-action');
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.preset-option[data-preset="device"]')), true);
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+  });
+  await t.test('a missing quote preserves the ready sentence for existing drafts', async () => {
+    await configure(false, [{ id: 'ready-round2', mediaType: 'text/html', turnIds: [], referenceIds: [], archived: false }]);
+    await finishWorkspaceEntry(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), en.conceptDraftReady.replace('{number}', '1'));
+    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action'))), false);
+  });
+});
