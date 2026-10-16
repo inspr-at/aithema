@@ -125,6 +125,9 @@ This is necessary because HTTP 202 retains the reservation through extraction,
 so sequential requests alone can still fill it. Only exhausted attempts show the
 busy/try-again message in the existing notice slot. Parsing errors, denied admission,
 replays, withdrawal, cancellation, deadline expiry and shutdown release reservations.
+If an earlier extraction changes the input revision during admission of the next
+request, that uncommitted request also returns retryable busy. Retrying revalidates
+ownership, consent and the new revision; stored receipt byte conflicts remain 409.
 
 A separate process-wide FIFO semaphore encloses `storage.uploadBytes`, sniffing,
 runtime admission and extraction. **Only one job loads source bytes**; waiting

@@ -124,6 +124,27 @@ test('AIT-219: 20 MiB PDF uploads over HTTP as literal multipart bytes, retains 
   t.diagnostic(`20 MiB PDF: ${overhead} B multipart overhead; literal file payload verified`);
 });
 
+test('a prior file finishing during batch admission returns retryable busy without committing the later request', async t => {
+  const f = setup(t);
+  const earlier = f.storage.postUploads(f.session.id, 'earlier-file', 'earlier-digest', [{ filename: 'earlier.txt',
+    mediaType: 'text/plain', bytes: bytes('Earlier file'), deadlineAt: Date.now() + 25_000 }], SERVER_UPLOAD_LIMITS);
+  const availability = f.runtime.uploadAvailability.bind(f.runtime); let finishEarlier = true;
+  f.runtime.uploadAvailability = async (...args) => {
+    const result = await availability(...args);
+    if (finishEarlier) {
+      finishEarlier = false;
+      f.storage.completeUpload(f.session.id, earlier.events[0].data.id, { status: 'accepted', text: 'Earlier file', truncated: false });
+    }
+    return result;
+  };
+  const response = await f.handlers.handle(uploadRequest(f.session.id, 'later-file'));
+  assert.equal(response.status, 429); assert.deepEqual(await response.json(), { error: 'upload-rate-limit' });
+  assert.equal(f.storage.get(f.session.id).uploads.length, 1, 'busy admission stores neither a file nor its receipt');
+  await post(f, 'later-file'); await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.length, 2);
+  assert.ok(f.storage.get(f.session.id).uploads.every(u => u.state === 'accepted'));
+});
+
 test('ownership precedes dedup, byte conflicts, revision checks and erased-session retries', async t => {
   const f = setup(t), revision = inputRevision(f.session), files = [['identity.txt', bytes('Exact receipt fixture')]];
   const first = await post(f, 'receipt', files, { revision }); await f.handlers.idle();

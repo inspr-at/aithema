@@ -3,7 +3,6 @@ import { inputRevision, PluginError, operationScope } from '@inspr/aithema-core'
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { scanUploadMultipart } from './upload-multipart.js';
-import { ConflictError } from './storage.js';
 
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
@@ -153,7 +152,9 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt });
         storage.authorize(id, ownerToken);
         if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
-        if (inputRevision(storage.get(id)) !== guard.revision) throw new ConflictError('Upload admission changed');
+        // An earlier file can finish during admission of the next batch. No receipt exists yet:
+        // let the client retry against fresh admission rather than reporting a byte conflict.
+        if (inputRevision(storage.get(id)) !== guard.revision) return json({ error: 'upload-rate-limit' }, 429);
         if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
         const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });
         if (!result.replayed) {

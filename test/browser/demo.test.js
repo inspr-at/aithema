@@ -1401,6 +1401,8 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
+    await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
+    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' }); await revealed(page);
     // Keep the real route/extractors for accepted requests. Fail limits discovery and inject one
     // deterministic busy response, since fast extraction can otherwise free the first reservation.
     await page.evaluate(() => {
@@ -1420,7 +1422,8 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
         }
         const response = await original(url, options);
         if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
-          (window.uploadResponses ??= []).push({ status: response.status, body: await response.clone().json() });
+          const body = await response.clone().json();
+          (window.uploadResponses ??= []).push({ status: response.status, error: body.error, reason: body.reason });
         }
         return response;
       };
