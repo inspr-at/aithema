@@ -25,6 +25,7 @@ export const edgeExceptions = [
 ];
 // #173's unpublished proof composes adapters that are deliberately not packed.
 export const proofEdges = [
+  { from: 'demo/server.js', target: 'plugins/composed-voice/ops/qualification-server.mjs', reason: 'AIT-160: explicitly flagged source-only qualification host' },
   { from: 'plugins/composed-voice/src/server.js', target: 'packages/server/src/composed-voice.js' },
   { from: 'plugins/composed-voice/src/qualification.js', target: 'packages/server/src/composed-voice.js' },
   { from: 'packages/server/src/composed-voice.js', target: 'packages/core/src/voice-components.js' },
@@ -35,14 +36,15 @@ export const proofEdges = [
   { from: 'plugins/composed-voice/src/configuration.js', target: 'plugins/voxtral/src/index.js' },
 ];
 // Explicit host-supplied entrypoints; pin the complete expressions, not all import().
-export const hostImports = ['VOICE', 'IMAGE'].map(kind =>
-  `(await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_${kind}_HOST_MODULE)).href`);
+export const hostImports = [...['VOICE', 'IMAGE'].map(kind =>
+  `(await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_${kind}_HOST_MODULE)).href`),
+  'pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href'];
 export const browserSources = ['demo/host.js', 'demo/consent-page.js', 'demo/admin-view.js', 'demo/fake-voice.js'];
 export function renderExceptionTable() {
   return ['| Source | Exact exception | Owner / reason |', '| --- | --- | --- |',
     ...edgeExceptions.map(row => `| \`${row.from}\` | \`${row.targets.join('`, `')}\` | ${row.reason} |`),
-    ...proofEdges.map(row => `| \`${row.from}\` | \`${row.target}\` | #173: unpublished composition proof |`),
-    '| `demo/server.js` | Exact VOICE/IMAGE host-module expressions | #173: injected host entrypoints |',
+    ...proofEdges.map(row => `| \`${row.from}\` | \`${row.target}\` | ${row.reason ?? '#173: unpublished composition proof'} |`),
+    '| `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION host-module expressions | #173 / AIT-160: injected host entrypoints |',
     ...browserSources.map(path => `| \`${path}\` | Relative public source URLs | AIT-205: native browser loading |`),
     '| `packages/server/src/voice-provider.js` | `packages/server/src/dev/local-voice-manifest.js` | AIT-218: private simulator manifest |',
     '| `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |',
@@ -183,11 +185,11 @@ export function checkBoundaries(root) {
       if (path === 'plugins/fake-voice/src/manifest.js' && targetPath === 'packages/server/src/dev/local-voice-manifest.js') continue;
       if (/(?:^|\/)dev\//u.test(targetPath ?? '') && !simulator) { fail(`Production imports dev/test entry: ${spec}`); continue; }
       if (from === to && target) continue;
+      if (proofEdges.some(edge => edge.from === path && edge.target === targetPath)) continue;
       if (from.layer.layer === 'host' && target && !simulator) {
         if (!browserSources.includes(path)) { fail(`Demo must import a package export: ${spec}`); continue; }
         usedBrowserSources.add(path);
       }
-      if (proofEdges.some(edge => edge.from === path && edge.target === targetPath)) continue;
       // The fake-voice forwarder is the sole source-layout exception.
       if (simulator && path === 'plugins/fake-voice/src/server.js') continue;
       if (path === 'demo/fake-voice.js' && targetPath === 'plugins/fake-voice/src/client.js') continue;

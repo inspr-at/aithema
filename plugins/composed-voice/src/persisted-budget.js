@@ -82,14 +82,15 @@ export function openPersistedQualificationBudget({ path, verifyCeiling, verifyRe
       });
     },
     snapshot() { if (closed) throw new Error('Budget closed'); return structuredClone(read(db)); },
-    async admit({ attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, request, retryOf = null }) {
+    async admit({ attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, request, retryOf = null, runId = null }) {
       if (typeof attemptId !== 'string' || !attemptId || !['candidate', 'baseline'].includes(lane) ||
         !['stt', 'tts', 'reasoning'].includes(role) || [provider, model, operation, accountRef, endpoint].some(x => typeof x !== 'string' || !x) ||
         !Number.isSafeInteger(maxMicro) || maxMicro < 0 || request === undefined) throw new TypeError('Complete attempt identity required');
       const exactRequest = structuredClone(request);
-      const attempt = { attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, requestDigest: qualificationRequestDigest(exactRequest), retryOf };
+      const attempt = { attemptId, lane, provider, model, operation, accountRef, endpoint, role, maxMicro, requestDigest: qualificationRequestDigest(exactRequest), retryOf, runId };
       const ceiling = await ceilingFor({ ...attempt, request: exactRequest });
       change(snapshot => {
+        if (runId !== null && !snapshot.runs?.includes(runId)) throw new PluginError('not-admitted', 'Claimed run required');
         if (snapshot.records.some(row => row.attemptId === attemptId)) throw new PluginError('already-claimed');
         if (snapshot.blocked || snapshot.exposureMicro + maxMicro > snapshot.capMicro) throw new PluginError('not-admitted', 'Qualification cap reached');
         if (retryOf && !snapshot.records.some(row => row.attemptId === retryOf)) throw new TypeError('Unknown retry predecessor');

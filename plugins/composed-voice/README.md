@@ -256,7 +256,7 @@ belong in the repository. On OPS's designated run machine, initialize once:
 
 ```sh
 node scripts/composed-qualification.js --operator-approved --initialize --budget /ops/run/qualification.sqlite
-node scripts/composed-qualification.js --operator-approved --budget /ops/run/qualification.sqlite --plan /ops/run/plan.json --host /ops/run/host.mjs --out /ops/run/evidence
+node scripts/composed-qualification.js --operator-approved --budget /ops/run/qualification.sqlite --plan /ops/run/plan.json --host /ops/run/host.mjs --out /ops/run/evidence --keys-file /ops/run/provider.keys
 ```
 
 The plan is non-secret JSON: `runId` (unique explicit operator identity), `corpus`
@@ -271,7 +271,7 @@ OPS must resolve these PR 4b-1 unknowns **before** the run, with account/provide
 evidence rather than trusting fixtures:
 
 - `authenticatedRelay`, `physicalBrowserMedia`: mounted authenticated same-origin
-  route, TLS, owner/consent revoke propagation, permission/physical device clocks.
+  route, loopback secure context (TLS N/A locally), owner/consent revoke propagation, permission/physical device clocks.
 - `consentAndHolds`: exact processing scope, Rule C, AIT-138 recovery and AIT-145/146
   holds remain authoritative; `ruleCAndNoSilentRerun`: preserve AIT-212.
 - `verifiedTariffsAndRounding`: every provider/account/model ceiling, whitespace
@@ -287,7 +287,10 @@ evidence rather than trusting fixtures:
   selected voices/models and account availability; Voxtral float32 remains distinct.
 - `retentionAndResidency`: verify actual account policy and processing location.
 
-The external host module exports `createQualificationHost()`. Its factory must be
+The external host module exports `createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability })`.
+The CLI forwards the operator's absolute `--keys-file` path without reading it;
+an OPS factory that starts the server passes it as `AITHEMA_COMPOSED_KEYS_FILE`.
+For a separately started server, OPS must use the same path in its launch instructions. Its factory must be
 inert: transports dispatch only through admitted attempts during `runSample`.
 The CLI checks the plan and reads the durable snapshot before loading this module. Its trusted server
 ports are `verifyCeiling`, `verifyReceipt`, `reconcile({ snapshot, reconcile })`
@@ -307,7 +310,7 @@ playback stop. It refuses incomplete capture/device evidence. Its 40 ms packet
 resolution and output device timestamp resolution must accompany reported
 metrics; server/browser wall clocks are never subtracted. `report.json` includes
 WER, entity accuracy, first-audio p50/p95, maximum barge-in stop time and the shared
-budget. `observations.json` preserves the real timing trace; `budget-final.json`
+budget. `observations.json` preserves the real timing trace and each sample's `physicalBrowserMedia` output-device probe; `budget-final.json`
 retains the final checkpoint even on failure when the output directory exists.
 `blind.json` plus randomized per-utterance A/B `.wav` files and explicit formats
 are Markus's listening material. Both lanes are normalized to PCM16 mono 24 kHz
@@ -327,3 +330,324 @@ After a restart, OPS must confirm the previous dispatcher has stopped and explic
 call `settleOrphan(attemptId)` for its dispatched attempts. This marks them settled
 and uncertain while keeping their full reservation. Receipts for in-flight attempts
 are refused; only settled attempts can be reconciled.
+
+## OPS host template — PR 4c
+
+The OPS directory is **source-only** and excluded in full from release packages. Run this tooling from the repo checkout; the demo imports it only when qualification is explicitly enabled.
+
+The key-free `ops/qualification-host-template.mjs` exports the **inert**
+`createQualificationHost(options)`. It launches Chrome locally by default; OPS can supply `launchBrowser` for a
+browser in another macOS user's GUI session on the same machine.
+It never starts, stops, probes for, or assumes a local host process. `hostOrigin`
+is required: the browser-facing loopback http(s) origin, for example
+`http://127.0.0.1:43101`. Bind address and port are separate settings. Literal
+`127.0.0.1` and `::1` are accepted; DNS names, wildcard binds, credentials, paths,
+queries and trailing slashes in origins are refused.
+
+The primary topology is **local on mbp2606**, per Markus's 2026-10-16 Desk
+7e722a84 decision: the flagged host binds loopback, and Chrome opens that same
+`hostOrigin` on the same machine. OPS supplies the agreed existing ElevenLabs and
+OpenRouter keys in a short-lived keys file. The host starts as **mba**, with an
+mba-owned 0600 file. TLS is N/A for this loopback secure context. No tunnel is
+needed. The tunnel/container topology below is an alternative only.
+
+### Keys file
+
+Set `AITHEMA_COMPOSED_KEYS_FILE` to an **absolute** operator-selected path. Only
+when `AITHEMA_COMPOSED_QUALIFICATION=1`, the server reads this file before normal
+provider setup, database startup or listening. There is **no environment-key or
+default-path fallback**. It accepts only these literal `KEY=VALUE` entries
+(values below are placeholders, never usable keys), ignoring blank lines and
+lines whose first non-space character is `#`:
+
+```text
+# OPS supplies values privately for this run window only
+ELEVENLABS_API_KEY=<OPS-provided-value>
+OPENROUTER_API_KEY=<OPS-provided-value>
+```
+
+The path must identify a regular file, not a symlink, owned by the running user,
+with mode **exactly 0600** (including no special, group or other bits). The loader
+checks the opened inode with `O_NOFOLLOW`, bounds the file to 16 KiB, and refuses
+unknown/duplicate keys, malformed lines, and missing/empty required keys. Values
+are literal, not shell-expanded or unquoted. Refusals never include values,
+input lines or filesystem error details. The OPS server module receives the
+frozen `keys` object; only server provider resolvers may use it. Never log it.
+The template/CLI forwards the path and never reads the values. The file exists
+for **the run window only**; OPS stops the host, then **trashes it afterwards**.
+It never belongs in this repository, a plan JSON, browser options or evidence.
+OPS supplies an **mba-owned** 0600 file; the CLI, host and Chrome all run as mba on mbp2606.
+
+The demo mounts qualification only with `AITHEMA_COMPOSED_QUALIFICATION=1`:
+
+| Setting | Contract |
+| --- | --- |
+| `AITHEMA_LISTEN_HOST` | Must be literal `127.0.0.1` or `::1`; checked before normal host initialization or listening. |
+| `PORT` | Local host bind port, normally the same port in `hostOrigin`; independent only in the alternative tunnel topology. |
+| `AITHEMA_COMPOSED_RELAY_ORIGIN` | Required explicit loopback http(s) **browser** origin. It controls Host and Origin checks and must also be passed to the composed factory's `relayOrigin`. |
+| `AITHEMA_COMPOSED_KEYS_FILE` | Absolute run-window keys file; regular, non-symlink, running-user-owned, exactly 0600. Required under the flag. |
+| `AITHEMA_COMPOSED_CONTROL_FILE` | Absolute path to the CLI-created per-run 0600 control file; server-only capability, run ID and shared durable budget path. Required under the flag. |
+| `AITHEMA_COMPOSED_QUALIFICATION_MODULE` | Required path to OPS's server module, exporting `createQualificationServer({ relayOrigin, authenticateRelay, storage, handlers, keys })`. Loaded only with the flag. |
+
+The mount precedes the demo's JSON-only mutations and 404 so binary PCM reaches
+`networkRelay.handle` at **POST /composed/relay**. It uses the existing visitor
+owner cookie (`authenticateRelay`), and the composed factory still verifies the
+stored owner, consent, authorization and single-use grant. OPS must retain immediate
+revoke propagation. `/composed/qualification` is an authenticated minimal harness
+page; its hook and the capture/player, network client, worklet and client module
+dependencies are served from that same origin. The authenticated control endpoint
+is `/composed/qualification/control`. Every call (start, poll, acknowledgement and close) requires the CLI's `x-aithema-qualification-control` capability header, compared through fixed-size SHA-256 digests with `timingSafeEqual`. The CLI creates a random 256-bit capability in a private temporary directory and an exactly 0600 file before loading OPS's factory. It hands that file to the host at startup via `AITHEMA_COMPOSED_CONTROL_FILE`; it removes the file after factory shutdown, including failures. The browser never receives the capability or file. Sample identities and acknowledgements travel in POST bodies, never URLs. Host/Origin mismatches and cross-site requests
+are refused. Without the flag the page, control, relay and composed browser assets
+return 404, and the OPS module is never imported. start2's normal preset is unchanged.
+
+### Exact ports
+
+OPS's browser-side `host.mjs` exports `createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability })` and delegates to
+the template with these options. There are **no successful accounting defaults**:
+
+| Option or method | Required contract |
+| --- | --- |
+| `hostOrigin` | Browser-facing loopback origin; never inferred from a local process or bind port. |
+| `runDirectory` | Absolute run root on mbp2606; default is the running user's `~/ci.noindex/aithema-runs/`. The template creates a hashed run directory and separate candidate/baseline Chrome profiles beneath it, retained as OPS evidence. No hard-coded mba paths. |
+| `controlCapability` | CLI-generated per-run capability; only Node control requests receive it. Supplying it in browser `ownerHeaders` is refused. OPS passes `controlFile` to the server as `AITHEMA_COMPOSED_CONTROL_FILE` before host startup. |
+| `ownerHeaders` | Existing owner authentication, e.g. the visitor cookie obtained by OPS's session setup. Never provider authentication; never log it. Node control requests and same-origin Chrome requests use the same owner. |
+| `executablePath` | OPS's installed Chrome path (or explicit `CHROME_PATH`). No browser discovery or installation in the template. The default launcher arms the process-group watchdog before CDP setup. |
+| `launchBrowser(launchOptions, lifetime)` | Optional launcher returning a Puppeteer `Browser`, including one connected over a DevTools websocket. Must register an independent browser-user watchdog and process-group kill port before returning; see lifetime contract below. |
+| `sampleTimeoutMs` | Hard wall-clock deadline for launch plus each sample, default and maximum 1,200,000 ms (20 min). CLI `--sample-timeout-ms` forwards this option to the OPS factory. |
+| `verifyCeiling(spec)` | OPS account operation on the flagged host. Return the matching verified ceiling proof described above, including request digest, evidence reference and future expiry. Called at preflight, admission and consume. Missing port throws at factory construction. |
+| `verifyReceipt(receipt, storedAttempt)` | OPS authenticates the server-observed receipt on the flagged host; return exactly `true` only for a matching trusted receipt. Missing port throws. |
+| `reconcile({ snapshot, reconcile })` | OPS fetches/authenticates/persists receipts on the flagged host, calls supplied `reconcile(receipt)` for each settled attempt and applies the existing settlement ledger without a second terminal. Pending receipts retain exposure. Missing port throws. |
+| `runSample({ item, lane, runId, admit, onTiming })` | `item.wavPath` is an absolute corpus WAV on mbp2606; `item.id`/`sampleId` identify the server sample. Launch a fresh profile, open the loopback page through `hostOrigin`, admit every dispatch, then return `{ physicalBrowserMedia, hypothesis, entities, ttsPCM: Uint8Array, ttsFormat: { encoding, sampleRateHz, channels } }`. Hypothesis/entities/PCM come from the server; corpus references stay in the CLI. `onTiming(event)` receives the browser's event values unchanged. |
+| `close()` | Abort active samples and kill owned browser process groups; it has no host-process lifecycle authority. |
+
+OPS's **server** module returns `{ networkRelay, createSample }`. Construct the
+composed factory with the supplied `authenticateRelay` and `relayOrigin`; expose
+its `networkRelay` (including revoke/close). `createSample({ item, lane, runId,
+owner, signal, admit })` must verify the stored session owner and exact consent/holds,
+then return `{ grant, result, close }`. `result` is a promise for the authoritative
+sample result above, with at most 16 MB of PCM, after all sample attempts report.
+Honor `signal` during setup; `close()` must stop this sample's media and work and
+persist its terminal state. A close acknowledgement waits for setup and stop,
+and another sample cannot start until stop is confirmed.
+The generic mount allows one active sample and expires it after two minutes;
+the browser requires complete physical evidence within one minute.
+
+The server's `admit(spec)` is a remote port to the CLI's **same durable budget**.
+It returns `{ attempt: { attemptId, claimId, maxMicro, consume, report }, report,
+dispatch }`. Every STT, TTS, existing Rule C reasoning dispatch and retry must
+use it; retries include `retryOf`. Await `attempt.consume()` before transport,
+then report exactly once, or use `dispatch(async ({ attempt, report }) => ...)`
+which consumes first and reports uncertainty if the action has no terminal.
+Admission, consume and report each await the CLI's acknowledgement; failure or timeout blocks work. Each acknowledgement is independently checked against the shared ledger: admission must match the exact reserved attempt, run ID, lane, request digest, provider/pricing identity and server-derived claim ID; consume requires the committed dispatched state; report requires the committed terminal. Unknown, forged and other-run identities are refused, even with the capability. The mount resolves the identity from the ledger rather than trusting client fields. The mount drains reports before publishing the result.
+OPS must place reasoning admission at its actual dispatch boundary while keeping
+the existing Rule C operation store. The parent remains zero-cost. Server-side
+receipt implementations and provider adapters belong solely to OPS's ops-qa module.
+
+### Browser lifetime and output-device contracts
+
+The template passes `launchBrowser(launchOptions, lifetime)` the same fake-capture,
+unmuted-output and fresh-profile options as the default launcher. It awaits a
+Puppeteer `Browser`. This port supports **same-host, same-user launchers only**:
+Chrome and the probe/CLI run as **mba on mbp2606**. Cross-user launchers are
+unsupported. It never forwards provider keys or the host's environment.
+
+`lifetime` contains `signal`, `deadlineAt`, `timeoutMs`, `controllerPid` (the CLI
+PID), and `registerProcessGroup({ kill, watchdogArmed: true })`. The launcher must
+arm its watchdog **as the browser's OS user immediately when the detached Chrome
+process group starts**, including while CDP connection is pending. It registers a
+synchronous, bounded `kill()` port that kills that entire group under that user.
+An unguarded returned Browser is refused before any sample.
+
+`qualification-browser-watchdog.mjs` exports
+`guardBrowserProcessGroup(chromePid, { deadlineAt, controllerPid })` for the
+browser-user launcher. It returns that registration object and starts an
+independent watchdog which kills the group at the deadline or when the CLI PID
+vanishes, including SIGKILL/SSH loss. The default launcher registers this before
+CDP setup. A same-user connected Browser's `process()` may be null; OPS retains
+its original Chrome group ID for supervision. The output gate obtains that
+Browser's PID **always** from CDP `SystemInfo.getProcessInfo`. If a local launcher
+process exists, its `browser.process().pid` must equal that CDP PID. The process
+must exist on this host and its full executable path from `ps -ww -o comm=`
+(Linux: `/proc/<pid>/exe`) must exactly match CDP `Browser.getBrowserCommandLine`
+`arguments[0]`. Only then does local `ps` read its UID, which must equal the
+probe's own UID (`process.getuid()`), or the sample is refused. Missing/ambiguous
+PIDs, executable mismatches and unknown process identity or UIDs also refuse.
+Runner SIGINT/SIGTERM,
+normal exit, host `close()` and sample cleanup also invoke the kill port. The
+per-sample wall-clock abort races launch/page/control/media waits; the independent
+watchdog is the final process-group deadline even if a port hangs.
+
+Before **every sample**, after opening the authenticated page and before the
+control `start` request/admission, `probePhysicalOutput()` requires **all**:
+
+- Web Audio rendering on the default `sinkId` (`''` or `'default'`, recorded):
+  both `getOutputTimestamp()` clocks (`contextTime` and `performanceTime`)
+  advance across at least 500 ms, with finite `outputLatency > 0`.
+- An OS record from `system_profiler SPAudioDataType -json` run as the browser/CLI
+  user: exactly one default output, filtered to its name, transport and built-in
+  status, plus the probe UID. No OS default output, or an unavailable record,
+  refuses the run.
+- Chrome's actual arguments from CDP `Browser.getBrowserCommandLine` (requires
+  `--enable-automation`), and a verified same-user PID/UID check as above.
+  Unavailable command-line evidence refuses; requested `launchArgs` and local
+  `spawnargs` never substitute for Chrome's reply.
+
+A silent oscillator drives the output clock without changing corpus audio.
+A null/unverified device refuses the run **before any dispatch**. The template
+records the result as `physicalBrowserMedia` in
+`<runDirectory>/<hashed-runId>/<lane>-physical-browser-media.json`, including
+failures; successful results also enter `observations.json`. Evidence retains
+labelled/real/fake counts and separate label lists for diagnosis; device IDs are
+not retained. **These labels/counts do not decide**: Chrome's
+`--use-fake-device-for-media-stream` replaces enumerated outputs as well as
+inputs, including default-output aliases, even when Web Audio renders to real
+hardware. Zero latency or either stalled clock refuses a null output path.
+**Positive latency and advancing clocks alone cannot exclude forced fake
+streams**: Chrome's `--disable-audio-output` can synthesize both (its
+[fake stream supplies synthetic delay](https://github.com/chromium/chromium/blob/main/media/audio/fake_audio_output_stream.cc)).
+The gate also refuses explicit muted/fake/missing/alternate-output switches,
+service wrappers and service/sandbox overrides in Chrome's actual arguments,
+independently of the measurements. Both `--switch` and `-switch` forms are
+checked. The single refusal policy and its Chromium sources live in
+`qualification-output-probe.mjs` (`findRefusedOutputFlags`); it covers
+`mute-audio`, `disable-audio-output`, `fail-audio-stream-creation`,
+`alsa-output-device`, `use-cras`, `force-wave-audio`, utility/child executable
+wrappers, service sandbox/type overrides, `audio-service-*` switches and
+`AudioService*` feature overrides. The measured `--disable-features=AudioServiceSandbox`
+capture setting is allowed. The normal runner applies the same policy before launch. The plan's existing checklist
+cannot bypass this probe.
+
+Example browser module (account ports and any server launcher remain OPS-owned):
+
+```js
+import { createQualificationHost as template } from '/path/to/aithema/plugins/composed-voice/ops/qualification-host-template.mjs';
+import { verifyCeiling, verifyReceipt, reconcile, ownerHeaders } from './ops-qa-ports.mjs';
+export async function createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability }) {
+  // OPS starts its flagged host here, passing keysFile as AITHEMA_COMPOSED_KEYS_FILE
+  // and controlFile as AITHEMA_COMPOSED_CONTROL_FILE, and stops it in close().
+  return template({ controlCapability, hostOrigin: 'http://127.0.0.1:43101', sampleTimeoutMs,
+    executablePath: '/ops/chrome', ownerHeaders, verifyCeiling, verifyReceipt, reconcile });
+}
+```
+
+### OPS runbook (same-user local topology)
+
+1. On mbp2606 as **mba over SSH**, run the key-free output-device probe with the
+   intended headless Chrome **with and without both fake-capture flags**, saving
+   the full JSON for each run. The probe and Chrome must both run as **mba**:
+
+   ```sh
+   node plugins/composed-voice/ops/qualification-output-probe.mjs \
+     --executable-path /absolute/path/to/chrome-headless-shell \
+     --fake-capture-wav /absolute/run/corpus.wav \
+     --report /absolute/run/output-with-fake-capture.json
+   node plugins/composed-voice/ops/qualification-output-probe.mjs \
+     --executable-path /absolute/path/to/chrome-headless-shell \
+     --report /absolute/run/output-without-fake-capture.json
+   ```
+
+   Reports must be new files; exit 0 means verified and exit 1 means device
+   refusal. The first command adds `--use-fake-device-for-media-stream` and
+   `--use-file-for-fake-audio-capture`; the second omits both. The report records
+   launch flags, browser version, WAV hash (when used), OS record and timestamps.
+   This preflight uses no keys and makes no provider calls.
+2. **Use host mba + Chrome mba on mbp2606.** This is the decided topology.
+   Retain both reports with command-line source, actual arguments, Chrome PID,
+   Chrome/probe UIDs and the OS record. If either probe refuses, stop and resolve
+   the output evidence before dispatch.
+3. Prove refusal using the same first command plus `--force-missing-output` and
+   a fresh report path. This adds Chrome's `--fail-audio-stream-creation` to
+   deliberately prevent an output stream. Record exit 1 plus measured zero
+   latency or stalled timestamps, even with an OS default output present.
+   Separately repeat with `--force-fake-output` (`--disable-audio-output`): retain
+   its actual latency/clocks and exit 1 from the explicit fake-output guard;
+   do not assume this fake stream has zero latency. Rerun the normal probe
+   before dispatch.
+4. **The CLI, host, Chrome and budget DB must belong to mba on mbp2606**: the server accepts only a control file owned by its own user and must read the budget DB.
+   OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host as mba using the supplied `controlFile`. This command names paths only; no key values
+   belong on the command line. OPS supplies its reviewed module and bindings:
+
+   ```sh
+   AITHEMA_COMPOSED_QUALIFICATION=1 AITHEMA_LISTEN_HOST=127.0.0.1 \
+     PORT=43101 AITHEMA_COMPOSED_RELAY_ORIGIN=http://127.0.0.1:43101 \
+     AITHEMA_COMPOSED_KEYS_FILE=/absolute/run/provider.keys \
+     AITHEMA_COMPOSED_CONTROL_FILE="$controlFile" \
+     AITHEMA_COMPOSED_QUALIFICATION_MODULE=/absolute/run/server.mjs \
+     node demo/server.js
+   ```
+
+5. Corpus WAVs live on mbp2606, accessible to mba. Chrome
+   uses `--use-fake-device-for-media-stream`,
+   `--use-file-for-fake-audio-capture=<item.wavPath>`,
+   `--use-fake-ui-for-media-stream`, `--autoplay-policy=no-user-gesture-required`
+   and `--disable-features=AudioServiceSandbox` so macOS audio can read the WAV.
+   Puppeteer's default `--mute-audio` is removed. The hook disables echo
+   cancellation/noise suppression. Include utterance, endpoint silence and a
+   later voiced segment for barge-in; timestamps are never synthesized/shifted.
+6. Initialize the shared persisted budget **once**, then run the CLI commands in
+   the pre-live section with `--keys-file /absolute/run/provider.keys` and,
+   optionally, `--sample-timeout-ms 1200000`. Use a run directory under the
+   running user's `~/ci.noindex/aithema-runs/`. The CLI checks the plan/budget
+   before importing OPS code; the factory forwards the path to any server it
+   starts, together with the per-run control file. Retain ledger, profiles, probe/observations and blind listening files.
+   Stop the host and browser groups, then **trash the keys file immediately**.
+   A failure retains reservations; confirm the old dispatcher stopped before
+   explicit orphan settlement/reconciliation. Never silently rerun the same ID.
+
+Round 4 builder evidence (mbp2606, **mba over SSH**, Chrome headless shell
+155.0.8059.39, commit `66c2af53cc`, 2026-10-16 07:27:59–07:28:03 UTC):
+
+| Capture / output mode | Labelled real / fake outputs | Output latency | Timestamp clocks | Result |
+| --- | --- | --- | --- | --- |
+| Fake device + corpus WAV / default output | 0 / 3 | 27 ms | Both advancing over 560.4 ms | Verified, exit 0 |
+| Neither fake-capture flag / default output | 0 / 0 | 27 ms | Both advancing over 560.3 ms | Verified, exit 0 |
+| Fake device + WAV / forced fake output | 0 / 3 | 16 ms | Both advancing over 560.3 ms | Refused by explicit output-flag guard, exit 1 |
+| Fake device + WAV / failed output-stream creation | 0 / 3 | 0 ms | Both remain zero over 560.5 ms | Refused by rendering and output-flag gates, exit 1 |
+
+All four OS records name `MacBook Pro-Lautsprecher`, transport
+`coreaudio_device_type_builtin`, built-in `true`, default output for mba.
+The decided topology is **host mba + Chrome mba on mbp2606**; both probe rows
+are required under that same user.
+The first committed negative control (`eeefadde`) failed because forced fake
+output passed the clock/latency checks; `66c2af53cc` adds the explicit flag guard
+and passes the four measurements plus the fake-provider CLI/tunnel proof.
+
+### Alternative: tunnel/container
+
+Only when OPS deliberately chooses the remote variant, run the flagged host in
+its reviewed container with host networking, loopback bind `PORT=43100`, and a
+read-only mount of its run-window 0600, container-user-owned keys file. Set
+`AITHEMA_COMPOSED_KEYS_FILE` to that absolute in-container path; environment-key
+fallback is still forbidden. Keep the server module/data mounts OPS-owned.
+From mbp2606 keep this forward alive:
+
+```sh
+ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:43101:127.0.0.1:43100 agm1
+```
+
+Both `hostOrigin` and `AITHEMA_COMPOSED_RELAY_ORIGIN` remain
+`http://127.0.0.1:43101`, distinct from the host bind port. SSH authenticates and
+encrypts the inter-machine transport; TLS remains N/A for loopback. The same
+output-device gate, browser-user watchdog, keys-file checks and disposal apply.
+Stop container and tunnel explicitly after collecting evidence.
+
+The nine operational evidence areas below cover **all ten existing checklist
+keys** (Rule C shares the consent/holds row). The automated output probe supplements OPS attestation; the other areas remain OPS-owned:
+
+| Checklist key(s) | OPS evidence required from this topology |
+| --- | --- |
+| `authenticatedRelay` | Flagged loopback bind; authenticated same-origin POST; wrong owner/origin and revoked grants denied. For the alternative, record tunnel ports and SSH protection; **TLS N/A: loopback by design**. |
+| `physicalBrowserMedia` | WAV identity/hash and capture flags; recorded `physicalBrowserMedia` with default sink, positive latency, both advancing clocks and the running user's OS default-output record; diagnostic real/fake labels/counts; both mba with/without-capture reports with actual CDP command line and verified Chrome/probe UIDs, plus measured fake-output refusal; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
+| `consentAndHolds`, `ruleCAndNoSilentRerun` | Exact stored owner/processing scopes; Rule C envelope/store; immediate revoke, holds and AIT-138 fresh generation recovery; persisted run identity refusing rerun; every reasoning/retry routed through the shared admit. |
+| `verifiedTariffsAndRounding` | Host account proofs matching each exact request/digest, lane, component/model and retry ceiling; whitespace, initialization, rounding, minimums and duration coverage; one persisted $25 cap. |
+| `authenticatedReceipts` | Authenticated host usage/receipts for both lanes, components, reasoning and retries; matching attempt/receipt identities and existing settlement reconciliation; pending exposure retained. |
+| `sttEmptyCommitAndMinimumDuration` | Account/provider observation of endpoint commit with an empty chunk and actual minimum duration using corpus capture. |
+| `ttsFinalFlag` | Provider evidence for `is_final`, preserved in plan `spelling`; adapter still refuses unresolved `isFinal`. |
+| `pcmOutputAndAccountModels` | Available account models/voices and observed output encoding, mono channels and rate; PCM16 versus float32 kept explicit through relay/player and blind normalization. |
+| `retentionAndResidency` | Actual account retention and processing-location evidence for the selected account; secure evidence access and later disposal under OPS policy. |
+
+`startLocalQualificationHost()` in `ops/qualification-server.mjs` is **tests only**.
+The fake CLI proof uses that helper behind a TCP forwarder on a different port,
+the pre-dispatch real Chrome output probe (refusal with zero dispatch on a null device), and, when the device passes, capture/playback clocks, a fake provider pair, the actual coordinator
+and Rule C store, and admitted reasoning retries. It performs no provider calls
+and does not establish vendor quality, billing or live qualification.
