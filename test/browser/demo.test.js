@@ -1777,7 +1777,6 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       Object.entries(tally).map(([state, selectors]) => `${state} px: ${selectors.length} entry points`).join('; ')}; first paint at 1440 px; nothing moves under the pointer.`);
   });
 
-
 // Timing probe for AIT-234; uses the real demo host's Best and Custom defaults.
 test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-custom-catalog-'));
@@ -1793,10 +1792,11 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
     await page.evaluateOnNewDocument(theme => {
+      localStorage.removeItem('aithema-reset-slice-1-session');
       localStorage.setItem('aithema-theme', theme);
       localStorage.setItem('aithema-motion', 'off');
     }, theme);
-    await page.goto(url, { waitUntil: 'networkidle0' });
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.session);
     await inShadow(page, c => {
       const original = window.fetch.bind(window), held = Promise.withResolvers();
