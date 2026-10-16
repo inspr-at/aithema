@@ -1,6 +1,6 @@
 {
-  "seconds": 170.348,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 170.883,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -99,6 +99,102 @@
           {
             "name": "AIT-244: wheel over an upload must release retained room at phone-notice widths",
             "seconds": 2.006041966
+          }
+        ]
+      },
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:36.430Z",
+        "tests": [
+          {
+            "name": "AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause said once, DE/EN L/D phone/desktop",
+            "seconds": 7.283361894
+          },
+          {
+            "name": "AIT-188 L2: phone composer dock, focus and keyboard viewport, idle/call/both pauses DE/EN L/D",
+            "seconds": 11.812099745
+          },
+          {
+            "name": "AIT-188 L2a: opaque phone dock backdrop hits in gaps and gutters, all states L/D 390/393",
+            "seconds": 8.165568524000001
+          },
+          {
+            "name": "AIT-188 L2b: keyboard hides footer synchronously and leaves 100px transcript in both modes",
+            "seconds": 3.7054400999999997
+          },
+          {
+            "name": "AIT-188 V1: settled project overview replaces the placeholder after purpose pause, DE/EN L/D phone/desktop",
+            "seconds": 4.731960158
+          },
+          {
+            "name": "AIT-188 gate1 focus: phone overview and transcript controls clear dock and footer",
+            "seconds": 1.661348666
+          },
+          {
+            "name": "AIT-188 gate1 footer: phone bottom never moves footer above 600px",
+            "seconds": 1.239537677
+          },
+          {
+            "name": "AIT-188 notice option a: last scroll item follows and preserves scrolled-up bubbles 0px, long call DE/EN L/D 390/393",
+            "seconds": 9.147862098
+          },
+          {
+            "name": "AIT-188 r3 fade: overlay keyboard backdrop has a transparent-to-paper top 12px, L/D 390/393",
+            "seconds": 2.319513192
+          },
+          {
+            "name": "AIT-188 r3 keyboard: fine-pointer desktop resize keeps footer",
+            "seconds": 1.325249221
+          },
+          {
+            "name": "AIT-188 r3 keyboard: touch width/orientation reset and blur never stick footer hidden",
+            "seconds": 1.472530707
+          },
+          {
+            "name": "AIT-188 r3 ordinary return: following after releasing removed-row space shows the next reply controls, touch DE/EN L/D 390/393",
+            "seconds": 4.744579132
+          },
+          {
+            "name": "AIT-188 r3 ordinary row: touch-only call start/end, 24 turns DE/EN L/D 390/393, exact 0px reading shift",
+            "seconds": 9.784520786
+          },
+          {
+            "name": "AIT-189: reloaded purpose/session pauses match unpaused stage, visual drafts on/off, DE/EN L/D 390/1440",
+            "seconds": 24.681643059000002
+          },
+          {
+            "name": "AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 390 and desktop 1024/1440, DE/EN L/D, 0px reading shift",
+            "seconds": 59.433461487
+          },
+          {
+            "name": "AIT-194: delayed pause snapshot must not disable the next replay composer",
+            "seconds": 1.230951773
+          },
+          {
+            "name": "AIT-244: notice remove holds a hovered upload until leave row",
+            "seconds": 1.898608726
+          },
+          {
+            "name": "AIT-244: notice remove holds a hovered upload until scroll",
+            "seconds": 1.919507761
+          },
+          {
+            "name": "AIT-244: notice shrink holds a hovered upload until leave row",
+            "seconds": 1.975022162
+          },
+          {
+            "name": "AIT-244: notice shrink holds a hovered upload until scroll",
+            "seconds": 1.9851761300000001
+          },
+          {
+            "name": "AIT-244: wheel over an upload must follow notice changes at phone-notice widths",
+            "seconds": 1.9496567219999998
+          },
+          {
+            "name": "AIT-244: wheel over an upload must release retained room at phone-notice widths",
+            "seconds": 1.9641474479999999
           }
         ]
       }

@@ -1,6 +1,6 @@
 {
   "seconds": 5.31,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -27,6 +27,30 @@
           {
             "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
             "seconds": 4.090937172
+          }
+        ]
+      },
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:37.823Z",
+        "tests": [
+          {
+            "name": "AIT-197 be304ae reply ends preparation",
+            "seconds": 0.28181013
+          },
+          {
+            "name": "AIT-197 e155043 pause retains pending overview",
+            "seconds": 0.297342174
+          },
+          {
+            "name": "AIT-197 e5bb795 purpose stop versus stuck reply",
+            "seconds": 0.285750681
+          },
+          {
+            "name": "AIT-201 all six real lane pairs render settled states in both orders; one Retry after unbilled 400",
+            "seconds": 2.8896558650000004
           }
         ]
       }

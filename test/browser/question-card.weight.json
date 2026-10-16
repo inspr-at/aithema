@@ -1,6 +1,6 @@
 {
   "seconds": 63.006,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -19,6 +19,22 @@
           {
             "name": "AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript",
             "seconds": 2.7039447500000002
+          }
+        ]
+      },
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:35.492Z",
+        "tests": [
+          {
+            "name": "AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement",
+            "seconds": 58.166567962
+          },
+          {
+            "name": "AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript",
+            "seconds": 2.511318082
           }
         ]
       }

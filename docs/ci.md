@@ -186,3 +186,18 @@ The committed siblings retain each source observation, SHA and workload hash.
 The first plan has one sample per file (explicit warmup); subsequent refreshes
 extend the rolling series rather than treating this first run as a permanent
 floor. Six shards, the 420s ceiling and all required check names are unchanged.
+
+
+Final calibration includes all three overlapping PRs (#216, #217, #218), merged
+from main with signoff. The second green calibration run is
+[38913449964](https://github.com/inspr-at/aithema/actions/runs/38913449964).
+After importing it, the committed rolling p95 plan totals **1811.989s**, with
+bins `302.498 / 300.173 / 300.958 / 301.703 / 304.539 / 302.118` seconds. The largest is
+**304.539s**, below the unchanged 420s ceiling. The five target files now
+plan **537.727s**, **272.273s less** than their original 810s allocation.
+Thirty-one files have two CI observations; understanding-failure has one fresh
+observation after AIT-221 changed its workload, replacing the explicitly marked
+old series. This is a warming rolling p95 window, with no estimated samples.
+The 23 shard/timing guard tests passed on mbp2606; the merged calibration's full
+unit job and `npm run test:browser-shards` also passed. Final commit CI is linked
+in the PR handoff.

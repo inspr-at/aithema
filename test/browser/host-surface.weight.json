@@ -1,6 +1,6 @@
 {
-  "seconds": 14.267,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 16.465,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -19,6 +19,22 @@
           {
             "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
             "seconds": 7.645036091
+          }
+        ]
+      },
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:33.605Z",
+        "tests": [
+          {
+            "name": "AIT-214: retiring an idle session removes its export and reload creates a fresh conversation",
+            "seconds": 6.453549593
+          },
+          {
+            "name": "host surface: verification lock through the fake outbox keeps a manual pause, conversation library, handover retry, chooser Continue; en and de, light and dark, 1440 and 400 px (AIT-104 B2)",
+            "seconds": 9.843241894
           }
         ]
       }
