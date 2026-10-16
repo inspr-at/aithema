@@ -26,6 +26,12 @@
     ],
     "reason": "Evidence/source provenance; release test matches the run identifier"
   },
+  "test/browser/composed-media.test.js": {
+    "reads": [
+      "CI"
+    ],
+    "reason": "Linux headless Chrome sandbox selection"
+  },
   "test/browser/consent-lines.test.js": {
     "reads": [
       "CI"
@@ -62,6 +68,7 @@
   },
   "test/browser/host-surface.test.js": {
     "reads": [
+      "CI",
       "CI"
     ],
     "reason": "Linux headless Chrome sandbox selection"
@@ -80,6 +87,7 @@
   },
   "test/browser/operator-login.test.js": {
     "reads": [
+      "CI",
       "CI"
     ],
     "reason": "Linux headless Chrome sandbox selection"

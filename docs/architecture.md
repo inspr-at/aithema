@@ -115,16 +115,17 @@ they are not test coverage switches.
 | `test/browser-matrix-coverage.test.js` | `process.env` ×2 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
 | `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/composed-media.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/consent-lines.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/credit-hold.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |
 | `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/host-surface.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/matrix-coverage.js` | `CI` ×1 | AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI |
-| `test/browser/operator-login.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/operator-login.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/orb-reveal.test.js` | `CI` ×4 | Linux headless Chrome sandbox selection |
 | `test/browser/pause-phone.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/question-card.test.js` | `CI` ×1, `GITHUB_SHA` ×1 | Linux headless Chrome sandbox selection; Evidence/source provenance; release test matches the run identifier |
