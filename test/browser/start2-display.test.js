@@ -1370,7 +1370,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
           const other = document.createRange(); other.selectNodeContents(create.querySelector('span'));
           const reason = root.querySelector('.export-reason');
           return { disabled: link.getAttribute('aria-disabled'), href: link.getAttribute('href'), why: link.title,
-            reason: reason?.textContent, reasonVisible: Boolean(reason?.checkVisibility()),
+            reason: reason?.textContent, reasonVisible: Boolean(reason?.checkVisibility() && getComputedStyle(reason).visibility === 'visible'),
             described: link.getAttribute('aria-describedby') === reason?.id, tabIndex: link.tabIndex, role: link.getAttribute('role'),
             underline: getComputedStyle(link).textDecorationLine, lines: range.getClientRects().length, projectLines: other.getClientRects().length,
             stacked: b.top >= a.bottom, right: Math.max(a.right, b.right) };
@@ -1455,7 +1455,7 @@ test('AIT-246 round 2 regressions: visible export reason, device preset destinat
       const link = c.shadowRoot.querySelector('.export'), reason = c.shadowRoot.getElementById(link.getAttribute('aria-describedby'));
       link.focus();
       return { focused: c.shadowRoot.activeElement === link, role: link.getAttribute('role'),
-        reason: reason?.textContent, visible: Boolean(reason && reason.checkVisibility()) };
+        reason: reason?.textContent, visible: Boolean(reason && reason.checkVisibility() && getComputedStyle(reason).visibility === 'visible') };
     });
     assert.deepEqual(result, { focused: true, role: 'link', reason: en.deviceExportUnavailable, visible: true });
   });

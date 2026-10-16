@@ -353,9 +353,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .export[href] { text-decoration:underline; }
 .export[aria-disabled="true"] { text-decoration:none; cursor:help; }
 @media(width < 480px) {
-  .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem 2.75rem auto; gap:0; }
+  .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:2.75rem auto 2.75rem; gap:0; }
   .understanding > .foot > .export { grid-area:1/1; white-space:nowrap; }
-  .understanding > .foot > :is(.create-project,.retry) { grid-area:2/1; justify-self:start; margin-inline-start:0; white-space:nowrap; }
+  .understanding > .foot > .export-reason { grid-area:2/1; }
+  .understanding > .foot > :is(.create-project,.retry) { grid-area:3/1; justify-self:start; margin-inline-start:0; white-space:nowrap; }
 }
 .create-project { margin-inline-start:auto; padding:0; border-radius:0; text-align:start; text-decoration:underline; }
 /* Retry owns the existing action space during recovery; never add another footer row. */
