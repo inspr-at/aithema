@@ -49,7 +49,7 @@ export function draftsLine({ copy, cost, feature, kind = 'html' }) {
   const recovery = blocked === 'draftsPreset' || blocked === 'draftsDevice' ? 'settings'
     : blocked === 'draftsTimeout' || !blocked && !known && feature.available ? 'retry' : null;
   if (blocked || recovery) {
-    const message = copy.display[blocked ?? 'draftsQuote'], label = recovery === 'settings' ? copy.display.draftsChoose : copy.display.draftsRetry;
+    const message = copy.display[blocked || 'draftsQuote'], label = recovery === 'settings' ? copy.display.draftsChoose : copy.display.draftsRetry;
     return { state: 'off', text: recovery ? `${message}${reasonSeparator}${label}` : message, action: false,
       ...(recovery ? { recovery, message, label } : {}) };
   }
