@@ -6,6 +6,11 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
+import { fullMatrix } from './matrix-coverage.js';
+
+// PR artifacts must not enable evidence-only captures or the exhaustive sweep.
+// Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
+const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
 
 import { browserPath } from '../../scripts/install-test-browser.js';
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
@@ -27,7 +32,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     t.after(() => browser.close());
-    const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
+    const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
     const accessibility = await page.createCDPSession(), accessibilityChecks = [];
     // Chrome's full accessibility snapshot includes the session's shadow root.
     const optionSnapshot = async heading => {
@@ -431,7 +436,12 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
           });
           try {
-            const heights = [844, 508, ...Array.from({ length: 21 }, (_, index) => 460 + 8 * index), 320, 844];
+            // The compact rule has one 620px breakpoint. PRs sample both sides
+            // and the boundary in every locale/theme, retaining two resizes and
+            // all 24 frame assertions. Evidence keeps the exhaustive 8px sweep.
+            const heights = fullMatrix
+              ? [844, 508, ...Array.from({ length: 21 }, (_, index) => 460 + 8 * index), 320, 844]
+              : [844, 508, 460, 612, 620, 320, 844];
             for (const height of heights) {
               const samples = await shadow(page, async (c, height) => {
                 const card = c.shadowRoot.querySelector('.qcard'), states = [];
@@ -665,3 +675,137 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           latestReplyClearancePx: bounded.top - bounded.bubbleBottom, transcriptClearancePx: bounded.top - bounded.shellBottom })) }, null, 2));
     }
   });
+
+// One page and one server for the full matrix; no provider calls or repeated navigation.
+test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-no-drafts-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  t.after(() => demo.kill());
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+  t.after(() => browser.close());
+  const page = await browser.newPage(), evidence = evidenceDirectory, checks = [];
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    void (async () => {
+      const path = new URL(request.url()).pathname;
+      if (path.endsWith('/events')) return request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' });
+      if (/^\/api\/sessions\/[^/]+$/u.test(path) && request.method() === 'GET') {
+        const snapshot = await page.evaluate(() => globalThis.noDraftsSnapshot);
+        if (snapshot) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot) });
+      }
+      await request.continue();
+    })().catch(error => { globalThis.noDraftsInterceptionError = error; });
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  if (evidence) await mkdir(evidence, { recursive: true });
+  // Keep the four CI geometry probes; the explicit evidence run needs only
+  // DE light phone reason classes and EN dark desktop temporary restriction.
+  const scenes = fullMatrix ? [['de', 'light', 390], ['en', 'dark', 1440]]
+    : ['de', 'en'].flatMap(locale => [['light', 390], ['dark', 1024]].map(([theme, width]) => [locale, theme, width]));
+  for (const [locale, theme, width] of scenes) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const c = document.querySelector('aithema-session'), copy = { en, de }[locale], session = c.session;
+      session.paused = false; session.pauseReason = null; session.locale = locale; session.settings.origin = 'chosen'; session.concepts = []; session.conceptVisualKind = 'html';
+      session.transcript = [{ id: 'source', role: 'user', content: locale === 'de' ? 'Ein Onlineshop für handgestickte Polster.' : 'An online shop for hand-embroidered cushions.' }];
+      session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, html: { available: false, reason: 'not configured' }, images: { available: false, reason: 'not configured' } };
+      globalThis.noDraftsCopy = copy; globalThis.noDraftsSnapshot = session;
+      c.configure({ copy, session });
+      c.dispatchEvent(new CustomEvent('aithema-locale')); document.documentElement.lang = locale; paintUtilities(copy);
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      globalThis.noDraftsReply = options => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: `question-${c.session.seq}`, role: 'assistant', content: locale === 'de' ? 'Sollen Kunden selbst wählen?' : 'Should customers choose for themselves?',
+        question_short: locale === 'de' ? 'Selbst wählen?' : 'Choose for themselves?', options, inputRevision: inputRevision(c.session),
+      } });
+    }, locale);
+    const label = `${locale}-${theme}-${width}`;
+    const shot = async state => {
+      if (!evidence || !(locale === 'de' && theme === 'light' && width === 390 && ['quote-missing', 'consent-needed', 'drafts-removed'].includes(state)
+        || locale === 'en' && theme === 'dark' && width === 1440 && state === 'quote-missing')) return;
+      await page.mouse.move(-1, -1);
+      await shadow(page, async c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      });
+      await nextFrame(page);
+      await page.screenshot({ path: join(evidence, `ait-229-${label}-${state}.png`), fullPage: false });
+    };
+    for (const question of [false, true]) {
+      await page.evaluate(question => globalThis.noDraftsReply(question ? [{ text: 'Yes' }, { text: 'No' }] : []), question);
+      await nextFrame(page);
+      assert.equal(await shown(page), question, `${label}: final options own the question card`);
+      await shot(question ? 'no-drafts-question-before-fold' : 'no-drafts-transcript-before-fold');
+      const before = await boxes(page, ['.transcript-shell', '.composer', '.display-foot']);
+      await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await nextFrame(page);
+      const state = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return { folded: r.querySelector('.workspace').hasAttribute('data-folded'), transcript: r.querySelector('.conversation').checkVisibility(),
+          canvas: r.querySelector('.drafts-canvas').checkVisibility(), notice: r.querySelector('.concept-activity-text').textContent,
+          expected: globalThis.noDraftsCopy.display.draftsOff, promiseVisible: r.querySelector('.canvas-empty').checkVisibility() };
+      });
+      assert.equal(state.folded, false, `${label}/${question}: no fold into empty drafts`);
+      assert.equal(state.transcript, true); assert.equal(state.canvas, false); assert.equal(state.promiseVisible, false);
+      assert.equal(state.notice, state.expected);
+      still(before, await boxes(page, ['.transcript-shell', '.composer', '.display-foot']), `${label}/no-drafts-fold`);
+      await shot(question ? 'no-drafts-question' : 'no-drafts-transcript');
+    }
+    // Begin with a priced, configured host; transient refusals preserve its fold.
+    await shadow(page, c => {
+      const session = c.session; session.featureMatrix.best.html = { available: true }; session.conceptCost = { maxMicro: 400_000 };
+      globalThis.noDraftsSnapshot = structuredClone(session); c.configure({ copy: globalThis.noDraftsCopy, session });
+      c.shadowRoot.querySelector('.fold').click();
+    });
+    await nextFrame(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.drafts-canvas').checkVisibility()), true);
+    const refresh = (reason, cost) => shadow(page, async (c, reason, cost) => {
+      // A separate server snapshot makes this exercise the accepted refresh,
+      // rather than mutating the live client's feature matrix before the GET.
+      const session = structuredClone(c.session);
+      session.featureMatrix.best.html = reason ? { available: false, reason } : { available: true };
+      session.conceptCost = cost; session.seq = c.session.seq + 1; session.paused = false;
+      globalThis.noDraftsSnapshot = session;
+      const refreshed = new Promise(resolve => c.addEventListener('aithema-features', resolve, { once: true }));
+      c.receive({ seq: session.seq, type: 'session.paused', data: { paused: false } });
+      await refreshed;
+    }, reason, cost);
+    for (const [state, reason, cost] of [['quote-missing', null, null], ['consent-needed', 'current processing consent required', { maxMicro: 400_000 }]]) {
+      await refresh(reason, cost); await nextFrame(page);
+      const stateCheck = await shadow(page, c => {
+        const r = c.shadowRoot, text = r.querySelector('.canvas-empty > span');
+        return { folded: r.querySelector('.workspace').hasAttribute('data-folded'), canvas: r.querySelector('.drafts-canvas').checkVisibility(),
+          blocked: r.querySelector('.concept-request').disabled && r.querySelector('.concept-request').hidden,
+          text: text.textContent, action: text.querySelector('button')?.textContent, promise: globalThis.noDraftsCopy.layout.canvasEmpty,
+          expectedAction: c.session.conceptCost ? globalThis.noDraftsCopy.featureConsent.action : globalThis.noDraftsCopy.display.draftsRetry };
+      });
+      assert.equal(stateCheck.folded, true, `${label}/${state}: transient refusal keeps fold`);
+      assert.equal(stateCheck.canvas, true); assert.equal(stateCheck.blocked, true);
+      assert.notEqual(stateCheck.text, stateCheck.promise); assert.equal(stateCheck.action, stateCheck.expectedAction);
+      await shot(state);
+    }
+    // Remove the capability while unpaused, with a valid quote: the screenshot
+    // must show the permanent reason, never quote-missing or a retained pause line.
+    await refresh('not configured', { maxMicro: 400_000 }); await nextFrame(page);
+    const removed = await shadow(page, c => {
+      const r = c.shadowRoot;
+      return { folded: r.querySelector('.workspace').hasAttribute('data-folded'), transcript: r.querySelector('.conversation').checkVisibility(),
+        canvas: r.querySelector('.drafts-canvas').checkVisibility(), notice: r.querySelector('.concept-activity-text').textContent,
+        expected: globalThis.noDraftsCopy.display.draftsOff };
+    });
+    assert.equal(removed.folded, false); assert.equal(removed.transcript, true, `${label}: removal unfolds`);
+    assert.equal(removed.canvas, false); assert.equal(removed.notice, removed.expected, 'permanent removal notice');
+    await shot('drafts-removed'); checks.push({ locale, theme, width, shiftPx: 0, temporaryFoldKept: true, consentFoldKept: true, capabilityLossUnfolded: true });
+  }
+  if (globalThis.noDraftsInterceptionError) throw globalThis.noDraftsInterceptionError;
+  assert.equal(checks.length, fullMatrix ? 2 : 4, 'every no-drafts locale/theme/width probe completes');
+  if (evidence) await writeFile(join(evidence, 'ait-229-checks.json'), JSON.stringify({
+    ticket: 'AIT-229', commit: /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], createdAt: new Date().toISOString(), checks, viewport: true, reducedMotion: true, blurred: true, fontStack: 'Chrome baseline' }, null, 2));
+});
