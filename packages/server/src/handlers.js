@@ -162,6 +162,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     understandingInput: session => purposePolicy ? storage.purposeAssessmentInput(session) : session,
     scopeKnown: (id, revision) => storage.safeguards(id, revision).assessed,
     replyVisible: session => !voiceHandlers?.active(session.id),
+    focusReplyAvailable: id => !voiceHandlers?.replyInFlight(id),
     onScope(id, scope, revision, { reply = true } = {}) {
       if (!reply) for (const event of storage.appendPurposeReply(id, null, revision, false, purposePolicy.offTopicLimit)) broadcast(id, event);
       lanes.supersede(id);
@@ -180,7 +181,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     publish(id, type, data, revision, scope, source) {
       if (stop.signal.aborted) return false;
-      if (purposePolicy && type === 'turn.final' && ['in', 'unclear', 'off'].includes(scope)) {
+      // Focus is a host command over already assessed input, not another scope
+      // observation. Keep its reply without mutating purpose counters or gates.
+      if (purposePolicy && type === 'turn.final' && !data.focusRequestId && ['in', 'unclear', 'off'].includes(scope)) {
         const events = storage.appendPurposeReply(id, data, revision, scope === 'off', purposePolicy.offTopicLimit);
         for (const event of events) broadcast(id, event);
         return events.length > 0;
@@ -269,7 +272,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
     // An explicit Retry can recover a recorded lane even when ordinary
     // scheduling currently requests only understanding (for example active voice).
-    if (pendingQuestionFocus(storage.get(id)) && !requested.includes('reaction')) requested.unshift('reaction');
+    if (pendingQuestionFocus(storage.get(id)) && !voiceHandlers?.active(id) && !requested.includes('reaction')) requested.unshift('reaction');
     if (retry) requested = ['reaction', 'understanding'].filter(lane =>
       requested.includes(lane) || currentFailures(storage.get(id)).some(failure => failure.lane === lane));
     let previous;
@@ -285,6 +288,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   function scheduleLane(id, lane, { wake = false, after } = {}) {
     const key = `${id}:${lane}`;
     if (stop.signal.aborted) return;
+    if (lane === 'reaction' && pendingQuestionFocus(storage.get(id)) && voiceHandlers?.replyInFlight(id)) return;
     const running = jobs.get(key);
     if (running) { if (wake) running.reschedule = true; return; }
     const job = { id, lane, promise: null, reschedule: false };
@@ -301,7 +305,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           } catch (error) {
             // Work superseded by new input or a changed processing choice reruns instead of failing.
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
-              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true,
+              const removedFocus = error?.code === 'not-admitted' && error.message === 'focused-question-removed';
+              const busyReply = error?.code === 'not-admitted' && error.message === 'reply-in-flight';
+              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: !removedFocus,
+                ...(removedFocus ? { reason: 'focused-question-removed' } : {}),
+                ...(busyReply ? { reason: 'reply-in-flight' } : {}),
                 ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
               storage.setLaneFailure(id, failure);
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
@@ -452,7 +460,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         const refused = result => json(result, result.reason === 'invalid-request' ? 400 :
           ['consent-required', 'not-admitted'].includes(result.reason) ? 403 : 409);
-        const inFlight = () => focusRequests.has(id) || jobs.has(`${id}:reaction`);
+        const replyInFlight = () => jobs.has(`${id}:reaction`) || voiceHandlers?.replyInFlight(id);
+        const inFlight = () => focusRequests.has(id) || replyInFlight();
         const decision = focusQuestion(storage.get(id), body, { inFlight: inFlight() });
         if (decision.error) return refused(decision);
         focusRequests.add(id);
@@ -461,7 +470,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             deadlineAt: Date.now() + deadlineMs });
           if (reason) return refused({ error: 'focus-refused', reason: isConsentReason(reason) ? 'consent-required' : 'not-admitted', admissionReason: reason });
           // Recheck assessment, input and pause after asynchronous availability work.
-          const result = storage.focusQuestion(id, body, { ownerToken, inFlight: jobs.has(`${id}:reaction`) });
+          const result = storage.focusQuestion(id, body, { ownerToken, inFlight: replyInFlight() });
           if (result.error) return refused(result);
           storage.clearLaneFailures(id, 'reaction');
           broadcast(id, result.event);

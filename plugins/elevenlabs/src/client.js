@@ -157,6 +157,8 @@ export function createElevenLabsClient(ports = {}) {
         if (value.type === 'partial') lifecycle.dispatch({ type: 'partial', sequence: captured });
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
+          if (['speaking', 'listening'].includes(value.type) && control.reportActivity) await voiceOperation(
+            { signal: persistenceCancellation.signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => control.reportActivity(value, opts));
           if (['final', 'heard', 'reply'].includes(value.type)) await persist(value);
           if (value.type === 'final' && value.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: value.turnId, sequence: captured });
           if (value.type === 'final' && value.role === 'assistant') {

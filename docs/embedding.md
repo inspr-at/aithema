@@ -168,7 +168,11 @@ Refusals are `{error: 'focus-refused', reason}`: `invalid-request` (400),
 Wrong ownership uses the existing indistinguishable 404.
 `stale-question` includes removed, clarified, draft/stale assessment and
 withdrawn-source items. Only one reaction or focus availability request may be
-in flight per session. Availability is rechecked transactionally before focus
+in flight per session. Pending voice replies, speaking and unknown playback
+state also refuse with `reply-in-flight`, including after availability checks.
+Voice clients report speaking/listening through `control.reportActivity`;
+these acknowledgements are private state, never transcript events.
+Availability is rechecked transactionally before focus
 publication; actual provider dispatch still belongs to reaction admission.
 
 Completion is the usual assistant `turn.final` with `focusRequestId` matching
@@ -177,6 +181,13 @@ work and failures. After a failed attempt, `POST /api/sessions/:id/retry {}`
 reuses the selected point with fresh admission. Reconnect retains recorded
 failures and never retries them implicitly. New input or withdrawn evidence
 invalidates the selection and prevents publication of its late reply.
+An accepted selection survives a same-input assessment replacement when its
+exact question text remains, including reordering. If the question disappears,
+`lane.failed` carries `reason: 'focused-question-removed'` and `retryable: false`;
+choose from the current assessment instead. Focus replies do not change purpose
+classification, counters or direction history for unchanged input. Their host
+instructions are covered by the private-guidance output check; the selected
+public question text remains eligible for the reply.
 
 The element exposes `openQuestionItems` and `focusQuestion(questionId)` without
 adding controls, markup or CSS. This method resolves on 202, and throws the

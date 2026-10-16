@@ -200,3 +200,19 @@ test('AIT-263: local voice speaks a persisted focus reply without creating a per
   assert.equal(result.kind, 'audio'); assert.equal(requests[0].turnId, 'focused-final');
   assert.equal(persisted.length, before); assert.equal(persisted.some(event => event.role === 'user'), false);
 });
+
+test('AIT-263: simulator reports playback activity without adding transcript input', async t => {
+  const now = Date.now(), activity = [], persisted = [];
+  const control = { start: () => ({ callId: 'activity', providerSessionId: 'segment', presentation: 'continuation',
+    spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 }),
+    close: () => ({ closureConfirmed: true }), pause: () => ({ acknowledged: true, paused: true }),
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat: () => ({ acknowledged: true }),
+    reportActivity: event => activity.push(event),
+  };
+  const f = createFakeVoice({ control, persistEvent: event => persisted.push(event), document: undefined, copy: {} });
+  const session = await f.client.start({ callId: 'activity' });
+  const reader = session.events[Symbol.asyncIterator](); t.after(() => session.close());
+  assert.equal((await reader.next()).value.type, 'listening');
+  assert.equal(activity[0].type, 'listening'); assert.equal(activity[0].providerSessionId, 'segment');
+  assert.deepEqual(persisted, []);
+});

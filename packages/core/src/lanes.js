@@ -1,4 +1,5 @@
-import { inputRevision, activeTurns } from './session.js';
+import { inputRevision, activeTurns, openQuestionItems } from './session.js';
+import { PluginError } from './invocation.js';
 import { pendingQuestionFocus } from './question-focus.js';
 import { reduceUnderstanding, understandingSchema } from './understanding.js';
 import { reasoningRequest } from './prompts.js';
@@ -17,10 +18,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, understandingInput = session => session, scopeKnown, retainUnderstanding = () => false, keepUnderstanding = () => false, settleUnderstanding, replyVisible = () => true, focusReplyAvailable = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, understandingInput, scopeKnown, retainUnderstanding, keepUnderstanding, settleUnderstanding, replyVisible, focusReplyAvailable, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -65,9 +66,16 @@ export class SessionLanes {
     const scope = operationScope({ signal: controller.signal, deadlineAt });
     const current = () => {
       const latest = this.getSession(id);
-      return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
+      const valid = !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && (inputRevision(latest) === revision || lane === 'understanding' && this.retainUnderstanding(session, latest, false)) &&
         this.selection(latest, lane) === selection && (!focus ||
           !latest.paused && pendingQuestionFocus(latest)?.requestId === focus.requestId);
+      // Accepted focus owns the question text, while assessment IDs are ephemeral.
+      // A replacement may reorder that question; removing it must fail visibly.
+      if (valid && focus && !openQuestionItems(latest).some(item => item.question === session.focusedQuestion)) {
+        throw new PluginError('not-admitted', 'focused-question-removed');
+      }
+      if (valid && focus && !this.focusReplyAvailable(id)) throw new PluginError('not-admitted', 'reply-in-flight');
+      return valid;
     };
     const options = { signal: scope.signal, deadlineAt };
 
@@ -155,7 +163,7 @@ export class SessionLanes {
               scope.signal.throwIfAborted();
               if (!current()) throw superseded;
             }
-          }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
+          }, { guardDirection: reply => current() && !focus ? this.guardDirection(id, reply) : reply,
             onDiagnostic: event => { if (current()) this.onReplyDiagnostic({ lane, ...event }); } }).catch(error => {
             const latest = this.getSession(id);
             if (flight.revoked || error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
@@ -174,7 +182,7 @@ export class SessionLanes {
           if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, ...focusData, content: guarded.text,
             ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date().toISOString(), inputRevision: revision,
             ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision, classification)) return 'stale';
-          this.onScope(id, classification, revision);
+          if (!focus) this.onScope(id, classification, revision);
           return 'completed';
         }
         const turnId = crypto.randomUUID();

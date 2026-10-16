@@ -48,6 +48,8 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         if (['listening', 'speaking'].includes(event.type)) lifecycle.dispatch({ type: 'playback', active: event.type === 'speaking' });
         delivery = delivery.then(async () => {
           if (cancellation.signal.aborted) return;
+          if (['speaking', 'listening'].includes(event.type) && control.reportActivity) await voiceOperation(
+            { signal: cancellation.signal, deadlineAt: Date.now() + 2000 }, opts => control.reportActivity(event, opts));
           if (['final', 'heard'].includes(event.type)) await persist(event);
           if (event.type === 'final' && event.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: event.turnId, sequence: ++sequence });
           if (event.type === 'final' && event.role === 'assistant') {

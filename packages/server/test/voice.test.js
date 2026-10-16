@@ -3321,3 +3321,34 @@ for (const stage of ['pending', 'speaking', 'after-availability']) test(`AIT-263
   assert.equal(h.storage.get(current.id).transcript.some(turn => turn.focusRequestId), false);
   assert.equal(requests.length, stage === 'pending' ? 1 : 0);
 });
+
+test('AIT-263: voice starting after focus acceptance fences the final and retry waits for listening', async t => {
+  const entered = Promise.withResolvers(), gate = Promise.withResolvers(), mock = createMockReasoning(), requests = [];
+  const h = voiceFixture(t, { reasoning: { ...mock, async *stream(request, options) {
+    requests.push(request); entered.resolve(); await gate.promise; yield* mock.stream(request, options);
+  } } });
+  t.after(gate.resolve);
+  const grant = await h.start('focus-accepted'), identity = { providerSessionId: grant.providerSessionId };
+  const activity = type => h.route(`/voice/${grant.callId}/events`, { ...identity, event: { ...identity, callId: grant.callId, type } });
+  assert.equal((await activity('listening')).status, 200);
+  h.storage.postTurn(h.session.id, 'focus-person', Buffer.from('website'), 'We need a website.');
+  const current = h.storage.get(h.session.id), revision = inputRevision(current);
+  h.storage.append(current.id, 'turn.final', { id: 'previous-reply', role: 'assistant', content: 'Audience?', inputRevision: revision });
+  h.storage.append(current.id, 'understanding.updated', { ...current.understanding,
+    openQuestions: ['Audience?', 'Launch date?'], inputRevision: revision, draft: false });
+  const response = await h.route('/focus-question', { questionId: core.openQuestionItems(h.storage.get(current.id))[1].id, inputRevision: revision });
+  assert.equal(response.status, 202); await entered.promise;
+  assert.equal((await activity('speaking')).status, 200);
+  gate.resolve(); await h.handlers.idle();
+  assert.equal(h.storage.get(current.id).transcript.some(turn => turn.focusRequestId), false);
+  assert.equal(h.storage.laneFailures(current.id)[0]?.reason, 'reply-in-flight');
+  assert.equal((await h.route('/retry')).status, 202); await h.handlers.idle();
+  assert.equal(requests.length, 1, 'Retry cannot override a busy voice turn');
+  const stream = await h.handlers.handle(new Request(`http://host/api/sessions/${current.id}/events?after=${h.storage.get(current.id).seq}`,
+    { headers: { 'x-aithema-session-token': 'voice-owner' } }));
+  await stream.body.cancel(); await h.handlers.idle();
+  assert.equal(requests.length, 1, 'Reconnect cannot override the voice exclusion');
+  assert.equal((await activity('listening')).status, 200);
+  await h.route('/retry'); await h.handlers.idle();
+  assert.equal(requests.length, 2); assert.equal(h.storage.get(current.id).transcript.filter(turn => turn.focusRequestId).length, 1);
+});

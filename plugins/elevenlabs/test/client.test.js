@@ -385,3 +385,18 @@ test('AIT-235: anonymous tentative callbacks stay fenced after a final until the
   assert.notEqual(hypotheses[0].turnId, hypotheses[1].turnId);
   assert.deepEqual(local.persisted.filter(event => event.role === 'user').map(event => event.text), ['First final', 'Second final']);
 });
+
+test('AIT-263: playback activity reaches the server before it is exposed to focus consumers', async t => {
+  const local = fixture(), activity = [], exposed = [], acknowledged = Promise.withResolvers();
+  local.control.reportActivity = async event => { activity.push(event); if (event.type === 'speaking') await acknowledged.promise; };
+  const session = await local.client.start({ callId: 'focus_playback_activity' }, invocationOptions());
+  const reading = (async () => { for await (const event of session.events) exposed.push(event.type); })();
+  t.after(async () => { acknowledged.resolve(); await session.close(); await reading; });
+  local.sdk.starts[0].onModeChange({ mode: 'speaking' }); await flush();
+  assert.equal(activity.at(-1).type, 'speaking'); assert.equal(exposed.includes('speaking'), false);
+  assert.equal(activity.at(-1).providerSessionId, session.providerSessionId);
+  acknowledged.resolve(); local.sdk.starts[0].onModeChange({ mode: 'listening' });
+  await session.close(); await reading;
+  assert.deepEqual(activity.map(event => event.type), ['speaking', 'listening']);
+  assert.deepEqual(exposed, ['speaking', 'listening', 'ended']);
+});

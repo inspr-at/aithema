@@ -381,6 +381,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal, scope, safeguardRevision }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
+      entry.awaitingReply = true; // Completion can precede the browser's assistant final/playback.
       entry.produced ??= [];
       entry.produced.push({ replyId, content, textOrigin, engine, userTurnOrdinal });
       if (purposePolicy) {
@@ -433,6 +434,15 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   return {
     active: id => sessions.has(id),
+    replyInFlight(id) {
+      const entry = sessions.get(id);
+      if (!entry) return false;
+      // Unknown playback state is conservatively busy, including startup and
+      // clients that do not report it. Only the controlling generation can clear it.
+      return entry.playback !== 'listening' || entry.awaitingReply === true || activeTurns(storage.get(id)).at(-1)?.role === 'user' ||
+        storage.voiceTurnStore.list(id).some(operation => operation.callId === entry.callId &&
+          operation.providerSessionId === entry.call?.providerSessionId && operation.state === 'pending');
+    },
     retentionActive: id => [...calls.values()].some(entry => entry.sessionId === id),
     delegatesReply: id => Boolean(sessions.get(id)?.callbackContext?.request),
     snapshot(id) {
@@ -636,6 +646,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
+          if (['speaking', 'listening'].includes(body.event?.type)) {
+            if (body.event.callId !== callId || body.event.providerSessionId !== entry.call.providerSessionId) throw new TypeError('Invalid voice activity');
+            entry.playback = body.event.type;
+            return json({ acknowledged: true });
+          }
           if (['partial', 'final'].includes(body.event?.type)) runtime.stopReplyReplay?.(sessionId);
           const fresh = sessionFor(entry);
           // The completion ID belongs to one operation. Text only attests that
@@ -650,6 +665,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
                 userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
+            if (body.event.type === 'final') entry.awaitingReply = body.event.role === 'user';
             if (purposePolicy && result.event.type === 'turn.corrected' && result.event.data.role === 'assistant') {
               storage.carrySafeguardRevision(sessionId, inputRevision(fresh), inputRevision(storage.get(sessionId)));
             }

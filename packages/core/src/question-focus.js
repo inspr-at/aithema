@@ -3,8 +3,10 @@ export { openQuestionItems } from './session.js';
 
 export function pendingQuestionFocus(session) {
   const focus = session.questionFocus;
+  // Once accepted, the command outlives assessment-local question IDs. The
+  // reaction lane revalidates its exact question text before publishing.
   return focus?.chosenBy === 'user' && focus.inputRevision === inputRevision(session) &&
-    openQuestionItems(session).some(item => item.id === focus.questionId && item.question === session.focusedQuestion) &&
+    !session.tombstone && !session.consentWithdrawn && typeof session.focusedQuestion === 'string' &&
     !session.transcript.some(turn => turn.role === 'assistant' && turn.focusRequestId === focus.requestId)
     ? focus : null;
 }
