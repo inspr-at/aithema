@@ -43,7 +43,10 @@ const openGeneral = async (page, returned = false) => {
   // open; AIT-171 deliberately retains an unknown-tier union until close.
   await until(page, () => {
     const entry = document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify');
-    return entry.dataset.emailState && entry.querySelector('.m-lead-save')?.textContent;
+    const lead = entry.querySelector('.m-lead-save');
+    // Loading text is nonempty too. Wait for actual tiers before reopening;
+    // otherwise beginSettings deliberately pins the temporary union reservation.
+    return entry.dataset.emailState && lead?.textContent && !lead.classList.contains('m-credit-status');
   });
   await page.evaluate(() => document.fonts.ready);
   if (returned) await until(page, () => {
@@ -58,6 +61,7 @@ const openGeneral = async (page, returned = false) => {
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   }
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email').dataset.emailReservation !== 'union');
   // Scroll the last section into view; the footer stays fixed.
   await shadow(page, c => { const s = c.shadowRoot; s.querySelector('.settings__body').scrollTop = s.querySelector('.settings__body').scrollHeight; });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -78,6 +82,8 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       await page.evaluateOnNewDocument(locale => { localStorage.setItem('aithema-demo-locale', locale); }, locale);
       const capture = async (state, width, theme) => {
         const name = `ait-165-${evidenceCommit}-${locale}-${theme}-${width}-${state}.png`;
+        await page.evaluate(() => { document.activeElement?.blur(); document.querySelector('aithema-session')?.shadowRoot.activeElement?.blur(); });
+        await page.mouse.move(-1, -1);
         if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
           if (['signed-in', 'signed-out'].includes(state)) await page.screenshot({ path: join(evidence, `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state === 'signed-in' ? 'entry' : 'entry-out'}.png`), fullPage: false }); }
         if (['signed-in', 'signed-out'].includes(state)) adminEntries.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width}/${state === 'signed-in' ? 'entry' : 'entry-out'} 0.00 px shift`);
