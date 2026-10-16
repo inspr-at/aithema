@@ -38,7 +38,7 @@ export const PRELIVE_CHECKS = Object.freeze([
 
 /** Feed directly from createPCMCapture/createPCMPlayer onTiming in one browser.
  * Timestamps come from device frames/output clocks, never fixture offsets or
- * server/browser wall-clock subtraction. Transcript authority remains server-only. */
+ * server/browser wall-clock subtraction. Baseline text is the production final user callback. */
 export function createQualificationMediaProbe() {
   const trace = [];
   return Object.freeze({

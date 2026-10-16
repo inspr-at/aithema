@@ -60,7 +60,6 @@ test('qualification operation mapping preserves HTML generate/edit consent scope
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { fixtureSocket } from '../../elevenlabs/test/component-fixtures.js';
 import { createNetworkRelayClient } from '../src/network-client.js';
-import { readFile } from 'node:fs/promises';
 import { PluginError } from '@inspr/aithema-core/invocation';
 
 const owner = 'fixture-owner', relayOrigin = 'http://127.0.0.1:4567';
@@ -69,13 +68,12 @@ const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: s
 // Corpus packets and endpoint silence mirror configuration.test.js turn(); the
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
-async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds, waitForMetadata } = {}) {
+async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
-  const specs = [], reports = [], wires = [], order = [], terminals = new Map(), baselineSent = [], sockets = [];
-  const wireFixture = JSON.parse(await readFile(new URL('../../../test/fixtures/elevenlabs-wire.json', import.meta.url)));
-  let sttIndex = 0, reasoningIndex = 0, baselineFeed;
+  const specs = [], reports = [], wires = [], order = [], terminals = new Map(), sockets = [];
+  let sttIndex = 0, reasoningIndex = 0;
   const observed = role => {
     const spec = specs.findLast(value => value.role === role && !reports.some(report => report.attemptId === value.attemptId));
     assert.ok(spec, `${role} wire has an admission`);
@@ -92,35 +90,9 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
         observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
         const socket = fixtureSocket({ role: 'tts' }); sockets.push(socket); return socket;
       }
-      observed('reasoning');
-      const queue = [], ready = Promise.withResolvers(); let wake, ended = false;
-      const push = event => { queue.push(JSON.stringify(event)); wake?.(); wake = undefined; };
-      // Agent events are synthetic protocol fixtures; source is the official
-      // Agent WebSockets schema cited in qualification-live-baseline.mjs.
-      baselineFeed = push;
-      const socket = { send(wire) {
-        const event = JSON.parse(wire); baselineSent.push(event);
-        if (event.type === 'conversation_initiation_client_data' && !waitForMetadata) push({ type: 'conversation_initiation_metadata',
-          conversation_initiation_metadata_event: { conversation_id: 'conv_fixture', user_input_audio_format: 'pcm_16000', agent_output_audio_format: 'pcm_24000' } });
-        if (event.user_audio_chunk && !ready.done) {
-          ready.done = true;
-          push({ type: 'user_transcript', user_transcription_event: { user_transcript: texts[0] } });
-          push({ type: 'audio', audio_event: { event_id: 1, audio_base_64: 'AAAAAA==' } });
-        }
-      }, close() { ended = true; wake?.(); }, events: {
-        [Symbol.asyncIterator]() { return this; }, async next() {
-          while (!ended && !queue.length) await new Promise(resolve => { wake = resolve; });
-          return ended ? { done: true } : { done: false, value: queue.shift() };
-        }, async return() { ended = true; wake?.(); return { done: true }; },
-      } }; sockets.push(socket); return socket;
+      throw new Error('Unexpected component socket');
     },
     async fetch(url, init) {
-      if (url.includes('/convai/conversation/get-signed-url')) {
-        observed('reasoning'); assert.equal(init.method ?? 'GET', 'GET');
-        assert.equal(init.headers['xi-api-key'], sentinel);
-        const mint = wireFixture.mints.find(value => value.name === 'websocket');
-        return new Response(mint.response.body, { status: mint.response.status });
-      }
       observed('reasoning'); assert.equal(init.headers.authorization, `Bearer ${sentinel}`);
       assert.equal(JSON.parse(init.body).model, liveBinding().reasoning.model);
       assert.deepEqual(JSON.parse(init.body), specs.at(-1).request, 'admission digest covers actual reasoning wire body');
@@ -161,7 +133,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
     }
   }
   return { logs, browserResponses, server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit,
-    baselineSent, baselineFeed: value => baselineFeed(value) };
+  };
 }
 
 test('candidate uses real component wire parsers and Rule C; consumes before transport, reports once, links retries', async t => {

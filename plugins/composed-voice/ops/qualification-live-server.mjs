@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { createBinding, consentCoverage, processingScope, deepFreeze } from '@inspr/aithema-core';
 import { PluginError } from '@inspr/aithema-core/invocation';
-import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { createVoiceReplyExecutor, createVoiceTurnOperations } from '@inspr/aithema-server';
 import { createOpenRouterReasoning, manifest as openRouterManifest } from '@inspr/aithema-plugin-openrouter';
 import { createElevenLabsSTT, createElevenLabsTTS, TTS_FORMAT } from '../../elevenlabs/src/components.js';
@@ -112,7 +111,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
     async createSample({ item, lane, runId, owner, signal, admit }) {
       if (active || starting) throw new PluginError('not-admitted');
       if (lane !== 'candidate') throw new PluginError('not-admitted', 'Baseline requires its production origin browser');
-      if (!['candidate'].includes(lane) || !id(item?.id) || !id(item.sessionId) || !id(runId) ||
+      if (!id(item?.id) || !id(item.sessionId) || !id(runId) ||
         !Array.isArray(item.expectedEntities) || !item.expectedEntities.length ||
         item.expectedEntities.some(value => typeof value !== 'string' || !value.trim() || value.length > 32_768) || typeof admit !== 'function') {
         throw new TypeError('Session, sample identity and expected entities required');
@@ -124,14 +123,14 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       const answer = Promise.withResolvers(), setup = Promise.withResolvers(); answer.promise.catch(() => {});
       let sample, closing, expiry, hypothesis, pcmBytes = 0;
       const chunks = []; let revision;
-      const relevant = lane === 'candidate' ? ['stt', 'tts', 'reasoning'] : ['baseline'];
+      const relevant = ['stt', 'tts', 'reasoning'];
       const authorize = async () => {
         sampleSignal.throwIfAborted();
         const session = storage.authorize(sessionId, owner), lifecycle = storage.voiceLifecycle(sessionId);
         if (Date.now() >= deadlineAt || session.consentWithdrawn || session.paused || session.consentRevision !== revision ||
           lifecycle?.holds?.length || storage.voiceCalls(sessionId).some(call => !call.terminal && call.paused)) throw new PluginError('not-admitted');
         for (const role of relevant) if (!await consentCoverage(handlers.consent, session,
-          processingScope(binding[role], role === 'baseline' ? 'start' : role === 'tts' ? 'speak' : 'stream'),
+          processingScope(binding[role], role === 'tts' ? 'speak' : 'stream'),
           { signal: sampleSignal, deadlineAt })) throw new PluginError('not-admitted');
         const current = storage.authorize(sessionId, owner);
         if (current.paused || current.consentWithdrawn || current.consentRevision !== revision) throw new PluginError('not-admitted');
@@ -146,8 +145,8 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
       async function admission(role, request, maxMicro, retryOf) {
         await authorize();
         const part = binding[role];
-        const spec = { attemptId: `qualification-${randomUUID()}`, lane, role: role === 'baseline' ? 'reasoning' : role,
-          provider: part.plugin, model: part.model, operation: role === 'baseline' ? 'start' : role === 'tts' ? 'speak' : 'stream',
+        const spec = { attemptId: `qualification-${randomUUID()}`, lane, role,
+          provider: part.plugin, model: part.model, operation: role === 'tts' ? 'speak' : 'stream',
           accountRef: part.accountRef, endpoint: part.endpoint, maxMicro, request, ...(retryOf ? { retryOf } : {}) };
         const granted = await admit(spec);
         const row = { attemptId: spec.attemptId, consumed: false }; rows.push(row);
