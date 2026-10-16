@@ -1776,3 +1776,73 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
     t.diagnostic(`AI notice in view without scrolling to it, en and de, at the viewport's bottom and top edge and on keyboard focus: ${
       Object.entries(tally).map(([state, selectors]) => `${state} px: ${selectors.length} entry points`).join('; ')}; first paint at 1440 px; nothing moves under the pointer.`);
   });
+
+
+// Timing probe for AIT-234; uses the real demo host's Best and Custom defaults.
+test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-custom-catalog-'));
+  const { child, url } = await startDemo(directory);
+  const { browserForFile } = await import('./shared-browser.js');
+  const browser = await browserForFile();
+  t.after(async () => { await browser.close(); await stopDemo(child); await rm(directory, { recursive: true, force: true }); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const [locale, theme] of [['de', 'light'], ['en', 'dark']]) for (const width of [1440, 390]) {
+    const page = await browser.newPage();
+    await preparePage(page, [locale]);
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluateOnNewDocument(theme => {
+      localStorage.setItem('aithema-theme', theme);
+      localStorage.setItem('aithema-motion', 'off');
+    }, theme);
+    await page.goto(url, { waitUntil: 'networkidle0' });
+    await until(page, () => document.querySelector('aithema-session')?.session);
+    await inShadow(page, c => {
+      const original = window.fetch.bind(window), held = Promise.withResolvers();
+      window.customCatalog = { release: held.resolve, posts: [], reads: 0 };
+      window.fetch = async (url, init = {}) => {
+        if (new URL(url, location.href).pathname.endsWith('/settings')) {
+          if (init.method === 'POST') window.customCatalog.posts.push(JSON.parse(init.body));
+          else { window.customCatalog.reads++; await held.promise; }
+        }
+        return original(url, init);
+      };
+      c.setAttribute('motion', 'off');
+      c.openSettings();
+      c.shadowRoot.querySelector('[data-preset="custom"]').click();
+    });
+    await until(page, () => window.customCatalog.reads > 0);
+    const settle = async () => {
+      await page.mouse.move(-10, -10);
+      await inShadow(page, async c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+        await document.fonts.ready;
+        await Promise.all(c.shadowRoot.querySelector('dialog.settings').getAnimations({ subtree: true })
+          .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+    };
+    const geometry = () => shadowRects(page, 'dialog.settings, .settings__header, .settings-field, .notice-area, .settings-context, .settings__footer, .done');
+    await settle();
+    const pending = await geometry();
+    if (evidence) await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-pending.png`), fullPage: false });
+    await page.evaluate(() => window.customCatalog.release());
+    await until(page, () => {
+      const c = document.querySelector('aithema-session');
+      return c.session.processingPreset === 'custom' && c.session.settings.origin === 'chosen'
+        && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
+    });
+    const applied = await inShadow(page, c => ({ processingPreset: c.session.processingPreset, ...c.session.settings }));
+    assert.equal(applied.voice, 'off', 'Custom must never inherit Best voice');
+    assert.equal(applied.visuals, 'off', 'Custom must never inherit Best HTML drafts');
+    assert.equal(await page.evaluate(() => window.customCatalog.posts.length), 1);
+    await settle();
+    assert.deepEqual(await geometry(), pending, 'loading and applied Custom keep Settings geometry');
+    if (evidence) {
+      await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-applied.png`), fullPage: false });
+      await writeFile(join(evidence, `ait-234-${locale}-${theme}-${width}.json`), JSON.stringify({ applied, pending, appliedGeometry: await geometry(), posts: await page.evaluate(() => window.customCatalog.posts), viewport: page.viewport(), font: await inShadow(page, c => getComputedStyle(c).fontFamily) }, null, 2));
+    }
+    await page.close();
+  }
+});

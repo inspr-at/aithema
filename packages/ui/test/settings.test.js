@@ -35,7 +35,7 @@ function catalogFor(session) {
     custom: preset({ status: 'consent', reason: 'current processing consent required', defaults: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' },
       models: models.slice(0, 2), voices, visuals }) } };
 }
-function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity } = {}) {
+function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity, loadCatalog } = {}) {
   let session = createSession({ demo: true });
   if (identity !== undefined) session.identity = identity;
   for (let i = 0; i < turns; i++) session = applyEvent(session, { seq: session.seq + 1, type: 'turn.final', data: { id: `t${i}`, role: 'user', content: 'Hello' } });
@@ -59,7 +59,7 @@ function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnecto
   };
   globalThis.fetch = async (url, init = {}) => {
     if (String(url).endsWith('/identity')) return Response.json({ identity: await loadIdentity?.() ?? null });
-    if (String(url).endsWith('/settings') && init.method !== 'POST') return Response.json(catalogFor(server.session));
+    if (String(url).endsWith('/settings') && init.method !== 'POST') return Response.json(await loadCatalog?.(catalogFor(server.session)) ?? catalogFor(server.session));
     if (String(url).endsWith('/settings')) { const body = JSON.parse(init.body); posts.push(body); return respond ? respond(body, posts.length, ack, server) : ack(body); }
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     return Response.json(server.session);
@@ -594,4 +594,19 @@ test('a host can map each voice option to its own browser client; the rail start
   assert.equal(start.disabled, false, start.title);
   start.click(); await tick(6);
   assert.deepEqual(started, ['fake-voice']);
+});
+
+// AIT-234: hold the first catalog so a fast explicit choice precedes its defaults.
+test('AIT-234: Custom chosen before the catalog loads applies Custom defaults, never Best values', async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = fixture(t, { loadCatalog: async catalog => { await held.promise; return catalog; } });
+  h.c.openSettings();
+  h.q('[data-preset="custom"]').click();
+  await tick();
+  held.resolve(); await tick(10);
+  assert.deepEqual(h.posts, [{ processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0, confirm: true }]);
+  assert.equal(h.c.session.settings.origin, 'chosen');
+  assert.equal(h.c.session.processingPreset, 'custom');
+  assert.equal(h.c.session.settings.voice, 'off');
+  assert.equal(h.c.session.settings.visuals, 'off');
 });
