@@ -614,7 +614,7 @@ export class SettingsDialog {
     }
     const models = device ? [] : info?.models ?? [];
     const named = label => catalogLabel(this.#copy, label);
-    const modelOptions = models.map(option => ({ value: option.id, label: modelDisplayName(option.id, this.#copy), vendor: named(option.facts?.vendor),
+    const modelOptions = models.map(option => ({ value: option.id, label: modelDisplayName(option.id, this.#copy, option.label), vendor: named(option.facts?.vendor),
       status: this.#optionStatus(option), kind: option.status === 'available' ? '' : option.status, reason: option.status === 'available' ? '' : option.reason, help: 'model', feature: 'text' }));
     if (!device && draft.model && !models.some(o => o.id === draft.model)) modelOptions.push({ value: draft.model, label: modelDisplayName(draft.model, this.#copy),
       status: c.notOffered, kind: 'unavailable', reason: 'model not offered', help: 'model' });

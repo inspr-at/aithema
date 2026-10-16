@@ -4,7 +4,7 @@ import { featureConsentText, reasonSeparator } from './consent-line.js';
 // Shared with native browser hosts through the public display entrypoint.
 export { reasonSeparator };
 
-// AIT-131: public names for served routes. Unknown routes get localized copy, never an id or a host label.
+// Public names take precedence; unknown routes may use only a curated, localized host label.
 export const MODEL_DISPLAY_NAMES = Object.freeze({
   'anthropic/claude-haiku-5.5': 'Claude Haiku 5.5',
   'anthropic/claude-opus-5.5': 'Claude Opus 5.5',
@@ -24,9 +24,11 @@ export const MODEL_DISPLAY_NAMES = Object.freeze({
   mock: 'Mock reasoning', swift: 'Swift (mock)', deep: 'Deep (mock)',
   'mock/swift': 'Swift (mock)', 'mock/deep': 'Deep (mock)',
 });
-export function modelDisplayName(id, copy) {
+export function modelDisplayName(id, copy, label) {
   const name = Object.hasOwn(MODEL_DISPLAY_NAMES, id ?? '') ? MODEL_DISPLAY_NAMES[id] : null;
-  return name ? copy.catalogLabels?.[name] ?? name : copy.display.modelUnknown;
+  if (name) return copy.catalogLabels?.[name] ?? name;
+  return typeof label === 'string' && label !== '' && Object.hasOwn(copy.catalogLabels ?? {}, label)
+    ? copy.catalogLabels[label] : copy.display.modelUnknown;
 }
 
 // The existing wallet stores USD millionths: one credit is one US cent. Never overstate spendable credit.

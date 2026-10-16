@@ -29,6 +29,25 @@ test('AIT-131 display names: every served id maps to a name, arbitrary ids and p
   assert.equal(modelDisplayName('~anthropic/claude-haiku-latest', en), 'Claude Haiku', 'an alias never claims a concrete served version');
 });
 
+test('AIT-265 model names prefer known ids, then exact curated host labels, then the localized fallback', () => {
+  for (const [copy, translated] of [[de, 'Anthropic über OpenRouter'], [en, 'Anthropic via OpenRouter']]) {
+    assert.equal(modelDisplayName('default', copy, 'Anthropic via OpenRouter'), translated);
+    assert.equal(modelDisplayName('anthropic/claude-opus-5.5', copy, 'Anthropic via OpenRouter'), 'Claude Opus 5.5');
+    assert.equal(modelDisplayName('default', copy), copy.display.modelUnknown, 'two-argument callers keep their fallback');
+    for (const label of ['Uncurated host model', '~anthropic/claude-opus-latest via OpenRouter', 'anthropic via OpenRouter',
+      'Anthropic via OpenRouter ', '__proto__', 'constructor', '', ' ', undefined, null]) {
+      assert.equal(modelDisplayName('default', copy, label), copy.display.modelUnknown, `uncurated label: ${label}`);
+    }
+  }
+  const copy = { ...en, catalogLabels: Object.assign(Object.create({ inherited: 'Uncurated inherited name' }), {
+    '~provider/route': 'Curated route name', 'Claude Opus 5.5': 'Translated known name', '': 'Empty label',
+  }) };
+  assert.equal(modelDisplayName('default', copy, '~provider/route'), 'Curated route name', 'entry presence is the gate, regardless of label shape');
+  assert.equal(modelDisplayName('anthropic/claude-opus-5.5', copy, '~provider/route'), 'Translated known name');
+  for (const label of ['inherited', '']) assert.equal(modelDisplayName('default', copy, label), en.display.modelUnknown);
+  assert.equal(modelDisplayName('default', { ...en, catalogLabels: undefined }, 'Anthropic via OpenRouter'), en.display.modelUnknown);
+});
+
 test('AIT-131 drafts line: exactly one sentence/action for off, policy quote and insufficient credits, with unknown quotes closed', () => {
   for (const copy of [de, en]) {
     const off = draftsLine({ copy, feature: { available: false, reason: 'not configured' }, cost: null });

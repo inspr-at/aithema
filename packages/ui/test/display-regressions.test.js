@@ -16,10 +16,10 @@ const bytes = new TextEncoder().encode('<!doctype html><html><head><title>Popula
 const artifact = (mediaType = 'text/html') => ({ id: 'draft1', mediaType, turnIds: ['source'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } });
 
-function fixture(t, { copy = en, model = 'mock', label, offered = false, concepts = [artifact()], host, htmlResponse, visuals = { available: true }, kind = 'html', cost } = {}) {
+function fixture(t, { copy = en, model = 'mock', label, offered = false, served = {}, concepts = [artifact()], host, htmlResponse, visuals = { available: true }, kind = 'html', cost } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.settings = { ...session.settings, origin: 'chosen', model, effort: 'none', voice: 'off', visuals: 'off' };
-  if (label !== undefined) session.engine = { preset: 'best', model: { id: model, label, offered } };
+  if (label !== undefined) session.engine = { preset: 'best', model: { id: model, label, offered, ...served } };
   session.transcript = concepts.length ? [{ id: 'source', role: 'user', content: 'A populated interactive draft' }] : [];
   session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = kind; session.conceptCost = cost;
   session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: kind === 'html' ? visuals : { available: true }, images: kind === 'image' ? visuals : { available: true } } };
@@ -167,9 +167,18 @@ for (const [locale, copy] of [['en', en], ['de', de]]) for (const route of [
   { model: '~anthropic/claude-haiku-latest', label: '~anthropic/claude-haiku-latest', expected: 'Claude Haiku' },
   { model: 'retired/private-model', expected: copy.display.modelUnknown },
   { model: 'retired/private-model', label: 'retired/private-model', offered: true, expected: copy.display.modelUnknown },
-]) test(`AIT-131: ${locale} readiness and settings name ${route.model} (${route.offered ? 'catalog' : route.label ? 'raw label' : 'missing metadata'}) without raw ids`, async t => {
+  { model: 'default', label: 'Anthropic via OpenRouter', offered: true, expected: copy.catalogLabels['Anthropic via OpenRouter'] },
+  { model: 'default', label: 'Anthropic via OpenRouter', offered: true, served: { reply: 'anthropic/claude-opus-5.5', understanding: 'host/private-route' },
+    expected: copy.catalogLabels['Anthropic via OpenRouter'], replyExpected: 'Claude Opus 5.5' },
+  { model: 'anthropic/claude-opus-5.5', label: 'Anthropic via OpenRouter', offered: true, expected: 'Claude Opus 5.5' },
+  ...['Uncurated host model', '~anthropic/claude-opus-latest via OpenRouter', '', undefined].map(label =>
+    ({ model: 'default', label, offered: true, expected: copy.display.modelUnknown })),
+]) test(`AIT-265: ${locale} ready card, settings and footer name ${route.model} (${route.label ?? 'missing label'}) without raw ids`, async t => {
   const { c, root } = fixture(t, { copy, ...route, concepts: [] });
   assert.equal(root.querySelector('[data-ready="model"] dd > span:last-child').textContent, route.expected);
+  const details = root.querySelector('.engine__detail').textContent.split('\n');
+  assert.equal(details[1], `${copy.display.reply}: ${route.replyExpected ?? route.expected}`);
+  assert.equal(details[2], `${copy.display.understanding}: ${route.expected}`);
   c.openSettings(); await tick(); await tick();
   const select = root.querySelector('[data-select="model"]');
   assert.equal(select.querySelector('.select__value').textContent, route.expected);
