@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan, verifyCorpusLeadingSilence } from '../src/live-qualification.js';
@@ -292,11 +292,33 @@ test('final reconciliation failures are captured after a successful report', asy
 
 test('unwritable failure destination still rethrows the original error and reconciles', async t => {
   const { options, reconciliations } = await failureFixture(t);
-  const abort = new Error(sentinel);
-  Object.defineProperty(options.plan.corpus[0], 'wavPath', { get() { throw abort; } });
-  await mkdir(options.outputDirectory); await mkdir(join(options.outputDirectory, 'failure.json'));
+  const abort = new Error(sentinel), run = options.host.runSample;
+  options.host.runSample = async args => {
+    await run(args);
+    // Obstruct storage after dispatch, independent of the test user's privileges.
+    await rename(options.outputDirectory, options.outputDirectory + '.saved');
+    await writeFile(options.outputDirectory, 'storage unavailable');
+    throw abort;
+  };
   await assert.rejects(runLiveQualification(options), error => error === abort);
   assert.equal(reconciliations.length, 1);
+  assert.equal(await readFile(options.outputDirectory, 'utf8'), 'storage unavailable');
+});
+
+test('an abort in a later baseline lane keeps that sample and lane trace', async t => {
+  const { options, calls } = await failureFixture(t, { count: 2 });
+  const abort = new SyntaxError(sentinel), run = options.host.runSample;
+  options.host.runSample = async args => {
+    const value = await run(args);
+    if (args.item.fixtureIndex === 2 && args.lane === 'baseline') throw abort;
+    return value;
+  };
+  await assert.rejects(runLiveQualification(options), error => error === abort);
+  assert.equal(calls.length, 4);
+  const record = JSON.parse(await readFile(join(options.outputDirectory, 'failure.json')));
+  assert.equal(record.phase, 'runSample'); assert.equal(record.sample, 2); assert.equal(record.lane, 'baseline');
+  assert.equal(record.trace.total, 4); assert.equal(record.trace.counts.capture, 2);
+  assert.match(record.message, /^SyntaxError sha256:[a-f0-9]{64}$/); assertValueFree(record);
 });
 
 for (const [reason, timing] of [
