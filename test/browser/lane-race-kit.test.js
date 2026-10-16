@@ -65,7 +65,11 @@ test('AIT-201 all six real lane pairs render settled states in both orders; one 
   // Direct lane races do not record handler failures. Exercise the real retry
   // scheduler as well, so the UI receives each retryable failure in its snapshot.
   for (const lane of ['reaction', 'understanding']) {
-    const session = await page.evaluate(async lane => (await fetch('/retry-failure?lane=' + lane)).json(), lane);
+    const session = await page.evaluate(async lane => {
+      const response = await fetch('/retry-failure?lane=' + lane);
+      if (!response.ok) throw new Error(`Retry failure fixture returned HTTP ${response.status}`);
+      return response.json();
+    }, lane);
     assert.equal(session.operations.lastFailure.lane, lane);
     assert.equal(session.operations.lastFailure.retryable, true);
     await shadow(page, async (c, session) => {

@@ -311,7 +311,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   scroll-padding-block:28px 44px;
   display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
 /* Reserve two notice lines so availability changes keep the Export row in place. */
-.notice { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
+.notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 .analysis-content section.summary { padding-top:0; border-top:0; } .analysis-content section.summary h3 { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
@@ -339,7 +339,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .overview-retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
-.export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; }
+.export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 
 /* Neutral scrollbars only during interaction. A stable gutter prevents hover from changing line wraps. */
 :is(.transcript-shell,.analysis-content):is(:hover,:focus-within,[data-scrolling]) { scrollbar-color:var(--aithema-line-strong) transparent; }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
+import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger, createLocalImages, localImageBinding, isLocalImages, createLocalHTML, localHTMLBinding, isLocalHTML } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes, inputRevision, createPreset } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
@@ -536,3 +536,49 @@ test('AIT-173 round 4: owner reconciliation previews cannot borrow another owner
   assert.equal(host.walletForSession(h.session).canAdmitWithoutReconcilingHold({ maxMicro: 1 }), false);
   assert.equal(host.walletForSession(other).canAdmitWithoutReconcilingHold({ maxMicro: 1 }), true);
 });
+
+
+for (const [kind, create, binding, recognizes] of [
+  ['images', createLocalImages, localImageBinding, isLocalImages],
+  ['html', createLocalHTML, localHTMLBinding, isLocalHTML],
+]) for (const attack of ['copied-generate', 'awaited-edit-swap']) {
+  test(`AIT-218 round 2: local ${kind} ${attack} cannot dispatch a real edit under mock consent`, async t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    let session = storage.create({ ownerToken: 'visual-snapshot-owner' });
+    storage.append(session.id, 'concept.state', { intent: { visualIntent: { id: 'wish' }, pending: { id: 'render' } } });
+    session = storage.get(session.id);
+    const local = create({ delayMs: 1 }); let dispatched = 0, coverageCalls = 0;
+    const realEdit = async (_previous, _spec, _feedback, options) => {
+      await options.attempt.consume(); dispatched++;
+      throw new Error('attacker edit dispatched');
+    };
+    const plugin = attack === 'copied-generate' ? { ...local, edit: realEdit } : local;
+    const registry = new PluginRegistry().register(plugin), entry = registry.get(binding.plugin);
+    const consent = { async coverage({ scope, consentRevision }) {
+      coverageCalls++;
+      await Promise.resolve();
+      if (attack === 'awaited-edit-swap') entry.edit = realEdit;
+      return { covered: scope.purpose === 'mock-conversation', ...scope, scope, consentRevision,
+        checkedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+    } };
+    const runtime = createPluginRuntime({ storage, registry, consent,
+      presets: { best: { plugins: [binding.plugin], bindings: { [kind]: binding } } } });
+    const spec = { prompt: 'Private repair dashboard', language: 'en' };
+    // A genuine previous artifact exercises the actual edit path, not a stub.
+    const previous = await local.generate(spec, '', { attempt: { attemptId: 'fixture', claimId: 'fixture', consume() {} }, report() {} });
+    let admitted, edited;
+    try {
+      admitted = await runtime.admit({ session, lane: 'concept', operation: 'edit', request: { ...spec, feedback: 'Increase contrast', previousArtifact: previous } });
+      edited = await admitted.plugin.edit(previous, spec, 'Increase contrast', admitted.options);
+    } catch { /* Refusal is safe; the dispatch count below proves the boundary. */ }
+    finally { admitted?.finish({ failed: !edited }); }
+    assert.equal(dispatched, 0, 'real edit must never dispatch under mock consent');
+    if (attack === 'copied-generate') {
+      assert.equal(recognizes(plugin), false, 'generate alone cannot mint local identity');
+      assert.ok(runtime.scopes(session, { feature: kind }).every(scope => scope.purpose !== 'mock-conversation'));
+    } else {
+      assert.ok(coverageCalls > 0, 'swap occurs during awaited coverage');
+      assert.equal(edited?.mediaType, kind === 'html' ? 'text/html' : 'image/png', 'private implementation still edits locally');
+    }
+  });
+}
