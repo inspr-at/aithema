@@ -15,7 +15,9 @@ export function installQualificationOutputProbe() {
   const nativeConnect = AudioNode.prototype.connect;
   const probe = {
     stop(block, bargeInAt, teardownAt = Infinity) {
-      if (Number.isFinite(bargeInAt) && block.at >= bargeInAt && block.at < teardownAt && !block.voiced) {
+      // A block straddling teardown may become quiet because teardown cut it.
+      // Require the entire block to precede teardown, using its rendered clock.
+      if (Number.isFinite(bargeInAt) && block.at >= bargeInAt && (teardownAt === Infinity || block.at + block.durationMs <= teardownAt) && !block.voiced) {
         return { kind: 'playback-stop', stoppedAt: block.at, outputTimestamp: block.timestamp, origin: 'rendered-silence' };
       }
     },
@@ -35,7 +37,7 @@ export function installQualificationOutputProbe() {
               const at = timestamp.performanceTime + (time - timestamp.contextTime) * 1000;
               const voiced = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length) >= .015;
               if (voiced) voicedSince ??= at; else voicedSince = undefined;
-              onRendered({ samples, at, timestamp, voiced, voicedSince, sampleRateHz: context.sampleRate, sink });
+              onRendered({ samples, at, timestamp, voiced, voicedSince, durationMs: samples.length / context.sampleRate * 1000, sampleRateHz: context.sampleRate, sink });
             }
             if (pending.length) timer = setTimeout(observe, 10);
           } catch (error) { onFault(error); }

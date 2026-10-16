@@ -65,8 +65,8 @@ window.composedQualification = {
       onTiming(event) { onTiming(event.kind === 'playback-stop' ? { ...event, kind: 'playback-stop-request' } : event); },
       observeOutput: source => outputProbe.tap(source, block => {
         if (finished) return;
-        output.push({ at: block.at, timestamp: block.timestamp, voiced: block.voiced });
-        onTiming({ kind: 'playback-rendered', at: block.at, voiced: block.voiced, outputTimestamp: block.timestamp });
+        output.push({ at: block.at, timestamp: block.timestamp, voiced: block.voiced, durationMs: block.durationMs });
+        onTiming({ kind: 'playback-rendered', at: block.at, voiced: block.voiced, durationMs: block.durationMs, outputTimestamp: block.timestamp });
       }, { onFault: fail }),
     });
     const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: fail }),

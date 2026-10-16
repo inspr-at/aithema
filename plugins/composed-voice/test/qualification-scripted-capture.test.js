@@ -159,3 +159,19 @@ test('candidate rendered silence qualifies without an explicit player stop', asy
   assert.equal(result.trace.find(row => row.kind === 'playback-stop').stoppedAt, 910);
   assert.equal(result.trace.some(row => row.kind === 'playback-stop-request'), false);
 });
+
+for (const at of [840, 850, 910]) test(`teardown cannot create a qualifying silent output block at ${at} ms`, async () => {
+  const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true, productStop: true,
+    teardownStop: true, outputTrace: [{ at, durationMs: 21, voiced: false, timestamp: { contextTime: at / 1000, performanceTime: at } }] });
+  const result = await h.run();
+  assert.equal(result.refusal, 'missing-playback-stop');
+  assert.equal(result.trace.some(row => row.kind === 'playback-stop'), false);
+});
+
+test('a fully rendered silent block before teardown remains valid evidence', async () => {
+  const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true, productStop: true,
+    teardownStop: true, outputTrace: [{ at: 820, durationMs: 21, voiced: false, timestamp: { contextTime: .82, performanceTime: 820 } }] });
+  const result = await h.run();
+  assert.equal(result.refusal, undefined);
+  assert.equal(result.trace.find(row => row.kind === 'playback-stop').stoppedAt, 820);
+});
