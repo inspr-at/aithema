@@ -33,21 +33,43 @@ Including a whole unfinished 64,000 B player frame gives at most 160,000 B,
 below each 256,000 B relay/player bound, with 96,000 B left for polling/startup
 and control frames. Higher rates cap lead bytes at 96,000 B as before.
 
-The server queue has a **32,000,000 B PCM bound, including the chunk held by
-the pacer**, plus a **1,024-chunk bound** to limit tiny-chunk metadata. This is
-derived directly from both components' existing 16,000,000 B per-speak ceiling:
-reserve room for two entire permitted responses (2 × 16,000,000 B), regardless of
-text length or speaking rate. At 24 kHz this is 666⅔ s PCM16 or 333⅓ s float32.
-Fragments remain sequential (default 240 characters); the next speak opens as
-soon as the previous speak's terminal has been consumed and accounting has
-finished, while its audio is still playing. Only one TTS provider stream per
-reply is open at a time; queued fragments share the same ordered pacing cursor.
-There is no between-fragment playback wait. Further overlap must fit the same
-fixed bound or fail closed. Normal 64,000 B component chunks need 500 slots for
-two maximum responses; 1,024 also permits provider chunk boundaries without
-unlimited metadata. Either server ceiling fails closed with `limit`. With at most
-four default pending turns
-(the validated host maximum is sixteen), queue memory is bounded per call too.
+At most **two fragments** are retained: the one being paced and one lookahead.
+N+1 opens at N's provider terminal, after its accounting finishes. N+2 waits
+until N's **last frame has been relayed**, including completion of `relay.audio`.
+A FIFO drain marker per fragment enforces this even for an empty provider output.
+Only one TTS stream per reply is open at a time. An open stream is always drained
+eagerly; the wait happens before the next component admission. All fragments use
+the same pacing cursor, so the lookahead hides synthesis latency at boundaries.
+
+The enforced per-fragment duration allowance is `fragmentCharacters / 4` seconds.
+The source for the conservative rate is [W3C CSS Speech 1, voice-rate](https://www.w3.org/TR/css-speech-1/#voice-rate),
+which gives an illustrative English “x-slow” rate of 80 words/minute. Our explicit
+planning conversion of five characters/word gives 6.67 characters/second;
+**4 characters/second** allows a further 40% slowdown (48 words/minute). This is a
+memory policy, not a guarantee for every language, number expansion or provider.
+Slower or excessive output fails closed with `limit`; a fragment's generated PCM
+is capped even when its earlier bytes have already been relayed.
+
+For output byte rate `R = sampleRateHz × sampleBytes` (mono), a fragment's bound
+`F = ceil(fragmentCharacters / 4 × sampleRateHz) × sampleBytes` rounds up to a
+whole sample. The reply queue bound is **`2 × F + 64,000 B`**: two worst-case
+fragments plus a maximum pacer-held provider chunk. The byte counter includes
+that held chunk until all of its frames finish relaying, making the extra chunk
+reserve conservative. At the default 240 characters and 24 kHz, F = 60 seconds:
+2,880,000 B PCM16 or 5,760,000 B float32, with queue bounds **5,824,000 B PCM16**
+and **11,584,000 B float32**. At the validated maximum 1,000 characters, the
+24 kHz bounds are 24,064,000 B PCM16 and 48,064,000 B float32. Provider per-speak
+limits still apply independently. A **1,024-chunk ceiling**, including the held
+chunk, bounds tiny-chunk metadata. Either byte or chunk overflow is `limit`.
+
+The fake-clock regression streams **30,000 characters at 10× real-time TTS**,
+using 12 spoken characters/second, in both default formats and with 1,000-character
+float32 fragments. Every N+2 dispatch observes N fully relayed, the retained PCM
+never exceeds two fragments or reaches the derived ceiling, all audio arrives in
+order, and each speak is accounted once. The existing end-to-end three-sentence
+tests still assert a continuous player timeline with 1.5 s synthesis latency.
+Queue memory is bounded per call by the pending-turn ceiling (four by default,
+sixteen maximum), independent of reply length.
 
 Silence first fences the revision and drops all playback queues synchronously,
 aborting pacers and in-flight TTS. The pacer checks the revision again immediately

@@ -60,7 +60,7 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
     } }, authorize: async () => true, commitUtterance: async () => {},
     admitComponent: async ({ role }) => ({ attempt: { attemptId: role, claimId: 'claim', maxMicro: 100_000, consume() {} }, report: value => reports.push(value) }),
     relay: { event: value => events.push(value), silence: value => silences.push(value),
-      audio: value => { onAudio?.(value); if (retainAudio) published.push({ ...value, at: Date.now() }); if (blockRelay) return release.promise; } } });
+      audio: value => { const result = onAudio?.(value); if (retainAudio) published.push({ ...value, at: Date.now() }); return blockRelay ? release.promise : result; } } });
   t.after(async () => { await coordinator.close(); release.resolve(); await coordinator.idle(); });
   await coordinator.receiveAudio(speech()); await coordinator.receiveAudio(Buffer.alloc(16_000)); await tick();
   return { coordinator, published, events, silences, reports, sockets,
@@ -87,6 +87,37 @@ test('AIT-258: next speak opens after provider final and before the previous fra
   assert.deepEqual(Buffer.concat(h.published.map(frame => frame.bytes)),
     Buffer.concat([Buffer.alloc(256_000, 1), Buffer.alloc(256_000, 2)]));
   assert.equal(h.reports.filter(report => report.attemptId === 'tts' && report.outcome === 'completed').length, 2);
+});
+
+test('AIT-258: third speak waits for acknowledgement of the first fragment last relay', async t => {
+  const acknowledged = Promise.withResolvers(); let speaks = 0, frames = 0;
+  const h = await setup(t, { text: 'First. Second. Third. ',
+    onAudio({ bytes }) { if (bytes[0] === 1 && ++frames === 3) return acknowledged.promise; },
+    tts: { async *speak() { const index = ++speaks; for (let i = 0; i < 3; i++) yield Buffer.alloc(48_000, index); } } });
+  assert.equal(speaks, 2);
+  await h.advance(2000);
+  assert.equal(frames, 3, 'the last first-fragment frame reached the relay');
+  assert.equal(speaks, 2, 'pending last-frame acknowledgement still holds the first slot');
+  acknowledged.resolve(); await tick();
+  assert.equal(speaks, 3, 'acknowledgement releases the next speak without another clock tick');
+  await h.advance(8000); await h.coordinator.idle();
+  assert.equal(h.published.length, 9);
+  assert.ok(!h.events.some(event => event.type === 'waiting'));
+});
+
+test('AIT-258: empty lookahead retains FIFO order and interrupt releases a waiting dispatch', async t => {
+  let speaks = 0;
+  const h = await setup(t, { text: 'First. Second. Third. ', blockRelay: true,
+    tts: { async *speak() { if (++speaks === 1) yield Buffer.alloc(48_000); } } });
+  assert.equal(speaks, 2, 'empty N+1 cannot let N+2 bypass the blocked N');
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2);
+  const silent = h.silences.length, pending = h.coordinator.interrupt();
+  assert.equal(h.silences.length, silent + 1);
+  await pending; await h.coordinator.idle();
+  assert.equal(speaks, 2, 'waiting dispatch was never admitted or opened');
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2);
+  assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'));
+  await h.advance(10_000); assert.equal(h.published.length, 1, 'no stale audio after interruption');
 });
 
 test('AIT-258: bounded fake socket rejects two unread 137 KB messages', () => {
@@ -188,6 +219,27 @@ for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 24
     assert.equal(h.coordinator.state.state, 'active');
     assert.ok(!h.events.some(event => event.type === 'waiting'));
     assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatches.length, 'accounting once per speak');
+  });
+}
+
+for (const format of ['pcm_s16le', 'pcm_f32le']) {
+  test(`AIT-258: ${format} two worst-case fragments fit while the pacer holds a chunk`, async t => {
+    const fragmentBytes = 240 / 4 * (format === 'pcm_s16le' ? 48_000 : 96_000);
+    let speaks = 0, produced = 0;
+    const h = await setup(t, { format, blockRelay: true, text: 'a'.repeat(720),
+      tts: { async *speak() {
+        speaks++;
+        for (let offset = 0; offset < fragmentBytes; offset += 64_000) {
+          const size = Math.min(64_000, fragmentBytes - offset); produced += size; yield Buffer.alloc(size);
+        }
+      } } });
+    await tick();
+    assert.equal(speaks, 2, 'third fragment waits before admission');
+    assert.equal(produced, 2 * fragmentBytes, 'both maximum duration allowances fit');
+    assert.equal(h.published.length, 1, 'the pacer-held chunk is included');
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+    await h.coordinator.interrupt(); await h.coordinator.idle();
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2);
   });
 }
 

@@ -6,12 +6,12 @@ import { recoverableVoiceEnd } from '@inspr/aithema-core/voice-lifecycle';
 import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
 import { audioQueue, boundedEvents } from '../../../packages/core/src/voice-components.js';
 
-// Both TTS components cap one speak at 16,000,000 decoded PCM bytes. Reserve
-// two entire responses (2 * 16,000,000 B, including the pacer's held chunk)
-// so the next provider can finish while the previous fragment still plays.
-// Further overlap fails closed at the same bound; no speaking-rate guess is
-// needed. A separate chunk ceiling bounds metadata for tiny provider chunks.
-const REPLY_AUDIO_BYTES = 2 * 16_000_000, REPLY_AUDIO_CHUNKS = 1024;
+// W3C CSS Speech 1 gives an illustrative x-slow rate of 80 words/minute:
+// https://www.w3.org/TR/css-speech-1/#voice-rate
+// With a planning conversion of 5 characters/word that is 6.67 chars/s.
+// Budget at 4 chars/s (48 words/minute), allowing another 40% slowdown.
+// This is an enforced duration allowance, not a provider/language guarantee.
+const MIN_FRAGMENT_CHARACTERS_PER_SECOND = 4, REPLY_AUDIO_CHUNKS = 1024;
 
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');
@@ -43,6 +43,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   }
   const sampleBytes = outputFormat === 'pcm_s16le' ? 2 : 4;
   const bytesPerSecond = outputAudioFormat.sampleRateHz * sampleBytes;
+  const fragmentAudioBytes = Math.ceil(fragmentCharacters / MIN_FRAGMENT_CHARACTERS_PER_SECOND * outputAudioFormat.sampleRateHz) * sampleBytes;
+  // Two bounded fragments plus one maximum provider chunk held by the pacer.
+  // bytes below also counts that held chunk, so this reserve is conservative.
+  const replyAudioBytes = 2 * fragmentAudioBytes + 64_000;
   // L = 1 s at both real 24 kHz formats: 96,000 B float32 / 48,000 B
   // PCM16. Even counting a whole not-yet-completed 64,000 B player frame,
   // 160,000 B < each 256,000 B bound, leaving 96,000 B for polling/startup
@@ -161,29 +165,47 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     return turn;
   }
   function createPlayback(revision, turnSignal, replyId) {
-    const queue = audioQueue(REPLY_AUDIO_BYTES), controller = new AbortController();
+    const queue = audioQueue(replyAudioBytes), controller = new AbortController(), fragments = [];
     const signal = AbortSignal.any([turnSignal, controller.signal]), opts = options(signal);
-    let bytes = 0, chunks = 0, endAt, speaking = false, failure;
+    let bytes = 0, chunks = 0, endAt, failure;
     const valid = () => !signal.aborted && revision === playbackRevision && output && current();
-    const clear = () => { queue.clear(); bytes = 0; chunks = 0; };
+    const drain = () => {
+      while (fragments[0]?.ended && fragments[0].pending === 0) fragments.shift().drained.resolve();
+    };
+    const clear = () => {
+      queue.clear(); bytes = 0; chunks = 0;
+      for (const fragment of fragments) fragment.drained.resolve();
+      fragments.length = 0;
+    };
     signal.addEventListener('abort', clear, { once: true });
     const playback = {
       signal,
       stop() { controller.abort(); clear(); },
-      beginSpeak() { speaking = false; },
-      enqueue(value) {
+      async beginSpeak() {
+        // N+1 may open at N's provider terminal, but N+2 needs N's last
+        // relay acknowledgement. Abort releases this wait without clock time.
+        if (fragments.length === 2) await voiceOperation(opts, () => fragments[0].drained.promise);
         if (failure) throw failure;
         if (!valid()) return;
-        if (bytes + value.byteLength > REPLY_AUDIO_BYTES || chunks >= REPLY_AUDIO_CHUNKS) throw new PluginError('limit', 'Reply audio queue full');
-        bytes += value.byteLength; chunks++;
-        queue.push(Uint8Array.from(value));
+        const fragment = { drained: Promise.withResolvers(), pending: 0, generated: 0, ended: false, speaking: false };
+        fragments.push(fragment);
+        return fragment;
+      },
+      endSpeak(fragment) { fragment.ended = true; drain(); },
+      enqueue(value, fragment) {
+        if (failure) throw failure;
+        if (!valid()) return;
+        if (fragment.generated + value.byteLength > fragmentAudioBytes ||
+          bytes + value.byteLength > replyAudioBytes || chunks >= REPLY_AUDIO_CHUNKS) throw new PluginError('limit', 'Reply audio queue full');
+        bytes += value.byteLength; chunks++; fragment.pending++; fragment.generated += value.byteLength;
+        queue.push({ byteLength: value.byteLength, bytes: Uint8Array.from(value), fragment });
       },
       async finish() { queue.end(); await pacer; if (failure) throw failure; },
     };
     playbacks.add(playback);
     const pacer = (async () => {
       try {
-        for await (const chunk of boundedEvents(queue, opts)) {
+        for await (const { bytes: chunk, fragment } of boundedEvents(queue, opts)) {
           for (let offset = 0; offset < chunk.byteLength; offset += pacedFrameBytes) {
             const frame = chunk.subarray(offset, offset + pacedFrameBytes), durationMs = frame.byteLength / bytesPerSecond * 1000;
             // This cursor spans every fragment; provider gaps earn no catch-up
@@ -193,7 +215,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             while ((delay = frameEndAt - now() - leadMs) > 0) await playbackDelay(delay, opts);
             if (!valid()) return;
             endAt = Math.max(frameEndAt, now() + durationMs);
-            if (!speaking) { speaking = true; event({ type: 'speaking' }); }
+            if (!fragment.speaking) { fragment.speaking = true; event({ type: 'speaking' }); }
             await voiceOperation(opts, () => {
               // The speaking event can synchronously trigger silence. Fence
               // publication again inside the host callback.
@@ -202,7 +224,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             });
           }
           if (!valid()) return;
-          bytes -= chunk.byteLength; chunks--;
+          bytes -= chunk.byteLength; chunks--; fragment.pending--; drain();
         }
       } catch (error) { if (!signal.aborted) failure = error; }
       finally {
@@ -217,13 +239,15 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     const controller = new AbortController(), job = { controller }; speechJobs.add(job);
     const signal = AbortSignal.any([turnSignal, controller.signal, playback.signal]);
     try {
+      const fragment = await playback.beginSpeak();
+      if (!fragment) return;
       await component('tts', { text, voice, format: outputFormat }, signal, async opts => {
-        playback.beginSpeak();
         for await (const bytes of boundedEvents(tts.speak({ text, voice, format: outputFormat }, opts), opts)) {
           if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength % sampleBytes || bytes.byteLength > 64_000) throw new PluginError('limit');
-          playback.enqueue(bytes);
+          playback.enqueue(bytes, fragment);
         }
       });
+      playback.endSpeak(fragment);
     } catch (error) { if (!signal.aborted) throw error; }
     finally { speechJobs.delete(job); }
   }
@@ -245,9 +269,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             if (boundary) end = boundary.index + 2;
             if (/[\uD800-\uDBFF]/u.test(pending[end - 1])) end--;
             const fragment = pending.slice(0, end); pending = pending.slice(end);
-            // Await only the provider terminal and accounting. The next speak
-            // opens while earlier audio plays, enqueuing behind it on the same
-            // cursor. There is still only one open provider stream per reply.
+            // Await the provider terminal/accounting, then allow one fragment
+            // of lookahead. beginSpeak waits for N's last relay before N+2;
+            // the eager reader never waits while a provider stream is open.
             await speak(fragment, revision, signal, playback);
           }
         } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
