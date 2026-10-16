@@ -80,8 +80,10 @@ export function normalizeChoices(config) {
   const model = pick(d.model, models, models.find(o => Object.values(o.bindings).some(Boolean))?.id ?? models[0]?.id ?? null);
   const defaultModel = models.find(o => o.id === model);
   if (d.effort !== undefined && !defaultModel?.efforts?.includes(d.effort)) throw new TypeError('Invalid default effort');
+  // A configured draft renderer is the default; an explicit host default still wins.
   return { legacy: false, models, voices, visuals, defaults: { model, effort: d.effort ?? defaultModel?.effort ?? null,
-    voice: pick(d.voice, voices, SETTINGS_OFF), visuals: pick(d.visuals, visuals, SETTINGS_OFF) } };
+    voice: pick(d.voice, voices, SETTINGS_OFF),
+    visuals: pick(d.visuals, visuals, visuals.find(o => o.kind === 'html' && o.binding)?.id ?? SETTINGS_OFF) } };
 }
 
 export function mockPresets() {

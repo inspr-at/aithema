@@ -335,6 +335,7 @@ export class AithemaSession extends HTMLElement {
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
       consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
+      settings: opener => this.#dialog.openAt('model', '[data-select="visuals"]', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
     this.#render('features');
@@ -1255,7 +1256,7 @@ export class AithemaSession extends HTMLElement {
   #stage() {
     if (this.#host?.usedUp) return 'live';
     if (this.#hasInput() || this.#started || this.#session.paused || this.#rail?.root.dataset.call === 'active') return 'live';
-    return (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'entrance';
+    return this.#chooser.confirmed || (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'entrance';
   }
   #renderIntro() {
     const root = this.shadowRoot, workspace = root.querySelector('.workspace'), intro = root.querySelector('.intro'), active = root.activeElement;
@@ -1408,6 +1409,7 @@ export class AithemaSession extends HTMLElement {
     const result = await this.#saveSettings(body);
     if (sessionId !== this.#session.id) return;
     this.#chooser.busy = false;
+    if (result.ok) this.#chooser.confirmed = true;
     if (!result.ok) {
       this.#chooser.error = result.error === 'setting-not-allowed' ? copy.settings.notAllowed.replace('{reason}', reasonText(copy, result.body.reason, 'text'))
         : result.error === 'settings-conflict' ? copy.settings.conflict : copy.chooser.failed;

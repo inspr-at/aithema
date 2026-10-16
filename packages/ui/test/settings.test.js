@@ -386,6 +386,31 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.equal(root.querySelector('.intro').hidden, true, 'the first message replaces the start screen');
 });
 
+test('AIT-237: unchanged default acknowledgement advances to readiness without claiming a personal choice', async t => {
+  const h = fixture(t, { respond: (_body, _count, _ack, server) => Response.json({ processingPreset: 'best', settings: server.session.settings,
+    engine: server.session.engine, unchanged: true, event: null, featureMatrix: server.session.featureMatrix, consent: { required: false, features: [] } }) });
+  h.root.querySelector('.chooser__continue').click(); await tick(6);
+  assert.equal(h.c.session.settings.origin, 'default');
+  assert.equal(h.c.session.settings.revision, 0);
+  assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready');
+  assert.equal(h.root.activeElement, h.root.querySelector('.ready__start'));
+});
+
+for (const copy of [de, en]) test(`AIT-237 ${copy.display.locale}: drafts off action opens Settings at visuals without saving`, async t => {
+  const h = fixture(t, { copy });
+  const line = h.root.querySelector('.concept-activity-text');
+  assert.equal(line.textContent.replaceAll('\u00a0', ' '), `${copy.display.draftsDisabled} · ${copy.display.draftsEnable}`);
+  const action = line.querySelector('.consent-action'); action.click(); await tick();
+  assert.equal(h.dialog.open, true);
+  assert.equal(h.q('[data-tab="model"]').getAttribute('aria-selected'), 'true');
+  assert.equal(h.q('[data-select="visuals"]').closest('[data-panel]').hidden, false);
+  assert.deepEqual(h.posts, []);
+  h.server.session.featureMatrix.best.images = refused('current processing consent required');
+  h.q('[data-select="visuals"] .select__button').click(); h.option('visuals', 'Fake images').click(); await tick(6);
+  assert.equal(line.querySelector('.drafts-settings-action'), null);
+  assert.equal(line.dataset.consentFeature, 'images');
+});
+
 test('the Custom card opens settings with Continue and preselects the host\'s Custom preset; a last choice is announced', async t => {
   const h = fixture(t, { origin: 'last', matrix: { custom: { text: available } } });
   assert.match(h.root.querySelector('.chooser__hint > span').textContent, new RegExp(en.chooser.lastChoice));

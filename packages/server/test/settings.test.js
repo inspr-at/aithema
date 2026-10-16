@@ -54,6 +54,35 @@ function host(t, { presets = mockPresetsWithChoices(), consent = mockConsent, re
 }
 const json = async response => ({ status: response.status, body: await response.json() });
 
+test('AIT-237: best defaults to configured drafts; confirming defaults keeps their origin; personal off survives', async t => {
+  const presets = mockPresetsWithChoices();
+  presets.best.plugins.push('fake-html');
+  presets.best.choices.visuals.push({ id: 'drafts', kind: 'html', binding: localHTMLBinding });
+  delete presets.best.choices.defaults.visuals;
+  const registry = new PluginRegistry().register(createMockReasoning()).register(createLocalHTML());
+  const h = host(t, { presets, registry }), { session } = await h.create();
+  assert.deepEqual([session.processingPreset, session.settings.visuals, session.settings.origin], ['best', 'drafts', 'default']);
+  assert.equal(session.featureMatrix.best.html.available, true);
+  const catalog = (await json(await h.call(`/${session.id}/settings`))).body;
+  assert.equal(catalog.presets.best.defaults.visuals, 'drafts', 'the picker gets the same default');
+  const { model, effort, voice, visuals } = session.settings;
+  const confirmed = await json(await h.save(session.id, { processingPreset: 'best', model, effort, voice, visuals }));
+  assert.equal(confirmed.status, 200);
+  assert.deepEqual([confirmed.body.unchanged, confirmed.body.settings.origin, confirmed.body.settings.revision], [true, 'default', 0]);
+  assert.equal(h.storage.read(session.id).some(e => e.type === 'settings.changed'), false);
+  assert.equal(h.storage.lastSettings(owner), null, 'defaults do not become remembered personal choices');
+  for (const settings of [{}, { model, effort, voice, visuals }]) {
+    const echoed = await h.create({ settings });
+    assert.deepEqual([echoed.session.settings.visuals, echoed.session.settings.origin], ['drafts', 'default'], 'creation cannot mark echoed defaults as chosen');
+  }
+  const off = await json(await h.save(session.id, { visuals: 'off' }));
+  assert.deepEqual([off.body.settings.visuals, off.body.settings.origin], ['off', 'chosen']);
+  const changedModel = await json(await h.save(session.id, { model: 'mock/deep' }));
+  assert.equal(changedModel.body.settings.visuals, 'off', 'choosing another model preserves a personal off');
+  const next = await h.create();
+  assert.deepEqual([next.session.settings.visuals, next.session.settings.origin], ['off', 'last']);
+});
+
 test('the catalog shows only ids, labels and manifest facts with each option\'s verdict; private bindings stay on the server', async t => {
   const fixture = qualify(binding('openrouter', 'https://provider.test/v1/chat/completions', { maxMicro: 100_000 }));
   const presets = mockPresetsWithChoices();

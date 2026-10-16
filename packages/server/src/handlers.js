@@ -1,4 +1,4 @@
-import { consentSaveEndsConversation } from '../../core/src/settings.js';
+import { consentSaveEndsConversation, sameSelection } from '../../core/src/settings.js';
 import { validateConsentDocument, ConsentDocumentError } from '../../core/src/consent-document.js';
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
@@ -329,6 +329,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (!options.settings || typeof options.settings !== 'object' || Array.isArray(options.settings)) return { status: 400, error: 'invalid-session' };
       const chosen = await pluginRuntime.validate(probe, { ...options.settings, processingPreset: probe.processingPreset });
       if (chosen.error) return chosen;
+      if (sameSelection(chosen.settings, pluginRuntime.defaults?.(chosen.processingPreset))) {
+        return { processingPreset: chosen.processingPreset, settings: { ...chosen.settings, origin: 'default' } };
+      }
       return { processingPreset: chosen.processingPreset, settings: { ...chosen.settings, origin: 'chosen', at: new Date().toISOString() } };
     }
     const last = storage.lastSettings?.(ownerToken);

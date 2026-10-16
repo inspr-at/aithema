@@ -972,7 +972,8 @@ export class SQLiteStorage {
       const current = session.settings, preset = session.processingPreset ?? 'best';
       // Every write names the revision it was based on, so a stale write or a replay never lands.
       if (baseRevision !== current.revision) throw new SettingsConflictError('settings-conflict', session);
-      if (preset === processingPreset && sameSelection(current, settings) && current.origin === 'chosen') return { event: null, session };
+      // Confirming the displayed defaults is not a new personal settings choice.
+      if (preset === processingPreset && sameSelection(current, settings)) return { event: null, session };
       // Each change is a durable event; a conversation's history of choices stays bounded.
       if (current.revision >= MAX_SETTINGS_REVISIONS) throw new RangeError('Settings limit');
       if ((preset === 'device') !== (processingPreset === 'device') && conversationStarted(session)) {
