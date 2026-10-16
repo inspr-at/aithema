@@ -121,7 +121,7 @@ for (const format of ['pcm_s16le', 'pcm_f32le']) {
     assert.equal(h.fragments, 3); assert.equal(h.failures.length, 0);
     assert.equal(h.published[0].at, started + providerLatency, 'pacing adds no first-audio delay');
     assert.deepEqual(h.dispatches.slice(0, 2), [started, started + providerLatency]);
-    const lastFirst = h.published.filter(frame => format === 'pcm_s16le' ? frame.bytes.readInt16LE(0) === 2000 : frame.bytes.readFloatLE(0) === 0.125).at(-1);
+    const lastFirst = h.published.filter(frame => format === 'pcm_s16le' ? Buffer.from(frame.bytes).readInt16LE(0) === 2000 : Buffer.from(frame.bytes).readFloatLE(0) === 0.125).at(-1);
     assert.equal(h.dispatches[2], lastFirst.at, 'third speak opens when the first fragment last frame is relayed');
     assert.deepEqual(Buffer.concat(h.delivered.map(frame => frame.bytes)), Buffer.concat(h.expected));
     assert.ok(h.scheduled.length > 3);

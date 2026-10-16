@@ -143,14 +143,17 @@ for (const [format, fragmentCharacters] of [['pcm_s16le', 240], ['pcm_f32le', 24
     const bytesPerSecond = format === 'pcm_s16le' ? 48_000 : 96_000;
     const fragmentBytes = fragmentCharacters / 12 * bytesPerSecond;
     const dispatches = [], terminals = [], relayed = [], spoken = [];
-    let buffered = 0, peak = 0, open = 0, produced = 0, delivered = 0, firstAt, lastAt;
+    let buffered = 0, peak = 0, open = 0, produced = 0, delivered = 0, firstAt, lastAt, lastFragment = 0;
     const h = await setup(t, { format, fragmentCharacters, text: 'a'.repeat(30_000), retainAudio: false,
       leaseMs: 3_600_000, spendMs: 3_600_000,
       onAudio({ bytes }) {
         const index = bytes[0] - 1;
+        assert.ok(index === lastFragment || index === lastFragment + 1, 'fragment audio stays ordered');
+        lastFragment = index;
         relayed[index] = (relayed[index] ?? 0) + bytes.length;
         buffered -= bytes.length; delivered += bytes.length;
         firstAt ??= Date.now(); lastAt = Date.now();
+        assert.ok(delivered / bytesPerSecond <= (lastAt - firstAt) / 1000 + 1.001, 'L = one second throughout the reply');
       },
       tts: { async *speak({ text }, opts) {
         const index = dispatches.length;
