@@ -355,7 +355,9 @@ test('AIT-189: reloaded purpose/session pauses match unpaused stage, visual draf
   }
 });
 
-test('AIT-188 V1: settled project overview replaces the placeholder after purpose pause, DE/EN L/D phone/desktop', { timeout: 120_000 }, async t => {
+// AIT-233 diagnostic only: run the complete V1 test 50 times in one remote lane.
+for (let repetition = 1; repetition <= 50; repetition++)
+test(`AIT-188 V1: settled project overview replaces the placeholder after purpose pause, DE/EN L/D phone/desktop (probe ${repetition}/50)`, { timeout: 120_000 }, async t => {
   const page = await fixture(t);
   for (const locale of ['de', 'en']) {
     const scenario = await pausedOverview(locale);
