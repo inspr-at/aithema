@@ -61,6 +61,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       CREATE TABLE IF NOT EXISTS visitor_confirmation_tokens (
       token_hash TEXT PRIMARY KEY, visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
       session_id TEXT NOT NULL, address_revision INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER);
+      CREATE INDEX IF NOT EXISTS visitor_token_session ON visitor_confirmation_tokens(session_id);
       CREATE INDEX IF NOT EXISTS visitor_token_retention ON visitor_confirmation_tokens(created_at);
       CREATE TABLE IF NOT EXISTS visitor_email_asks (
         visitor_ref TEXT PRIMARY KEY REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,

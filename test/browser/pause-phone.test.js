@@ -623,6 +623,8 @@ test('AIT-188 r3 keyboard: touch width/orientation reset and blur never stick fo
   assert.notEqual(await footer(), 'none', 'keyboard closed');
   await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true })); await frame(page);
   assert.notEqual(await footer(), 'none', 'focus alone cannot reuse a stale height');
+  await setViewport(page, { width: 390, height: 600, isLandscape: false }); await frame(page);
+  assert.notEqual(await footer(), 'none', 'a short unobstructed portrait viewport keeps its footer too');
 });
 
 test('AIT-188 r3 fade: overlay keyboard backdrop has a transparent-to-paper top 12px, L/D 390/393', async t => {

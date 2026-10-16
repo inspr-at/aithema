@@ -139,7 +139,7 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 }
 
 .conversation-page .utility-language { width:auto; }
-.conversation-page .utility-theme { width:112px; }
+.conversation-page .utility-theme { width:auto; }
 .conversation-page .utility-value { white-space:nowrap; }
 .conversation-page .utility select { position:absolute; inset:0; width:100%; height:44px; opacity:0; }
 .conversation-page #theme { inline-size:100%; }
@@ -393,3 +393,32 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 .ad-sub-stack { display:grid; }
 .ad-sub-stack > .ad-sub { grid-area:1/1; }
 .ad-sub-stack > .msr { visibility:hidden; pointer-events:none; }
+
+/* AIT-206: unknown until the conversation resolves; reserve both DE and EN. */
+.conversation-page #language-value { display:inline-block; inline-size:2ch; block-size:1lh; flex:none; }
+
+/* AIT-206: intrinsic reserve measures actual labels (System/Dunkel) in the real font,
+   including the phone layout. Blank until the screen language is known. */
+.conversation-page .theme-value-reserve { display:inline-grid; flex:none; }
+.conversation-page .theme-value-reserve::before { content:"Dunkel"; }
+.conversation-page .theme-value-reserve::after { content:"System"; }
+.conversation-page .theme-value-reserve::before,.conversation-page .theme-value-reserve::after { visibility:hidden; }
+.conversation-page .theme-value-reserve > span,.conversation-page .theme-value-reserve::before,.conversation-page .theme-value-reserve::after { grid-area:1 / 1; }
+.conversation-page #theme-value { display:inline-block; block-size:1lh; }
+/* Before upgrade these children have no header slot. After upgrade the shadow
+   tree itself withholds them until configure creates the toolbar and its slot. */
+:root:not([data-host-unavailable]) .conversation-page aithema-session:not(:defined) .host-actions { visibility:hidden; }
+
+/* Keep Tick's full Conversations label from 448px beside the reserved values. */
+@media(448px <= width < 480px) {
+  .conversation-page .utility { gap:1px; padding-inline:2px; }
+}
+
+/* The theme chevron is exactly 4px after the intrinsic label reserve. */
+.conversation-page .utility-theme { column-gap:4px; }
+/* At the full-label boundary, keep the compact icon gap while the chevron
+   remains 4px after the measured reserve (1px gap + 3px margin). */
+@media(448px <= width < 480px) {
+  .conversation-page .utility-theme { column-gap:1px; }
+  .conversation-page .utility-theme .utility-chevron { margin-inline-start:3px; }
+}

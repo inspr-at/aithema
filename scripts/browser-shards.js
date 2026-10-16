@@ -24,6 +24,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Estimates exclude setup, file-process overhead and evidence upload. The final
 // layout is validated separately against the 450s whole-job wall budget.
 export const browserTestWeights = {
+  'test/browser/composed-media.test.js': 20.000, // AIT-160 mbp2606 2d9ee5ada7-81358: 0.708s; rounded up + 10s margin
   'test/browser/admin-pages.test.js': 80.000, // AIT-199 latest max 62.782s, CI 38770896962-1; historical floor 80s
   'test/browser/audio-replay.test.js': 50.000, // AIT-199 latest max 30.882s, CI 38770896962-1; historical floor 50s
   'test/browser/confirmation-design.test.js': 90.000, // AIT-199 latest max 68.546s, CI 38732580354-1; historical floor 90s
@@ -36,11 +37,12 @@ export const browserTestWeights = {
   'test/browser/footer-width-sweep.test.js': 30.000, // AIT-199 latest max 13.022s, CI 38732580354-1; historical floor 30s
   'test/browser/host-surface.test.js': 20.000, // AIT-199 latest max 8.114s, CI 38732580354-1; historical floor 20s
   'test/browser/html-preview.test.js': 40.000, // AIT-199 latest max 9.122s, CI 38765085264-1; historical floor 40s
+  'test/browser/language-first-paint.test.js': 50.000, // AIT-206 round 4 mbp2606 f79fcaf898: 35.453s; rounded up + 10s margin
   'test/browser/lane-race-kit.test.js': 20.000, // CI 38784223838-1 (2.516s; rounded up + 10s margin)
-  'test/browser/operator-login.test.js': 60.000, // AIT-199 latest max 42.284s, CI 38770896962-1; historical floor 60s
+  'test/browser/operator-login.test.js': 80.000, // AIT-223 expanded matrix: CI 38840992859-1, 62.878s rounded up + 10s
   'test/browser/orb-reveal.test.js': 100.000, // AIT-199 latest max 86.949s, CI 38770896962-1; historical floor 100s
   'test/browser/pause-phone.test.js': 200.000, // AIT-199 latest max 187.080s, CI 38732580354-1; historical floor 190s
-  'test/browser/question-card.test.js': 30.000, // AIT-199 latest max 16.628s, CI 38732580354-1; historical floor 30s
+  'test/browser/question-card.test.js': 100.000, // AIT-225 round 4: mbp2606 437ab209b5-11629, 86.188s rounded up + 10s
   'test/browser/safeguards.test.js': 20.000, // AIT-199 latest max 8.451s, CI 38774634960-1; historical floor 20s
   'test/browser/start-journey.test.js': 30.000, // AIT-199 latest max 16.401s, CI 38765085264-1; historical floor 30s
   'test/browser/start-look.test.js': 40.000, // AIT-199 latest max 27.864s, CI 38770896962-1; historical floor 40s

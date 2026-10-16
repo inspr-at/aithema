@@ -5,17 +5,36 @@ import { createComposedVoiceCoordinator, callDurationSeconds } from '../../../pa
 import { createComposedRelay } from './relay.js';
 import { configureComposedComponents } from './configuration.js';
 import { manifest } from './manifest.js';
+import { createComposedRelayRoute } from './network-relay.js';
 
 /** Explicit opt-in factory. Inject separately admitted components and the existing
  * Rule C reply executor; default hosts continue to construct ElevenLabs. */
 export function createComposedVoice({ enabled = false, config = {}, binding, storage, stt, tts, replyExecutor,
-  admitComponent, authorize, commitUtterance, componentOptions, consent, reasoningBinding, now = Date.now } = {}) {
+  admitComponent, authorize, commitUtterance, componentOptions, consent, reasoningBinding, authenticateRelay, relayOrigin, now = Date.now } = {}) {
   let selected;
   if (config.stt !== undefined || config.tts !== undefined) {
     selected = configureComposedComponents({ enabled, config, componentOptions, consent, reasoningBinding, authorize });
     ({ stt, tts, authorize } = selected);
   }
   const relays = new Map();
+  const relayOwners = new Map();
+  const ownerAllowed = async (grant, owner) => {
+    const bound = relayOwners.get(grant?.providerSessionId);
+    if (!enabled || !bound || bound.owner !== owner) return false;
+    try {
+      await storage.authorize(bound.sessionId, owner);
+      const allowed = await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId },
+        { deadlineAt: now() + 5000 });
+      await storage.authorize(bound.sessionId, owner); return allowed === true;
+    } catch { return false; }
+  };
+  const networkRelay = authenticateRelay ? createComposedRelayRoute({ authenticate: authenticateRelay, origin: relayOrigin, now,
+    authorize: ownerAllowed, async connect(grant, owner) {
+      if (!await ownerAllowed(grant, owner)) throw new PluginError('not-admitted');
+      const relay = relays.get(grant?.providerSessionId);
+      if (!relay) throw new PluginError('not-admitted');
+      return relay.connect(grant);
+    } }) : null;
   const validateConfig = raw => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) || Object.keys(raw).some(key => !['host', 'maxDurationSeconds', 'voice', 'stt', 'tts'].includes(key))) throw new TypeError('Invalid composed configuration');
     callDurationSeconds(raw); return Object.freeze(structuredClone(raw));
@@ -32,7 +51,8 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt, now });
     const coordinator = createComposedVoiceCoordinator({ ...config, ...request, providerSessionId, epoch,
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
-      stt, tts, ...(selected ? { outputFormat: selected.outputFormat } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
+      stt, tts, ...(selected ? { outputFormat: selected.outputFormat, outputAudioFormat: selected.outputAudioFormat } :
+        tts?.format ? { outputFormat: tts.format.encoding, outputAudioFormat: tts.format } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,
       maxMicro: 0, exposureMicro: 0, pauses: [] }, closing, mutations = Promise.resolve(), holdRevision = 0;
     const serial = action => { const job = mutations.then(action); mutations = job.catch(() => {}); return job; };
@@ -48,7 +68,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       if (closing) return closing;
       const flight = Promise.withResolvers(); closing = flight.promise;
       coordinator.signal.removeEventListener('abort', cancel);
-      void coordinator.close(reason); relay.close(); relays.delete(providerSessionId);
+      void coordinator.close(reason); relay.close(); relays.delete(providerSessionId); relayOwners.delete(providerSessionId); networkRelay?.revoke(providerSessionId);
       options.signal?.removeEventListener('abort', cancel);
       const result = terminal(outcome); record = { ...record, endedAt: now(), reason, terminal: result };
       void Promise.resolve().then(async () => {
@@ -63,6 +83,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       if (closing) return Promise.reject(new PluginError('unavailable'));
       if (paused) holdRevision++;
       const physicalHold = paused ? coordinator.pause() : Promise.resolve();
+      if (paused) networkRelay?.revoke(providerSessionId);
       physicalHold.catch(() => {});
       const revision = holdRevision;
       return serial(async () => {
@@ -95,7 +116,8 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       invocation.dispatch(); options.signal?.addEventListener('abort', cancel, { once: true });
       options.signal?.throwIfAborted();
       // All browser commands go through the same durable pause/resume/lease methods.
-      relay.attach(segment); relays.set(providerSessionId, relay); return segment;
+      relay.attach(segment); relays.set(providerSessionId, relay);
+      relayOwners.set(providerSessionId, { owner: request.ownerToken, sessionId: request.sessionId }); return segment;
     } catch (error) { await close('start-failed', 'cancelled'); throw error; }
   }
   const serverAdapter = Object.freeze({ config, binding,
@@ -106,7 +128,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       return { details: { componentClaims: 'settled-independently' }, terminal: call.terminal ?? {
         providerSessionId: call.providerSessionId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: 0, usage: null } };
     } });
-  return Object.freeze({ manifest, start, ports: { serverAdapter, replyExecutor, components: { stt, tts } },
+  return Object.freeze({ manifest, start, networkRelay, ports: { serverAdapter, replyExecutor, components: { stt, tts } },
     health: async () => ({ available: enabled, reason: 'offline-unqualified' }),
     connectRelay: grant => {
       const relay = relays.get(grant?.providerSessionId);

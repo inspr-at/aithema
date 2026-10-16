@@ -165,8 +165,8 @@ for (const asynchronous of [false, true]) {
     let tick, calls = 0; const logs = [];
     t.mock.method(globalThis, 'setInterval', callback => { tick = callback; return { unref() {} }; });
     t.mock.method(console, 'error', (...values) => logs.push(values));
-    const handlers = { expire(before) {
-      assert.ok(before < Date.now()); calls++;
+    const handlers = { retire({ before, limit }) {
+      assert.ok(before < Date.now()); assert.equal(limit, 100); calls++;
       if (calls > 1) return;
       const error = new Error('private expiry content must never reach a log');
       if (asynchronous) return Promise.reject(error);

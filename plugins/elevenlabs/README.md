@@ -283,7 +283,20 @@ agent, and checks exact read-back against the configured base-language opener.
 The per-call opener comes from the same host configuration. Visual AI disclosure
 and consent remain separate and unchanged. At deploy OPS restarts start2 with
 its existing database/WAL; normal ensure PATCHes and GETs only its owned agent.
-START's template remains GET-only. See the root AI-notice section for the exact
+START's template remains GET-only. With AIT-224 an unchanged owned agent uses
+GET only. Drift PATCHes the changed top-level managed configuration and reads it
+back. Existing strict verification remains fatal; additional managed fields such
+as prompt text, tools and knowledge base are warn-only on read-back. Built-in tool
+nulls, RAG tool info and provider metadata are unmanaged. Allowlist items compare
+by hostname only, with one matching host still required. Empty template picks
+are ignored, while language presets remain an intentional exact clear.
+
+The facade secret uses a local SHA-256 last-written receipt in
+`host_voice_secret_hashes`, keyed by host secret name and provider secret id.
+Only a successful POST/PATCH updates it; the raw secret is never persisted or
+logged. Matching hashes skip the secret PATCH, rotation writes once, and an
+existing ownership receipt without a hash requires one initial PATCH.
+See the root AI-notice section for the exact
 start2 sentences and deploy instructions.
 The start result exposes public identities/deadlines, `credential`, `pause`,
 `resume`, `heartbeat`, `close(reason?, outcome?)`, private `snapshot()` and a

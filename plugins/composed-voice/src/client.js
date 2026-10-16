@@ -25,6 +25,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       const controller = new AbortController(); captureController = controller;
       const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
       const next = await capture({ signal, format: 'pcm_s16le', sampleRateHz: 16000,
+        onError: () => { if (!stopped && !hold) void lifecycle.recover(); },
         onAudio: audio => stopped || hold || !input || mediaOwner !== owner ? Promise.resolve() : transport.sendAudio(audio) });
       if (stopped || hold || !input || signal.aborted || captureController !== controller || mediaOwner !== owner) next.stop(); else recording = next;
     }
@@ -55,7 +56,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
             playbackRevision = frame.playbackRevision;
             const token = { size: frame.bytes.byteLength }; pendingPlayback.add(token); pendingPlaybackBytes += token.size;
             // A playback completion must not obstruct control frames such as silence.
-            void Promise.resolve(player.play(frame.bytes, { format: frame.format, replyId: frame.replyId }))
+            void Promise.resolve(player.play(frame.bytes, { format: frame.format, sampleRateHz: frame.sampleRateHz, channels: frame.channels, replyId: frame.replyId }))
               .catch(() => { if (!stopped && source === transport) { mute(); lifecycle.wait('playback-failed'); } })
               .finally(() => { if (pendingPlayback.delete(token)) pendingPlaybackBytes -= token.size; });
           } else if (frame.type === 'event') {
@@ -86,7 +87,9 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           if (mediaOwner === owner) { mediaOwner = undefined; stopOwner = undefined; }
           events.end(); closing = Promise.resolve(transport.command('close', opts?.reason ?? 'closed')); return closing;
         },
-        pause(opts) { hold = true; holdRevision++; localStop(); lifecycle.pause(); return transport.command('pause', opts); },
+        pause(opts) { hold = true; holdRevision++; localStop(); lifecycle.pause(); return Promise.resolve(transport.command('pause', opts)).then(async ack => {
+          if (transport.recoverOnResume) await lifecycle.recover(); return ack;
+        }); },
         async resume(opts) {
           const revision = holdRevision;
           if (lifecycle.state.needsRecovery && !await lifecycle.recover({ explicit: true })) throw new PluginError('unavailable');

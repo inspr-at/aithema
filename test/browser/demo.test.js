@@ -476,7 +476,7 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     }
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await waitForShadow(page, '.composer textarea');
-    await waitForShadow(page, '.composer-reason', { text: de.reasons['current processing consent required'] });
+    await waitForShadow(page, '.composer-reason', { text: `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}` });
     // Exercise every grepped reason through actual feature rows, including HTML and uploads,
     // delegated voice reasons and the bounded agent API status-code family.
     const codes = [...FEATURE_REASON_CODES, ...VOICE_REASON_CODES,
@@ -500,7 +500,8 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
       assert.deepEqual(rendered[index].labels, FEATURES.map(feature => de.features[feature]), code);
       assert.equal(rendered[index].reasons.length, FEATURES.length, code);
-      assert.ok(rendered[index].reasons.every(text => text === expected), code);
+      assert.deepEqual(rendered[index].reasons, FEATURES.map(feature => inner === 'current processing consent required'
+        ? de.featureConsent[feature === 'transcription' ? 'voice' : feature] : expected), code);
       const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
       assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
@@ -1427,8 +1428,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       return { label: a.querySelector('.attach__label').textContent, disabled: a.getAttribute('aria-disabled'), title: a.title,
         described: a.getAttribute('aria-describedby').split(' ').map(id => c.shadowRoot.getElementById(id).textContent) }; });
     // Its own description first, then the AI notice (AIT-119).
-    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: 'Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich',
-      described: ['Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich', `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
+    assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads),
+      described: [de.uploads.unavailable.replace('{reason}', de.featureConsent.uploads), `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
@@ -1531,6 +1532,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     });
 
     // Withdraw upload under the pointer: the chip stays where it is, focus stays on it, the understanding rebuilds.
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), true,
+      'upload anchoring also holds when there is no question-card reservation');
     const chipSelector = textChip;
     // The pointer rests on the button and the keyboard presses it, so both anchoring and focus are checked.
     const rowBefore = await restOnRow(page, chipSelector, '.upload-withdraw');
