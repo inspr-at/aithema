@@ -229,7 +229,8 @@ export class SettingsDialog {
     effort.addEventListener('change', () => { if (this.#timer) { clearTimeout(this.#timer); this.#timer = 0; void this.#save(); } });
     this.#q('.done').addEventListener('click', () => void this.#done());
     this.#q('.save-retry').addEventListener('click', () => { this.#failed = false; void this.#save(true); });
-    this.#q('.notice-action').addEventListener('click', () => void this.#notice?.action?.());
+    // The hidden .notice-measure copy is prepended before .notice-body; scope to the visible notice (AIT-245).
+    this.#q('.notice-body .notice-action').addEventListener('click', () => void this.#notice?.action?.());
     for (const selector of ['.footer-consent', '.general-consent-manage']) this.#q(selector).addEventListener('click', () => this.#ports.consent('manage'));
     this.#q('.general-new').addEventListener('click', () => {
       const draft = this.#draft ?? this.#active;
@@ -601,9 +602,9 @@ export class SettingsDialog {
     for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind]);
     const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : null);
     this.#q('.notice-area').dataset.kind = notice ? 'notice' : '';
-    this.#q('.notice-text').textContent = notice?.text ?? '';
-    this.#q('.notice-action').hidden = !notice?.label;
-    this.#q('.notice-action').textContent = notice?.label ?? '';
+    this.#q('.notice-body .notice-text').textContent = notice?.text ?? '';
+    this.#q('.notice-body .notice-action').hidden = !notice?.label;
+    this.#q('.notice-body .notice-action').textContent = notice?.label ?? '';
     this.#q('.disclosure-processing').textContent = c.processingDetails[draft.processingPreset] ?? '';
     const consent = state.consent;
     this.#q('.general-consent').textContent = c.consentStates[consent] ?? '';
