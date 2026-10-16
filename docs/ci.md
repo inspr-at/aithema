@@ -232,3 +232,88 @@ The remote targeted timing, shard and server upload suite passed **78/78** on
 mbp2606. Coverage includes canonical push selection, explicit PR/fork rejection,
 main ancestry, artifact/header mismatches, atomic rejection, local-import
 rejection, 1/4/5+ sample margins, workload reset and the extraction overlap.
+
+
+## AIT-230 deterministic evidence and pixel verdicts
+
+Use `captureEvidence` from `test/browser/start2-display-helpers.js` for settled
+QA screenshots. It blurs controls, moves the pointer outside the viewport,
+waits for fonts and finite animations (including nested shadow roots), snaps
+all scroll origins to integer `scrollTop`/`scrollLeft` with instant scrolling
+(transcript first), then requires two requestAnimationFrames with unchanged
+assistant-marker geometry, no scroll event and no active animation. Fractional
+scroll limits snap inward when rounding would clamp back to a fraction. It fails
+after five seconds rather than accepting unsettled evidence. Fixtures use
+reduced motion and the pinned baseline font stacks; deliberately timed
+animation paint probes retain their explicit clocks. Use viewport captures
+for sticky/fixed UI. During settling only, a capture-phase listener drains
+repeat transcript notifications whose final offsets are identical. This breaks
+the test scene's follower feedback: `QuestionCard.scheduleReserve` calls the
+latest-reply follower, which writes bottom then the same final reply offset,
+queuing another notification despite zero net movement. Changed offsets still
+reach the component's handlers; listeners are removed before returning. Without
+this drain the 320px scene produced about 300 scroll events in five seconds and
+correctly failed the idle-frame gate. Restore focus with `preventScroll` after
+capturing only when the test needs to continue a keyboard interaction.
+
+Launch evidence browsers with the shared `evidenceBrowserArgs`:
+`--disable-partial-raster --disable-gpu-rasterization`. This uses full CPU-rasterized
+tiles while retaining the GPU compositor, real product styles, Chrome headless
+shell **155.0.8059.39**, and the pinned font stacks. The flags apply only to
+explicit evidence runs, so PR CI retains its normal rendering cost. Both sides
+of a verdict must use the same raster configuration, recorded in the manifest.
+See [Chromium's raster flags](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md#rendering--gpu)
+and [GPU-raster override](https://github.com/chromium/chromium/blob/main/gpu/config/gpu_finch_features.cc).
+
+Class I is **16 changed edge pixels**, not a 16px layout translation. In two
+complete captures after scroll settling alone, the marker had identical bounds
+(`[43.390625, 170.734375, 12, 12]` at 390×420), but 16 edge pixels still differed
+by up to five RGB levels. One other pixel varied in the composer's shadow.
+That **26/28** intermediate result rules out geometry settling alone. The
+capture renderer therefore pins full CPU raster instead of accepting hardware
+partial-tile edge coverage as a UI change. No marker CSS, pixel mask or tolerance
+is used; the same 28-state proof below must pass with the marker exact.
+
+`node scripts/evidence-diff.js BEFORE_DIR AFTER_DIR` compares the original
+AIT-225 28-state evidence directories, including the capture metadata in
+`ait-225-evidence.json`. It emits per-shot counts and SHA-256 hashes and exits
+nonzero for a failed verdict, a missing state, a dimension mismatch or changed
+icon bounds or raster configuration. The tolerance policy is deliberately local:
+
+| Noise class | Policy |
+| --- | --- |
+| T — transcript scroll raster | Exact pixels. Snap scroll origins and drain scroll handlers before capture. |
+| I — assistant marker edge | Exact pixels, including its gradient and edge; the marker is excluded from tolerance boxes. |
+| R — composer/attachment SVG antialiasing | At most **3 changed pixels per screenshot**, each with **RGB channel delta ≤ 1**, only within the unpadded SVG bounding rectangles recorded by the capture helper. Alpha remains exact. |
+| All other paint | Exact pixels; no whole-image threshold, alignment, cropping, blur, image editing or ignored region. |
+
+Reproduce on mbp2606 only: commit first, run `remote-browser.sh WORKTREE browser
+test/browser/question-card.test.js test/evidence-diff.test.js` twice with distinct
+`EVIDENCE_OUT` directories, then run the comparison command above. Each run
+starts a fresh browser/profile and completes all 20 layout scenes; it emits the
+same 28 viewport states as Tick's AIT-225 round-5 comparison (DE/EN × light/dark:
+card and bounded options at 1440/390, plus 390×508/420/320 keyboard states).
+The exhaustive screenshots stay evidence-only; PR CI adds two short contracts
+in the existing page and pure pixel-policy unit checks, with no added browser
+file, shard, ceiling or check-name change.
+
+Before: Tick's unchanged `d2338b8` recapture matched **22/28** exactly
+(`s119/tick-r5/comparison.json`, `baselineRecapture` column).
+
+After: **28/28 exact pixel matches, zero tolerated pixels**, from two complete
+independent captures of unchanged **`50a268d7d5da5af032d1885c9cbb14f6a8ce2a03`**
+on mbp2606. Runs `50a268d7d5-45173` and `50a268d7d5-72194` each passed **27/27**
+tests, completing in 91.921s and 92.085s respectively. All 28 PNG pairs also
+have identical SHA-256 hashes. Every capture recorded integer scroll origins,
+two settled frames and identical marker geometry. Each 320px scene drained one
+no-op transcript notification. No screenshots were edited or selected from a
+mixture of runs.
+
+The committed [proof manifest](../test/fixtures/ait-230-evidence-proof.json)
+records all 28 filenames, both PNG hashes, icon bounds, frame summaries, raster
+configuration, source head and remote run identities. Raw complete captures
+remain in `.data/ait-230/capture-raster-a` and `capture-raster-b` in the AIT-230
+worktree. Run `node scripts/evidence-diff.js .data/ait-230/capture-raster-a
+.data/ait-230/capture-raster-b` to reproduce the verdict without launching a
+browser. The final documentation/manifest commit leaves the captured browser
+fixture unchanged. PR checks are linked on [draft PR #228](https://github.com/inspr-at/aithema/pull/228).

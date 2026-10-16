@@ -1,0 +1,1710 @@
+{
+  "policy": {
+    "iconMaxChannelDelta": 1,
+    "iconMaxChangedPixels": 3,
+    "outsideMaxChannelDelta": 0
+  },
+  "rasterArgs": [
+    "--disable-partial-raster",
+    "--disable-gpu-rasterization"
+  ],
+  "before": "50a268d7d5",
+  "after": "50a268d7d5",
+  "matched": 28,
+  "total": 28,
+  "rows": [
+    {
+      "file": "ait-225-de-dark-1440-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "66d5d8af517c55ef1dbdb776526b55c29ae16810f9f4b266c30492ad6f5250b9",
+      "afterSha256": "66d5d8af517c55ef1dbdb776526b55c29ae16810f9f4b266c30492ad6f5250b9",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-dark-1440-card.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "5af492786e96b72fb80c670af5ee4ff7d8dde4e14537ac0fdbb0e7e319958b20",
+      "afterSha256": "5af492786e96b72fb80c670af5ee4ff7d8dde4e14537ac0fdbb0e7e319958b20",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-dark-390-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "7ae4d4b7fd17b54222e2cf0e9950c000e9e821532bf3928c2fcd4b51989a5739",
+      "afterSha256": "7ae4d4b7fd17b54222e2cf0e9950c000e9e821532bf3928c2fcd4b51989a5739",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-dark-390-card.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "76b9cecf339304c4a8521d59fc78a19bbce86cfbe7ead4e44c9f7a831c32fbdd",
+      "afterSha256": "76b9cecf339304c4a8521d59fc78a19bbce86cfbe7ead4e44c9f7a831c32fbdd",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-dark-390-keyboard-320.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "07c01d9f898575380ac595a375a5c0bc5adf9b8657c6837dda52b0665d208e20",
+      "afterSha256": "07c01d9f898575380ac595a375a5c0bc5adf9b8657c6837dda52b0665d208e20",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-dark-390-keyboard-420.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "c2b257901ca1ea16120fe7fefad6e0572dda4c721650b1004ac45a2056394b86",
+      "afterSha256": "c2b257901ca1ea16120fe7fefad6e0572dda4c721650b1004ac45a2056394b86",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-dark-390-keyboard-508.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "764d8cd0e664c796eb9ac8ca5ea8eada3f94dc400c0b9d7736a6ae6d4fc48604",
+      "afterSha256": "764d8cd0e664c796eb9ac8ca5ea8eada3f94dc400c0b9d7736a6ae6d4fc48604",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-1440-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "277446f54420049ab72c8098d7f64a374f0885b096ced512ca7add7b1acc308c",
+      "afterSha256": "277446f54420049ab72c8098d7f64a374f0885b096ced512ca7add7b1acc308c",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-1440-card.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "c9cbc150409d993ffeed33b35dfcc908607e0ec3c5e9c99e1d778edb3290ab57",
+      "afterSha256": "c9cbc150409d993ffeed33b35dfcc908607e0ec3c5e9c99e1d778edb3290ab57",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-390-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "792ed39f076e72518fd1e816395a9f1a59baf513545d30d741adb8a52a478da7",
+      "afterSha256": "792ed39f076e72518fd1e816395a9f1a59baf513545d30d741adb8a52a478da7",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-390-card.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "2aa95ba5ad5213670649242b9b1d7c02bd8e3a9447bae8d0beeab0317c0896aa",
+      "afterSha256": "2aa95ba5ad5213670649242b9b1d7c02bd8e3a9447bae8d0beeab0317c0896aa",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-390-keyboard-320.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "e6d8d5391d41ca15ca1ae98e7a018aa22e5ed735d3daf29bc3821dd40d347e0f",
+      "afterSha256": "e6d8d5391d41ca15ca1ae98e7a018aa22e5ed735d3daf29bc3821dd40d347e0f",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-390-keyboard-420.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "030a05e754c58d92ee86d6b2600051105d990028cc94c39ee51882927d08b8be",
+      "afterSha256": "030a05e754c58d92ee86d6b2600051105d990028cc94c39ee51882927d08b8be",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-de-light-390-keyboard-508.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "689a5cd307d6d0f3295f0681f24b62611552f3a2ece6cf5ff6b45d659c48dcb6",
+      "afterSha256": "689a5cd307d6d0f3295f0681f24b62611552f3a2ece6cf5ff6b45d659c48dcb6",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 39,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-1440-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "c71388fbe83a4d0d4b0be753b4cae025503d761262b3966bfe9c255e98788d06",
+      "afterSha256": "c71388fbe83a4d0d4b0be753b4cae025503d761262b3966bfe9c255e98788d06",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-1440-card.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "daf16c996c7280699e00245a48cb149f653d7fd051c6b660385f8f968dc2867b",
+      "afterSha256": "daf16c996c7280699e00245a48cb149f653d7fd051c6b660385f8f968dc2867b",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-390-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "85f9f97292c4d3f9b4e739abf346879c237ac1ee92f9b5cbe111fba31363ae1a",
+      "afterSha256": "85f9f97292c4d3f9b4e739abf346879c237ac1ee92f9b5cbe111fba31363ae1a",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-390-card.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "29c39372323af5252a169dd4e9bdb86870f9aea5238ec36b227bea73d042c9fe",
+      "afterSha256": "29c39372323af5252a169dd4e9bdb86870f9aea5238ec36b227bea73d042c9fe",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-390-keyboard-320.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "07c9e17e01f7391b566f7ff2ceaceeba0b117fa9ccafa669298ab64bdc5128a2",
+      "afterSha256": "07c9e17e01f7391b566f7ff2ceaceeba0b117fa9ccafa669298ab64bdc5128a2",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-390-keyboard-420.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "babd884508ca2f31876ec2c8d59ef4205a2fc3c435ef4675b9dd00a3dc4b051d",
+      "afterSha256": "babd884508ca2f31876ec2c8d59ef4205a2fc3c435ef4675b9dd00a3dc4b051d",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-dark-390-keyboard-508.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "db41d0a72a25213a6d01f40ee749159b098c6c8b08da10e2db87abf57e3e8506",
+      "afterSha256": "db41d0a72a25213a6d01f40ee749159b098c6c8b08da10e2db87abf57e3e8506",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-1440-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "118cb3ccb84bd9203b3b24d915d6f2ea496d80dbe62ca9edc5e9096c75582901",
+      "afterSha256": "118cb3ccb84bd9203b3b24d915d6f2ea496d80dbe62ca9edc5e9096c75582901",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            1801,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            326.265625,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-1440-card.png",
+      "iconBoxes": [
+        {
+          "x": 89,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 829.65625,
+          "y": 767,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "eb4faa48e3caed36bd3983ec5a6d9a74f34cefa0af66584c83371ed2c07b82be",
+      "afterSha256": "eb4faa48e3caed36bd3983ec5a6d9a74f34cefa0af66584c83371ed2c07b82be",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            134,
+            0
+          ],
+          "lastAssistantMarker": [
+            79.390625,
+            323.546875,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-390-bounded-options.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "062be37f03bad48211613f9af31214d25a9bcf3fdfb0b59d0f5a75452ad55ce6",
+      "afterSha256": "062be37f03bad48211613f9af31214d25a9bcf3fdfb0b59d0f5a75452ad55ce6",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2323,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.984375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-390-card.png",
+      "iconBoxes": [
+        {
+          "x": 46.59375,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 323.40625,
+          "y": 726.0625,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "6e58bfcee621c55d7358e7c0eb83ab75b9362e34bf32fb7f09131c6c94d86d6c",
+      "afterSha256": "6e58bfcee621c55d7358e7c0eb83ab75b9362e34bf32fb7f09131c6c94d86d6c",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 35,
+          "transcriptScroll": [
+            191,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            276.609375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-390-keyboard-320.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 269,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "77583426ea59430f9be6db65227e05edc0b5e1b204cf79a57abb1d37884d7670",
+      "afterSha256": "77583426ea59430f9be6db65227e05edc0b5e1b204cf79a57abb1d37884d7670",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3060,
+            0
+          ],
+          "lastAssistantMarker": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "duplicateTranscriptScrolls": 1
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-390-keyboard-420.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 369,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "56299b49a94f832ffb27fcece6c6f178971d6073f4c2b903abfab606aaeffe28",
+      "afterSha256": "56299b49a94f832ffb27fcece6c6f178971d6073f4c2b903abfab606aaeffe28",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            3047,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            170.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    },
+    {
+      "file": "ait-225-en-light-390-keyboard-508.png",
+      "iconBoxes": [
+        {
+          "x": 281,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        },
+        {
+          "x": 331,
+          "y": 457,
+          "width": 20,
+          "height": 20
+        }
+      ],
+      "beforeSha256": "d1b867ef9b1058b6e89e59a8c8f29fbd671f08a5fef0b13af83f0bc3d1bb7759",
+      "afterSha256": "d1b867ef9b1058b6e89e59a8c8f29fbd671f08a5fef0b13af83f0bc3d1bb7759",
+      "match": true,
+      "changedPixels": 0,
+      "toleratedPixels": 0,
+      "rejectedPixels": 0,
+      "maxChannelDelta": 0,
+      "frames": [
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        },
+        {
+          "settledFrames": 2,
+          "integerScroll": true,
+          "scrollContainerCount": 40,
+          "transcriptScroll": [
+            2959,
+            0
+          ],
+          "lastAssistantMarker": [
+            43.390625,
+            258.734375,
+            12,
+            12
+          ],
+          "duplicateTranscriptScrolls": 0
+        }
+      ],
+      "markerGeometryIdentical": true
+    }
+  ],
+  "ticket": "AIT-230",
+  "sourceHead": "50a268d7d5da5af032d1885c9cbb14f6a8ce2a03",
+  "machine": "mbp2606",
+  "browser": "chrome-headless-shell 155.0.8059.39",
+  "runs": [
+    {
+      "id": "50a268d7d5-45173",
+      "passed": 27,
+      "failed": 0,
+      "durationMs": 91920.786292,
+      "directory": ".data/ait-230/capture-raster-a"
+    },
+    {
+      "id": "50a268d7d5-72194",
+      "passed": 27,
+      "failed": 0,
+      "durationMs": 92085.217042,
+      "directory": ".data/ait-230/capture-raster-b"
+    }
+  ],
+  "baseline": {
+    "source": "coordinator s119/tick-r5/comparison.json, baselineRecapture column",
+    "head": "d2338b8e32ef9b45bc1a041db41431c7d9ce65e1",
+    "matched": 22,
+    "total": 28
+  },
+  "settleOnly": {
+    "sourceHead": "987a080122",
+    "matched": 26,
+    "total": 28,
+    "markerBounds": [
+      43.390625,
+      170.734375,
+      12,
+      12
+    ],
+    "changedPixels": {
+      "ait-225-en-light-390-keyboard-420.png": 16,
+      "ait-225-en-dark-390-card.png": 1
+    }
+  }
+}

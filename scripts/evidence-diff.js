@@ -32,6 +32,8 @@ export function diffEvidencePixels(a, b, iconBoxes = []) {
 export function compareEvidenceDirectories(before, after) {
   const metadata = directory => JSON.parse(readFileSync(join(directory, 'ait-225-evidence.json'), 'utf8'));
   const a = metadata(before), b = metadata(after);
+  assert.ok(Array.isArray(a.rasterArgs) && Array.isArray(b.rasterArgs), 'Missing evidence raster configuration');
+  assert.deepEqual(a.rasterArgs, b.rasterArgs, 'Evidence raster configurations differ');
   const names = directory => readdirSync(directory).filter(name => /^ait-225-.*\.png$/u.test(name)).sort();
   const files = names(before);
   assert.deepEqual(files, names(after), 'Evidence file sets differ');
@@ -49,7 +51,7 @@ export function compareEvidenceDirectories(before, after) {
     const x = readFileSync(join(before, file)), y = readFileSync(join(after, file));
     return { file, iconBoxes: boxes, beforeSha256: hash(x), afterSha256: hash(y), ...diffEvidencePixels(pixels(x), pixels(y), boxes) };
   });
-  return { policy: evidenceTolerance, before: a.commit, after: b.commit, matched: rows.filter(r => r.match).length, total: rows.length, rows };
+  return { policy: evidenceTolerance, rasterArgs: a.rasterArgs, before: a.commit, after: b.commit, matched: rows.filter(r => r.match).length, total: rows.length, rows };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
