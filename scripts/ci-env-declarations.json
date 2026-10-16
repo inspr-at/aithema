@@ -36,12 +36,6 @@
     "reads": ["CI", "CI", "CI"],
     "reason": "Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe"
   },
-  "test/browser/consent-lines.test.js": {
-    "reads": [
-      "CI"
-    ],
-    "reason": "Linux headless Chrome sandbox selection"
-  },
   "test/browser/credit-hold.test.js": {
     "reads": [
       "CI",
@@ -101,12 +95,6 @@
       "CI",
       "CI",
       "CI",
-      "CI"
-    ],
-    "reason": "Linux headless Chrome sandbox selection"
-  },
-  "test/browser/pause-phone.test.js": {
-    "reads": [
       "CI"
     ],
     "reason": "Linux headless Chrome sandbox selection"
@@ -262,12 +250,5 @@
       "process.env"
     ],
     "reason": "AIT-201 lane-race validation forwards the child environment after removing NODE_TEST_CONTEXT"
-  },
-  "test/browser/upload-capacity.test.js": {
-    "reads": [
-      "CI",
-      "CI"
-    ],
-    "reason": "Linux headless Chrome sandbox selection"
   }
 }

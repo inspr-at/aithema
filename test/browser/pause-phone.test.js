@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import puppeteer from './launch.js';
+import { browserForFile } from './shared-browser.js';
 import { pausedOverview } from '../fixtures/pause-overview.js';
 import { startChild } from '../helpers.js';
-import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
 // Device capabilities are configured before navigation. Resizes keep that
 // exact configuration: changing hasTouch/isMobile would reload and lose focus.
@@ -32,13 +32,11 @@ async function fixture(t, touch = true) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, ...(!touch ? { defaultViewport: null } : {}), userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: [
-      ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []),
-      // Headless Linux has no physical pointer. Configure the desktop fixture's
-      // native media capabilities explicitly; keep the fine-pointer assertion.
-      ...(!touch ? ['--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0'] : []),
-    ] });
+  const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
+    // Preserve real desktop fine-pointer media capabilities; switching fixture
+    // modes replaces Chrome, while serial fixtures in the same mode reuse it.
+    '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
+  ] });
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage();
   page.phoneTouch = touch;
@@ -707,7 +705,7 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       await voiceScene(page, locale, theme, width);
       await page.evaluate(async () => {
         const { createPageReplay } = await import('/packages/ui/src/page-replay.js');
-        globalThis.rowPlayer = createPageReplay({ document, control: { speakText: async () => ({ kind: 'audio', audio: { format: 'pcm_16000', data: btoa('\0'.repeat(16000)) } }) } });
+        globalThis.rowPlayer = createPageReplay({ document, control: { speakText: async () => ({ kind: 'audio', audio: { format: 'pcm_16000', data: btoa('\0'.repeat(512)) } }) } });
         const c = document.querySelector('aithema-session'), session = structuredClone(c.session);
         const user = session.transcript[0].content;
         const reply = session.locale === 'de' ? 'Die Website soll Menschen schnell zur richtigen Leistung führen.' : 'The website should help people find the right service quickly.';
@@ -777,6 +775,8 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       }); await frame(page);
       await setPosition(); await frame(page);
       const beforeGone = await recoveryRowMetrics(page);
+      // A 16ms PCM fixture exercises the same production sink and real ended
+      // event in every scene; no need to replay half a second of silence.
       // This plays real PCM through the production page audio sink. Completion
       // is observed, never advanced by a timeout or a synthetic ended event.
       await page.evaluate(() => globalThis.tickRail.notices.repeat());

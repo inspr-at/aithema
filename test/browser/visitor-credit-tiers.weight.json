@@ -1,4 +1,35 @@
 {
-  "seconds": 110,
-  "evidence": "AIT-199 latest max 96.541s, CI 38770896962-1; historical floor 110s"
+  "seconds": 121.63,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "ed9acf0cc5a4aa4f9c93df6f2ca0c769e711266fe9762ceb2218aa3634836414",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:41.549Z",
+        "tests": [
+          {
+            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
+            "seconds": 97.303508559
+          }
+        ]
+      },
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:33.605Z",
+        "tests": [
+          {
+            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
+            "seconds": 95.60477923
+          }
+        ]
+      }
+    ]
+  }
 }

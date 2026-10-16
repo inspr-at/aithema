@@ -1,4 +1,67 @@
 {
-  "seconds": 80,
-  "evidence": "AIT-199 latest max 62.288s, CI 38773142800-1; historical floor 80s"
+  "seconds": 83.083,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "28fe9e4229663ceadd58c6831a093bcd6c90963596666fa11e7da0a21e1d16b4",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:43.317Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.291551746
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 16.052672183000002
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 21.019899021
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 15.434276103
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.3917604940000001
+          }
+        ]
+      },
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:36.430Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.993356946
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 16.318383235
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.956543313999997
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.52382186
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.401650239
+          }
+        ]
+      }
+    ]
+  }
 }

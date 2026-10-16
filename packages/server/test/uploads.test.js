@@ -145,6 +145,44 @@ test('a prior file finishing during batch admission returns retryable busy witho
   assert.ok(f.storage.get(f.session.id).uploads.every(u => u.state === 'accepted'));
 });
 
+test('AIT-251: extraction finishing while the next multipart body is read is retryable without duplicate uploads', { timeout: 10_000 }, async t => {
+  const extracting = Promise.withResolvers(), finishExtraction = Promise.withResolvers();
+  const reading = Promise.withResolvers(), finishReading = Promise.withResolvers();
+  let holdNextBody = false;
+  t.after(() => { finishExtraction.resolve(); finishReading.resolve(); });
+  const f = setup(t, { readUploadBody: async (...args) => {
+    if (holdNextBody) {
+      holdNextBody = false;
+      reading.resolve();
+      await finishReading.promise;
+    }
+    return readBody(...args);
+  } });
+  t.mock.method(f.runtime, 'extractUpload', async () => {
+    extracting.resolve();
+    await finishExtraction.promise;
+    return { status: 'accepted', text: 'Overlapping extraction fixture', truncated: false };
+  });
+  await post(f, 'earlier-file');
+  await waitFor(extracting.promise, 'first extraction started');
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'pending');
+  holdNextBody = true;
+  const later = f.handlers.handle(uploadRequest(f.session.id, 'later-file'));
+  await waitFor(reading.promise, 'next multipart body overlaps extraction');
+  finishExtraction.resolve();
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads[0].state, 'accepted');
+  finishReading.resolve();
+  const refused = await later;
+  assert.equal(refused.status, 429);
+  assert.deepEqual(await refused.json(), { error: 'upload-rate-limit' });
+  assert.equal(f.storage.get(f.session.id).uploads.length, 1, 'overlap commits no later upload or receipt');
+  await post(f, 'later-file');
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads.length, 2, 'the same client event retries exactly once');
+  assert.ok(f.storage.get(f.session.id).uploads.every(upload => upload.state === 'accepted'));
+});
+
 test('ownership precedes dedup, byte conflicts, revision checks and erased-session retries', async t => {
   const f = setup(t), revision = inputRevision(f.session), files = [['identity.txt', bytes('Exact receipt fixture')]];
   const first = await post(f, 'receipt', files, { revision }); await f.handlers.idle();

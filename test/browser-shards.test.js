@@ -4,7 +4,15 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { readBrowserTestWeights, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { plannedSeconds } from '../scripts/browser-timings.js';
+import { readBrowserTestWeights, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+
+const measuredWeight = (seconds = 90) => {
+  const samples = [{ runId: '123', attempt: 1, sha: 'b'.repeat(40), observedAt: '2026-10-16T12:00:00Z',
+    tests: [{ name: 'fixture', seconds }] }];
+  return { seconds: plannedSeconds(samples), evidence: 'CI artifact measurement',
+    timing: { schema: 1, window: 20, workload: 'a'.repeat(64), samples } };
+};
 
 test('CI shards cover every browser test file exactly once; local command runs the same full set', () => {
   assertBrowserShardCoverage();
@@ -141,7 +149,7 @@ test('per-file weights reject stale measurements after a test is removed or rena
   const root = mkdtempSync(join(tmpdir(), 'browser-weights-stale-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'test/browser'), { recursive: true });
-  const measurement = JSON.stringify({ seconds: 90, evidence: 'CI measurement' });
+  const measurement = JSON.stringify(measuredWeight());
   writeFileSync(join(root, 'test/browser/old.weight.json'), measurement);
   assert.throws(() => readBrowserTestWeights([], root), /Stale browser test weight: test\/browser\/old\.weight\.json; no matching test: test\/browser\/old\.test\.js/u);
   writeFileSync(join(root, 'test/browser/new.weight.json'), measurement);
@@ -161,6 +169,22 @@ test('per-file weights require readable JSON, positive seconds and measurement e
     writeFileSync(path, JSON.stringify(measurement));
     assert.throws(() => readBrowserTestWeights(files, root), /Invalid browser test weight/u);
   }
-  writeFileSync(path, JSON.stringify({ seconds: 90, evidence: 'CI 123-1: 76.396s; rounded up + 10s' }));
-  assert.deepEqual(readBrowserTestWeights(files, root), { 'test/browser/new.test.js': 90 });
+  writeFileSync(path, JSON.stringify(measuredWeight()));
+  assert.deepEqual(readBrowserTestWeights(files, root), { 'test/browser/new.test.js': 112.5 });
+});
+
+test('the command and browser selection enforce the unchanged 420s measured budget', () => {
+  assert.doesNotThrow(() => assertBrowserShardBudget([419.999, 420]));
+  for (const totals of [[420.001], [NaN], [Infinity], [-1]]) assert.throws(() => assertBrowserShardBudget(totals), /exceeds 420s/u);
+});
+
+test('weights cannot replace observations with an estimate or a manually lowered percentile', t => {
+  const root = mkdtempSync(join(tmpdir(), 'browser-p95-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'test/browser'), { recursive: true });
+  const file = 'test/browser/new.test.js', path = join(root, 'test/browser/new.weight.json');
+  for (const measurement of [{ seconds: 90, evidence: 'estimate' }, { ...measuredWeight(), seconds: 89 }]) {
+    writeFileSync(path, JSON.stringify(measurement));
+    assert.throws(() => readBrowserTestWeights([file], root), /Invalid browser test weight/u);
+  }
 });

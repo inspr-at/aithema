@@ -238,6 +238,10 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
   const scenarios = [false, true].flatMap(mediaElement => ['before-audio', 'after-audio', 'missing'].map(assistantFinal => ({ mediaElement, assistantFinal })));
   scenarios.push({ mediaElement: false, assistantFinal: 'missing', opener: 'delayed', overlap: true },
     { mediaElement: true, assistantFinal: 'missing', opener: 'normal', overlap: true });
+  // The six valid cases use identical launch flags and capture input. Keep a
+  // single browser with fresh pages; the overlap corpus gets its own launch.
+  let browser, browserCapture;
+  t.after(async () => { await browser?.close(); });
   for (const { mediaElement, assistantFinal, opener, overlap } of scenarios) await t.test(
     `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: ${overlap ? `refuse ${opener} opener overlap` : `assistant final ${assistantFinal}`}`, async () => {
     let capturePath = wavPath;
@@ -249,12 +253,16 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       capturePath = join(directory, `invalid-${opener}.wav`); await writeFile(capturePath, invalid);
     }
     const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal, opener });
-    const browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
+    if (browserCapture !== capturePath) {
+      await browser?.close();
+      browserCapture = capturePath;
+      browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
       args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         // Test-only fake renderer makes this hermetic on CI hosts with no audio
         // hardware. The real launcher refuses this flag before admission.
         '--disable-audio-output', '--disable-features=AudioServiceSandbox', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${capturePath}`,
         '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
+    }
     const page = await browser.newPage(), logs = [], reports = [], identities = [], refusals = [], probe = createQualificationMediaProbe();
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
     const abort = new AbortController(); let watchdog;
@@ -318,6 +326,6 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       }
     } catch (error) {
       error.message += `; fixture logs: ${JSON.stringify(logs)}; probe: ${JSON.stringify(await page.evaluate(() => window.qualificationBaselineProbe?.diagnostics()).catch(() => null))}`; throw error;
-    } finally { clearTimeout(watchdog); await browser.close(); await production.close(); }
+    } finally { clearTimeout(watchdog); await page.close(); await browser.defaultBrowserContext().clearPermissionOverrides(); await production.close(); }
   });
 });

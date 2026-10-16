@@ -67,35 +67,67 @@ Browser launches use a 60 s default per attempt (caller overrides preserved), wi
 
 ## Browser shard weights
 
-Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`:
+Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
+The `seconds` value is the sum of **measured per-test rolling p95** durations,
+with a **25% safety margin while a workload has fewer than five samples**.
+At five or more samples the planner uses the measured sum directly. Packing remains
+deterministic LPT across **six** bins. `npm run test:browser-shards` checks
+complete, exactly-once coverage and the **420 s per-bin ceiling**; this leaves
+headroom for installation, Chrome startup, process cleanup and artifact upload
+within the unchanged ten-minute job timeout. Required check names stay unchanged.
 
-```json
-{
-  "seconds": 90,
-  "evidence": "CI 38774634960-1: 76.396s; rounded up + 10s margin"
-}
+Each CI shard writes `browser-timings-N-of-6` artifacts (14-day retention).
+`scripts/browser-timing-reporter.js` records passing top-level `node:test`
+durations in seconds alongside the run ID, attempt, commit and workload hash.
+Nested subtests are excluded because their parent's duration already includes
+them. Failed, cancelled, skipped, todo or incomplete batches cannot enter the
+measurement set. Remote runs remain useful for profiling and UI evidence;
+GitHub CI is the planner's comparable timing source.
+
+Refresh from the latest 20 successful canonical main push CI runs:
+
+```sh
+npm run update:browser-timings
+npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
+npm run test:browser-shards
 ```
 
-Sibling files keep additions and refreshes independent of a shared manifest and
-avoid changing executable tests just to refresh timings. Discovery reads each
-sibling; missing files, malformed JSON, nonpositive seconds or empty evidence
-fail the shard guard with the offending path. No shared list needs editing.
-Orphaned `.weight.json` files also fail the guard; remove or rename the sibling measurement when removing or renaming a test.
+The script downloads only the small timing artifacts through the selected `gh`
+account, pinned to `inspr-at/aithema`. Both automatic selection and explicit
+`--run` imports require a successful `push` event on `main` in that repository,
+with `head_repository.full_name == inspr-at/aithema` and the CI workflow path.
+GitHub's compare API must confirm that the head SHA is an ancestor of current
+canonical main. Every artifact's workflow run ID, head repository ID, branch and
+SHA must match the verified run; every JSONL header must match its run ID,
+attempt and SHA. PR, pull_request_target, fork and merge-group runs are rejected.
+Local `--artifacts` imports are no longer accepted because local bytes cannot
+prove their origin. It validates all input before writing siblings, deduplicates
+run/attempt
+pairs, and retains the latest 20 successful executions **per workload**. For each
+top-level test it selects sorted observation `ceil(0.95 * n)` (nearest rank),
+then sums those p95 values for the file, rounding upward only to millisecond
+precision. For fewer than five samples, it multiplies that measured sum by 1.25
+and rounds upward to milliseconds. At five or more samples no margin is added.
+The sample count and full provenance remain visible.
 
-For a new file, measure it on the designated remote test machine or CI and
-record the run/attempt and observed seconds. Sum top-level test durations only;
-nested subtests are already included. Follow AIT-191: use the slowest observed
-successful per-file duration, round **up** to a 10-second bucket, then add 10s
-for variance (`Math.ceil(slowestSeconds / 10) * 10 + 10`). On refresh, retain
-slower historical observations and never reduce an existing planning weight
-because a newer run is faster. Preserve the historical floor and measurement
-provenance in `evidence`. Estimates exclude setup, process overhead and evidence
-upload; validate whole-job wall time against the 450s budget separately.
+The workload hash covers the test plus transitive statically referenced helpers
+and fixtures under `test/`. Changing those inputs starts a fresh series when a
+matching trusted CI artifact arrives; the new series immediately regains the
+25% margin until it has five samples. Old workloads are not permanent floors.
+Product implementation changes remain in the rolling window. Artifacts
+for older workload hashes are ignored, and files without matching observations
+stay unchanged. Review sibling changes with the code, then commit the generated
+measurements. New files need a measured sibling before joining the required
+suite. The pre-policy PR calibration below is explicitly bootstrap data; it is
+retained with the warmup margin, while all future imports enforce the main-push
+policy. Main will produce the first eligible artifacts after this change merges.
+Missing, malformed, nonpositive, inconsistent or orphaned measurements
+fail the guard. The updater never changes the shard count, budget or checks.
 
-`test/browser-shards.test.js` checks weight parsing, missing weights and stale measurements.
-Adding a browser test requires only its own sibling `.weight.json`; refreshing a
-measurement edits only that sibling file. Algorithm unit tests use inline data,
-so neither operation requires updating a shared fixture.
+`test/browser-shards.test.js` covers discovery, exact coverage, deterministic
+packing and the live budget. `test/browser-timings.test.js` covers percentile
+selection, window eviction, provenance, invalid/incomplete imports, workload
+changes, duplicate runs and per-test coverage consistency.
 
 AIT-216 final regeneration evidence (2026-10-16): main
 `429b72f277119e2204e8478d6629ac8787ffb190` was merged with signoff, without
@@ -116,3 +148,87 @@ merge-queue and module/CI-environment tests passed, including missing, invalid
 and orphaned weight guards. Algorithm fixtures remain self-contained; the
 real-plan test enforces the live ceiling. This records migration identity, not
 a permanent constraint on future test additions or measured weight refreshes.
+
+
+## AIT-251 measurement and coverage evidence
+
+Profiling started from `5d818c38`, with the weight table and the last three green
+main runs: [38903749704](https://github.com/inspr-at/aithema/actions/runs/38903749704),
+[38900650292](https://github.com/inspr-at/aithema/actions/runs/38900650292) and
+[38898587783](https://github.com/inspr-at/aithema/actions/runs/38898587783).
+The measured p95/maxima of those short series selected the five files below.
+The comparable before/after table uses the instrumented unchanged-workload
+[baseline 38908910516](https://github.com/inspr-at/aithema/actions/runs/38908910516)
+and the first fully green optimized run
+[38911873685](https://github.com/inspr-at/aithema/actions/runs/38911873685), both
+on GitHub's Linux runners. Values sum top-level test durations, in seconds.
+
+| Browser file | Before | After | Cause addressed |
+| --- | ---: | ---: | --- |
+| `pause-phone.test.js` | 203.641 | 170.348 | Reuse Chrome across compatible fixtures; 16ms real PCM replay replaces half a second of silence in each scene. |
+| `upload-capacity.test.js` | 172.315 | 33.115 | Control only upload backoff timers; fence real extraction batches; hold the pending response while measuring the toast. |
+| `composed-qualification.test.js` | 149.070 | 149.074 | Reuse Chrome for the six compatible valid cases; keep all six 20s media prefixes and both overlap refusals. Runtime is effectively unchanged. |
+| `consent-lines.test.js` | 127.683 | 79.242 | Reuse Chrome, retaining fresh fixture pages and storage isolation. |
+| `start2-display.test.js` | 99.330 | 94.294 | Wait for rendered frames and finite animations instead of fixed 120ms sleeps. |
+| **Total** | **752.039** | **526.073** | **225.966s of measured work removed at the cause.** |
+
+This measured saving is separate from replacing padded planning weights. The
+original plan was **2500s**, with bins `410 / 420 / 420 / 420 / 410 / 420`.
+The first generated p95 plan was **1746.395s**, with bins
+`291.594 / 292.871 / 291.961 / 290.607 / 289.225 / 290.137`.
+The five target files' original planning weights alone fell from **810s** to
+**526.073s** (283.927s), while the measured comparison above independently
+clears 200s. The updater also raises underweighted files when CI measures them
+slower; for example language-first-paint rose from 50s to 109.563s.
+
+All **655 original assertion calls** across the five files remain, and four
+checks were added to ensure the controlled upload clock sees the production
+5s/10s retry delays. No width, language, theme, state, top-level test or nested
+scenario was removed. The real backoff timing, Retry-After, cancellation and
+no-early-POST guards still execute in `packages/ui/test/uploads.test.js` in the
+required unit suite. The browser fixtures still test real 11MiB files and
+extractors, retained-file identity, exact attempt counts, pause/resume,
+keyboard controls, accessibility trees, painted underlines and zero movement.
+The final remote timing/upload verification passed **59/59**; upload viewport
+evidence includes the settled phone toast and retry states, with blur and
+pinned fonts. All five changed browser files were exercised on mbp2606, one
+suite at a time, starting below load 10. Full browser validation is PR CI's job.
+
+The committed siblings retain each source observation, SHA and workload hash.
+The first plan has one sample per file (explicit warmup); subsequent refreshes
+extend the rolling series rather than treating this first run as a permanent
+floor. Six shards, the 420s ceiling and all required check names are unchanged.
+
+
+Final calibration includes all three overlapping PRs (#216, #217, #218), merged
+from main with signoff. The second green calibration run is
+[38913449964](https://github.com/inspr-at/aithema/actions/runs/38913449964).
+After importing it, the committed rolling p95 plan totals **1811.989s**, with
+bins `302.498 / 300.173 / 300.958 / 301.703 / 304.539 / 302.118` seconds. The largest is
+**304.539s**, below the unchanged 420s ceiling. The five target files now
+plan **537.727s**, **272.273s less** than their original 810s allocation.
+Thirty-one files have two CI observations; understanding-failure has one fresh
+observation after AIT-221 changed its workload, replacing the explicitly marked
+old series. This is a warming rolling p95 window, with no estimated samples.
+The 23 shard/timing guard tests passed on mbp2606; the merged calibration's full
+unit job and `npm run test:browser-shards` also passed. Final commit CI is linked
+in the PR handoff.
+
+
+AIT-251 round 2 restricts future timing imports to verified canonical main push
+runs and applies the 25% warmup margin to every existing short series. The
+extraction/next-upload overlap is covered by a server unit test in
+`packages/server/test/uploads.test.js`: it holds the first extractor open,
+starts reading the next multipart body, finishes extraction during that read,
+then asserts retryable 429, no partial admission, and exactly one successful
+retry using the same client event. No browser page or case is added.
+
+After the margin, `npm run test:browser-shards` reports **2265.000s** total,
+with bins `378.124 / 375.219 / 376.201 / 377.131 / 380.676 / 377.649` seconds.
+The largest bin is **380.676s**, leaving **39.324s** under the unchanged 420s
+ceiling. The six shards and all check names remain unchanged.
+
+The remote targeted timing, shard and server upload suite passed **78/78** on
+mbp2606. Coverage includes canonical push selection, explicit PR/fork rejection,
+main ancestry, artifact/header mismatches, atomic rejection, local-import
+rejection, 1/4/5+ sample margins, workload reset and the extraction overlap.

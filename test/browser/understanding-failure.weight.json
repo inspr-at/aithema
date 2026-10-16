@@ -1,4 +1,75 @@
 {
-  "seconds": 100,
-  "evidence": "AIT-221 round 4, optimized workload at 270d5e36eb4379555f42c84770cba15ec75ef2fe: successful CI browser (6/6), https://github.com/inspr-at/aithema/actions/runs/38909895066/job/117002828088 . All 14 successful root tests (26 including subtests) in understanding-failure.test.js total 89.598223680s; round up to 90s + 10s margin. Reuses the mounted AIT-242 page across locales/viewports and sends a real mouse click at the AIT-221 Retry point already hit-tested; every assertion retained. Supersedes the previous workload measured at 90.728937764s in https://github.com/inspr-at/aithema/actions/runs/38902917001/job/116979623809 (preceding observation 92.515s), which required 110s rather than its old 80s weight. With main including AIT-229 savings, six shards and the 420s ceiling are unchanged."
+  "seconds": 112.838,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "571ffdec2ba81d7d88455cc4dba5b5eb3e88916beee3e0e87a734719ab778f2e",
+    "samples": [
+      {
+        "runId": "38913449964",
+        "attempt": 1,
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:57.305Z",
+        "tests": [
+          {
+            "name": "AIT-198 facade pending: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.303092823
+          },
+          {
+            "name": "AIT-198 facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.434584053
+          },
+          {
+            "name": "AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement, retry recovery and 0 px",
+            "seconds": 12.319245609
+          },
+          {
+            "name": "AIT-198 live voice: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.329666467
+          },
+          {
+            "name": "AIT-198 live voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.451420873
+          },
+          {
+            "name": "AIT-198 spoken facade pending: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.311801451
+          },
+          {
+            "name": "AIT-198 spoken facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.452561786
+          },
+          {
+            "name": "AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 390/1440, one inline Retry and 0 px",
+            "seconds": 3.08646917
+          },
+          {
+            "name": "AIT-198 typed: no false failure during reply event gaps, DE/EN 390/1440",
+            "seconds": 4.361068211
+          },
+          {
+            "name": "AIT-198 waiting voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
+            "seconds": 1.797118317
+          },
+          {
+            "name": "AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440",
+            "seconds": 2.7894922099999997
+          },
+          {
+            "name": "AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D",
+            "seconds": 27.184358855
+          },
+          {
+            "name": "AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px",
+            "seconds": 17.044949772
+          },
+          {
+            "name": "AIT-242 project action preserves the footer and Retry geometry, configured or absent, DE/EN 390/1440",
+            "seconds": 4.403893014
+          }
+        ]
+      }
+    ]
+  }
 }
