@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { SQLiteStorage } from '../../packages/server/src/storage.js';
 import { createVoiceReplyExecutor, createVoiceTurnOperations } from '../../packages/server/src/voice-turns.js';
 import { createComposedVoice } from '../../plugins/composed-voice/src/server.js';
+import { fixtureVoiceSettings } from '../../plugins/elevenlabs/test/component-fixtures.js';
 
 // Fake pair, actual coordinator and Rule C operation store. Never contacts a
 // provider. Neither corpus reference nor WAV content supplies the transcript.
@@ -56,7 +57,8 @@ export async function createQualificationServer({ relayOrigin, authenticateRelay
           await options.attempt.consume(); dispatches.push(options.attempt.attemptId);
           for (let offset = 0; offset < ttsPCM.length; offset += 36_000) yield ttsPCM.slice(offset, offset + 36_000);
           await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed' });
-          answer.resolve({ hypothesis, entities: [{ expected: 'Wien', actual: hypothesis }], ttsPCM, ttsFormat });
+          answer.resolve({ hypothesis, entities: [{ expected: 'Wien', actual: hypothesis }], ttsPCM, ttsFormat,
+            ttsConfig: { model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings } });
         } },
       });
       current = { factory };

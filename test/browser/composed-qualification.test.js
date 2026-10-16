@@ -15,6 +15,7 @@ import { browserPath } from '../../scripts/install-test-browser.js';
 import puppeteer from './launch.js';
 import { connect as connectBrowser } from 'puppeteer-core';
 import { readBrowserEvidence, combineOutputEvidence } from '../../plugins/composed-voice/ops/qualification-output-probe.mjs';
+import { fixtureVoiceSettings } from '../../plugins/elevenlabs/test/component-fixtures.js';
 
 test('AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes', { timeout: 90_000 }, async () => {
   for (const flag of ['--disable-audio-output', '-disable-audio-output', 'unavailable', 'clean', 'connected-clean']) {
@@ -107,7 +108,8 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   await writeFile(baselineAuthFile, JSON.stringify({username:production.username,password:production.password}), {mode:0o600});
   let baselineAttemptId;
   const host = template({ binding: {baselineOrigin:production.origin,baselineAuthFile,maxDurationSeconds:28,baselineReasoningCeilingMicro:25,
-      baseline:{plugin:'fixture',model:'fixture',agentId:'fixture-agent',accountRef:'offline-fixture',endpoint:'https://fixture.invalid/stream',microPerMinute:600}},
+      baseline:{plugin:'fixture',model:'fixture',agentId:'fixture-agent',accountRef:'offline-fixture',endpoint:'https://fixture.invalid/stream',microPerMinute:600,
+        tts:${JSON.stringify({ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings })}}},
     consentDecision:{items:['voice-elevenlabs','models-international']}, controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
     ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
     launchArgs: [...production.launchArgs,...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])],
@@ -189,6 +191,10 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   assert.equal(code, 0, `${stderr}\nFixture dispatches: ${JSON.stringify(ports.dispatches)}`); assert.match(stdout, /tunnel-fake-proof/);
   const report = JSON.parse(await readFile(join(output, 'report.json'))), observations = JSON.parse(await readFile(join(output, 'observations.json')));
   assert.equal(report.candidate.wer, 0); assert.equal(report.baseline.wer, 0); assert.equal(report.candidate.qualified, false);
+  assert.deepEqual(report.tts, {
+    candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
+    baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
+  });
   assert.equal(report.budget.records.length, 5); assert.equal(ports.dispatches.length, 5);
   assert.deepEqual(new Set(report.budget.records.map(row => row.attemptId)), new Set(ports.dispatches));
   assert.equal(report.budget.records.filter(row => row.retryOf).length, 1);
