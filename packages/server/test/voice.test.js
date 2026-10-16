@@ -3169,3 +3169,25 @@ test('AIT-247 operator socket refuses an actual active voice call without revoki
   await h.handlers.idle();
   assert.equal((await adminRequest(socketPath, 'erase-session', { sessionId: h.session.id })).body.result, 'erased');
 });
+
+test('AIT-263: an active voice call admits the explicit selected reply through the reaction lane', async t => {
+  const mock = createMockReasoning(), requests = [];
+  const h = voiceFixture(t, { reasoning: { ...mock, async *stream(request, options) {
+    requests.push(request); yield* mock.stream(request, options);
+  } } });
+  await h.start('clarify-active');
+  h.storage.postTurn(h.session.id, 'clarify-person', Buffer.from('website'), 'We need a website.');
+  const current = h.storage.get(h.session.id), revision = inputRevision(current);
+  h.storage.append(current.id, 'turn.final', { id: 'ordinary-cached', role: 'assistant', content: 'Who is it for?', inputRevision: revision });
+  h.storage.append(current.id, 'understanding.updated', { ...current.understanding,
+    openQuestions: ['Who is it for?', 'When should it launch?'], inputRevision: revision, draft: false });
+  const item = core.openQuestionItems(h.storage.get(current.id))[1];
+  const response = await h.route('/focus-question', { questionId: item.id, inputRevision: revision });
+  assert.equal(response.status, 202); const accepted = await response.json();
+  await h.handlers.idle();
+  assert.equal(requests.length, 1); assert.match(requests[0].system, /When should it launch\?/u);
+  const after = h.storage.get(current.id);
+  assert.equal(after.transcript.at(-1).focusRequestId, accepted.event.data.requestId);
+  assert.equal(after.transcript.filter(turn => turn.role === 'user').length, 1);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='reaction'").get().n, 1);
+});

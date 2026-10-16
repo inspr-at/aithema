@@ -30,3 +30,13 @@ for (const type of ['turn.withdrawn', 'consent.revised', 'session.erased', 'sess
   const next = applyEvent(chosen, { seq: 4, type, data: { turnId: 'person', granted: false, locale: 'de', at: '2026-10-16T00:00:00Z' } });
   assert.equal(next.questionFocus, null); assert.equal(next.focusedQuestion, null); assert.deepEqual(openQuestionItems(next), []);
 });
+
+test('a selected public question is not classified as leaked private host guidance', async () => {
+  const { reasoningRequest, unsafeReplyOutput } = await import('../src/index.js');
+  const { purposePolicy } = await import('../../../test/safeguards-corpus.js');
+  const question = 'Which of the regional teams should own the first launch and which date works best for that team?';
+  const request = reasoningRequest(assessed(), 'reaction', false, '', { focusQuestion: question, purposePolicy });
+  assert.ok(request.system.includes(question));
+  assert.equal(unsafeReplyOutput(JSON.stringify({ content: question, question_short: question, options: [], scope: 'in' }),
+    request.purposePolicy, request.hiddenGuidance), false);
+});

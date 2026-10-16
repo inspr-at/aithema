@@ -1224,7 +1224,7 @@ test('AIT-210: loading shell readiness follows configuration, not element defini
   assert.ok(mounted.shadowRoot.querySelector('.band .audio-rail .voice-output'));
 });
 
-test('AIT-263: public focus command carries ownership/revision and propagates typed stale refusals', async t => {
+test('AIT-263: public focus command carries the revision and propagates typed stale refusals', async t => {
   const component = setup();
   turn(component, 'person-focus', 'We need a website.');
   component.receive({ seq: component.session.seq + 1, type: 'understanding.updated', data: {
