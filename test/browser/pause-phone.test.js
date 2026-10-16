@@ -32,6 +32,7 @@ async function fixture(t, touch = true) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
+  const hostConfig = await fetch(new URL('/demo/config', demo.url)).then(response => response.json());
   const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
     // Preserve real desktop fine-pointer media capabilities; switching fixture
     // modes replaces Chrome, while serial fixtures in the same mode reuse it.
@@ -49,6 +50,9 @@ async function fixture(t, touch = true) {
     if (page.holdSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.snapshotId}`) {
       const hold = page.holdSnapshot; hold.resolve(); await hold.release.promise;
     }
+    // Replayed voice snapshots reload through a host that still binds a local fake client.
+    if (page.reloadSession && path === '/demo/config') return request.respond({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ...hostConfig, voiceMode: 'fake' }) });
     if (page.reloadSession && request.method() === 'GET' && path === `/api/sessions/${page.reloadSession.id}`) {
       return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(page.reloadSession) });
     }

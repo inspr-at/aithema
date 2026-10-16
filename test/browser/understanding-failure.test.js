@@ -190,7 +190,7 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
       session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
       session.transcript.push({ id: 'stuck-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
       session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
-      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
     }, locale);
     await settle(page);
     if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
@@ -236,7 +236,7 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
       const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       if (kind === 'live voice') session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'active' };
-      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.gapStates = [];
       window.captureGap = phase => {
         const r = c.shadowRoot;
@@ -299,7 +299,7 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
         ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
           kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) });
       session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
-      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.reactionFailureCopy = copy.reasoningFailed;
     }, locale, kind);
     await settle(page);
