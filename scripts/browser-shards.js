@@ -1,61 +1,39 @@
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// AIT-191 baseline: slowest successful per-file observations across CI runs
-// 38692613866, 38701239296 and 38704006618. AIT-192 benchmark browser jobs:
-// 38714762515, 38715731356, 38716800511, 38717864470 and 38720349940 (attempt 1).
-// Round 2: all 24 files remeasured in 38726471579-1 after merging AIT-190.
-// New observations raise weights; slower historical observations remain.
-// Changed matrices use their slowest benchmark observation; unchanged files
-// retain a slower historical maximum. All weights round UP to 10-second planning
-// buckets; updated/slower observations reserve another 10s for run variance.
-// AIT-199 refresh: main 38732580354-1 and latest successful AIT-197/198 PR
-// runs 38765085264-1 and 38770896962-1. Historical maxima remain the floor;
-// latest observations below include AIT-190's expanded pause matrix.
-// Headless-shell PR benchmarks: 38773142800-1 and 38773893654-1.
-// Not on this base yet: AIT-197 consent-lines = 76.396s (38774634960-1),
-// planning weight 90s; now merged AIT-198 understanding-failure = 32.829s (38770896962-1),
-// planning weight 50s. Keep both entries below; discovery enables them
-// automatically when their source files merge (no placeholder test files).
-// Sum top-level test durations only; nested subtests are already included.
-// Estimates exclude setup, file-process overhead and evidence upload. The final
-// layout is validated separately against the 450s whole-job wall budget.
-export const browserTestWeights = {
-  'test/browser/composed-media.test.js': 20.000, // AIT-160 mbp2606 2d9ee5ada7-81358: 0.708s; rounded up + 10s margin
-  'test/browser/admin-pages.test.js': 80.000, // AIT-199 latest max 62.782s, CI 38770896962-1; historical floor 80s
-  'test/browser/audio-replay.test.js': 50.000, // AIT-199 latest max 30.882s, CI 38770896962-1; historical floor 50s
-  'test/browser/confirmation-design.test.js': 90.000, // AIT-199 latest max 68.546s, CI 38732580354-1; historical floor 90s
-  'test/browser/consent-lines.test.js': 90.000, // Incoming AIT-197: CI 38774634960-1, 76.396s rounded up + 10s
-  'test/browser/credit-hold.test.js': 80.000, // AIT-199 latest max 62.079s, CI 38774634960-1; historical floor 70s
-  'test/browser/demo.test.js': 60.000, // AIT-219 split remainder: CI 38860512464-1, 46.704s rounded up + 10s
-  'test/browser/email-ask.test.js': 130.000, // AIT-199 latest max 99.923s, CI 38732580354-1; historical floor 130s
-  'test/browser/email-mail-space.test.js': 80.000, // AIT-199 latest max 62.288s, CI 38773142800-1; historical floor 80s
-  'test/browser/external-plugin.test.js': 20.000, // mbp2606 9eb0a6e76b-14883 (1.846s; rounded up + 10s margin)
-  'test/browser/footer-width-sweep.test.js': 30.000, // AIT-199 latest max 13.022s, CI 38732580354-1; historical floor 30s
-  'test/browser/host-surface.test.js': 20.000, // AIT-199 latest max 8.114s, CI 38732580354-1; historical floor 20s
-  'test/browser/html-preview.test.js': 40.000, // AIT-199 latest max 9.122s, CI 38765085264-1; historical floor 40s
-  'test/browser/language-first-paint.test.js': 50.000, // AIT-206 round 4 mbp2606 f79fcaf898: 35.453s; rounded up + 10s margin
-  'test/browser/lane-race-kit.test.js': 20.000, // CI 38784223838-1 (2.516s; rounded up + 10s margin)
-  'test/browser/operator-login.test.js': 80.000, // AIT-223 expanded matrix: CI 38840992859-1, 62.878s rounded up + 10s
-  'test/browser/orb-reveal.test.js': 100.000, // AIT-199 latest max 86.949s, CI 38770896962-1; historical floor 100s
-  'test/browser/pause-phone.test.js': 200.000, // AIT-199 latest max 187.080s, CI 38732580354-1; historical floor 190s
-  'test/browser/question-card.test.js': 100.000, // AIT-225 round 4: mbp2606 437ab209b5-11629, 86.188s rounded up + 10s
-  'test/browser/safeguards.test.js': 20.000, // AIT-199 latest max 8.451s, CI 38774634960-1; historical floor 20s
-  'test/browser/start-journey.test.js': 30.000, // AIT-199 latest max 16.401s, CI 38765085264-1; historical floor 30s
-  'test/browser/start-look.test.js': 40.000, // AIT-199 latest max 27.864s, CI 38770896962-1; historical floor 40s
-  'test/browser/start2-display-continuity.test.js': 60.000, // AIT-199 latest max 40.700s, CI 38774634960-1; historical floor 60s
-  'test/browser/start2-display-geometry.test.js': 60.000, // AIT-199 latest max 44.925s, CI 38770896962-1; historical floor 50s
-  'test/browser/start2-display-matrix.test.js': 70.000, // AIT-199 latest max 52.528s, CI 38773142800-1; historical floor 70s
-  'test/browser/start2-display.test.js': 110.000, // AIT-199 latest max 97.777s, CI 38765085264-1; historical floor 110s
-  'test/browser/tick-followups.test.js': 90.000, // AIT-199 latest max 76.289s, CI 38732580354-1; historical floor 90s
-  'test/browser/understanding-failure.test.js': 60.000, // AIT-212/213 expanded matrix: mbp2606 7ca3832ca3-18003, 44.890s rounded up + 10s
-  'test/browser/upload-capacity.test.js': 200.000, // AIT-219 moved top-level tests: CI 38861681508-1, 183.107s rounded up + 10s
-  'test/browser/visitor-credit-tiers.test.js': 110.000, // AIT-199 latest max 96.541s, CI 38770896962-1; historical floor 110s
-  'test/browser/voice-presentation.test.js': 90.000, // AIT-199 latest max 68.021s, CI 38770896962-1; historical floor 90s
-};
+// Each browser test owns its sibling .weight.json measurement (AIT-216).
+// Keep slowest observations and round up to 10s plus 10s margin (AIT-191).
+export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
+  const tests = new Set(files);
+  for (const entry of readdirSync(resolve(root, 'test/browser'), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.weight.json')) continue;
+    const file = `test/browser/${entry.name.replace(/\.weight\.json$/u, '.test.js')}`;
+    if (!tests.has(file)) {
+      throw new Error(`Stale browser test weight: test/browser/${entry.name}; no matching test: ${file}`);
+    }
+  }
+  const weights = {};
+  for (const file of files) {
+    const weightPath = file.replace(/\.test\.js$/u, '.weight.json');
+    let measurement;
+    try {
+      measurement = JSON.parse(readFileSync(resolve(root, weightPath), 'utf8'));
+    } catch (error) {
+      throw new Error(`Missing or unreadable browser test weight: ${file}; add ${weightPath} (seconds and evidence). ${error.message}`);
+    }
+    if (!Number.isFinite(measurement?.seconds) || measurement.seconds <= 0 ||
+        typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
+      throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
+    }
+    weights[file] = measurement.seconds;
+  }
+  return weights;
+}
+
+export const browserTestWeights = readBrowserTestWeights();
 
 // AIT-219: six bins keep 2,280s of measured planning work below 7 min each.
 export const browserShardCount = 6;

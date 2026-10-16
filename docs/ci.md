@@ -64,3 +64,55 @@ Validate workflow syntax and expression types with pinned `actionlint` v1.7.7;
 no repository dependency or installation is needed.
 
 Browser launches use a 60 s default per attempt (caller overrides preserved), with exactly one retry for a startup timeout only, after process/profile cleanup; page and test failures are never retried. The bound adds headroom above the 30 s failure in run [38788184134](https://github.com/inspr-at/aithema/actions/runs/38788184134); recent run [38795278547](https://github.com/inspr-at/aithema/actions/runs/38795278547) logged admin launches of 718.973, 42.021 and 56.389 ms. Run [38794838496](https://github.com/inspr-at/aithema/actions/runs/38794838496) also recorded 10,984.398, 172.377 and 180.271 ms, demonstrating contention well above the subsecond baseline; 60 s is about 5.5 times that observed maximum and twice the failed bound. Each attempt uses an isolated temporary profile under the caller's `userDataDir` (or the system temp directory).
+
+## Browser shard weights
+
+Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`:
+
+```json
+{
+  "seconds": 90,
+  "evidence": "CI 38774634960-1: 76.396s; rounded up + 10s margin"
+}
+```
+
+Sibling files keep additions and refreshes independent of a shared manifest and
+avoid changing executable tests just to refresh timings. Discovery reads each
+sibling; missing files, malformed JSON, nonpositive seconds or empty evidence
+fail the shard guard with the offending path. No shared list needs editing.
+Orphaned `.weight.json` files also fail the guard; remove or rename the sibling measurement when removing or renaming a test.
+
+For a new file, measure it on the designated remote test machine or CI and
+record the run/attempt and observed seconds. Sum top-level test durations only;
+nested subtests are already included. Follow AIT-191: use the slowest observed
+successful per-file duration, round **up** to a 10-second bucket, then add 10s
+for variance (`Math.ceil(slowestSeconds / 10) * 10 + 10`). On refresh, retain
+slower historical observations and never reduce an existing planning weight
+because a newer run is faster. Preserve the historical floor and measurement
+provenance in `evidence`. Estimates exclude setup, process overhead and evidence
+upload; validate whole-job wall time against the 450s budget separately.
+
+`test/browser-shards.test.js` checks weight parsing, missing weights and stale measurements.
+Adding a browser test requires only its own sibling `.weight.json`; refreshing a
+measurement edits only that sibling file. Algorithm unit tests use inline data,
+so neither operation requires updating a shared fixture.
+
+AIT-216 final regeneration evidence (2026-10-16): main
+`429b72f277119e2204e8478d6629ac8787ffb190` was merged with signoff, without
+rebasing. The one-time migration extraction read that revision's
+`scripts/browser-shards.js` literal and generated every sibling JSON from each
+entry's numeric seconds and measurement-evidence comment, including
+`upload-capacity`, `composed-media` and `language-first-paint`. No weights were
+hand-merged. The inline table was then replaced by the per-file reader;
+main's six-shard packing code and required summary workflow stayed unchanged.
+
+The one-time proof ran on mbp2606 against the committed merge
+`32ba251765b78a5940ce228236550f2c388ed4e3`, run `32ba251765-68752`:
+`31/31 equal; identical layout (shard membership/order and totals)`.
+Projected totals were `380 / 380 / 390 / 370 / 380 / 380` seconds; the largest
+was 390s and main's unchanged <= 420s plan ceiling passed. The legacy and current
+packing functions were identical. All 53 targeted shard, workflow/summary,
+merge-queue and module/CI-environment tests passed, including missing, invalid
+and orphaned weight guards. Algorithm fixtures remain self-contained; the
+real-plan test enforces the live ceiling. This records migration identity, not
+a permanent constraint on future test additions or measured weight refreshes.
