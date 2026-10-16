@@ -768,8 +768,8 @@ export function createQualificationHost(cli) {
    cancellation/noise suppression. Include the declared **20 s minimum leading
    silence**, utterance, endpoint silence and a later voiced segment for barge-in;
    timestamps are never synthesized/shifted.
-6. From an OPS checkout of PR 4d implementation SHA
-   `f382891ad76458d7a8affbbc4d63e59ad7ae9ed7`, run:
+6. From an OPS checkout of the PR 4d head named in the coordinator handoff
+   (record its full SHA with the run evidence), run:
 
    ```sh
    git checkout --detach f382891ad76458d7a8affbbc4d63e59ad7ae9ed7
