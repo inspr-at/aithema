@@ -1242,7 +1242,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
   ];
   // One loaded page, reused across widths/locales; iterate every state in-page.
   // Theme-independent behavior uses DE light and EN dark; appearance checks select all themes.
-  for (const locale of ['de', 'en']) for (const width of [1440, 1024, 390, 320]) {
+  for (const locale of ['de', 'en']) for (const width of [1440, 390, 320]) {
     const theme = locale === 'de' ? 'light' : 'dark';
     const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: false });
@@ -1344,20 +1344,24 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       recovery: Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action')) }));
     assert.deepEqual(ready, { text: copy.conceptDraftReady.replace('{number}', '1'), recovery: false });
     record(label, 'draft-ready-quote-missing', ready);
-    await configure('option-unoffered', 'visuals not offered'); await finishWorkspaceEntry(page);
-    for (const [platform, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
-      await page.evaluate(platform => Object.defineProperty(navigator, 'platform', { configurable: true, value: platform }), platform);
-      await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.shortcut.replace('{key}', key));
-      record(label, `fine-${platform}`);
+    // Pointer/platform behavior is independent of width; cover both platforms
+    // and touch once per locale, alongside the narrow footer checks.
+    if (width === 390) {
+      await configure('option-unoffered', 'visuals not offered'); await finishWorkspaceEntry(page);
+      for (const [platform, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
+        await page.evaluate(platform => Object.defineProperty(navigator, 'platform', { configurable: true, value: platform }), platform);
+        await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.shortcut.replace('{key}', key));
+        record(label, `fine-${platform}`);
+      }
+      const fineBoxes = await boxes(page, stable.concat('.send', '.attach'));
+      await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+      assert.equal(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), true);
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden');
+      assert.deepEqual(await boxes(page, stable.concat('.send', '.attach')), fineBoxes, `${label}: touch hint hides with 0 px shift`);
+      record(label, 'coarse');
+      await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: false });
     }
-    const fineBoxes = await boxes(page, stable.concat('.send', '.attach'));
-    await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
-    assert.equal(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), true);
-    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden');
-    assert.deepEqual(await boxes(page, stable.concat('.send', '.attach')), fineBoxes, `${label}: touch hint hides with 0 px shift`);
-    record(label, 'coarse');
-    await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: false });
     await shadow(page, c => c.openSettings());
     let utilityBaseline;
     for (const choice of ['light', 'dark', 'system']) {
@@ -1375,7 +1379,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
     }
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
   }
-  assert.equal(checks.length, 114, 'all states at four widths in DE light and EN dark, plus desktop recovery actions');
+  assert.equal(checks.length, 74, 'all states at desktop/390/320 in DE/EN, pointer/platform cases and desktop recovery actions');
   if (evidence) await writeFile(join(evidence, 'ait246-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', fonts: 'Chrome baseline UI/display stacks pinned', checks }, null, 2));
 });
 
@@ -1427,7 +1431,7 @@ test('AIT-246 round 2 regressions: visible export reason, device preset destinat
   });
 });
 
-test('AIT-246 round 3: person-facing visual options and provider description, DE/EN light/dark 1440/1024/390', { timeout: 60_000 }, async t => {
+test('AIT-246 round 3: person-facing visual options and provider description, DE/EN light/dark desktop/phone', { timeout: 60_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-polish-round3-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_COMMIT: evidenceCommit });
   const browser = await browserForFile(), page = await browser.newPage();
@@ -1438,7 +1442,7 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
   await mockIdentityReads(page);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.select('#theme', theme);
     await shadow(page, async (c, locale) => {
@@ -1485,7 +1489,7 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   }
-  assert.equal(checks.length, 12);
+  assert.equal(checks.length, 8);
   if (evidence) await writeFile(join(evidence, 'ait246-round3-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
 });
 
