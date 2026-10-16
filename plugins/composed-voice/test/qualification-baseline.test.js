@@ -182,3 +182,58 @@ test('baseline launcher gets fresh profile and corpus flags, with no loopback he
   }
   for (const value of forbidden) assert.equal(JSON.stringify({ launches, evaluations }).includes(value), false);
 });
+
+import { runInNewContext } from 'node:vm';
+import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
+
+test('injected probe ignores silence in unrelated audio contexts after barge-in', async () => {
+  const contexts = []; let now = 0;
+  class Node {
+    constructor(context) { this.context = context; }
+    connect(destination) { return destination; }
+    disconnect() {}
+  }
+  class Context {
+    constructor(options = {}) { this.sampleRate = options.sampleRate ?? 48000; this.currentTime = 0; this.processors = [];
+      this.destination = new Node(this); contexts.push(this); }
+    createScriptProcessor() { const node = new Node(this); this.processors.push(node); return node; }
+    createGain() { const node = new Node(this); node.gain = { value: 1 }; return node; }
+    createMediaStreamSource() { return new Node(this); }
+    getOutputTimestamp() { return { contextTime: this.currentTime, performanceTime: this.currentTime * 1000 }; }
+    async resume() {} async close() {}
+  }
+  class MediaStream {}
+  class MediaElement { play() {} }
+  const runtime = { AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
+    navigator: { mediaDevices: { getUserMedia: async () => new MediaStream() } },
+    location: { origin: binding.baselineOrigin, href: binding.baselineOrigin + '/' }, URL,
+    performance: { now: () => now }, fetch: async () => ({}), setTimeout, clearTimeout,
+    btoa: value => Buffer.from(value, 'binary').toString('base64') };
+  runtime.window = runtime;
+  runInNewContext(`(${installBaselineProbe.toString()})()`, runtime);
+  const probe = runtime.qualificationBaselineProbe; probe.arm();
+  await runtime.navigator.mediaDevices.getUserMedia({ audio: true });
+  const capture = contexts[0];
+  const audio = new Context(), other = new Context();
+  new Node(audio).connect(audio.destination); new Node(other).connect(other.destination);
+  const emit = (context, time, level) => {
+    // Synthetic device timestamps test graph attribution, never qualify audio.
+    now = time * 1000; context.currentTime = time + .1;
+    const samples = new Float32Array(1024).fill(level);
+    context.processors[0].onaudioprocess({ playbackTime: time + samples.length / context.sampleRate,
+      inputBuffer: { duration: samples.length / context.sampleRate, getChannelData: () => samples } });
+  };
+  emit(capture, .5, .2);
+  for (const event of [{ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' }, { type: 'final', role: 'assistant', text: 'Danke.' }]) {
+    await runtime.fetch('/api/sessions/visitor/voice/call/events', { body: JSON.stringify({ event }) });
+  }
+  emit(audio, 1, .2); emit(capture, 2, .2);
+  emit(other, 2.1, 0);
+  assert.equal(probe.complete(), false, 'a silent microphone graph cannot establish agent stop');
+  emit(audio, 2.2, .2); assert.equal(probe.complete(), false, 'agent is still audible');
+  emit(audio, 2.3, 0); assert.equal(probe.complete(), true);
+  const result = probe.result();
+  assert.equal(result.hypothesis, 'Wien'); assert.ok(result.ttsPCM.length > 0);
+  assert.equal(result.trace.filter(event => event.kind === 'playback-stop').length, 1);
+  await probe.close();
+});
