@@ -4,7 +4,7 @@
  * RMS .015: browser-audio.js. 1024 frames: ScriptProcessor's supported size,
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
-  const trace = [], pcm = [], buffered = [], contexts = new Set(), observers = [];
+  const trace = [], pcm = [], rendered = [], buffered = [], contexts = new Set(), observers = [];
   const outputProbe = window.qualificationOutputProbe;
   let agentSink, speechStartAt, speechEndAt, lastVoicedEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt;
   let openerSpeaking = false, bufferedBytes = 0;
@@ -39,6 +39,14 @@ export function installBaselineProbe() {
   Element.prototype.attachShadow = function(...args) {
     const root = nativeAttachShadow.apply(this, args); watch(root); return root;
   };
+  const observeStop = () => {
+    if (stoppedAt !== undefined) return;
+    const stop = rendered.reduce((first, block) => {
+      const next = outputProbe.stop(block, bargeInAt);
+      return next && (!first || next.stoppedAt < first.stoppedAt) ? next : first;
+    }, undefined);
+    if (stop) { stoppedAt = stop.stoppedAt; emit(stop); }
+  };
   const attribute = ({ samples, at, timestamp, voiced, voicedSince, sampleRateHz }) => {
     if (!hypothesis || failure || at < speechEndAt || voiced && voicedSince < speechEndAt) return;
     if (voiced && firstAudioAt === undefined) {
@@ -51,11 +59,11 @@ export function installBaselineProbe() {
     if (firstAudioAt === undefined || stoppedAt !== undefined) return;
     if (format && format.sampleRateHz !== sampleRateHz) { failure = 'output-format'; return; }
     format = { encoding: 'pcm_f32le', sampleRateHz, channels: 1 };
-    const stop = outputProbe.stop({ at, timestamp, voiced }, bargeInAt);
-    if (stop) { stoppedAt = stop.stoppedAt; emit(stop); return; }
+    rendered.push({ at, timestamp, voiced }); observeStop();
+    if (stoppedAt !== undefined) return;
     bytes += samples.byteLength;
     if (bytes > 16_000_000) { failure = 'pcm-bound'; return; }
-    pcm.push(samples);
+    pcm.push({ samples, at });
   };
   function output(source, volume = () => 1) {
     outputProbe.tap(source, block => {
@@ -116,7 +124,7 @@ export function installBaselineProbe() {
       }
     }
     if (voiced && !hypothesis) lastVoicedEndAt = captureAt + durationMs;
-    if (voiced && captureAt >= firstAudioAt) bargeInAt ??= captureAt;
+    if (voiced && captureAt >= firstAudioAt) { bargeInAt ??= captureAt; observeStop(); }
   };
   const scripted = window.qualificationScriptedCapture;
   const unsubscribe = scripted?.subscribe(capture);
@@ -206,8 +214,9 @@ export function installBaselineProbe() {
       if (refusal) return { trace, refusal };
       if (!hypothesis || !pcm.length || ![firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Incomplete production media evidence');
       // Chunk conversion avoids argument/string limits for bounded PCM evidence.
-      const samples = new Float32Array(bytes / 4); let offset = 0;
-      for (const chunk of pcm) { samples.set(chunk, offset); offset += chunk.length; }
+      const chunks = pcm.filter(block => block.at < stoppedAt).map(block => block.samples);
+      const samples = new Float32Array(chunks.reduce((size, chunk) => size + chunk.length, 0)); let offset = 0;
+      for (const chunk of chunks) { samples.set(chunk, offset); offset += chunk.length; }
       const data = new Uint8Array(samples.buffer); let binary = '';
       for (let i = 0; i < data.length; i += 8192) binary += String.fromCharCode(...data.subarray(i, i + 8192));
       return { hypothesis, trace, ttsPCM: btoa(binary), ttsFormat: format };

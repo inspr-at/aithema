@@ -111,7 +111,7 @@ test(`candidate errors abort even with complete timing: ${JSON.stringify(options
   await assertFailureDiagnostic(t, persisted.run);
 });
 
-for (const stopBeforeSource of [false, true]) test(`candidate waits for product stop; source-clock onset survives reversed callback delivery (${stopBeforeSource})`, async () => {
+for (const stopBeforeSource of [false, true]) test(`candidate waits for rendered silence; source-clock onset survives reversed callback delivery (${stopBeforeSource})`, async () => {
   const h = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true, stopBeforeSource });
   const result = await h.run(), probe = createQualificationMediaProbe();
   result.trace.forEach(probe.onTiming);

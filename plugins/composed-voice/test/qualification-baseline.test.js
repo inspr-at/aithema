@@ -521,19 +521,22 @@ test('late baseline user final consumes source refusal and completes before a du
 
 // Both real lane runners consume the same rendered trace, including a near-
 // threshold block. Neither an interrupt request nor still-voiced output stops it.
-test('candidate and baseline use the same rendered silence stop timestamp', async () => {
+for (const reversed of [false, true]) test(`candidate and baseline use the same rendered silence stop timestamp (reversed ${reversed})`, async () => {
   const baseline = await probeFixture();
   await baseline.opener();
   baseline.emit(baseline.capture, .5, .2); baseline.emit(baseline.capture, .6, 0);
   await baseline.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
-  baseline.emit(baseline.audio, 1, .2); baseline.emit(baseline.capture, 2, .2);
+  baseline.emit(baseline.audio, 1, .2);
+  if (!reversed) baseline.emit(baseline.capture, 2, .2);
   const outputTrace = [];
   for (const [seconds, level] of [[2, .2], [2.1, .0151], [2.2, .0149], [2.3, 0]]) {
     baseline.emit(baseline.audio, seconds, level);
     outputTrace.push({ at: seconds * 1000, voiced: level >= .015,
       timestamp: { contextTime: seconds + .1, performanceTime: (seconds + .1) * 1000 } });
   }
-  const candidate = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true, outputTrace, firstAudioAt: 1000, bargeInAt: 1900 });
+  if (reversed) baseline.emit(baseline.capture, 2, .2);
+  const candidate = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true,
+    outputTrace, firstAudioAt: 1000, bargeInAt: 1900, stopBeforeSource: reversed });
   const result = await candidate.run();
   const stop = trace => trace.find(row => row.kind === 'playback-stop').stoppedAt;
   assert.equal(result.refusal, undefined);

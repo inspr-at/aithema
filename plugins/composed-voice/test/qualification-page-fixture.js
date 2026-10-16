@@ -56,4 +56,3 @@ export async function pageFixture(reason, { type = 'waiting', firstAudio = false
   runInNewContext(source, runtime);
   return { run: () => runtime.composedQualification.run({ grant: { opaque: { spendDeadlineAt: Date.now() + deadlineSeconds * 1000 - deadlineElapsedMs } }, headers: {} }), timers, state: () => ({ started, closed, interrupts, inputChanges }) };
 }
-
