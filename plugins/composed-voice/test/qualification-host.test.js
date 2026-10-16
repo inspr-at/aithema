@@ -406,6 +406,24 @@ test('launcher must arm watchdog; wall-clock timeout and host close kill even a 
   }
 });
 
+test('actual launcher fake-output override refuses before control/admission despite advancing rendering', async t => {
+  const fixture = await keysFixture(t);
+  let killed = 0;
+  const host = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async (_settings, lifetime) => {
+    lifetime.registerProcessGroup({ watchdogArmed: true, kill() { killed++; } });
+    return { ...inertBrowser({ renderingVerified: true, outputLatency: 0.016 }),
+      process: () => ({ spawnargs: ['/fixture/chrome', '--disable-audio-output'] }) };
+  } });
+  t.after(() => host.close());
+  await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
+    assert.match(error.message, /null or unverified audio output/);
+    assert.equal(error.physicalBrowserMedia.renderingVerified, true);
+    assert.deepEqual(error.physicalBrowserMedia.refusedOutputFlags, ['--disable-audio-output']);
+    assert.equal(error.physicalBrowserMedia.verified, false); return true;
+  });
+  assert.equal(killed, 1);
+});
+
 
 test('rendering requires default sink, positive latency and both clocks advancing for 500ms; labels are diagnostic', async () => {
   for (const variation of ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'zeroLatency', 'nanLatency', 'contextStalled', 'performanceStalled', 'short', 'nonDefault', 'silentSink', 'defaultAlias', 'noAPI']) {

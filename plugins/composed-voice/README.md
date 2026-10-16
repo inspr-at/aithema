@@ -579,6 +579,23 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
    A failure retains reservations; confirm the old dispatcher stopped before
    explicit orphan settlement/reconciliation. Never silently rerun the same ID.
 
+Round 4 builder evidence (mbp2606, **mba over SSH**, Chrome headless shell
+155.0.8059.39, commit `66c2af53cc`, 2026-10-16 07:27:59–07:28:03 UTC):
+
+| Capture / output mode | Labelled real / fake outputs | Output latency | Timestamp clocks | Result |
+| --- | --- | --- | --- | --- |
+| Fake device + corpus WAV / default output | 0 / 3 | 27 ms | Both advancing over 560.4 ms | Verified, exit 0 |
+| Neither fake-capture flag / default output | 0 / 0 | 27 ms | Both advancing over 560.3 ms | Verified, exit 0 |
+| Fake device + WAV / forced fake output | 0 / 3 | 16 ms | Both advancing over 560.3 ms | Refused by explicit output-flag guard, exit 1 |
+| Fake device + WAV / failed output-stream creation | 0 / 3 | 0 ms | Both remain zero over 560.5 ms | Refused by rendering and output-flag gates, exit 1 |
+
+All four OS records name `MacBook Pro-Lautsprecher`, transport
+`coreaudio_device_type_builtin`, built-in `true`, default output for mba.
+The user choice is **mba**. OPS owns the two ci rows; they are not claimed here.
+The first committed negative control (`eeefadde`) failed because forced fake
+output passed the clock/latency checks; `66c2af53cc` adds the explicit flag guard
+and passes the four measurements plus the fake-provider CLI/tunnel proof.
+
 ### Alternative: tunnel/container
 
 Only when OPS deliberately chooses the remote variant, run the flagged host in
