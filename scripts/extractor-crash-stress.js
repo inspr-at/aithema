@@ -18,8 +18,11 @@ try {
   // A standalone runner has no inherited test-worker context.
   const child = spawn(process.execPath, ['--test', '--test-reporter=spec', `--test-concurrency=${concurrency}`,
     '--test-timeout=90000', '--import', new URL('./unit-watchdog.js', import.meta.url).href,
-    '--test-name-pattern=^child crash without', ...files], { stdio: 'inherit' });
+    ...files], { stdio: ['ignore', 'pipe', 'inherit'] });
+  let output = '';
+  child.stdout.on('data', chunk => { output = (output + chunk).slice(-8192); process.stdout.write(chunk); });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
   assert.equal(code, 0);
+  assert.match(output, /ℹ tests 7000\b/u, 'all 14 tests must execute in each of 500 copies');
   console.log(`AIT-222: ${repeats} repetitions passed`);
 } finally { await rm(directory, { recursive: true, force: true }); }

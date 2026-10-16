@@ -23,16 +23,11 @@ export async function waitFor(operation, label) {
 
 // Keep this observer in the permitted extractor test tree. The shared fixture
 // polls every millisecond; spawn, started and close events provide all we need.
-export function observeParsers(t, { trace = false } = {}) {
+export function observeParsers(t, { execArgv = [] } = {}) {
   const original = childProcess.fork, children = [], events = new EventEmitter();
   t.mock.method(childProcess, 'fork', (...args) => {
-    if (trace) args[2] = { ...args[2], execArgv: [...args[2].execArgv, '--trace-gc'],
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'] };
+    args[2] = { ...args[2], execArgv: [...args[2].execArgv, ...execArgv] };
     const child = original(...args);
-    let traceTail = '';
-    if (trace) for (const stream of [child.stdout, child.stderr]) {
-      stream.on('data', chunk => { traceTail = (traceTail + chunk).slice(-8192); });
-    }
     const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
     const started = new Promise(resolve => {
       const onMessage = message => { if (message?.type === 'started') finish(true); };
@@ -42,7 +37,7 @@ export function observeParsers(t, { trace = false } = {}) {
       };
       child.on('message', onMessage); child.once('close', onClose);
     });
-    const record = { child, args, closed, started, trace: () => traceTail };
+    const record = { child, args, closed, started };
     children.push(record); events.emit('spawned', record);
     return child;
   });

@@ -77,7 +77,11 @@ jobs:
         env:
           AITHEMA_CANONICAL_RELEASE: '1'
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-        run: npm test
+        # Intentional V8 heap-OOM fixtures must be reaped, not spend their
+        # deadline writing core dumps (AIT-222 observed vfs_coredump > 30s).
+        run: |
+          ulimit -c 0
+          npm test
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/release-evidence
       - name: Retain candidate archives and consumer evidence
@@ -99,10 +103,10 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci
-      - name: Install temporary native-stack diagnostic
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gdb
-      - name: AIT-222 temporary isolated Linux crash reproduction
-        run: node scripts/extractor-crash-stress.js
+      - name: AIT-222 temporary 500 full-file repetitions
+        run: |
+          ulimit -c 0
+          node scripts/extractor-crash-stress.js
 
   browser:
     needs: changes

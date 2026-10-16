@@ -4,7 +4,6 @@ import childProcess from 'node:child_process';
 import { EventEmitter, once } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import { promisify } from 'node:util';
-import { readFile } from 'node:fs/promises';
 import { createTextExtractor } from '../../../plugins/extract-text/src/index.js';
 import { activeExtractorProcessCount, queuedExtractorProcessCount } from '../src/extractor-process.js';
 import { EXTRACTOR_LIMITS, normalizeExtractorLimits } from '../src/extractor.js';
@@ -227,55 +226,30 @@ test('RSS limits default to 384 MiB and hosts can only lower them', () => {
 });
 for (const mode of ['crash', 'signal', 'heap']) {
   test(`child ${mode} without a result is unreadable limit and releases the slot`, async t => {
-    const observed = observeParsers(t, { trace: mode === 'crash' });
+    // These deliberately dying 16 MiB children test the parent's lifecycle.
+    // Node 24 can deadlock process.exit while a background Sparkplug compiler
+    // waits for main-thread GC (nodejs/node#54918). Compile synchronously here;
+    // keep the real heap cap, abnormal exits, IPC, and close/reaping assertions.
+    const observed = observeParsers(t, { execArgv: ['--no-concurrent-sparkplug'] });
     const warnings = t.mock.method(console, 'warn', () => {});
     // This checks crash classification/reaping, not deadline speed. Freeze both
     // Date and the deadline timer so loaded child startup cannot consume the
     // production 10s budget. waitFor's real timer still catches missing events.
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
-    const virtualTimers = [], scheduleVirtual = globalThis.setTimeout;
-    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-      virtualTimers.push({ callback: callback.name, delay, stack: new Error().stack });
-      return scheduleVirtual(callback, delay, ...args);
-    });
     const plugin = createTextExtractor({ workerURL, limits: { maxHeapMb: 16 } });
-    const events = [];
-    const spawning = observed.spawned().then(({ child }) => {
-      for (const event of ['spawn', 'message', 'error', 'exit', 'disconnect', 'close']) {
-        child.on(event, (...args) => events.push([event, ...args]));
-      }
-    });
-    const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`).catch(async error => {
-      console.error('AIT-222 crash timeout state', { events, virtualTimers,
-        trace: observed.children.map(record => record.trace()),
-        warnings: warnings.mock.calls.map(call => call.arguments), active: activeExtractorProcessCount(),
-        queued: queuedExtractorProcessCount(), children: observed.children.map(({ child }) => ({
-          pid: child.pid, killed: child.killed, exitCode: child.exitCode, signalCode: child.signalCode,
-          connected: child.connected, closesGot: child._closesGot, closesNeeded: child._closesNeeded,
-        })) });
-      if (process.platform === 'linux') {
-        for (const { child } of observed.children) {
-          console.error('AIT-222 child CPU/wait state', await Promise.allSettled([
-            readFile(`/proc/${child.pid}/stat`, 'utf8'), readFile(`/proc/${child.pid}/wchan`, 'utf8'),
-          ]));
-          if (mode === 'crash') console.error('AIT-222 native stacks', await promisify(childProcess.execFile)('sudo',
-            ['-n', 'gdb', '--batch', '-ex', 'thread apply all bt', '-p', String(child.pid)],
-            { timeout: 10_000, maxBuffer: 1024 * 1024 }).catch(error => ({ message: error.message, stdout: error.stdout, stderr: error.stderr })));
-        }
-      }
-      throw error;
-    });
-    await spawning;
+    const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`);
     assert.equal(result.status, 'unreadable'); assert.equal(result.reason, 'limit');
     const { code, signal } = await waitFor(observed.children[0].closed, `${mode} close event`);
     assert.ok(code !== 0 || signal);
-    if (mode === 'crash') assert.equal(code, 1, observed.children[0].trace());
+    assert.equal(await observed.children[0].started, true, 'fixture reached the requested failure mode');
+    if (mode === 'crash') assert.equal(code, 1);
     if (mode === 'signal') assert.equal(signal, 'SIGTERM');
     if (mode === 'heap') assert.ok(signal === 'SIGABRT' || code === 134, 'actual V8 heap OOM');
     assert.deepEqual(warnings.mock.calls.map(call => call.arguments), [
       ['Extractor child exited without a result; treating as limit', { code, signal }],
     ]);
     assert.equal(activeExtractorProcessCount(), 0);
+    assert.equal(queuedExtractorProcessCount(), 0);
     assert.equal((await waitFor(createTextExtractor().extract(bytes('Next request')), 'request after crashed child')).text, 'Next request');
     assert.equal(warnings.mock.callCount(), 1, 'normal result cleanup does not log a crash');
   });
