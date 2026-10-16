@@ -238,6 +238,47 @@ not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
 
+## Document extraction limits
+
+The offline text/PDF/OOXML extractor ceiling is **20 MiB (20,971,520 bytes)**.
+An input of exactly that size can extract; a larger input returns
+`unreadable` with reason `limit`. Other format, archive and worker bounds still
+apply. Hosts can only lower extractor ceilings, including per-call overrides;
+raising an override is clamped to the configured ceiling.
+
+| Extractor bound | Ceiling |
+| --- | --- |
+| Source bytes | 20 MiB |
+| Retained text | 60,000 characters, including segment separators |
+| PDF pages / Office sheets or slides | 100 |
+| Worker deadline | 10,000 ms |
+| V8 old-space limit (`maxHeapMb`) | 128 MiB |
+| Worker RSS watchdog | 384 MiB, sampled every 25 ms |
+| OOXML ZIP entries | 512 |
+| One uncompressed ZIP part | 16 MiB |
+| Total uncompressed ZIP bytes | 48 MiB |
+| ZIP compression ratio | 100:1 per part |
+| Core `UPLOAD_LIMITS.maxRequestBytes` | 21 MiB |
+| Server multipart request default/ceiling | 64 MiB |
+| Server file default/ceiling | 20 MiB |
+| Server files per request / documents per session | 8 / 8 |
+| Server source-byte budget per session | 160 MiB |
+| Upload request budget | 25,000 ms |
+
+Uploads use literal `multipart/form-data` file bytes, without base64 encoding.
+The core request budget allows one 20 MiB document plus 1 MiB of form framing;
+the HTTP regression verifies the original bytes reach admission intact. The
+server's existing 64 MiB request budget supports batching, and hosts may lower
+it. The UI plans batches against the server's advertised limits. Only extracted
+text survives completion; truncation remains explicit through `truncated: true`.
+Image-only PDFs remain unreadable without OCR.
+
+[AIT-219 measurements and reproduction](extractor-limits.md) record three runs
+per format and size on mbp2606. The normal 20 MiB fixtures leave at least 30%
+headroom for heap, RSS and elapsed time under the unchanged bounds. The
+adversarial OOXML and PDF fixtures still trip safety bounds; a file's byte size
+alone does not guarantee extractability.
+
 ## Version source, release mapping and rollback
 
 `release/version.json` is the sole authority. The owner-authorized candidate reserves
