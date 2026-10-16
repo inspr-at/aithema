@@ -767,7 +767,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const report = terminal => {
           if (reported) return; reported = true;
           const receipt = deadlineRefused ? { attemptId, outcome: 'uncertain', closureConfirmed: false, usage: null } : { ...terminal, attemptId };
-          budget.settleVoice(claim.claimId, receipt);
+          budget.settleVoice(claim.claimId, receipt, { retainReservation: deadlineRefused });
           if (receipt.closureConfirmed && receipt.usage) this.reconcileVoice(attemptId, receipt);
         };
         try {
@@ -821,14 +821,18 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation, deadlineRefused = false;
       const report = terminal => {
         if (deadlineRefused) terminal = { attemptId, outcome: 'uncertain', closureConfirmed: false, usage: null };
-        const receipt = budget.settleVoice(claim.claimId, terminal); reported = true;
-        if (reservation && (!dispatched || terminal.closureConfirmed === true && terminal.outcome !== 'uncertain')) {
+        const receipt = budget.settleVoice(claim.claimId, terminal, { retainReservation: deadlineRefused }); reported = true;
+        if (reservation && !deadlineRefused && (!dispatched || terminal.closureConfirmed === true && terminal.outcome !== 'uncertain')) {
           voiceCap.settle(reservation, dispatched ? terminal.usage.providerSeconds : 0);
         }
         return receipt;
       };
       const zero = () => report({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
+      // The owner/ledger await can finish just before expiry; a separate
+      // aggregate reservation still requires current admission authority.
+      try { conversationLimits.assertOpen(session.id); }
+      catch (error) { deadlineRefused = true; report({ attemptId, outcome: 'uncertain' }); throw error; }
       // Atomic aggregate admission precedes facade provisioning and provider credentials.
       try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
       catch (error) { zero(); throw error; }
@@ -941,7 +945,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         }
         settlementAborted = Boolean(options.signal?.aborted);
         settlementDispatched = budget.get(attemptId).state === 'dispatched';
-        const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
+        const settlement = budget.settle(claim.claimId, terminal, rates, { retainReservation: deadlineRefused }); reported = true;
         try { Promise.resolve(options.onTerminal?.({ outcome: settlement.outcome })).catch(() => {}); }
         catch { /* Diagnostics cannot interrupt settlement. */ }
         if (typeof terminal.servedModel === 'string' && terminal.servedModel.trim()) producer.model = terminal.servedModel;

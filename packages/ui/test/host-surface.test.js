@@ -1467,3 +1467,13 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     assert.equal(root.querySelector('form.composer').inert, true, 'an unrelated credit refresh cannot clear a terminal reason');
   });
 }
+
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-261: reconnecting to saved ${reason} keeps controls disabled and export available (${copy === de ? 'de' : 'en'})`, async t => {
+    const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
+    await tick(8);
+    assert.equal(root.querySelector('form.composer').inert, true);
+    assert.equal(root.querySelector('.composer-out__body').textContent, copy.hostSurface.credits.ended[reason]);
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+  });
+}

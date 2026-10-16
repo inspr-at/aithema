@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets } from '../src/index.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
-import { mockConsent, temporaryDb } from '../../../test/helpers.js';
+import { temporaryDb } from '../../../test/helpers.js';
 import { request } from '../../../test/plugin-fixtures.js';
 
 const HOUR = 60 * 60_000, epoch = 1_800_000_000_000, owner = 'deadline-owner';
@@ -10,8 +10,9 @@ function fixture(t, { path, at = epoch, ownerGuard = false } = {}) {
   let time = at;
   const storage = new SQLiteStorage(path), now = () => time;
   const host = createDemoHost({ storage, now, ownerGuard, demoBypass: true });
-  const runtime = createPluginRuntime({ storage, now, consent: mockConsent, presets: mockPresets() });
-  const handlers = createHandlers({ storage, host, pluginRuntime: runtime, consent: mockConsent, log() {} });
+  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: time, expiresAt: time + 60_000 }) };
+  const runtime = createPluginRuntime({ storage, now, consent, presets: mockPresets() });
+  const handlers = createHandlers({ storage, host, pluginRuntime: runtime, consent, log() {} });
   let closed = false;
   const close = async () => { if (!closed) { closed = true; await handlers.close(); storage.close(); } };
   t.after(close);
@@ -148,4 +149,60 @@ test('AIT-261: an admitted but undispatched operation cannot spend after expiry 
   admitted.options.report({ attemptId: id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
   admitted.finish({ failed: true });
   assert.equal(f.runtime.budget.get(id).outcome, 'uncertain');
+});
+
+test('AIT-261: legacy owner guard recovery keeps the exact deadline on its original conversation', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { createCredits, reduceCredits } = await import('@inspr/aithema-core');
+  const path = await temporaryDb(), f = fixture(t, { path }), original = await f.create(), other = await f.create();
+  const guard = reduceCredits(createCredits({ sessionId: original.id }), { type: 'start', now: epoch }).state;
+  f.storage.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?)').run(f.storage.get(original.id).ownerHash, JSON.stringify(guard));
+  await f.close();
+  const restored = fixture(t, { path, at: epoch + HOUR });
+  await restored.handlers.resume(); await restored.handlers.idle();
+  assert.equal(restored.storage.creditState(original.id).endsAt, epoch + HOUR);
+  assertEnded(restored, original.id);
+  assert.equal(restored.storage.creditState(other.id), null, 'another conversation cannot inherit the legacy timer');
+});
+
+test('AIT-261: inherited voice deadline also refuses separately admitted STT/TTS components', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { createComposedVoiceCoordinator } = await import('../src/composed-voice.js');
+  const f = fixture(t), session = await f.create(); await f.turn(session.id); await f.handlers.idle();
+  let time = epoch + HOUR - 10_000;
+  f.at(time); t.mock.method(Date, 'now', () => time);
+  const roles = [], terminals = [], maximum = 17;
+  const component = role => ({ async *[role === 'stt' ? 'stream' : 'speak'](request, options) {
+    await options.attempt.consume();
+    if (role === 'stt') { for await (const _ of request.audio) { /* consume fixture audio */ } }
+    await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', usage: {
+      attemptId: options.attempt.attemptId, role, unit: role === 'stt' ? 'seconds' : 'characters', quantity: 1,
+      upstreamMicro: maximum, source: 'offline-fixture', estimated: false,
+    } });
+    yield role === 'stt' ? { text: 'A requirement', final: true } : new Uint8Array([1, 2]);
+  } });
+  const coordinator = createComposedVoiceCoordinator({ sessionId: session.id, callId: 'component-deadline',
+    providerSessionId: 'component-provider', now: () => time,
+    spendDeadlineAt: f.runtime.conversationLimits.deadline(session.id), browserLivenessDeadlineAt: time + 30_000,
+    authorize: async () => true, commitUtterance: async () => {}, stt: component('stt'), tts: component('tts'),
+    replyExecutor: { async *execute() {
+      yield { type: 'operation', replyId: 'component-reply' }; yield { type: 'delta', text: 'Understood.' };
+      yield { type: 'completion', replyId: 'component-reply', text: 'Understood.' };
+    } },
+    async admitComponent({ role }) {
+      roles.push(role);
+      return { attempt: { attemptId: `${role}-claim`, claimId: `${role}-authority`, maxMicro: maximum, consume() {} },
+        report: receipt => terminals.push(receipt) };
+    },
+    relay: { audio() {}, silence() {}, event() {} },
+  });
+  t.after(() => coordinator.close());
+  const speech = Buffer.alloc(100 * 32); for (let i = 0; i < speech.length; i += 2) speech.writeInt16LE(8000, i);
+  await coordinator.receiveAudio(speech); await coordinator.receiveAudio(Buffer.alloc(500 * 32)); await coordinator.idle();
+  assert.deepEqual(roles, ['stt', 'tts']); assert.equal(terminals.length, 2);
+  time += 10_000; f.at(time);
+  await assert.rejects(coordinator.receiveAudio(speech), { code: 'not-admitted' });
+  assert.deepEqual(roles, ['stt', 'tts'], 'no component reservation after the inherited deadline, even before timers run');
+  t.mock.timers.tick(HOUR); await coordinator.idle();
+  assert.equal(coordinator.signal.aborted, true); assertEnded(f, session.id);
 });

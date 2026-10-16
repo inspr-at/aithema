@@ -302,7 +302,9 @@ export class SQLiteBudgetLedger {
       } });
     });
   }
-  settle(claimId, terminal, rates = { inputMicro: 0, outputMicro: 0 }) {
+  // A deadline refusal retains an existing reservation even before dispatch.
+  // This explicit host option never changes the recorded dispatch state.
+  settle(claimId, terminal, rates = { inputMicro: 0, outputMicro: 0 }, { retainReservation = false } = {}) {
     if (!terminal || !['completed', 'cancelled', 'uncertain'].includes(terminal.outcome) ||
       !['inputMicro', 'outputMicro'].every(k => integer(rates[k])) ||
       terminal.chargedMicro !== undefined && !integer(terminal.chargedMicro)) throw new TypeError('Invalid terminal report');
@@ -321,13 +323,14 @@ export class SQLiteBudgetLedger {
       const dispatched = row.state === 'dispatched';
       if (row.provider_cost_json) this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.settledAt',?) WHERE attempt_id=?")
         .run(Date.now(), row.attempt_id);
-      const actual = !dispatched ? 0 : terminal.chargedMicro ?? (terminal.outcome === 'uncertain' ? row.max_micro
+      const retained = retainReservation && terminal.outcome === 'uncertain';
+      const actual = !dispatched && !retained ? 0 : terminal.chargedMicro ?? (terminal.outcome === 'uncertain' ? row.max_micro
         : terminal.usage.inputTokens * rates.inputMicro + terminal.usage.outputTokens * rates.outputMicro);
       // Unknown dispatched usage retains the maximum; known overruns remain visible as actual spend.
       const uncertain = !integer(actual);
-      const usage = dispatched ? terminal.usage : { inputTokens: 0, outputTokens: 0 };
+      const usage = dispatched || retained ? terminal.usage : { inputTokens: 0, outputTokens: 0 };
       this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=? WHERE claim_id=?")
-        .run(!dispatched ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome, usage ? JSON.stringify(usage) : null,
+        .run(!dispatched && !retained ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome, usage ? JSON.stringify(usage) : null,
           uncertain ? row.max_micro : actual, bytes, actual > row.max_micro ? 1 : 0, claimId);
       // Provider cost certainty does not tell us whether an analysis published.
       // The lane's finish({ failed: true }) releases failed understanding credits.
@@ -338,7 +341,7 @@ export class SQLiteBudgetLedger {
   releaseUnderstandingCredits(attemptId) {
     this.db.prepare("UPDATE budget_attempts SET visitor_credit_released=1 WHERE attempt_id=? AND lane='understanding' AND state='settled'").run(attemptId);
   }
-  settleVoice(claimId, terminal) {
+  settleVoice(claimId, terminal, { retainReservation = false } = {}) {
     const known = terminal?.closureConfirmed === true && ['completed', 'cancelled'].includes(terminal.outcome) &&
       ['providerSeconds', 'providerMinutes', 'pausedSeconds', 'visitorSeconds'].every(k => Number.isFinite(terminal.usage?.[k]) && terminal.usage[k] >= 0) &&
       ['upstreamMicro', 'visitorMicro'].every(k => integer(terminal.usage?.[k]));
@@ -353,13 +356,13 @@ export class SQLiteBudgetLedger {
         return this.get(row.attempt_id);
       }
       this.freezeVoiceEstimate(row.attempt_id);
-      const dispatched = row.state === 'dispatched', uncertain = dispatched && !known;
-      const actual = !dispatched ? 0 : uncertain ? Math.max(row.max_micro, row.voice_exposure_micro,
+      const exposed = row.state === 'dispatched' || retainReservation && terminal.outcome === 'uncertain', uncertain = exposed && !known;
+      const actual = !exposed ? 0 : uncertain ? Math.max(row.max_micro, row.voice_exposure_micro,
         integer(terminal.chargedMicro) ? terminal.chargedMicro : 0) : terminal.usage.upstreamMicro;
       this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=?,settled_visitor_micro=? WHERE claim_id=?")
-        .run(!dispatched ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome,
+        .run(!exposed ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome,
           terminal.usage ? JSON.stringify(terminal.usage) : null, actual, bytes, actual > row.max_micro ? 1 : 0,
-          !dispatched ? 0 : uncertain ? Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro) : terminal.usage.visitorMicro, claimId);
+          !exposed ? 0 : uncertain ? Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro) : terminal.usage.visitorMicro, claimId);
       return this.get(row.attempt_id);
     });
   }
