@@ -557,7 +557,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
       const lines = Object.fromEntries(['html', 'voice', 'analysis'].map(feature => {
         const selector = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
         const line = c.shadowRoot.querySelector(selector).textContent;
