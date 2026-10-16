@@ -1383,7 +1383,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
   });
 
 for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'], [390, 'en', 'dark']])
-  test(`AIT-219: ${width} ${locale} ${theme} retained-file retry, truthful exhaustion and toast above dock`,
+  test(`AIT-219: ${width} ${locale} ${theme} retained-file retry, refusal, discard and toast above question card`,
   { timeout: 120_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-upload-retry-'));
     const demo = await startDemo(directory); let browser;
@@ -1462,10 +1462,10 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       await settle();
       const rectangles = await inShadow(page, c => {
         const rect = selector => c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON();
-        return { toast: rect('.status__label'), dock: rect('.composer-dock'), composer: rect('.composer'), attach: rect('.attach'), send: rect('.send') };
+        return { toast: rect('.status__label'), dock: rect('.composer-dock'), card: c.shadowRoot.querySelector('.qcard').hidden ? null : rect('.qcard'), composer: rect('.composer'), attach: rect('.attach'), send: rect('.send') };
       });
-      assert.equal(rectangles.dock.top - rectangles.toast.bottom, 8, 'toast bottom = dock top − 8 px');
-      for (const key of ['composer', 'attach', 'send']) {
+      assert.equal((rectangles.card ?? rectangles.dock).top - rectangles.toast.bottom, 8, 'toast bottom = topmost docked element top − 8 px');
+      for (const key of ['composer', 'attach', 'send', ...(rectangles.card ? ['card'] : [])]) {
         const a = rectangles.toast, b = rectangles[key];
         assert.equal(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top, false, `toast does not intersect ${key}`);
       }
@@ -1480,7 +1480,17 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       notice: c.shadowRoot.querySelector('.composer-reason').textContent, uploads: c.session.uploads.map(({ state, reason }) => ({ state, reason })),
     }))));
     assert.notEqual(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), de.uploads.busy);
-    await sameControls(baseline, 'waiting for retry'); const toast = await toastGeometry(); await shot('retrying');
+    await sameControls(baseline, 'waiting for retry'); const toast = await toastGeometry();
+    await inShadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
+        id: 'ait219-question', role: 'assistant', content: c.session.locale === 'de' ? 'Wer nutzt die App?' : 'Who will use the app?',
+        question_short: c.session.locale === 'de' ? 'Wer nutzt die App?' : 'Who will use the app?',
+        options: [{ text: c.session.locale === 'de' ? 'Unsere Kundschaft' : 'Our customers' }], inputRevision: inputRevision(c.session),
+      } });
+    });
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), false);
+    const questionToast = await toastGeometry(); await shot('question-toast');
     await until(page, () => {
       const c = document.querySelector('aithema-session');
       return c.session.uploads.length === 4 && c.session.uploads.every(u => u.state === 'accepted')
@@ -1490,8 +1500,8 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     await sameControls(baseline, 'four files accepted'); if (width === 400) await shot('four-accepted');
     await page.evaluate(() => { window.failUploads = true; });
     const retryChooser = await uploadChooser(page); await retryChooser.accept(paths.slice(0, 2));
-    const exhausted = locale === 'de' ? '2 Dateien nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen'
-      : '2 files not uploaded: the server is busy right now · Try again';
+    const exhausted = locale === 'de' ? '2 Dateien nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen'
+      : '2 files not uploaded: the server is busy right now · Try again · Discard';
     await until(page, words => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === words, exhausted);
     assert.equal(await page.evaluate(() => window.exhaustedAttempts), 3);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.attach').getAttribute('aria-disabled')), 'false');
@@ -1506,6 +1516,19 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       return inner.top >= outer.top && inner.bottom <= outer.bottom;
     });
     assert.equal(actionVisible, true, 'Try again is visible inside the fixed reason slot');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-discard').textContent), locale === 'de' ? 'Verwerfen' : 'Discard');
+    // A paused retry must replace stale busy copy with the actual refusal; files stay withdrawable.
+    await inShadow(page, c => {
+      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+      c.shadowRoot.querySelector('.upload-retry').click();
+    });
+    const refusal = (locale === 'de' ? de : en).uploads.unavailable.replace('{reason}', (locale === 'de' ? de : en).reasons['session paused']);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason span').textContent), `${refusal} · `);
+    await shot('retry-refused');
+    await inShadow(page, c => {
+      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+      c.shadowRoot.querySelector('.upload-retry').focus({ preventScroll: true });
+    });
     await page.evaluate(() => { window.failUploads = false; });
     const retryStart = await page.evaluate(() => window.uploadAttempts.length);
     await page.keyboard.press('Enter');
@@ -1523,9 +1546,9 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
       rows: [...c.shadowRoot.querySelectorAll('ol > .turn:not(.partial)')].map(row => ({ id: row.dataset.id, content: row.querySelector('.turn-text').textContent })),
     }));
     for (const turn of transcript.turns) assert.equal(transcript.rows.filter(row => row.id === turn.id).length, 1, `one rendered row for turn ${turn.id}`);
-    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, baseline, toast, resent, transcript }, null, 2));
+    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, refusal, baseline, toast, questionToast, resent, transcript }, null, 2));
     assert.deepEqual(problems, []);
-    t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; toast gap 8 px, no composer/button intersection; one DOM row per turn.`);
+    t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; paused Try again shows its refusal with Discard; toast gap 8 px above dock and question card, no card/composer/button intersection; one DOM row per turn.`);
   });
 
 test('document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)',

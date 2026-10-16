@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import { Session } from 'node:inspector';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -291,7 +292,7 @@ test('the truthful retry line appears only after three failed attempts, honoring
   t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 2);
   t.mock.timers.tick(9999); await tick(); assert.equal(attempts, 2);
   t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 3);
-  assert.equal(root.querySelector('.composer-reason').textContent, '1 file not uploaded: the server is busy right now · Try again');
+  assert.equal(root.querySelector('.composer-reason').textContent, '1 file not uploaded: the server is busy right now · Try again · Discard');
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
   t.mock.timers.tick(60_000); await tick(); assert.equal(attempts, 3, 'no fourth attempt');
 });
@@ -309,8 +310,8 @@ for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219: ${copy.d
   assert.equal(root.querySelector('.upload-retry'), null, 'no exhausted action during the second attempt');
   t.mock.timers.tick(10000); await tick(); await tick();
   const expected = copy === de
-    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen`
-    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again`;
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again · Discard`;
   assert.equal(root.querySelector('.composer-reason').textContent, expected);
   assert.equal(posts().length, 3); assert.equal(c.session.uploads.length, 0);
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
@@ -334,11 +335,87 @@ test('AIT-219: retry retains only unsent batches after an earlier batch succeeds
   t.mock.timers.tick(5000); await tick(); await tick();
   t.mock.timers.tick(10000); await tick(); await tick();
   assert.equal(c.session.uploads.length, 1);
-  assert.equal(root.querySelector('.composer-reason').textContent, '2 files not uploaded: the server is busy right now · Try again');
+  assert.equal(root.querySelector('.composer-reason').textContent, '2 files not uploaded: the server is busy right now · Try again · Discard');
   failing = false;
   root.querySelector('.upload-retry').click(); await tick(); await tick();
   assert.deepEqual(calls.filter(call => call.options.method === 'POST').slice(4).map(call => call.options.body.getAll('files').map(f => f.name)), [['refused.txt'], ['unsent.txt']]);
   assert.equal(c.session.uploads.length, 3);
+});
+
+// Inspect private storage without exposing a production getter or keeping extra File references.
+async function retainedFiles(c) {
+  const inspector = new Session(); inspector.connect();
+  const post = (method, params) => new Promise((resolve, reject) => inspector.post(method, params, (error, result) => error ? reject(error) : resolve(result)));
+  globalThis.ait219Probe = c;
+  try {
+    const { result } = await post('Runtime.evaluate', { expression: 'globalThis.ait219Probe' });
+    const { privateProperties } = await post('Runtime.getProperties', { objectId: result.objectId });
+    const files = privateProperties.find(property => property.name === '#retryFiles');
+    assert.ok(files, 'inspect the actual retained File list');
+    const value = await post('Runtime.callFunctionOn', { objectId: files.value.objectId,
+      functionDeclaration: 'function() { return this.map(file => file.name); }', returnByValue: true });
+    return value.result.value;
+  } finally { delete globalThis.ait219Probe; inspector.disconnect(); }
+}
+async function exhaust(t, root, files = [file('retained.txt')]) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, files);
+  t.mock.timers.tick(5000); await tick(); await tick();
+  t.mock.timers.tick(10000); await tick(); await tick();
+}
+for (const copy of [de, en]) {
+  test(`AIT-219 round 6: ${copy.display.locale} Try again while paused shows the refusal and still permits discard`, async t => {
+    const { c, root, calls } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await exhaust(t, root);
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+    root.querySelector('.upload-retry').click(); await tick();
+    const refusal = copy.uploads.unavailable.replace('{reason}', copy.reasons['session paused']);
+    assert.equal(root.querySelector('.composer-reason span').textContent, `${refusal} · `);
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3);
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+    root.querySelector('.upload-discard').click();
+    assert.deepEqual(await retainedFiles(c), []);
+    assert.equal(root.querySelector('.upload-retry'), null);
+  });
+  test(`AIT-219 round 6: ${copy.display.locale} Try again over session limits shows the refusal`, async t => {
+    const limits = { ...UPLOAD_LIMITS, maxDocumentsPerSession: 1 };
+    const { c, root, calls } = setup(t, { copy, limits, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await exhaust(t, root);
+    state(c, pending('takes-last-slot'));
+    root.querySelector('.upload-retry').click(); await tick(); await tick();
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.uploads.tooMany.replace('{files}', '1'));
+    assert.equal(calls.filter(call => call.options.method === 'POST').length, 3);
+    assert.deepEqual(await retainedFiles(c), []);
+  });
+  test(`AIT-219 round 6: ${copy.display.locale} mixed batch keeps refusal and exhaustion facts together`, async t => {
+    const { c, root } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    await exhaust(t, root, [file('retained.txt'), file('tool.exe')]);
+    const refused = copy.uploads.refused.replace('{list}', copy.uploads.type.replace('{name}', 'tool.exe'));
+    assert.equal(root.querySelector('.composer-reason').textContent,
+      `${refused} · ${copy.uploads.notUploaded.one} · ${copy.uploads.tryAgain} · ${copy === de ? 'Verwerfen' : 'Discard'}`);
+    root.querySelector('textarea').dispatchEvent(new window.Event('input'));
+    assert.ok(root.querySelector('.composer-reason').textContent.startsWith(refused), 'typing cannot swallow a refusal while files are retained');
+    assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+  });
+}
+for (const action of ['discard', 'configure', 'disconnect', 'new pick']) test(`AIT-219 round 6: ${action} releases exhausted files from internal storage`, async t => {
+  let failing = true;
+  const { c, root, calls } = setup(t, { post: () => failing ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : undefined });
+  await exhaust(t, root);
+  assert.deepEqual(await retainedFiles(c), ['retained.txt']);
+  if (action === 'discard') {
+    root.querySelector('.upload-discard').click();
+    assert.equal(root.querySelector('.composer-reason').textContent.includes(en.uploads.notUploaded.one), false);
+    assert.equal(root.querySelector('.upload-discard'), null);
+  } else if (action === 'configure') c.configure({ copy: en, session: c.session });
+  else if (action === 'disconnect') c.remove();
+  else {
+    failing = false;
+    await choose(root, [file('replacement.txt')]);
+    assert.equal(root.querySelector('.composer-reason').textContent, 'The previously unuploaded files were replaced by the new selection.');
+    assert.deepEqual(calls.filter(call => call.options.method === 'POST').at(-1).options.body.getAll('files').map(f => f.name), ['replacement.txt']);
+  }
+  assert.deepEqual(await retainedFiles(c), [], 'no exhausted File references remain');
 });
 
 test('busy retry delays handle Retry-After seconds and HTTP dates, with backoff for missing or invalid headers', () => {
