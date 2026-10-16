@@ -256,7 +256,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
         assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
         // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
-        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 2 });
+        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 2, confirm: true });
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
         const effort = await page.$('aithema-session >>> #settings-effort');
         await effort.focus();

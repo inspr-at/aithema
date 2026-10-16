@@ -18,6 +18,8 @@ export const de = {
     international: 'international', eu: 'in der EU', device: 'auf Ihrem Gerät', localModel: 'Lokales Modell',
     deviceProvider: 'Ihr Gerät', hostProvider: 'diesen Host', testProvider: 'lokalen Test', testVoice: 'Test-Stimme',
     draftsOff: 'Visuelle Entwürfe sind auf diesem Host nicht eingerichtet.',
+    draftsDisabled: 'Visuelle Entwürfe sind ausgeschaltet', draftsEnable: 'In den Einstellungen einschalten',
+    draftsUnavailable: 'Visuelle Entwürfe sind gerade nicht verfügbar.',
     draftsOn: 'Entwurf anfordern · ~{credits} Credits', draftsCost: '~{credits} Credits',
     draftsLow: 'Für einen weiteren Entwurf sind gerade nicht genug Credits verfügbar.',
     newConversation: 'Neues Gespräch', manageConversations: 'Alle Gespräche verwalten', currentConversation: 'jetzt',

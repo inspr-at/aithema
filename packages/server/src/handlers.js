@@ -320,6 +320,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // New conversations pin concrete settings: an explicit visitor choice, else the owner's
   // last confirmed choice while the host still offers it, else the host defaults.
   async function initialSettings(ownerToken, options) {
+    if (options.confirm !== undefined && typeof options.confirm !== 'boolean') return { status: 400, error: 'invalid-session' };
+    const provenance = origin => options.confirm === true ? { origin: 'chosen', at: new Date().toISOString() } : { origin };
     const requested = options.processingPreset ?? sessionOptions.processingPreset;
     const probe = createSession({ ...sessionOptions, processingPreset: requested ?? 'best' });
     if (pluginRuntime.offered?.(probe.processingPreset) === false && probe.processingPreset === 'device') {
@@ -329,20 +331,20 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (!options.settings || typeof options.settings !== 'object' || Array.isArray(options.settings)) return { status: 400, error: 'invalid-session' };
       const chosen = await pluginRuntime.validate(probe, { ...options.settings, processingPreset: probe.processingPreset });
       if (chosen.error) return chosen;
-      return { processingPreset: chosen.processingPreset, settings: { ...chosen.settings, origin: 'chosen', at: new Date().toISOString() } };
+      return { processingPreset: chosen.processingPreset, settings: { ...chosen.settings, ...provenance('default') } };
     }
     const last = storage.lastSettings?.(ownerToken);
     if (last && pluginRuntime.validate && (requested === undefined || last.processingPreset === requested)) {
       const { model, effort, voice, visuals } = last.settings;
       const offered = await pluginRuntime.validate({ ...probe, processingPreset: last.processingPreset },
         { processingPreset: last.processingPreset, model, effort, voice, visuals });
-      if (!offered.error) return { processingPreset: offered.processingPreset, settings: { ...offered.settings, origin: 'last' } };
+      if (!offered.error) return { processingPreset: offered.processingPreset, settings: { ...offered.settings, ...provenance('last') } };
     }
-    if (!pluginRuntime.validate) return { processingPreset: probe.processingPreset, settings: { ...pluginRuntime.defaults?.(probe.processingPreset), origin: 'default' } };
+    if (!pluginRuntime.validate) return { processingPreset: probe.processingPreset, settings: { ...pluginRuntime.defaults?.(probe.processingPreset), ...provenance('default') } };
     // The host defaults pass the same static validation as a save; an unoffered preset is refused.
     const defaults = await pluginRuntime.validate(probe, { processingPreset: probe.processingPreset });
     if (defaults.error) return defaults;
-    return { processingPreset: defaults.processingPreset, settings: { ...defaults.settings, origin: 'default' } };
+    return { processingPreset: defaults.processingPreset, settings: { ...defaults.settings, ...provenance('default') } };
   }
   function unfinished(session) {
     const revision = inputRevision(session);
@@ -520,7 +522,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (next.error) return json({ error: next.error, field: next.field, reason: next.reason }, next.status);
         if (voiceHandlers?.active(id)) return json({ error: 'voice-call-active' }, 409);
         let change; const before = storage.get(id);
-        try { change = storage.changeSettings(id, next, { ownerToken, baseRevision: body.baseRevision }); }
+        try { change = storage.changeSettings(id, next, { ownerToken, baseRevision: body.baseRevision, confirm: body.confirm === true }); }
         catch (error) {
           if (!(error instanceof SettingsConflictError)) throw error;
           return json({ error: error.code, processingPreset: error.session.processingPreset, settings: error.session.settings }, 409);
