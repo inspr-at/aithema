@@ -12,7 +12,7 @@ import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
-import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { mockIdentityReads, shadow, until, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 
 // Observe completed rendering instead of paying a fixed 120ms after every
 // state. Timed reveal checks still own their explicit animation clocks.
@@ -33,7 +33,7 @@ test('AIT-265: curated host model labels in settings, readiness and footer hover
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await browserForFile(), page = await browser.newPage();
+  const browser = await browserForFile(evidenceDirectory ? { args: evidenceBrowserArgs } : {}), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   await page.setViewport({ width: 1440, height: 1000 });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -58,7 +58,29 @@ test('AIT-265: curated host model labels in settings, readiness and footer hover
     await page.mouse.move(-1, -1);
     if (hover) await page.hover('aithema-session >>> .engine-info');
     await settle(page);
-    await page.screenshot({ path: join(evidenceDirectory, `ait265-${locale}-${state}.png`), fullPage: false, captureBeyondViewport: false });
+    const selector = state === 'ready' ? '[data-ready="model"] dd > span:last-child'
+      : hover ? '.engine__detail' : '[data-select="model"] .select__value';
+    const target = await shadow(page, (c, selector) => {
+      const text = c.shadowRoot.querySelector(selector), range = document.createRange(); range.selectNodeContents(text);
+      const r = range.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+        ink: getComputedStyle(text).color.match(/\d+/gu).slice(0, 3).map(Number) };
+    }, selector);
+    // Reconfigured shadow trees can leave a stale compositor tile for one capture.
+    let png, inkPixels = 0;
+    for (let attempt = 0; attempt < 3 && inkPixels < 20; attempt++) {
+      await settle(page);
+      png = Buffer.from(await page.screenshot({ fullPage: false, captureBeyondViewport: false }));
+      const paint = pixels(png); inkPixels = 0;
+      for (let y = Math.max(0, Math.ceil(target.top)); y < Math.min(paint.height, target.bottom); y++) {
+        for (let x = Math.max(0, Math.ceil(target.left)); x < Math.min(paint.width, target.right); x++) {
+          const offset = (y * paint.width + x) * paint.channels;
+          if (target.ink.every((value, channel) => Math.abs(paint.result[offset + channel] - value) <= 24)) inkPixels++;
+        }
+      }
+    }
+    assert.ok(inkPixels >= 20, `${locale}/${state}: captured model label glyphs (${inkPixels} ink pixels)`);
+    await writeFile(join(evidenceDirectory, `ait265-${locale}-${state}.png`), png);
   };
   for (const [locale, copy] of [['de', de], ['en', en]]) {
     const expected = copy.catalogLabels['Anthropic via OpenRouter'];
