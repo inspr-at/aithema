@@ -27,8 +27,13 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-On the light path, `test` and each `browser (1/6)` through `browser (6/6)`
-job run an explicit success step. They skip dependency installation, packaging,
+Six worker shards report `browser (1/6)` through `browser (6/6)`. The ruleset
+keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
+is a summary that passes only when every worker shard succeeds. A failed or
+skipped shard fails the summaries. PR and merge-group events use the same jobs.
+
+On the light path, `test` and every worker shard run an explicit success step.
+They skip dependency installation, packaging,
 unit tests and browsers. Their check names stay unchanged; no workflow-level
 path filter leaves required checks pending. The separate `dco` and `dco-tests`
 jobs still run normally, so docs contributions also need commit signoffs.

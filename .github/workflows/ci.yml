@@ -129,3 +129,18 @@ jobs:
           # Evidence is predominantly PNG; avoid recompressing it in the job budget.
           compression-level: 0
           retention-days: 14
+
+  # Keep the ruleset's four required names; each requires all six shards to pass.
+  browser-required:
+    needs: browser
+    if: ${{ !cancelled() }}
+    name: browser (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Require every browser shard
+        run: test '${{ needs.browser.result }}' = 'success'

@@ -53,10 +53,24 @@ test('both required workflows request merge-group checks', () => {
   }
 });
 
-test('PR and merge-group events run the same nine required check names', () => {
-  const expected = ['test', 'browser (1/6)', 'browser (2/6)', 'browser (3/6)', 'browser (4/6)', 'browser (5/6)', 'browser (6/6)', 'dco', 'dco-tests'];
+test('PR and merge-group events run the same shard and required check names', () => {
+  const expected = ['test', 'browser (1/6)', 'browser (2/6)', 'browser (3/6)', 'browser (4/6)', 'browser (5/6)', 'browser (6/6)', 'browser (1/4)', 'browser (2/4)', 'browser (3/4)', 'browser (4/4)', 'dco', 'dco-tests'];
   for (const event of ['pull_request', 'merge_group']) {
     assert.deepEqual(workflows.flatMap(workflow => checkNames(workflow, event)).filter(name => name !== 'changes'), expected);
+  }
+});
+
+test('ruleset browser summaries fail closed unless every worker shard passed', () => {
+  const job = block(block(workflows[0], 'jobs'), 'browser-required', 2);
+  assert.match(job, /^    needs: browser$/mu);
+  assert.match(job, /^    if: \$\{\{ !cancelled\(\) \}\}$/mu);
+  assert.match(job, /^        shard: \[1, 2, 3, 4\]$/mu);
+  assert.doesNotMatch(job, /continue-on-error/u);
+  const command = /^        run: (.+)$/mu.exec(job)[1];
+  for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+    const run = () => execFileSync('bash', ['-c', command.replace('${{ needs.browser.result }}', result)], { stdio: 'pipe' });
+    if (result === 'success') assert.doesNotThrow(run);
+    else assert.throws(run, { status: 1 }, result);
   }
 });
 
