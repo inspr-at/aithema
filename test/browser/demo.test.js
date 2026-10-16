@@ -1395,7 +1395,7 @@ async function uploadActionPaint(page, state) {
   await page.mouse.move(-1, -1);
   try {
     const clips = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-reason button')].map(button => {
-      const rect = button.getBoundingClientRect(), reason = button.parentNode.getBoundingClientRect();
+      const rect = button.getBoundingClientRect(), reason = button.closest('.composer-reason').getBoundingClientRect();
       return { x: Math.floor(rect.left), y: Math.floor(rect.top), width: Math.ceil(rect.right) - Math.floor(rect.left),
         height: Math.ceil(Math.min(reason.bottom, rect.bottom + 4)) - Math.floor(rect.top), name: button.textContent };
     }));
@@ -1438,7 +1438,7 @@ async function uploadReasonLineStarts(page, state) {
     return lines;
   });
   assert.ok(lines.length > 0, `${state}: reason has rendered line boxes`);
-  for (const line of lines) assert.notEqual(line.glyph, '·', `${state}: no line box starts with a separator`);
+  for (const line of lines) assert.notEqual(line.glyph, '·', `${state}: no line box starts with a separator: ${JSON.stringify(lines)}`);
   return lines;
 }
 

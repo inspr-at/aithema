@@ -892,11 +892,13 @@ export class AithemaSession extends HTMLElement {
         }
         let action = reason.querySelector('.upload-retry');
         const discard = reason.querySelector('.upload-discard');
-        if (refusal && action) { action.nextSibling.remove(); action.remove(); }
+        if (refusal && action) action.parentNode.remove();
         else if (!refusal && !action) {
           action = reasonAction('', () => { void this.#attach(this.#retryFiles, true); });
           action.classList.add('upload-retry'); action.setAttribute('aria-describedby', 'upload-retry-reason');
-          reason.insertBefore(action, discard); reason.insertBefore(document.createTextNode(reasonSeparator), discard);
+          // Buttons form atomic inline boxes; keep the following separator in the same no-wrap span.
+          const joined = node('span'); joined.style.whiteSpace = 'nowrap';
+          joined.append(action, document.createTextNode(reasonSeparator)); reason.insertBefore(joined, discard);
         }
         const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
         setText(reason.querySelector('span'), `${facts}${reasonSeparator}`);
