@@ -852,3 +852,50 @@ for (const behavior of ['release retained room', 'follow notice changes']) {
     }
   });
 }
+
+for (const change of ['shrink', 'remove']) for (const release of ['leave row', 'scroll']) {
+  test(`AIT-244: notice ${change} holds a hovered upload until ${release}`, { timeout: 120_000 }, async t => {
+    const page = await fixture(t, false);
+    for (const width of [390, 393]) {
+      await page.mouse.move(-1, -1);
+      await voiceScene(page, 'en', 'light', width);
+      await shadow(page, c => {
+        const session = structuredClone(c.session);
+        session.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `shrink-${i}`, role: 'user', content: 'Earlier conversation message. '.repeat(8) }));
+        session.uploads = [{ id: 'shrink-upload', filename: 'brief.txt', bytes: 128, state: 'accepted' }];
+        c.configure({ copy: globalThis.pauseCopy, session });
+      }); await frame(page);
+      await page.evaluate(() => globalThis.tickRail.notices.recovered({ userUnconfirmed: true })); await frame(page);
+      await shadow(page, c => {
+        const shell = c.shadowRoot.querySelector('.transcript-shell');
+        shell.scrollTop = shell.scrollHeight; shell.dispatchEvent(new Event('scroll'));
+      }); await frame(page);
+      const point = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.upload').getBoundingClientRect();
+        return [row.left + 20, row.top + 20];
+      });
+      await page.mouse.move(...point); await frame(page);
+      assert.equal(await shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(...point)?.closest('.upload')), point), true);
+      const before = await boxes(page, ['.upload']);
+      const oldHeight = await shadow(page, c => c.shadowRoot.querySelector('.voice-notices').getBoundingClientRect().height);
+      await page.evaluate(change => {
+        if (change === 'remove') globalThis.tickRail.notices.clear();
+        else globalThis.tickRail.notices.recovered();
+      }, change); await frame(page);
+      assert.deepEqual(await boxes(page, ['.upload']), before, `${width}px notice ${change}: resting upload shifts exactly 0px`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notices').getBoundingClientRect().height), oldHeight, 'removed notice room remains while hovered');
+      if (release === 'leave row') {
+        // Stay inside the transcript: leaving only the upload is sufficient.
+        const [[x, y]] = await boxes(page, ['.transcript-shell']);
+        await page.mouse.move(x + 5, y + 5);
+      } else await page.mouse.wheel({ deltaY: 10_000 });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-notices').style.minHeight === '');
+      await frame(page);
+      assert.ok(await shadow(page, c => c.shadowRoot.querySelector('.voice-notices').getBoundingClientRect().height) < oldHeight, 'leaving or scrolling releases the retained room');
+      t.diagnostic(`${width}px ${change}, ${release}: upload shift 0px, reservation released`);
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await frame(page);
+      await record(t, 'ait-244-shrink', page, `${width}-${change}-${release.replaceAll(' ', '-')}`, await noticeMetrics(page));
+    }
+  });
+}
