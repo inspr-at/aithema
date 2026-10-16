@@ -98,9 +98,9 @@ function normalPDF(size, imageHeavy) {
         objects.push(stream(Buffer.concat([bytes(caption), Buffer.alloc(length - imageLength, 32)])),
           stream(Buffer.alloc(imageLength, 127), `/Type /XObject /Subtype /Image /Width 512 /Height ${imageLength / 512} /ColorSpace /DeviceGray /BitsPerComponent 8 `));
       } else {
-        const command = `(${sentence}) Tj\n`;
+        const command = `(${sentence}) Tj T*\n`;
         const content = command.repeat(Math.floor(length / command.length));
-        objects.push(stream(bytes('BT /F1 12 Tf 20 750 Td\n' + content + ' '.repeat(length - content.length) + '\nET')));
+        objects.push(stream(bytes('BT /F1 8 Tf 0.2 TL 20 750 Td\n' + content + ' '.repeat(length - content.length) + '\nET')));
       }
     }
     objects[1] = `<< /Type /Pages /Kids [${refs.join(' ')}] /Count ${pages} >>`;

@@ -17,20 +17,22 @@ test('AIT-219: measure generated inputs through the real sandboxed workers, thre
   const original = childProcess.fork;
   let observation;
   t.mock.method(childProcess, 'fork', (path, args, options) => {
-    const record = { heapBytes: 0, rssBytes: 0, gc: '' };
-    const child = original(path, args, { ...options, stdio: ['ignore', 'pipe', 'ignore', 'ipc'],
+    const record = { heapBytes: 0, rssBytes: 0, gc: '', trace: '' };
+    const child = original(path, args, { ...options, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       execArgv: [...options.execArgv, '--trace-gc-nvp',
         `--allow-fs-read=${fileURLToPath(new URL('.', import.meta.url))}`,
         '--import', new URL('./extractor-memory-probe.js', import.meta.url).href] });
     record.child = child; observation = record;
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', chunk => {
-      record.gc += chunk;
+    const collect = chunk => {
+      record.gc += chunk; record.trace += chunk;
       const lines = record.gc.split('\n'); record.gc = lines.pop();
       for (const line of lines) for (const match of line.matchAll(/total_size_(?:before|after)=(\d+)/gu)) {
         record.heapBytes = Math.max(record.heapBytes, Number(match[1]));
       }
-    });
+    };
+    for (const output of [child.stdout, child.stderr]) {
+      output.setEncoding('utf8'); output.on('data', collect);
+    }
     child.on('message', message => {
       if (message?.measurement) {
         record.heapBytes = Math.max(record.heapBytes, message.measurement.heapBytes);
@@ -70,6 +72,9 @@ test('AIT-219: measure generated inputs through the real sandboxed workers, thre
         pagesKept: result?.segments.filter(segment => segment.page !== undefined).length ?? 0,
         segmentsKept: result?.segments.length ?? 0, charsKept: result?.text.length ?? 0, truncated: result?.truncated ?? false };
       rows.push(row); t.diagnostic(JSON.stringify(row));
+      if (run === 1 && process.env.AITHEMA_EVIDENCE_DIR) {
+        await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${format}-${sizeMiB}-trace.txt`), record.trace);
+      }
       assert.equal(activeExtractorProcessCount(), 0);
     }
   }
