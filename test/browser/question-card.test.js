@@ -488,11 +488,14 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               if (height === 320) {
                 const fallback = await shadow(page, c => {
                   const r = c.shadowRoot, button = r.querySelector('.voice-read-full-mini'), b = button?.getBoundingClientRect(), band = r.querySelector('.band').getBoundingClientRect();
+                  const range = document.createRange(); range.selectNodeContents(button);
                   return { visible: Boolean(button && !button.hidden), text: button?.textContent, height: b?.height,
+                    textHeight: range.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(button).lineHeight),
                     inside: Boolean(b && b.top >= band.top && b.bottom <= band.bottom) };
                 });
                 assert.equal(fallback.visible && fallback.inside && fallback.height >= 44, true, `320px keeps a full read action in the band: ${JSON.stringify(fallback)}`);
                 assert.equal(fallback.text, locale === 'de' ? 'Ganze Antwort lesen' : 'Read full reply');
+                assert.ok(fallback.textHeight <= fallback.lineHeight + 1, 'the read-full label fits on one line in the existing status slot');
                 const fallbackBoxes = await boxes(page, ['.band', '.qcard', '.composer']);
                 await shadow(page, c => c.shadowRoot.querySelector('.voice-read-full-mini').click());
                 assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open && c.shadowRoot.querySelector('.voice-reply-text').textContent === c.session.transcript.at(-1).content), true, 'the smallest viewport opens the complete current reply');

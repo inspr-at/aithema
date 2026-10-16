@@ -50,7 +50,8 @@ export const questionCardStyles = `
 .turn[data-start-only] { padding-block:0; }
 .turn[data-start-only] > strong { display:none; }
 .voice-signal[data-read-full] :is(.voice-state,.voice-caption,.voice-wave) { visibility:hidden; }
-.voice-read-full-mini { position:absolute; inset:0; z-index:1; min-height:44px; padding:0; font-size:12px;
+.band .audio-rail .voice-read-full-mini { position:absolute; inset:0; z-index:1; width:100%; height:44px; min-height:44px;
+  padding:0; border:0; border-radius:0; background:none; font-size:12px; line-height:1.2;
   color:var(--aithema-accent); text-decoration:underline; }
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
