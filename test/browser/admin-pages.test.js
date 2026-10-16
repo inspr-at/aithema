@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { reasonSeparator } from '../../packages/ui/src/display.js';
 import { once } from 'node:events';
 import { test } from 'node:test';
 import { readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -156,7 +157,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
           assert.ok(await run('page.$eval', () => page.$eval('.ad-btn', n => n.getBoundingClientRect().height >= 44)));
         }
         if (state === 'no-delivery') assert.equal(await run('page.$eval', () => page.$eval('#f-confirm', n => n.disabled)), true);
-        if (state === 'latched') { const text = await run('page.$eval', () => page.$eval('[data-sec=prov]', n => n.textContent)); assert.ok(text.includes(locale === 'de' ? 'Gesperrt · Grund:' : 'Locked · Reason:')); assert.ok(text.includes(locale === 'de' ? 'keine neuen Anfragen' : 'no new requests')); }
+        if (state === 'latched') { const text = await run('page.$eval', () => page.$eval('[data-sec=prov]', n => n.textContent)); assert.ok(text.includes(locale === 'de' ? `Gesperrt${reasonSeparator}Grund:` : `Locked${reasonSeparator}Reason:`)); assert.ok(text.includes(locale === 'de' ? 'keine neuen Anfragen' : 'no new requests')); }
         if (state === 'signed-out' || state === 'expired') { assert.equal(await run('page.$$eval', () => page.$$eval('.ad-sec', ns => ns.length)), 0); assert.equal(await run('page.$eval', () => page.$eval('.ad-login', n => n.getAttribute('href'))), '/api/operator/login/?return=admin'); }
         await shot(state, width, theme);
         if (evidence && !['signed-out', 'expired'].includes(state)) {
