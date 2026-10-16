@@ -52,6 +52,7 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
       await configure(enabled); await settle(page);
       assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.create-project'))), enabled, 'unconfigured hosts have no project action');
       const normal = await boxes(page, targets);
+      const projectSlot = enabled ? await boxes(page, ['.create-project']) : null;
       if (!enabled) baseline = normal;
       else assert.deepEqual(normal, baseline, 'enabling the project action adds 0 px to the existing footer row');
       for (const state of ['failure', 'pending', 'normal']) {
@@ -62,6 +63,7 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
         } }), state);
         await settle(page);
         assert.deepEqual(await boxes(page, targets), baseline, `${locale}/${width}/${enabled}/${state}: 0 px surrounding and footer displacement`);
+        if (enabled) assert.deepEqual(await boxes(page, ['.create-project']), projectSlot, `${locale}/${width}/${state}: project action returns to its reserved slot at exactly 0 px`);
         const action = await shadow(page, c => {
           const create = c.shadowRoot.querySelector('.create-project'), retry = c.shadowRoot.querySelector('.retry');
           const foot = retry.parentElement.getBoundingClientRect(), link = c.shadowRoot.querySelector('.export').getBoundingClientRect();
