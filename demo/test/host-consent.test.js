@@ -239,7 +239,11 @@ test('blocked localStorage property reads preserve defaults, prepaint, theme con
   const window = new Window({ url: 'http://localhost/consent/' }); t.after(() => window.happyDOM.close());
   window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
   const init = await readFile(new URL('../theme-init.js', import.meta.url), 'utf8');
-  assert.doesNotThrow(() => runInNewContext(init, { document: window.document, get localStorage() { throw new DOMException('Sandboxed document', 'SecurityError'); } }));
+  assert.doesNotThrow(() => runInNewContext(init, {
+    document: window.document, customElements: window.customElements,
+    setTimeout: window.setTimeout.bind(window), clearTimeout: window.clearTimeout.bind(window),
+    get localStorage() { throw new DOMException('Sandboxed document', 'SecurityError'); },
+  }));
   const failedHost = window.document.createElement('script');
   failedHost.setAttribute('src', '/demo/host.js'); window.document.body.append(failedHost);
   failedHost.dispatchEvent(new window.Event('error'));
