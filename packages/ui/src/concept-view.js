@@ -276,6 +276,14 @@ export class ConceptView {
       if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } });
   }
+  // Existing drafts remain readable when generation is temporarily blocked (e.g. no quote).
+  // A host/preset without drafts never lends the transcript's space to this surface.
+  canShowCanvas() {
+    if (!this.#session || this.#session.consentWithdrawn || this.#session.tombstone) return false;
+    const feature = this.feature({ ignorePause: true });
+    if (['not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device'].includes(feature.rawReason ?? feature.reason)) return false;
+    return feature.available || this.items.length > 0;
+  }
   // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
   suspendCanvas() {
     this.#canvasEpoch++;
@@ -287,6 +295,7 @@ export class ConceptView {
   async paintCanvas() {
     const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
     if (!draft || !this.root.querySelector('.workspace')?.hasAttribute('data-folded')) return;
+    if (!this.canShowCanvas()) { this.suspendCanvas(); return; }
     const epoch = this.#canvasEpoch, sessionId = this.#session.id;
     const empty = this.root.querySelector('.canvas-empty'), status = this.root.querySelector('.canvas-status');
     const item = this.#session?.consentWithdrawn || this.#session?.tombstone ? null : this.items.at(-1);
@@ -297,7 +306,7 @@ export class ConceptView {
     status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
     const bytes = await this.load(item.id);
     if (epoch !== this.#canvasEpoch || sessionId !== this.#session.id || !this.root.querySelector('.workspace')?.hasAttribute('data-folded') ||
-      this.#session?.consentWithdrawn || this.#session?.tombstone || this.items.at(-1)?.id !== item.id) return;
+      !this.canShowCanvas() || this.items.at(-1)?.id !== item.id) return;
     if (conceptKind(item) === 'html') {
       if (bytes && draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE };
       status.textContent = bytes ? '' : this.copy.conceptDraftFailed;

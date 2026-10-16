@@ -71,6 +71,7 @@ export const bandStyles = `
 .edge-column button:hover svg, .edge-column button:focus-visible svg { opacity:1; }
 .fold { top:calc(var(--band-height,90px) * .5 + 31px); color:var(--aithema-ink); }
 .fold svg { opacity:.32; }
+.fold[aria-disabled="true"] svg { opacity:.16; }
 .fold[aria-expanded="false"] svg { transform:scaleY(-1); }
 .edge-column button:focus-visible { outline:2px solid var(--aithema-accent); outline-offset:0; }
 .fold-view { grid-column:1/-1; min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; }

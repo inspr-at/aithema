@@ -22,7 +22,7 @@ function fixture(t, { copy = en, model = 'mock', label, offered = false, concept
   if (label !== undefined) session.engine = { preset: 'best', model: { id: model, label, offered } };
   session.transcript = concepts.length ? [{ id: 'source', role: 'user', content: 'A populated interactive draft' }] : [];
   session.inputRevision = session.transcript.length; session.concepts = concepts; session.conceptVisualKind = kind;
-  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: visuals, images: visuals } };
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: kind === 'html' ? visuals : { available: true }, images: kind === 'image' ? visuals : { available: true } } };
   const calls = [];
   t.mock.method(URL, 'createObjectURL', () => 'blob:canvas-regression');
   t.mock.method(URL, 'revokeObjectURL', () => {});
@@ -232,3 +232,17 @@ for (const copy of [de, en]) for (const kind of ['html', 'image']) {
     assert.equal(root.querySelector('.conversation').hidden, false);
   });
 }
+
+test('AIT-229: removing the selected capability while HTML loads restores transcript and rejects late bytes', async t => {
+  let finish; const pending = new Promise(resolve => { finish = resolve; });
+  const { c, root } = fixture(t, { htmlResponse: () => pending });
+  root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.fold-view').hidden, false);
+  receive(c, 'settings.changed', { processingPreset: 'device', settings: c.session.settings });
+  assert.equal(root.querySelector('.conversation').hidden, false);
+  assert.equal(root.querySelector('.fold-view').hidden, true);
+  finish(new Response(bytes, { headers: { 'content-type': 'application/octet-stream' } }));
+  await tick(); await tick();
+  assert.equal(root.querySelector('.canvas-html').artifact, null);
+  assert.equal(root.querySelector('.canvas-html').shadowRoot.querySelector('iframe'), null);
+});

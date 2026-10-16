@@ -39,8 +39,8 @@ export function footerMode(width) {
 
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
 export class ConversationFold {
-  constructor({ root, copy, onChange }) {
-    this.root = root; this.onChange = onChange; this.folded = false;
+  constructor({ root, copy, onChange, canFold = () => true }) {
+    this.root = root; this.onChange = onChange; this.canFold = canFold; this.folded = false;
     this.button = root.querySelector('.fold'); this.strip = root.querySelector('.fold-strip');
     this.button.addEventListener('click', () => this.set(!this.folded));
     this.strip.addEventListener('click', () => this.set(false));
@@ -49,6 +49,9 @@ export class ConversationFold {
   setCopy(copy) { this.copy = copy; this.paint(); }
   paint() {
     const c = this.copy.layout;
+    // Keep this edge control focusable: leaving the phone composer must still
+    // dismiss its keyboard layout even when folding is unavailable.
+    this.button.setAttribute('aria-disabled', String(!this.canFold()));
     this.button.setAttribute('aria-expanded', String(!this.folded));
     this.button.setAttribute('aria-label', this.folded ? c.unfold : c.fold);
     this.button.title = this.folded ? c.unfold : c.fold;
@@ -57,6 +60,9 @@ export class ConversationFold {
     setText(this.root.querySelector('.canvas-empty span'), c.canvasEmpty);
   }
   update(session, openQuestion = session.openQuestion) {
+    // Capability refreshes can remove drafts while the conversation is folded.
+    if (this.folded && !this.canFold()) this.set(false);
+    this.paint();
     const last = session.transcript.filter(t => !t.erased).at(-1);
     setText(this.root.querySelector('.fold-text'), last?.content ?? this.copy.layout.noMessage);
     setText(this.root.querySelector('.fold-who'), last?.role === 'user' ? this.copy.you : this.copy.assistant);
@@ -65,6 +71,7 @@ export class ConversationFold {
     this.root.querySelector('.fold-question').hidden = !openQuestion;
   }
   set(on) {
+    if (on && !this.canFold()) return;
     if (on === this.folded) return;
     const panes = [...this.root.querySelectorAll('.transcript-shell, .analysis-content')];
     const view = this.root.ownerDocument.defaultView;
