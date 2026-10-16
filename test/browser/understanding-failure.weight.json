@@ -1,4 +1,4 @@
 {
-  "seconds": 70,
-  "evidence": "AIT-242 expanded footer matrix with viewport evidence: mbp2606 08976fcf79-54592, 51.511s including payload boundary tests, rounded up + 10s"
+  "seconds": 80,
+  "evidence": "AIT-221 full changed browser file with 390/1024/1440 \u00d7 DE/EN \u00d7 light/dark viewport evidence: mbp2606 55250cf108-54980, 60.692487s, 26/26 pass; rounded up to 70s + 10s margin. Prior AIT-242 observation 51.511s retained below this maximum."
 }
