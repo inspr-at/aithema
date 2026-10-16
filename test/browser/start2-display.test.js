@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { assertMatrixCaseCount, matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -16,7 +16,7 @@ import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeo
 
 // CI keeps every assertion, including paint samples. Evidence-only captures run
 // separately on the remote runner (or nightly) without spending PR runner time.
-const evidenceDirectory = process.env.CI ? undefined : process.env.AITHEMA_EVIDENCE_DIR;
+const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
 
 test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-reuse-'));
@@ -1573,11 +1573,18 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
             for (const r of range.getClientRects()) if (r.width && r.height) parts.push({ name: `${selector}: ${text.textContent}`, ...box(r) });
           }
         }
-        return { bounds: box(rail.getBoundingClientRect()), parts, fold: { name: '.fold', ...box(root.querySelector('.fold').getBoundingClientRect()) } };
+        const controls = [...root.querySelectorAll('.motion-toggle, .band button, .band-orb [role="button"]')]
+          .filter(visible).map(n => ({ name: n.className, ...box(n.getBoundingClientRect()) }));
+        return { bounds: box(rail.getBoundingClientRect()), parts, controls, fold: { name: '.fold', ...box(root.querySelector('.fold').getBoundingClientRect()) } };
       });
       const context = `${width}/${locale}/${state}: ${JSON.stringify(geometry)}`;
       assert.ok(geometry.parts.length >= 2, context);
-      assert.ok(geometry.parts.find(p => p.name === '.concept-scene').left >= geometry.fold.right + 8, `scene clears fold control by 8 px; ${context}`);
+      for (const control of geometry.controls) {
+        const fold = geometry.fold;
+        assert.ok(Math.min(control.right, fold.right) <= Math.max(control.left, fold.left) + .1 || Math.min(control.bottom, fold.bottom) <= Math.max(control.top, fold.top) + .1, `fold intersects ${control.name}; ${context}`);
+      }
+      const sceneBox = geometry.parts.find(p => p.name === '.concept-scene');
+      assert.ok(sceneBox.left >= geometry.fold.right + 8 || sceneBox.top >= geometry.fold.bottom + 8, `scene clears fold control by 8 px; ${context}`);
       for (const [i, a] of geometry.parts.entries()) {
         assert.ok(a.left >= geometry.bounds.left && a.right <= geometry.bounds.right + .5 && a.top >= geometry.bounds.top && a.bottom <= geometry.bounds.bottom + .5, context);
         for (const b of [...geometry.parts.slice(i + 1), geometry.fold]) assert.ok(Math.min(a.right, b.right) <= Math.max(a.left, b.left) + .1 || Math.min(a.bottom, b.bottom) <= Math.max(a.top, b.top) + .1, `intersecting ${a.name} / ${b.name}; ${context}`);
