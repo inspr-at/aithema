@@ -138,6 +138,7 @@ they are not test coverage switches.
 | `test/browser/start-look.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/start2-display-helpers.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/tick-followups.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/upload-capacity.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
 | `test/browser/voice-presentation.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |

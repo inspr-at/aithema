@@ -636,19 +636,36 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent i
 });
 
 
-for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing viewport evidence, 1440/1024/390 light/dark`, { timeout: 120_000 }, async t => {
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing viewport evidence, 1440/1024/400/390 light/dark`, { timeout: 120_000 }, async t => {
   const page = await fixture(t);
   const passes = [];
-  for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+  for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 400, 390]) {
     await scene(page, locale, theme, width, Object.keys(features));
     const state = await shadow(page, async (c, locale) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
-      const lines = Object.fromEntries(['html', 'voice', 'analysis'].map(feature => {
-        const selector = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
-        const line = c.shadowRoot.querySelector(selector).textContent;
+      const lines = Object.fromEntries(['text', 'html', 'voice', 'analysis'].map(feature => {
+        const selector = { text: '.composer-reason', html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
+        const element = c.shadowRoot.querySelector(selector), line = element.textContent;
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), glyphs = [];
+        while (walker.nextNode()) {
+          const text = walker.currentNode;
+          for (let i = 0; i < text.length; i++) {
+            if (/\s/u.test(text.data[i])) continue;
+            const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1);
+            for (const rect of range.getClientRects()) if (rect.width && rect.height)
+              glyphs.push({ glyph: text.data[i], top: rect.top, left: rect.left });
+          }
+        }
+        const starts = [];
+        for (const glyph of glyphs.sort((a, b) => a.top - b.top || a.left - b.left)) {
+          const start = starts.find(start => Math.abs(start.top - glyph.top) < 2);
+          if (!start) starts.push(glyph);
+          else if (glyph.left < start.left) Object.assign(start, glyph);
+        }
+        if (!starts.length || starts.some(start => start.glyph === '·')) throw new Error(`${feature}: separator starts a line`);
         if (line !== `${copy.featureConsent[feature]}\u00a0· ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
         return [feature, line];
       }));

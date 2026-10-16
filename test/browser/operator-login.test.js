@@ -64,8 +64,8 @@ const openGeneral = async (page, returned = false) => {
   await until(page, () => {
     const entry = document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify');
     const lead = entry.querySelector('.m-lead-save');
-    // Loading text is nonempty too. Wait for actual tiers before reopening;
-    // otherwise beginSettings deliberately pins the temporary union reservation.
+    // Loading/failure copy is nonempty too; only resolved tiers remove this
+    // status class. Opening earlier pins AIT-171's larger union reservation.
     return entry.dataset.emailState && lead?.textContent && !lead.classList.contains('m-credit-status');
   });
   await page.evaluate(() => document.fonts.ready);

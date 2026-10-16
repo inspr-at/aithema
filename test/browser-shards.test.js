@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { assertBrowserShardCoverage, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 test('CI shards cover every browser test file exactly once; local command runs the same full set', () => {
   assertBrowserShardCoverage();
@@ -50,13 +50,14 @@ test('LPT packing is complete and independent of file and weight insertion order
   const reversedWeights = Object.fromEntries(Object.entries(browserTestWeights).reverse());
   const packed = packBrowserTests([...files].reverse(), reversedWeights);
   assert.deepEqual(packed, { shards: browserShards, totals: browserShardTotals });
-  assert.equal(packed.shards.length, 4);
+  assert.equal(packed.shards.length, browserShardCount);
+  assert.ok(Math.max(...packed.totals) <= 420, `Planned browser shard exceeds 7 min: ${packed.totals}`);
   assert.deepEqual(packed.shards.flat().sort(), files);
   assert.equal(new Set(packed.shards.flat()).size, files.length);
   const total = Object.values(browserTestWeights).reduce((sum, weight) => sum + weight, 0);
   const largest = Math.max(...Object.values(browserTestWeights));
   // List scheduling bound: average load + (1 - 1/m) times the largest job.
-  assert.ok(Math.max(...packed.totals) <= total / 4 + 3 * largest / 4);
+  assert.ok(Math.max(...packed.totals) <= total / browserShardCount + (1 - 1 / browserShardCount) * largest);
 });
 
 test('LPT breaks equal-weight ties by path and equal-load ties by shard index', () => {
@@ -85,7 +86,7 @@ test('LPT makespan stays within (4/3 - 1/(3m)) of the optimal schedule', () => {
       }
     }
     search(0);
-    const packed = packBrowserTests(Object.keys(weights), weights);
+    const packed = packBrowserTests(Object.keys(weights), weights, 4);
     assert.ok(Math.max(...packed.totals) <= (4 / 3 - 1 / 12) * optimum + 1e-9);
   }
 });
@@ -114,7 +115,7 @@ test('the shard guard command prints projected totals for every shard', () => {
   });
   assert.equal(result.status, 0, result.stderr);
   browserShardTotals.forEach((total, index) => {
-    assert.ok(result.stdout.includes(`Browser shard ${index + 1}/4: projected file work ${total.toFixed(3)}s`));
+    assert.ok(result.stdout.includes(`Browser shard ${index + 1}/${browserShardCount}: projected file work ${total.toFixed(3)}s`));
   });
-  assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across 4 shards.`));
+  assert.ok(result.stdout.includes(`${discoverBrowserTests().length} files, exactly once across ${browserShardCount} shards.`));
 });
