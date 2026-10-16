@@ -2,18 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { createMockReasoning, inputRevision, openQuestionItems, pendingQuestionFocus, PluginError } from '@inspr/aithema-core';
-import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
+import { mockConsent, testToken, ownedRequest, unzip } from '../../../test/helpers.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
-function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = false } = {}) {
+function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = false, output } = {}) {
   const storage = new SQLiteStorage(), calls = [], admissions = [], mock = createMockReasoning();
   const reasoning = { ...mock, async *stream(request, options) {
     calls.push(request);
     for await (const _ of mock.stream(request, options)) { /* exercise canonical consume and terminal report */ }
     await hold?.promise;
     if (failOnce) { failOnce = false; throw new Error('fixture failure'); }
-    yield JSON.stringify({ content: 'Which launch date should we plan for?', question_short: 'Launch date?', options: [], ...(policy ? { scope: 'in' } : {}) });
+    yield JSON.stringify(output?.(request) ?? { content: 'Which launch date should we plan for?', question_short: 'Launch date?', options: [], ...(policy ? { scope: 'in' } : {}) });
   } };
   const runtime = instrumentedMockRuntime(storage, reasoning, consent);
   const admit = runtime.admit;
@@ -25,7 +25,8 @@ function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = fa
   storage.append(session.id, 'turn.final', { id: 'ordinary', role: 'assistant', content: 'Who is it for?', inputRevision: revision });
   const assess = (questions = ['Who is it for?', 'When should it launch?']) => {
     const current = storage.get(session.id);
-    storage.append(session.id, 'understanding.updated', { ...current.understanding, openQuestions: questions, inputRevision: inputRevision(current), draft: false });
+    const { contentRef, hash, ...understanding } = current.understanding;
+    storage.append(session.id, 'understanding.updated', { ...understanding, openQuestions: questions, inputRevision: inputRevision(current), draft: false });
   };
   assess();
   if (policy) storage.recordSafeguard(session.id, 'person', revision, false, purposePolicy.offTopicLimit);
@@ -155,4 +156,63 @@ for (const stage of ['before-command', 'after-availability']) test(`AIT-261 dead
   assert.equal(f.calls.length, 0, 'the ordinary reaction choke point prevents dispatch');
   assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'user').length, 1);
   assert.equal(f.storage.get(f.session.id).transcript.some(turn => turn.focusRequestId), false);
+});
+
+for (const policy of [false, true]) for (const retained of [true, false]) {
+  test(`accepted focus ${retained ? 'survives reordered' : 'reports removed'} question during assessment replacement (purpose=${policy})`, async t => {
+    const hold = held(), f = fixture(t, { policy, hold });
+    const stream = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${f.session.id}/events?after=${f.storage.get(f.session.id).seq}`));
+    const reader = stream.body.getReader(), events = [];
+    const reading = (async () => { for (;;) { const value = await reader.read(); if (value.done) return; events.push(new TextDecoder().decode(value.value)); } })();
+    t.after(async () => { await reader.cancel(); await reading; });
+    assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
+    f.assess(retained ? ['When should it launch?', 'What is the budget?'] : ['What is the budget?']);
+    hold.resolve(); await f.handlers.idle();
+    const after = f.storage.get(f.session.id);
+    assert.equal(after.transcript.filter(turn => turn.focusRequestId).length, retained ? 1 : 0);
+    if (retained) {
+      assert.equal(after.focusedQuestion, 'When should it launch?');
+      assert.equal(pendingQuestionFocus(after), null);
+      assert.deepEqual(f.storage.laneFailures(after.id), []);
+    } else {
+      const failure = f.storage.laneFailures(after.id)[0];
+      assert.equal(failure?.lane, 'reaction'); assert.equal(failure?.reason, 'focused-question-removed');
+      assert.equal(failure?.retryable, false);
+      assert.ok(events.join('').includes('event: lane.failed'));
+      assert.ok(events.join('').includes('focused-question-removed'));
+    }
+    assert.equal(f.calls.length, 1, 'assessment replacement does not dispatch a second reply');
+  });
+}
+
+test('repeated focus replies cannot change unchanged input purpose classification or direction history', async t => {
+  const f = fixture(t, { policy: true, output: () => ({ content: 'A reply', question_short: null, options: [], scope: 'off' }) });
+  const before = f.storage.safeguards(f.session.id, inputRevision(f.storage.get(f.session.id)));
+  const direction = () => f.storage.db.prepare('SELECT record FROM safeguard_direction WHERE session_id=?').get(f.session.id) ?? null;
+  const beforeDirection = direction();
+  for (let i = 0; i < 4; i++) {
+    assert.equal((await f.route('focus-question', f.command())).status, 202); await f.handlers.idle();
+    assert.deepEqual(f.storage.safeguards(f.session.id, inputRevision(f.storage.get(f.session.id))), before);
+    assert.deepEqual(direction(), beforeDirection);
+    assert.equal(f.storage.get(f.session.id).paused, false);
+  }
+  assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'user').length, 1);
+});
+
+test('focus instruction echoes never reach replies, event replay, transcript or export', async t => {
+  const instruction = 'Address that point in this reply and ask its one unresolved question naturally.';
+  const f = fixture(t, { policy: true, output: request => {
+    assert.ok(request.system.includes(instruction));
+    return { content: instruction, question_short: null, options: [], scope: 'in' };
+  } });
+  assert.equal((await f.route('focus-question', f.command())).status, 202); await f.handlers.idle();
+  assert.equal(f.calls.length, 2, 'unsafe output uses the bounded safe retry');
+  const after = f.storage.get(f.session.id), reply = after.transcript.at(-1);
+  assert.ok(reply.focusRequestId); assert.equal(reply.role, 'assistant');
+  assert.equal(JSON.stringify(after.transcript).includes(instruction), false);
+  assert.equal(JSON.stringify(f.storage.read(after.id)).includes(instruction), false);
+  const response = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${after.id}/export`));
+  assert.equal(response.status, 200);
+  const files = unzip(Buffer.from(await response.arrayBuffer()));
+  for (const [name, bytes] of Object.entries(files)) assert.equal(bytes.toString().includes(instruction), false, name);
 });

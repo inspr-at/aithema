@@ -41,6 +41,19 @@ test('a selected public question is not classified as leaked private host guidan
     request.purposePolicy, request.hiddenGuidance), false);
 });
 
+test('focus command instructions are private while the selected question remains public', async () => {
+  const { reasoningRequest, unsafeReplyOutput } = await import('../src/index.js');
+  const { purposePolicy } = await import('../../../test/safeguards-corpus.js');
+  const request = reasoningRequest(assessed(), 'reaction', false, '', { focusQuestion: 'Launch date?', purposePolicy });
+  const instruction = 'Address that point in this reply and ask its one unresolved question naturally.';
+  assert.ok(request.system.includes(instruction));
+  for (const field of ['content', 'question_short', 'options']) {
+    const reply = { content: 'Launch date?', question_short: null, options: [], scope: 'in',
+      [field]: field === 'options' ? [{ text: instruction }] : instruction };
+    assert.equal(unsafeReplyOutput(reply, request.purposePolicy, request.hiddenGuidance), true, field);
+  }
+});
+
 test('snapshot question items follow SSE assessment replacement and erase on withdrawal', () => {
   const initial = assessed(); initial.openQuestionItems = openQuestionItems(initial);
   const replaced = applyEvent(initial, { seq: 3, type: 'understanding.updated', data: { ...initial.understanding, openQuestions: ['Budget?'] } });
