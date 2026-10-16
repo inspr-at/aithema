@@ -327,13 +327,14 @@ for (const [reason, timing] of [
   ['missing-barge-in', () => events.filter(e => e.captureAt !== 1000)],
   ['missing-playback-stop', () => events.map(e => e.kind === 'playback-stop' ? { ...e, stoppedAt: 999 } : e)],
 ]) test(`incomplete ${reason} refuses once in each lane, retains exposure, skips pairs and continues`, async t => {
-  const { options, calls, reconciliations } = await failureFixture(t, { count: 3,
+  const { options, calls, reconciliations } = await failureFixture(t, { count: 4,
     timing: (index, lane) => index === (lane === 'candidate' ? 1 : 2) ? timing() : diagnosticEvents() });
   const report = await runLiveQualification(options);
-  assert.equal(calls.length, 6); assert.equal(reconciliations.length, 7);
+  assert.equal(calls.length, 8); assert.equal(reconciliations.length, 9);
   assert.deepEqual(report.refusals.map(row => [row.sample, row.lane, row.reason]), [[1, 'candidate', reason], [2, 'baseline', reason]]);
   for (const lane of ['candidate', 'baseline']) {
-    assert.equal(report[lane].samples, 2); assert.equal(report[lane].attemptedSamples, 3);
+    assert.equal(report[lane].samples, 3); assert.equal(report[lane].attemptedSamples, 4);
+    assert.equal(report[lane].automatedPass, false); assert.equal(report[lane].reason, 'insufficient-valid-samples');
     assert.equal(report[lane].refusedSamples, 1); assert.deepEqual(report[lane].refusalsByReason, { [reason]: 1 });
   }
   const saved = JSON.parse(await readFile(join(options.outputDirectory, 'report.json')));
@@ -342,9 +343,9 @@ for (const [reason, timing] of [
   assert.deepEqual(refusals, report.refusals); assertValueFree(refusals);
   assert.equal((await stat(join(options.outputDirectory, 'refusals.json'))).mode & 0o777, 0o600);
   const blind = JSON.parse(await readFile(join(options.outputDirectory, 'blind.json')));
-  assert.deepEqual(blind.map(row => row.sample), [3, 3]);
-  assert.equal((await readdir(options.outputDirectory)).filter(file => file.endsWith('.wav')).length, 2);
-  assert.equal(report.budget.exposureMicro, 600);
+  assert.deepEqual(blind.map(row => row.sample), [3, 3, 4, 4]);
+  assert.equal((await readdir(options.outputDirectory)).filter(file => file.endsWith('.wav')).length, 4);
+  assert.equal(report.budget.exposureMicro, 800);
   for (const row of report.budget.records) {
     assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'uncertain');
     assert.equal(row.exposureMicro, 100); assert.equal(row.receipt, undefined);
@@ -353,30 +354,105 @@ for (const [reason, timing] of [
   await assert.rejects(runLiveQualification(options), /Run already claimed/);
 });
 
-for (const lane of ['candidate', 'baseline']) test(`zero valid ${lane} samples fails clearly after processing the corpus`, async t => {
-  const { options, calls } = await failureFixture(t, { count: 2,
-    timing: (_index, currentLane) => currentLane === lane ? events.filter(e => e.kind !== 'playback-stop') : diagnosticEvents() });
-  await assert.rejects(runLiveQualification(options), /lane has zero valid samples/);
-  assert.equal(calls.length, 4);
-  const record = JSON.parse(await readFile(join(options.outputDirectory, 'failure.json')));
-  assert.equal(record.phase, 'report'); assert.equal(record.lane, lane); assert.equal(record.sample, null);
-  assert.equal(record.message, 'Qualification lane has zero valid samples');
-  const refusals = JSON.parse(await readFile(join(options.outputDirectory, 'refusals.json')));
-  assert.deepEqual(refusals.map(row => [row.sample, row.lane, row.reason]), [[1, lane, 'missing-playback-stop'], [2, lane, 'missing-playback-stop']]);
-  assertValueFree(refusals); assertValueFree(record);
-  const budget = JSON.parse(await readFile(join(options.outputDirectory, 'budget-final.json')));
-  assert.equal(budget.exposureMicro, 400);
+for (const lane of ['candidate', 'baseline']) {
+  test(`two consecutive same-reason ${lane} refusals abort before another dispatch`, async t => {
+    const { options, calls, reconciliations } = await failureFixture(t, { count: 12,
+      timing: (_index, currentLane) => currentLane === lane ? events.filter(e => e.captureAt !== 100) : diagnosticEvents() });
+    await assert.rejects(runLiveQualification(options), /Qualification refusal limit reached/);
+    assert.equal(calls.length, lane === 'candidate' ? 3 : 4);
+    assert.deepEqual(calls.at(-1), [2, lane]);
+    assert.equal(reconciliations.length, calls.length);
+    const record = JSON.parse(await readFile(join(options.outputDirectory, 'failure.json')));
+    assert.equal(record.phase, 'refusal-limit'); assert.equal(record.lane, lane); assert.equal(record.sample, 2);
+    assert.equal(record.message, 'Qualification refusal limit reached');
+    const refusals = JSON.parse(await readFile(join(options.outputDirectory, 'refusals.json')));
+    assert.deepEqual(refusals.map(row => [row.sample, row.lane, row.reason]),
+      [[1, lane, 'missing-speech-end'], [2, lane, 'missing-speech-end']]);
+    assertValueFree(refusals); assertValueFree(record);
+    const budget = JSON.parse(await readFile(join(options.outputDirectory, 'budget-final.json')));
+    assert.equal(budget.exposureMicro, calls.length * 100);
+    assert.ok(budget.records.every(row => row.exposureMicro === 100 && row.outcome === 'uncertain'));
+    await assert.rejects(readFile(join(options.outputDirectory, 'report.json')), { code: 'ENOENT' });
+  });
+
+  test(`more than 25 percent ${lane} refusals abort even with intervening valid samples`, async t => {
+    const { options, calls } = await failureFixture(t, { count: 12,
+      timing: (index, currentLane) => currentLane === lane && index % 2 ? [] : diagnosticEvents() });
+    await assert.rejects(runLiveQualification(options), /refusal limit/);
+    assert.deepEqual(calls.at(-1), [7, lane]);
+    assert.equal(calls.length, lane === 'candidate' ? 13 : 14);
+    const record = JSON.parse(await readFile(join(options.outputDirectory, 'failure.json')));
+    assert.equal(record.phase, 'refusal-limit'); assert.equal(record.lane, lane); assert.equal(record.sample, 7);
+    assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'refusals.json'))).length, 4);
+    const budget = JSON.parse(await readFile(join(options.outputDirectory, 'budget-final.json')));
+    assert.equal(budget.exposureMicro, calls.length * 100);
+  });
+}
+
+test('lane metrics expose valid/refused corpus counts; 9 of 12 qualifies at the exact 25 percent refusal boundary', async t => {
+  const { options } = await failureFixture(t, { count: 12,
+    timing: (index, lane) => [1, 3, 5].includes(index) && lane === 'candidate' ? [] : diagnosticEvents() });
+  const report = await runLiveQualification(options);
+  assert.equal(report.candidate.samples, 9); assert.equal(report.candidate.validSamples, 9);
+  assert.equal(report.candidate.corpusSamples, 12); assert.equal(report.candidate.refusedSamples, 3);
+  assert.equal(report.candidate.automatedPass, true); assert.equal(report.baseline.automatedPass, true);
+  assert.equal(report.baseline.samples, 12); assert.equal(report.baseline.refusedSamples, 0);
+  assert.deepEqual(report.candidate.refusalsByReason, { 'missing-first-audio': 3 });
+  assert.deepEqual(report.baseline.refusalsByReason, {});
+  assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'blind.json'))).length, 18);
 });
 
-test('lane metrics expose unequal refusal counts and only complete blind pairs', async t => {
-  const { options } = await failureFixture(t, { count: 3,
-    timing: (index, lane) => index < 3 && lane === 'candidate' ? [] : diagnosticEvents() });
+test('a changed refusal reason resets the consecutive count within its lane', async t => {
+  const { options } = await failureFixture(t, { count: 12,
+    timing: (index, lane) => lane === 'candidate' && index <= 3 ?
+      (index === 2 ? events.filter(e => e.captureAt !== 100) : []) : diagnosticEvents() });
   const report = await runLiveQualification(options);
-  assert.equal(report.candidate.samples, 1); assert.equal(report.candidate.refusedSamples, 2);
-  assert.equal(report.baseline.samples, 3); assert.equal(report.baseline.refusedSamples, 0);
-  assert.deepEqual(report.candidate.refusalsByReason, { 'missing-first-audio': 2 });
-  assert.deepEqual(report.baseline.refusalsByReason, {});
-  assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'blind.json'))).length, 2);
+  assert.equal(report.candidate.automatedPass, true);
+  assert.deepEqual(report.candidate.refusalsByReason, { 'missing-first-audio': 2, 'missing-speech-end': 1 });
+});
+
+for (const phase of ['validate', 'budget', 'verifyPricing']) {
+  test(`pre-claim ${phase} errors use unique diagnostics and preserve earlier output`, async t => {
+    const { options, calls } = await failureFixture(t);
+    await mkdir(options.outputDirectory);
+    await writeFile(join(options.outputDirectory, 'failure.json'), 'earlier failure');
+    await writeFile(join(options.outputDirectory, 'budget-final.json'), 'earlier budget');
+    if (phase === 'validate') options.operatorApproved = false;
+    if (phase === 'budget') options.budgetPath += '.missing';
+    if (phase === 'verifyPricing') options.host.verifyCeiling = async () => null;
+    await assert.rejects(runLiveQualification(options));
+    assert.equal(calls.length, 0);
+    assert.equal(await readFile(join(options.outputDirectory, 'failure.json'), 'utf8'), 'earlier failure');
+    assert.equal(await readFile(join(options.outputDirectory, 'budget-final.json'), 'utf8'), 'earlier budget');
+    const files = (await readdir(options.outputDirectory)).filter(file => /^failure-.*\.json$/.test(file));
+    assert.equal(files.length, 1);
+    const record = JSON.parse(await readFile(join(options.outputDirectory, files[0])));
+    assert.equal(record.phase, phase); assert.equal(record.sample, null); assert.equal(record.lane, null);
+  });
+}
+
+test('a refused repeated claim preserves every earlier run file and captures phase claim uniquely', async t => {
+  const { options, calls } = await failureFixture(t);
+  await runLiveQualification(options);
+  const files = await readdir(options.outputDirectory);
+  const before = await Promise.all(files.map(file => readFile(join(options.outputDirectory, file))));
+  await assert.rejects(runLiveQualification(options), /Run already claimed/);
+  assert.equal(calls.length, 2);
+  for (const [index, file] of files.entries()) assert.deepEqual(await readFile(join(options.outputDirectory, file)), before[index]);
+  await assert.rejects(readFile(join(options.outputDirectory, 'failure.json')), { code: 'ENOENT' });
+  const fresh = (await readdir(options.outputDirectory)).filter(file => !files.includes(file));
+  assert.equal(fresh.length, 1); assert.match(fresh[0], /^failure-.*\.json$/);
+  assert.equal(JSON.parse(await readFile(join(options.outputDirectory, fresh[0]))).phase, 'claim');
+});
+
+test('refusal diagnostics use exclusive creation and preserve an earlier refusals file', async t => {
+  const { options } = await failureFixture(t, { count: 4,
+    timing: (index, lane) => index === 1 && lane === 'candidate' ? [] : diagnosticEvents() });
+  await mkdir(options.outputDirectory);
+  await writeFile(join(options.outputDirectory, 'refusals.json'), 'earlier refusals');
+  await assert.rejects(runLiveQualification(options), { code: 'EEXIST' });
+  assert.equal(await readFile(join(options.outputDirectory, 'refusals.json'), 'utf8'), 'earlier refusals');
+  assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'failure.json'))).phase, 'refusalsWrite');
 });
 
 test('trace summaries allowlist kinds and numeric clocks, including malformed input', () => {
@@ -387,4 +463,14 @@ test('trace summaries allowlist kinds and numeric clocks, including malformed in
   assert.deepEqual(probe.summary(), { total: 3, counts: { unknown: 2, capture: 1 },
     events: [{ kind: 'unknown' }, { kind: 'unknown' }, { kind: 'capture', captureAt: 12, voiced: false, outputTimestamp: { performanceTime: 45 } }] });
   assertValueFree(probe.summary());
+});
+
+test('final reconciliation error retains its phase while refusal diagnostics are flushed', async t => {
+  const { options } = await failureFixture(t, { count: 4,
+    timing: (index, lane) => index === 1 && lane === 'candidate' ? [] : diagnosticEvents() });
+  const abort = new Error(sentinel); let reconciliations = 0;
+  options.host.reconcile = async () => { if (++reconciliations === 9) throw abort; };
+  await assert.rejects(runLiveQualification(options), error => error === abort);
+  assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'failure.json'))).phase, 'reconcile');
+  assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'refusals.json'))).length, 1);
 });

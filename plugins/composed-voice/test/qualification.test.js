@@ -7,14 +7,15 @@ const sample = (overrides = {}) => ({ reference: 'Grüß Gott Müller GmbH 42', 
   speechEndAt: 100, firstAudioAt: 1000, bargeInAt: 1200, stoppedAt: 1400, ...overrides });
 
 test('AIT-160: qualification fixes thresholds and keeps blind listening pending offline', () => {
-  const result = evaluateQualification([sample(), sample({ firstAudioAt: 1500 })]);
+  const result = evaluateQualification([sample(), sample(), sample(), sample(), sample(), sample({ firstAudioAt: 1500 })]);
   assert.equal(result.wer, 0); assert.equal(result.entityAccuracy, 1);
   assert.equal(result.firstAudioMs.p50, 900); assert.equal(result.firstAudioMs.p95, 1400);
   assert.equal(result.bargeInStopMs, 200); assert.equal(result.automatedPass, true);
   assert.equal(result.qualified, false); assert.equal(result.blindPreference, 'pending');
-  assert.equal(evaluateQualification([sample({ stoppedAt: 1501 })]).automatedPass, false);
-  assert.equal(evaluateQualification([sample({ hypothesis: 'Grüß Gott Meier' })]).automatedPass, false);
-  assert.equal(evaluateQualification([sample({ firstAudioAt: 1601 })]).automatedPass, false);
+  const observations = overrides => Array.from({ length: 6 }, () => sample(overrides));
+  assert.equal(evaluateQualification(observations({ stoppedAt: 1501 })).automatedPass, false);
+  assert.equal(evaluateQualification(observations({ hypothesis: 'Grüß Gott Meier' })).automatedPass, false);
+  assert.equal(evaluateQualification(observations({ firstAudioAt: 1601 })).automatedPass, false);
   assert.throws(() => evaluateQualification([]));
   assert.throws(() => evaluateQualification([sample({ firstAudioAt: null })]));
 });
@@ -71,4 +72,23 @@ test('AIT-160 round 2: offline qualification admits every TTS fragment with a un
   assert.equal(result.candidate.automatedPass, true);
   assert.equal(result.baseline.automatedPass, true);
   assert.equal(result.spendMicro, 0);
+});
+
+for (const [valid, corpus, pass] of [[1, 12, false], [8, 12, false], [9, 12, true],
+  [5, 5, false], [6, 8, true], [6, 9, false]]) {
+  test(`AIT-254: validity floor admits ${valid}/${corpus} samples: ${pass}`, () => {
+    const result = evaluateQualification(Array.from({ length: valid }, () => sample()),
+      { corpusSamples: corpus, blindPreference: 'preferred' });
+    assert.equal(result.wer, 0); assert.equal(result.entityAccuracy, 1);
+    assert.equal(result.automatedPass, pass); assert.equal(result.qualified, pass);
+    assert.equal(result.validSamples, valid); assert.equal(result.refusedSamples, corpus - valid);
+    assert.equal(result.corpusSamples, corpus);
+    assert.equal(result.reason, pass ? undefined : 'insufficient-valid-samples');
+  });
+}
+
+test('AIT-254: corpus denominator cannot undercount surviving observations', () => {
+  for (const corpusSamples of [0, 0.5, NaN, '12']) {
+    assert.throws(() => evaluateQualification([sample()], { corpusSamples }), /corpus size/);
+  }
 });

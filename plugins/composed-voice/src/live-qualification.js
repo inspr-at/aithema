@@ -1,7 +1,7 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { evaluateQualification } from './qualification.js';
+import { evaluateQualification, QUALIFICATION_THRESHOLDS } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
 import { validateVoiceSettings } from '../../elevenlabs/src/voice-settings.js';
 
@@ -42,6 +42,7 @@ const FAILURE_MESSAGES = new Set([
   'Invalid blind PCM format', 'Invalid blind PCM sample', 'Qualification budget blocked',
   'Qualification spend overrun', 'Qualification requires observations', 'Incomplete qualification evidence',
   'Invalid transcript', 'Entity evidence required', 'Qualification lane has zero valid samples',
+  'Qualification refusal limit reached',
 ]);
 const TIMING_KINDS = new Set(['capture', 'playback-start', 'playback-stop', 'playback-scheduled',
   'opener-finished', 'opener-drained', 'opener-final', 'user-final', 'invalid-evidence']);
@@ -75,7 +76,8 @@ async function writeFailure(outputDirectory, context, error) {
     await mkdir(outputDirectory, { recursive: true });
     const record = JSON.stringify({ message: redactedMessage(error), phase: context.phase,
       sample: context.sample, lane: context.lane, trace: context.probe?.summary() ?? traceSummary() }, null, 2);
-    try { await writeFile(join(outputDirectory, 'failure.json'), record, { flag: 'wx', mode: 0o600 }); }
+    const file = context.runClaimed ? 'failure.json' : `failure-${randomUUID()}.json`;
+    try { await writeFile(join(outputDirectory, file), record, { flag: 'wx', mode: 0o600 }); }
     catch (failure) {
       if (failure.code !== 'EEXIST') throw failure;
       await writeFile(join(outputDirectory, `failure-${randomUUID()}.json`), record, { flag: 'wx', mode: 0o600 });
@@ -174,7 +176,7 @@ export async function verifyCorpusLeadingSilence(item) {
  * reconciliation, network auth and physical browser bindings. No provider key,
  * default network connector or synthetic observation is installed here. */
 export async function runLiveQualification(options = {}) {
-  const context = { phase: 'report', sample: null, lane: null, probe: null };
+  const context = { phase: 'validate', sample: null, lane: null, probe: null, runClaimed: false };
   try { return await executeLiveQualification(options, context); }
   catch (error) { await writeFailure(options.outputDirectory, context, error); throw error; }
 }
@@ -184,18 +186,24 @@ async function executeLiveQualification({ operatorApproved = false, budgetPath, 
   if (typeof outputDirectory !== 'string' || !outputDirectory) throw new Error('Evidence output directory required');
   validateQualificationPlan(plan);
   if (![host?.verifyCeiling, host?.verifyReceipt, host?.runSample, host?.reconcile].every(fn => typeof fn === 'function')) throw new Error('OPS host ports required');
+  context.phase = 'budget';
   const budget = openPersistedQualificationBudget({ path: budgetPath, verifyCeiling: host.verifyCeiling, verifyReceipt: host.verifyReceipt });
   let runClaimed = false, failed = false;
+  const refusals = [], refusalState = Object.fromEntries(['candidate', 'baseline']
+    .map(lane => [lane, { count: 0, consecutive: 0, reason: null }]));
   const at = (phase, sample = null, lane = null, probe = null) => Object.assign(context, { phase, sample, lane, probe });
   try {
     at('blocked');
     if (budget.snapshot().blocked) throw new Error('Qualification budget blocked');
+    at('verifyPricing');
     for (const attempt of plan.ceilingChecks) await budget.verifyPricing(attempt);
     // Persist identity before touching media/providers. Interrupted runs require
     // an explicit new operator-approved plan and reuse the SAME shared ledger.
-    budget.claimRun(plan.runId); runClaimed = true;
+    at('claim');
+    budget.claimRun(plan.runId); runClaimed = context.runClaimed = true;
+    at('output');
     await mkdir(outputDirectory, { recursive: true });
-    const samples = { candidate: [], baseline: [] }, blind = [], answerKey = [], refusals = [];
+    const samples = { candidate: [], baseline: [] }, blind = [], answerKey = [];
     for (const [index, item] of plan.corpus.entries()) {
       at('verifyCorpus', index + 1);
       await verifyCorpusLeadingSilence(item);
@@ -213,9 +221,19 @@ async function executeLiveQualification({ operatorApproved = false, budgetPath, 
         catch (error) {
           if (!(error instanceof IncompleteMediaEvidence)) throw error;
           refusals.push({ sample: index + 1, lane, reason: error.reason, trace: probe.summary() });
-          await writeFile(join(outputDirectory, 'refusals.json'), JSON.stringify(refusals, null, 2), { mode: 0o600 });
+          const state = refusalState[lane];
+          state.count++;
+          state.consecutive = state.reason === error.reason ? state.consecutive + 1 : 1;
+          state.reason = error.reason;
+          if (state.consecutive >= QUALIFICATION_THRESHOLDS.maxConsecutiveRefusals ||
+            state.count > plan.corpus.length * (1 - QUALIFICATION_THRESHOLDS.minValidFraction)) {
+            at('refusal-limit', index + 1, lane, probe);
+            throw new Error('Qualification refusal limit reached');
+          }
         }
         if (media) {
+          refusalState[lane].consecutive = 0;
+          refusalState[lane].reason = null;
           at('ttsConfig', index + 1, lane, probe);
           if (!/^[A-Za-z0-9_-]{1,128}$/u.test(result.ttsConfig?.model ?? '') ||
             !/^[A-Za-z0-9_-]{1,128}$/u.test(result.ttsConfig?.voiceId ?? '')) throw new Error('Explicit lane TTS model and saved voice required');
@@ -257,7 +275,7 @@ async function executeLiveQualification({ operatorApproved = false, budgetPath, 
       at('report', null, lane);
       if (!samples[lane].length) throw new Error('Qualification lane has zero valid samples');
       const refused = refusals.filter(row => row.lane === lane);
-      return { ...evaluateQualification(samples[lane]), attemptedSamples: plan.corpus.length, refusedSamples: refused.length,
+      return { ...evaluateQualification(samples[lane], { corpusSamples: plan.corpus.length }), attemptedSamples: plan.corpus.length, refusedSamples: refused.length,
         refusalsByReason: Object.fromEntries([...new Set(refused.map(row => row.reason))]
           .map(reason => [reason, refused.filter(row => row.reason === reason).length])) };
     };
@@ -282,11 +300,20 @@ async function executeLiveQualification({ operatorApproved = false, budgetPath, 
     } catch (error) {
       // Reconciliation still runs on every claimed abort, but must not mask its
       // original exception or phase when it too fails.
-      if (!failed) throw error;
+      if (!failed) { failed = true; throw error; }
     } finally {
-      try { await writeFile(join(outputDirectory, 'budget-final.json'), JSON.stringify(budget.snapshot(), null, 2), { mode: 0o600 }); }
+      let refusalWriteError;
+      try {
+        // Flush once on success or abort; exclusive creation preserves earlier evidence.
+        if (runClaimed && refusals.length) {
+          if (!failed) at('refusalsWrite');
+          await writeFile(join(outputDirectory, 'refusals.json'), JSON.stringify(refusals, null, 2), { flag: 'wx', mode: 0o600 });
+        }
+      } catch (error) { if (!failed) refusalWriteError = error; }
+      try { if (runClaimed) await writeFile(join(outputDirectory, 'budget-final.json'), JSON.stringify(budget.snapshot(), null, 2), { mode: 0o600 }); }
       catch { /* The durable ledger remains authoritative if evidence storage fails. */ }
-      try { budget.close(); } catch (error) { if (!failed) throw error; }
+      try { budget.close(); } catch (error) { if (!failed && !refusalWriteError) throw error; }
+      if (refusalWriteError) throw refusalWriteError;
     }
   }
 }
