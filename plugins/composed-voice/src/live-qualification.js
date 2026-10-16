@@ -84,6 +84,7 @@ export async function verifyCorpusLeadingSilence(item) {
     };
     const header = await read(12, 0);
     if (header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') throw new Error('PCM16 mono corpus WAV required');
+    if (header.readUInt32LE(4) + 8 > size) throw new Error('Incomplete corpus WAV');
     let format;
     for (let at = 12, chunks = 0; at + 8 <= size && chunks < 128; chunks++) {
       const chunk = await read(8, at), length = chunk.readUInt32LE(4), start = at + 8;
