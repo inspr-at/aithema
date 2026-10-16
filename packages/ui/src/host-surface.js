@@ -75,12 +75,16 @@ export class HostSurface {
   get tiers() { return this.#credits?.tiers ?? null; }
   get low() { return !this.usedUp && lowCredit(this.#credits); }
   get emailAsk() { return this.#emailAsk; }
-  get usedUp() { return this.#ended === 'host-limit' || this.#credits?.exhausted === true; }
+  get endReason() {
+    const state = this.#session().credits;
+    return this.#ended ?? (['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null);
+  }
+  get usedUp() { return Boolean(this.endReason) || this.#credits?.exhausted === true; }
   get fullHold() {
     const owner = this.#credits?.balance?.owner;
     return !this.usedUp && (this.#credits?.fullHold === true || owner?.availableMicro === 0 && owner.reservedMicro > 0);
   }
-  get nextTier() { return this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
+  get nextTier() { return this.endReason && this.endReason !== 'host-limit' ? null : this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
   get deltaCredits() { return this.tiers ? defaultCreditFormat(this.tiers.delta, this.#session().locale ?? 'en') : ''; }
   get locked() { return this.#verification?.locked ?? false; }
   /** The understanding pane holds host controls: the verification form while locked, or the handover band. */
@@ -227,7 +231,7 @@ export class HostSurface {
       if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
       const slot = this.#credits?.limitSlot;
       const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
-      if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
+      if (this.#ended === 'host-limit' && recovered) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
       this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
       this.#emailAsk?.setCredits(this.#credits);

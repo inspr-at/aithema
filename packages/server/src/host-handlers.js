@@ -1,5 +1,5 @@
 import { createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
-  assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, rebindCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
+  assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
   operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
 
@@ -33,7 +33,7 @@ export class PrivacyDocumentRequiredError extends Error {
  * library(ownerToken,hooks), handover(ownerToken), wallet(ownerToken) are owner-bound.
  * All asynchronous replies recheck ownership before publication. */
 export function createHostHandlers({ storage, host, ownership, readBody, publish, snapshot, createConversation,
-  eraseConversation, unlocked, budget, now = () => Date.now(), signal, deadlineMs = 30_000 }) {
+  eraseConversation, unlocked, budget, conversationLimits, now = () => Date.now(), signal, deadlineMs = 30_000 }) {
   if (host?.policy?.verificationRequired === true && (host.identity?.deliversVerification !== true ||
       typeof host.identity.requestVerification !== 'function' || typeof host.identity.verify !== 'function')) {
     throw new TypeError('Verification lock requires a delivering identity port');
@@ -85,10 +85,6 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       }
       return;
     }
-    // New/reset inherit the owner's guard, including a deliberate pause.
-    if (host.credits?.ownerGuard !== false && ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
-      publish(id, storage.pause(id, true, { ownerToken }));
-    }
     emit(id, storage.transitionHost(id, () => {
       // Older conversations retain their admission policy when adopted by B1.
       const identity = initialIdentity(id, ownerToken, newSession);
@@ -122,9 +118,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     if (state && state.manualPaused !== storage.get(id).paused) {
       identityTransition(id, ownerToken, { type: 'pause', origin: 'manual', paused: storage.get(id).paused });
     }
-    const paused = storage.get(id).paused, guard = storage.ownerCreditState(ownerToken);
-    if (host.credits?.ownerGuard !== false && host.wallet && ownerToken && (guard ? guard.paused !== paused : paused)) emit(id, storage.transitionCredits(id, ownerToken,
-      { type: 'pause', paused, now: now() }, host.credits));
+    const paused = storage.get(id).paused, guard = storage.creditState(id);
+    if (guard && guard.paused !== paused) conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
   }
   function identityResult(id, extra = {}, ownerToken) {
     let state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
@@ -155,22 +150,21 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
       emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
       lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() };
-    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, fullHold, reconciling, ...warning };
-    const guard = storage.ownerCreditState(ownerToken);
-    const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
+    const state = storage.creditState(id) ?? createCredits({ sessionId: id, ...host.credits });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
     return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning };
   }
   function startCredits(id, ownerToken) {
+    const state = conversationLimits.start(id);
+    if (!host?.wallet) return;
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
-    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null };
-    emit(id, storage.transitionCredits(id, ownerToken, { type: 'balance', balance, now: now() }, host.credits));
-    const result = emit(id, storage.transitionCredits(id, ownerToken, { type: 'start', now: now() }, host.credits));
+    conversationLimits.transition(id, { type: 'balance', balance }, ownerToken);
     const paused = storage.get(id).paused;
-    const current = result.state.paused === paused ? result : emit(id, storage.transitionCredits(id, ownerToken, { type: 'pause', paused, now: now() }));
-    return { balance, limitSlot: creditsView(current.state, Math.max(now(), current.state.lastNow)) };
+    const current = state.paused === paused ? storage.creditState(id)
+      : conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
+    return { balance, limitSlot: creditsView(current, clock(current)) };
   }
   const library = ownerToken => assertLibraryPort(host.library(ownerToken, {
     create: options => createConversation(ownerToken, options),
@@ -443,7 +437,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   return { handle, initialize, syncPause,
     retentionActive: id => deliveries.has(id),
-    startCredits(id, ownerToken) { if (host?.wallet) return startCredits(id, ownerToken); },
+    startCredits,
     resume() {
       if (!host) return;
       for (const id of storage.list()) {

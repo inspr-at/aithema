@@ -11,6 +11,7 @@ import { localImagesImplementation } from './local-images.js';
 import { localHTMLImplementation } from './local-html.js';
 import { createUIRenderLimiter } from './ui-render-limits.js';
 import { SQLiteBudgetLedger } from './budget.js';
+import { createConversationLimits } from './conversation-limits.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
   voice: ['voice', 'live-voice', 'start'], transcription: ['transcription', 'stt', 'transcribe'], images: ['images', 'ui-generation', 'generate'], html: ['html', 'ui-generation', 'generate'] };
@@ -92,7 +93,8 @@ export function mockPresets() {
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
   presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
-  renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }) } = {}) {
+  renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }),
+  conversationLimits = createConversationLimits({ storage, now }) } = {}) {
   if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
@@ -110,6 +112,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   let ownerWallet, costRetryOffset = 0, costJob;
   const admitBudget = async (session, request) => {
+    conversationLimits.start(session.id);
     const wallet = ownerWallet?.(session);
     if (!wallet) return budget.admit(request);
     const verdict = await admitCredits(budget, request, wallet);
@@ -387,7 +390,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const runtime = {
     setLaneDiagnostic(callback) { laneDiagnostic = callback; },
-    budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor, conversationLimits,
     voiceServerAdapters: () => registry.list().flatMap(plugin => {
       const adapter = (localVoiceImplementation(plugin) ?? plugin).ports?.serverAdapter;
       return adapter ? [adapter] : [];
@@ -684,9 +687,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return result;
     },
     async checkVoice(session, { allowPaused = false, ...options } = {}) {
+      conversationLimits.assertOpen(session.id);
       const result = await boundedEvaluate(allowPaused ? { ...session, paused: false } : session,
         session.processingPreset ?? 'best', 'voice', options);
       const current = storage.get(session.id);
+      conversationLimits.assertOpen(session.id);
       if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
         (!allowPaused && current.paused) || voiceAuthorizationRevision(current) !== voiceAuthorizationRevision(session) ||
         selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed');
@@ -756,21 +761,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           throw error;
         }
         const { attemptId } = admission;
-        const claim = budget.claim(attemptId); let dispatched = false, reported = false;
+        const claim = budget.claim(attemptId); let dispatched = false, reported = false, deadlineRefused = false;
         const report = terminal => {
           if (reported) return; reported = true;
-          const receipt = { ...terminal, attemptId };
+          const receipt = deadlineRefused ? { attemptId, outcome: 'uncertain', closureConfirmed: false, usage: null } : { ...terminal, attemptId };
           budget.settleVoice(claim.claimId, receipt);
           if (receipt.closureConfirmed && receipt.usage) this.reconcileVoice(attemptId, receipt);
         };
         try {
           const audio = await adapter.speakText({ text: reply.content, quote }, { ...options,
             attempt: { ...claim, async consume() {
+              try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
               current();
               if (result.scope) {
                 const coverage = await coverageFor(session, result.scope, options);
                 if (consentReason(coverage, result.scope, now(), session.consentRevision)) throw new PluginError('not-admitted');
               }
+              try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
               current(); claim.consume(); dispatched = true;
             } }, report });
           current();
@@ -809,8 +816,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         voiceExposure: { maxMicro: Math.max(maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
           maxVisitorMicro: Math.max(maxVisitorMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute)) },
         requestSha256: hash(request), bindingSha256: hash(binding) });
-      const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
+      const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation, deadlineRefused = false;
       const report = terminal => {
+        if (deadlineRefused) terminal = { attemptId, outcome: 'uncertain', closureConfirmed: false, usage: null };
         const receipt = budget.settleVoice(claim.claimId, terminal); reported = true;
         if (reservation && (!dispatched || terminal.closureConfirmed === true && terminal.outcome !== 'uncertain')) {
           voiceCap.settle(reservation, dispatched ? terminal.usage.providerSeconds : 0);
@@ -827,6 +835,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         get exposureMicro() { return budget.get(attemptId).voice_exposure_micro; },
         retainExposure: () => budget.retainVoiceExposure(attemptId),
         ...(binding.reservationSeconds ? { extend(seconds) {
+          conversationLimits.assertOpen(session.id);
           // The runway is funded once at admission. Healthy extensions reserve
           // only elapsed + one segment, bounded by the technical end.
           const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
@@ -837,6 +846,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
+        const assertOpen = () => {
+          try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
+        };
+        assertOpen();
         try {
           if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           if (result.scope) {
@@ -847,6 +860,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             } finally { scope.dispose(); }
           }
           options.signal?.throwIfAborted();
+          assertOpen();
           if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           claim.consume(); dispatched = true;
         } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
@@ -868,6 +882,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return receipt;
     },
     async admit({ session, lane, operation, request, options = {} }) {
+      conversationLimits.assertOpen(session.id);
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));
       const invocationCurrent = () => unchanged(session, lane, false, purposeAssessment) && (lane !== 'concept' ||
@@ -911,9 +926,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const diagnosticLane = options.voiceReply ? 'voice-facade' : lane;
       try { if (budget.startOutcome(attemptId, diagnosticLane)) emitOutcome(diagnosticLane, 'started'); }
       catch { /* Diagnostics cannot interrupt admission. */ }
-      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false;
+      const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false, settlementAborted = false, settlementDispatched = false, deadlineRefused = false;
       const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
+        if (deadlineRefused) terminal = { attemptId, outcome: 'uncertain' };
         if (reported) {
           // A lane released on cancellation owns settlement; late provider usage
           // cannot reopen or reduce its conservative dispatched charge.
@@ -935,6 +951,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         throw new PluginError('not-admitted', reason);
       };
       const consume = () => lane === 'concept' ? renderLimiter.consume(attemptId, session.id, claim.consume) : claim.consume();
+      const assertDispatchOpen = () => {
+        try { conversationLimits.assertOpen(session.id); } catch (error) { deadlineRefused = true; throw error; }
+      };
       const consumeOrRefuse = () => {
         try { return consume(); } catch (error) {
           report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }); refused = true; throw error;
@@ -943,6 +962,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const attempt = Object.freeze({ ...claim, ...(plugin.reconcileCost ? {
         observeCost: evidence => budget.observeCost(attemptId, evidence), dispatchCost: () => budget.markCostDispatch(attemptId) } : {}), consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
+        assertDispatchOpen();
         if (!dispatchCurrent() || options.signal?.aborted) return refuse('Session changed before dispatch');
         consuming = true;
         if (!result.scope) return consumeOrRefuse();
@@ -952,6 +972,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             let coverage;
             try { coverage = await untilCancelled(coverageFor(session, result.scope, { ...options, signal: scope.signal }), scope.signal); }
             catch { return refuse('consent port unavailable'); }
+            assertDispatchOpen();
             if (!dispatchCurrent() || scope.signal.aborted) return refuse('Session changed before dispatch');
             const reason = consentReason(coverage, result.scope, now(), session.consentRevision);
             if (reason) return refuse(reason);

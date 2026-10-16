@@ -84,6 +84,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
     if (event.type === 'session.paused' && event.data.reason === 'purpose') voiceHandlers?.stopSession(id, 'purpose');
+    if (event.type === 'conversation.end-requested') voiceHandlers?.stopSession(id, event.data.reason);
     // Voice Resume publishes the same durable pause event as text Resume.
     // Work that deferred while paused needs a wake-up even without a new turn.
     if (event.type === 'session.paused' && event.data.paused === false) schedule(id, { wake: true });
@@ -220,7 +221,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
   const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot,
-    budget: pluginRuntime.budget, signal: stop.signal, now: host?.now, deadlineMs,
+    budget: pluginRuntime.budget, conversationLimits: pluginRuntime.conversationLimits, signal: stop.signal, now: host?.now, deadlineMs,
     async createConversation(ownerToken, options = {}) {
       const initial = await initialSettings(ownerToken, options);
       if (initial.error) throw new TypeError(initial.error);
@@ -235,6 +236,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
   });
+  pluginRuntime.conversationLimits.configure({ publish: broadcast, now: host?.now ?? voice?.now,
+    durationMs: host?.credits?.durationMs });
   async function eraseConversation(id, guard, ownerToken) {
     const event = storage.erase(id, guard);
     if (!event) return null;
@@ -466,6 +469,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           typeof body.content !== 'string' || !body.content.trim() || body.content.length > 8000) return json({ error: 'invalid-turn' }, 400);
         const decodedBytes = Buffer.byteLength(body.content) + Buffer.byteLength(JSON.stringify({ ...body, content: '' }));
         if (decodedBytes > REQUEST_LIMIT) throw new RangeError('Request limit');
+        pluginRuntime.conversationLimits.assertOpen(id);
         const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
         if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
@@ -611,7 +615,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (error instanceof PluginError) return json({ error: error.code,
         ...(['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation', 'UI render limit reached for this session',
           'UI render limit reached for this UTC day',
-          'current processing consent required'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'rate-limit' ? 429 : 502);
+          'current processing consent required', 'one-hour', 'session', 'voiceVisitor', 'host-limit'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'rate-limit' ? 429 : 502);
       return json({ error: 'server-error' }, 500);
     }
   }
@@ -744,6 +748,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     reconcileVoiceLater() { voiceHandlers?.reconcileLater(); },
     async resume() {
       await storage.systemWork(async () => {
+        pluginRuntime.conversationLimits.resume();
         hostHandlers.resume();
         pluginRuntime.budget.recover();
         host?.recoverWallets?.();
@@ -779,6 +784,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         await hostHandlers.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); clearTimeout(costTimer); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, costRecovery, ...[...jobs.values()].map(job => job.promise)]); },
+    async close() { stop.abort(); pluginRuntime.conversationLimits.close(); clearTimeout(costTimer); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, costRecovery, ...[...jobs.values()].map(job => job.promise)]); },
   };
 }
