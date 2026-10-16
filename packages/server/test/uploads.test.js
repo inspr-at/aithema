@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets, SERVER_UPLOAD_LIMITS, normalizeUploadLimits, uploadLimitConfig, sniffUploadDocument, readBody } from '../src/index.js';
 import { scanUploadMultipart } from '../src/upload-multipart.js';
+import { listen } from '../src/http.js';
 import { createMockReasoning, PluginRegistry, reasoningRequest, inputRevision, conceptHTMLSpec, conceptPrompt, createSession, applyEvent } from '@inspr/aithema-core';
-import { EXTRACTOR_LIMITS, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
+import { EXTRACTOR_LIMITS, EXTRACTOR_MEDIA_TYPES, UPLOAD_LIMITS } from '@inspr/aithema-core/extractor';
 import { createTextExtractor } from '@inspr/aithema-plugin-extract-text';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { qualifyStartBinding, createProcessingConsent, CONSENT_ITEMS } from '../../../demo/processing-consent.js';
@@ -12,6 +13,7 @@ import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { mockConsent, testToken, ownedRequest, temporaryDb, unzip } from '../../../test/helpers.js';
 import { bytes, pdf, docx, xlsx, pptx, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
 import { observeParsers, waitFor } from '../../../plugins/extract-text/test/extractor-test-helpers.js';
+import { extractorLimitFixture, MiB } from '../../../test/extractor-limit-fixtures.js';
 
 function setup(t, { storage = new SQLiteStorage(), consent = mockConsent, limits, readUploadBody, textPlugin, reasoning = createMockReasoning(), presets = mockPresets(), manageStorage = true } = {}) {
   const registry = new PluginRegistry().register(reasoning);
@@ -73,12 +75,52 @@ for (const [name, content, mediaType, extractor] of [
 
 for (const [name, content, reason] of [['empty.txt', bytes(''), 'empty'], ['broken.pdf', bytes('%PDF-broken'), 'malformed'],
   ['empty.docx', docx(''), 'empty'], ['fake.pdf', bytes('This is plain text'), 'unsupported'],
-  ['disguised.txt', pdf(), 'unsupported'], ['binary.txt', Buffer.from([0, 1, 255]), 'unsupported'],
-  ['large.txt', Buffer.alloc(EXTRACTOR_LIMITS.maxBytes + 1, 97), 'limit']]) test(`unreadable ${name} reports ${reason} and discards originals`, async t => {
+  ['disguised.txt', pdf(), 'unsupported'], ['binary.txt', Buffer.from([0, 1, 255]), 'unsupported']]) test(`unreadable ${name} reports ${reason} and discards originals`, async t => {
   const f = setup(t); await post(f, 'unreadable', [[name, content]]); await f.handlers.idle();
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, 'unreadable'); assert.equal(upload.reason, reason); assert.equal(upload.text, undefined);
   assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
+});
+
+test('a host-lowered extractor ceiling reports limit and discards the original', async t => {
+  const f = setup(t, { textPlugin: createTextExtractor({ limits: { maxBytes: 1024 } }) });
+  await post(f, 'lowered-ceiling', [['large.txt', Buffer.alloc(1025, 97)]]); await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'unreadable'); assert.equal(upload.reason, 'limit');
+  assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
+});
+
+test('AIT-219: 20 MiB PDF uploads over HTTP as literal multipart bytes, retains bounded text, and refuses cap + 1', { timeout: 30_000 }, async t => {
+  const data = extractorLimitFixture('text-pdf', 20 * MiB);
+  let requestBytes, admittedBytes;
+  const f = setup(t, { limits: { maxRequestBytes: UPLOAD_LIMITS.maxRequestBytes }, readUploadBody: async (...args) => {
+    const body = await readBody(...args); requestBytes = body.length; return body;
+  } });
+  const admit = f.storage.postUploads.bind(f.storage);
+  t.mock.method(f.storage, 'postUploads', (...args) => { admittedBytes = args[3][0].bytes; return admit(...args); });
+  const { server, url } = await listen(f.handlers.handle);
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const send = request => fetch(url + new URL(request.url).pathname, { method: request.method, headers: request.headers,
+    body: request.body, duplex: 'half' });
+  const request = uploadRequest(f.session.id, 'at-ceiling', [['ceiling.pdf', data, 'application/pdf']]);
+  const response = await send(request);
+  assert.equal(response.status, 202, JSON.stringify(await response.clone().json()));
+  const receipt = await response.json();
+  assert.equal(receipt.limits.maxRequestBytes, 21 * MiB);
+  assert.deepEqual(admittedBytes, data, 'multipart transfers the original bytes without base64 expansion');
+  assert.ok(requestBytes > data.length && requestBytes < data.length + 64 * 1024, 'multipart overhead is bounded');
+  assert.ok(requestBytes <= UPLOAD_LIMITS.maxRequestBytes);
+  const overhead = requestBytes - data.length;
+  await f.handlers.idle();
+  const upload = f.storage.get(f.session.id).uploads[0];
+  assert.equal(upload.state, 'accepted'); assert.equal(upload.extractor, 'extract-pdf');
+  assert.equal(upload.truncated, true); assert.ok(upload.text.length > 0 && upload.text.length <= 60_000);
+  assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null, 'only extracted text survives');
+  const oversized = uploadRequest(f.session.id, 'over-ceiling', [['large.txt', Buffer.alloc(EXTRACTOR_LIMITS.maxBytes + 1, 97)]]);
+  const refused = await send(oversized);
+  assert.equal(refused.status, 413); assert.deepEqual(await refused.json(), { error: 'size-limit' });
+  assert.equal(f.storage.get(f.session.id).uploads.length, 1, 'oversized input is not admitted');
+  t.diagnostic(`20 MiB PDF: ${overhead} B multipart overhead; literal file payload verified`);
 });
 
 test('ownership precedes dedup, byte conflicts, revision checks and erased-session retries', async t => {

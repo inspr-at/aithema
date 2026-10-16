@@ -26,7 +26,8 @@ test('AIT-219: measure generated inputs through the real sandboxed workers, thre
     const collect = chunk => {
       record.gc += chunk; record.trace += chunk;
       const lines = record.gc.split('\n'); record.gc = lines.pop();
-      for (const line of lines) for (const match of line.matchAll(/total_size_(?:before|after)=(\d+)/gu)) {
+      // V8 versions use either total_size_before/after or start/end_object_size.
+      for (const line of lines) for (const match of line.matchAll(/(?:total_size_(?:before|after)|(?:start|end)_object_size)=(\d+)/gu)) {
         record.heapBytes = Math.max(record.heapBytes, Number(match[1]));
       }
     };
