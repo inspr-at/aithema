@@ -1815,7 +1815,7 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
       };
       c.setAttribute('motion', 'off');
       c.openSettings();
-      c.shadowRoot.querySelector('[data-preset="custom"]').click();
+      c.shadowRoot.querySelector('dialog.settings [data-preset="custom"]').click();
     });
     await until(page, () => window.customCatalog.reads > 0);
     const settle = async () => {
