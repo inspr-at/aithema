@@ -1815,10 +1815,12 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
         const status = geometry.parts.filter(p => p.name.startsWith('.concept-activity-text:'));
         const label = geometry.parts.filter(p => p.name.startsWith('.concept-preview-label:'));
         const scene = geometry.parts.find(p => p.name === '.concept-scene'), glyph = geometry.parts.find(p => p.name === '.concept-preview-glyph svg');
-        assert.equal(status.length, 1, context); assert.equal(label.length, 1, context);
+        // AIT-260: the fold clearance can wrap the 320px German status. Both
+        // lines stay inside the same reserved row; preview clears the last line.
+        assert.ok(status.length >= 1 && status.length <= 2, context); assert.equal(label.length, 1, context);
         assert.equal(status[0].name, `.concept-activity-text: ${{ de, en }[locale].conceptDraftReady.replace('{number}', '1')}`);
-        assert.ok(scene.top < status[0].bottom && status[0].top < scene.bottom, context);
-        assert.ok(label[0].top >= status[0].bottom && glyph.top >= scene.bottom, context);
+        assert.ok(scene.top < status.at(-1).bottom && status[0].top < scene.bottom, context);
+        assert.ok(label[0].top >= status.at(-1).bottom && glyph.top >= scene.bottom, context);
         assert.equal(scene.left, glyph.left, context); assert.equal(status[0].left, label[0].left, context);
         if (width === 390) await capture(`ait246-r5-${width}-${theme}-${locale}-draft-ready.png`);
       }
