@@ -11,6 +11,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
     '-days', '1', '-subj', '/CN=start2.fixture.test'], { stdio: 'ignore' });
   const username = 'fixture-operator', password = 'SYNTHETIC_BASIC_AUTH_SENTINEL', requests = [], dispatches = [];
   const expectedAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  const sockets = new Set();
   let origin, otherOrigin, stopped = 0;
   const server = createServer({ key: await readFile(key), cert: await readFile(cert) }, async (req, res) => {
     const url = new URL(req.url, `https://${req.headers.host}`);
@@ -95,10 +96,17 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         setTimeout(()=>{answering=true;},replyDelay+100);
       };})();</script>`);
   });
+  // DOM-ready navigation can leave speculative TLS connections in flight.
+  // HTTPS closeAllConnections alone does not cover unnegotiated sockets.
+  server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   origin = `https://start2.fixture.test:${server.address().port}`;
   otherOrigin = `https://other.fixture.test:${server.address().port}`;
   return { origin, otherOrigin, username, password, requests, dispatches, get stopped() { return stopped; },
     launchArgs: ['--ignore-certificate-errors', '--no-proxy-server', '--host-resolver-rules=MAP *.fixture.test 127.0.0.1'],
-    close() { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); } };
+    close() {
+      const closed = new Promise(resolve => server.close(resolve));
+      for (const socket of sockets) socket.destroy();
+      server.closeAllConnections(); return closed;
+    } };
 }
