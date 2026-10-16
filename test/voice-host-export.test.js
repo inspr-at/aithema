@@ -55,14 +55,14 @@ test('ensureAgent rejects omitted host names without touching Aithema agents', a
   }
 });
 
-test('start2 undefined options preserve host defaults', async t => {
+for (const value of [undefined, null]) test(`start2 ${value} options preserve host defaults`, async t => {
   const { createVoiceHost, START2_VOICE_OPENERS } = await import('../demo/start2-voice-host.js');
   const api = stubAgentApi(), storage = new SQLiteStorage();
   t.after(() => storage.close());
   const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://host.example.test',
     apiBaseUrl: api.endpoint, fetchImpl: api.fetchImpl, resolveSecret: () => 'fixture-secret', values: {}, log() {},
-    agentName: undefined, facadeSecretName: undefined, costConfig: undefined, qualifyBinding: undefined,
-    spokenOpeners: undefined, accountRef: undefined });
+    agentName: value, facadeSecretName: value, costConfig: value, qualifyBinding: value,
+    spokenOpeners: value, accountRef: value });
   t.after(() => host.close());
   assert.equal(host.disabledReason, null);
   assert.equal(api.agents[0].name, 'aithema-start2');

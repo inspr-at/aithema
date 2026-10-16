@@ -1,5 +1,12 @@
 import { posix } from 'node:path';
 
+// Composed voice coordinators/adapters are retained only in the source archive.
+const excluded = new Set(['packages/server/src/local-voice.js', 'packages/server/src/composed-voice.js',
+  // The unexported ElevenLabs component adapter remains a source-only proof.
+  'plugins/elevenlabs/src/components.js',
+  // AIT-202: the unexported core composition contracts remain a source-only proof.
+  'packages/core/src/voice-components.js']);
+
 const json = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 export function moduleFiles(files, pkg) {
   const folder = posix.dirname(pkg.path), prefix = folder + '/';
@@ -7,14 +14,12 @@ export function moduleFiles(files, pkg) {
   for (const [path, bytes] of files) {
     if (!path.startsWith(prefix)) continue;
     const local = path.slice(prefix.length);
-    if (folder === 'packages/server' && ['src/local-voice.js', 'src/composed-voice.js'].includes(local)) continue;
-    if (folder === 'packages/core' && local === 'src/voice-components.js') continue;
-    // The unexported ElevenLabs component adapter remains a source-only proof.
-    if (folder === 'plugins/elevenlabs' && local === 'src/components.js') continue;
+    if (excluded.has(path)) continue;
     let content = bytes;
     if (/\.(?:js|ts)$/u.test(local)) {
-      content = Buffer.from(bytes.toString().replace(/(\b(?:from\s*|import\(\s*))(['"])(\.{1,2}\/[^'"\n]+)\2/gu, (match, introducer, quote, specifier) => {
+      content = Buffer.from(bytes.toString().replace(/(\b(?:from\s*|import\s*(?:\(\s*)?))(['"`])(\.{1,2}\/[^'"`\n]+)\2/gu, (match, introducer, quote, specifier) => {
         const target = posix.normalize(posix.join(posix.dirname(path), specifier));
+        if (excluded.has(target)) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         if (target.startsWith(prefix)) return match;
         const metadataPath = target.replace(/\/src\/.+$/u, '/package.json');
         const targetBytes = files.get(metadataPath);
