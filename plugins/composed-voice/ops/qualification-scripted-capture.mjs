@@ -5,7 +5,7 @@ export function installScriptedCapture(clips) {
   // lands inside that playback; never anchor to user speech end or a WAV offset.
   const BARGE_IN_DELAY_MS = 800;
   const listeners = new Set(), sources = new Set();
-  let context, destination, observer, silence, buffers, started = false, barged = false, closed = false;
+  let context, destination, observer, silence, buffers, started = false, barged = false, closed = false, inputStopped = false;
   let pendingFirstAudioAt, failure, refusal;
   const terminal = (status, reason) => {
     if (failure || refusal) return;
@@ -28,7 +28,7 @@ export function installScriptedCapture(clips) {
       silence = context.createGain(); silence.gain.value = 0;
       observer.connect(silence); silence.connect(context.destination);
       observer.onaudioprocess = event => {
-        if (closed) return;
+        if (closed || inputStopped) return;
         const samples = event.inputBuffer.getChannelData(0), receivedAt = performance.now();
         const frame = Math.round((event.playbackTime - event.inputBuffer.duration) * context.sampleRate);
         // Same monotonic performance domain as both probes. Map this SOURCE's
@@ -57,7 +57,7 @@ export function installScriptedCapture(clips) {
     catch (error) { terminal('error', 'start-failed'); throw error; }
   };
   const firstAudio = firstAudioAt => {
-    if (barged || failure || refusal || !Number.isFinite(firstAudioAt)) return;
+    if (inputStopped || barged || failure || refusal || !Number.isFinite(firstAudioAt)) return;
     pendingFirstAudioAt = firstAudioAt;
     if (!started) return;
     const remaining = firstAudioAt + BARGE_IN_DELAY_MS - performance.now();
@@ -66,21 +66,28 @@ export function installScriptedCapture(clips) {
       play('bargeIn', context.currentTime + remaining / 1000); barged = true;
     } catch { terminal('error', 'start-failed'); }
   };
+  // Fence synchronously at the measurement outcome; AudioContext cleanup may
+  // await, but no remaining barge-in audio may reach the product meanwhile.
+  const stopInput = () => {
+    if (inputStopped) return;
+    inputStopped = true;
+    for (const source of sources) { source.stop(); source.disconnect(); }
+    sources.clear();
+    destination?.stream.getTracks().forEach(track => track.stop());
+  };
   window.qualificationScriptedCapture = Object.freeze({
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     startUtterance() {
-      if (started) return;
+      if (started || inputStopped) return;
       if (!context || closed) throw new Error('Scripted capture not ready');
       try { play('utterance', context.currentTime); started = true; }
       catch (error) { terminal('error', 'start-failed'); throw error; }
       firstAudio(pendingFirstAudioAt);
     },
-    firstAudio,
+    firstAudio, stopInput,
     diagnostics: () => ({ started, barged, failure, refusal }),
     async close() {
-      closed = true; listeners.clear();
-      for (const source of sources) { source.stop(); source.disconnect(); }
-      destination?.stream.getTracks().forEach(track => track.stop());
+      stopInput(); closed = true; listeners.clear();
       observer?.disconnect(); silence?.disconnect(); await context?.close();
     },
   });

@@ -680,3 +680,45 @@ for (const action of ['measurement-terminal', 'close']) test(`server ${action} f
   assert.deepEqual(await admit(attemptSpec('late-attempt')), { refused: 'sample-complete' });
   assert.equal(budget.snapshot().records.length, 0);
 });
+
+for (const dispatched of [false, true]) test(`measurement fence preserves an already ${dispatched ? 'dispatched' : 'reserved'} attempt`, async t => {
+  const { control, budget } = await controlFixture(t);
+  let admit;
+  const mount = createQualificationMount({ enabled: true, control, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+    authenticateRelay: () => 'owner', networkRelay: { handle() {} }, async createSample(ports) {
+      admit = ports.admit; return { grant: {}, result: new Promise(() => {}), async close() {} };
+    } });
+  t.after(() => mount.close());
+  const post = async input => {
+    const response = await mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+      headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': control.capability }, body: JSON.stringify(input) }));
+    assert.equal(response.status, 200); return response.json();
+  };
+  const { sampleId } = await post({ action: 'start', lane: 'candidate', runId: control.runId, item: { id: 'one' } });
+  await post({ action: 'poll', sampleId });
+  const spec = attemptSpec('racing-attempt'), pending = admit(spec);
+  const { event } = await post({ action: 'poll', sampleId });
+  const reserved = await budget.admit({ ...spec, runId: control.runId });
+  const { attemptId, claimId, maxMicro } = reserved.attempt;
+  if (!dispatched) await post({ action: 'measurement-terminal', sampleId });
+  await post({ action: 'ack', sampleId, id: event.id, value: { attemptId, claimId, maxMicro } });
+  const granted = await pending;
+  if (dispatched) {
+    const consuming = granted.attempt.consume();
+    const { event } = await post({ action: 'poll', sampleId });
+    await reserved.attempt.consume(); await post({ action: 'ack', sampleId, id: event.id }); await consuming;
+    await post({ action: 'measurement-terminal', sampleId });
+    const reporting = granted.report({ attemptId, outcome: 'uncertain' });
+    const { event: report } = await post({ action: 'poll', sampleId });
+    await reserved.report({ attemptId, outcome: 'uncertain' });
+    await post({ action: 'ack', sampleId, id: report.id }); await reporting;
+  } else assert.deepEqual(granted, { refused: 'sample-complete' });
+  assert.deepEqual(await admit(attemptSpec('late-attempt')), { refused: 'sample-complete' });
+  const { event: late } = await post({ action: 'poll', sampleId });
+  assert.equal(late.type, 'post-measurement');
+  await post({ action: 'close', sampleId });
+  const snapshot = budget.snapshot();
+  assert.equal(snapshot.records.length, 1); assert.equal(snapshot.exposureMicro, 100);
+  assert.equal(snapshot.records[0].state, dispatched ? 'settled' : 'reserved');
+  if (dispatched) assert.equal(snapshot.records[0].outcome, 'uncertain');
+});

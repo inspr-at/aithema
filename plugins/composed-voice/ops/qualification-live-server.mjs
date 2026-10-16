@@ -117,7 +117,7 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
     networkRelay,
     // Called by the host before acknowledging a consent/hold/erasure mutation.
     async revokeSession(sessionId) { if (active?.sessionId === sessionId) await active.close(); },
-    async createSample({ item, lane, runId, owner, signal, admit }) {
+    async createSample({ item, lane, runId, owner, signal, admit, measurementTerminal = () => false }) {
       if (active || starting) throw new PluginError('not-admitted');
       if (lane !== 'candidate') throw new PluginError('not-admitted', 'Baseline requires its production origin browser');
       if (!id(item?.id) || !id(item.sessionId) || !id(runId) ||
@@ -158,8 +158,13 @@ export function createQualificationServer({ relayOrigin, authenticateRelay, stor
           provider: part.plugin, model: part.model, operation: role === 'tts' ? 'speak' : 'stream',
           accountRef: part.accountRef, endpoint: part.endpoint, maxMicro, request, ...(retryOf ? { retryOf } : {}) };
         const granted = await admit(spec);
+        // The mount's terminal fence is an ordinary no-spend admission refusal.
+        if (granted.refused === 'sample-complete') throw new PluginError('not-admitted', 'Qualification sample complete');
         const row = { attemptId: spec.attemptId, consumed: false }; rows.push(row);
         const report = terminal => {
+          // A terminal measurement cannot release a reservation that raced its
+          // fence. Keep undispatched exposure for explicit OPS reconciliation.
+          if (!row.consumed && measurementTerminal()) return;
           if (row.reporting) throw new PluginError('already-claimed');
           const generation = role === 'reasoning' ? generationId(terminal.generationId) : null;
           const identity = role === 'reasoning' ? generation ? { generationId: generation } : null : terminal.identity ?? null;

@@ -53,7 +53,8 @@ export function createQualificationHost(options = {}) {
       // before launch/admission; candidate never opens or receives this file.
       const baselineAuth = lane === 'baseline' ? await loadBaselineAuth(options.binding?.baselineAuthFile) : undefined;
       running = true;
-      let browser, sampleId, polling;
+      let browser, sampleId, polling, measured = false;
+      const postMeasurement = [];
       const lifetime = new AbortController(), ready = Promise.withResolvers(), result = Promise.withResolvers();
       const processGroups = new Set(), deadlineAt = Date.now() + sampleTimeoutMs;
       const kill = () => { for (const group of processGroups) group.kill(); };
@@ -145,17 +146,30 @@ export function createQualificationHost(options = {}) {
         // on Node control requests; providers and Chrome receive neither.
         ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId, ...(sessionId ? { sessionId,
           expectedEntities: Array.isArray(item.expected) ? item.expected : [item.expected] } : {}) } }, lifetime.signal)));
+        await bounded(page.exposeFunction('qualificationMeasurementTerminal', async () => {
+          measured = true;
+          await post({ action: 'measurement-terminal', sampleId }, lifetime.signal);
+        }));
         polling = (async () => {
           try {
             while (!lifetime.signal.aborted) {
               const { event } = await post({ action: 'poll', sampleId }, lifetime.signal); if (!event) continue;
+              if (event.type === 'post-measurement') { postMeasurement.push({ kind: 'post-measurement' }); continue; }
               if (event.type === 'ready') { ready.resolve(event.grant); continue; }
-              if (event.type === 'failure') throw new Error(event.error);
+              if (event.type === 'failure') {
+                if (measured) { postMeasurement.push({ kind: 'post-measurement' }); continue; }
+                throw new Error(event.error);
+              }
               if (event.type === 'result') { result.resolve(event.result); continue; }
-              let value, error;
+              let value, error, refused;
               try {
                 if (event.type === 'admit') {
                   if (admissions.has(event.spec.attemptId)) throw new Error('Duplicate remote attempt');
+                  if (measured) {
+                    postMeasurement.push({ kind: 'post-measurement' });
+                    await post({ action: 'ack', sampleId, id: event.id, refused: 'sample-complete' }, lifetime.signal);
+                    continue;
+                  }
                   const admission = await admit({ ...event.spec, lane });
                   admissions.set(event.spec.attemptId, { admission, consumed: false, reported: false });
                   const { attemptId, claimId, maxMicro } = admission.attempt; value = { attemptId, claimId, maxMicro };
@@ -166,8 +180,9 @@ export function createQualificationHost(options = {}) {
                   else throw new Error('Unknown remote admission operation');
                 }
               } catch { error = true; }
-              await post({ action: 'ack', sampleId, id: event.id, value, error }, lifetime.signal);
-              if (error) throw new Error('Remote provider admission refused');
+              if (error && measured && event.type === 'admit') { refused = 'sample-complete'; postMeasurement.push({ kind: 'post-measurement' }); }
+              await post({ action: 'ack', sampleId, id: event.id, value, error, refused }, lifetime.signal);
+              if (error && !refused) throw new Error('Remote provider admission refused');
             }
           } catch (error) { ready.reject(error); result.reject(error); throw error; }
         })();
@@ -175,8 +190,9 @@ export function createQualificationHost(options = {}) {
         const grant = await bounded(ready.promise);
         const media = await bounded(page.evaluate(input => window.composedQualification.run(input), { grant, headers }));
         for (const event of media.trace) onTiming(event);
-        if (media.refusal) throw new IncompleteMediaEvidence(media.refusal);
+        if (media.refusal) { postMeasurement.forEach(onTiming); throw new IncompleteMediaEvidence(media.refusal); }
         const answer = await bounded(result.promise);
+        postMeasurement.forEach(onTiming);
         // Keep observed source/device timestamps unchanged in the probe.
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat, ttsConfig: answer.ttsConfig };
@@ -188,7 +204,7 @@ export function createQualificationHost(options = {}) {
             // Acknowledgement means OPS close() has stopped the dispatcher.
             // If it cannot be confirmed, retain exposure for explicit orphan recovery.
             await post({ action: 'close', sampleId });
-            for (const [attemptId, row] of admissions) if (!row.reported) await row.admission.report({
+            for (const [attemptId, row] of admissions) if (!row.reported && (row.consumed || !measured)) await row.admission.report({
               attemptId, outcome: row.consumed ? 'uncertain' : 'cancelled',
             });
           }

@@ -9,14 +9,33 @@ window.composedQualification = {
     const trace = [], done = Promise.withResolvers();
     done.promise.catch(() => {});
     const scripted = window.qualificationScriptedCapture;
-    let session, eventsTask, finished = false, firstAudioAt, bargeInAt, mediaFailure, stoppedAt, teardownAt = Infinity;
+    let session, eventsTask, closing, fencing, terminal = false, finished = false, firstAudioAt, bargeInAt, mediaFailure, stoppedAt, teardownAt = Infinity;
     const outputProbe = installQualificationOutputProbe(), output = [];
-    const fail = error => { mediaFailure ??= error; done.reject(error); };
+    const postMeasurement = () => {
+      if (trace.length < 100_000) trace.push({ kind: 'post-measurement' });
+    };
+    const fail = error => {
+      if (terminal) { postMeasurement(); return; }
+      mediaFailure ??= error; done.reject(error);
+    };
+    const closeSession = () => closing ??= session?.close();
+    const settle = result => {
+      if (terminal || mediaFailure) return;
+      terminal = true;
+      try {
+        scripted.stopInput();
+        // CDP carries the control capability only in Node. Start both fences in
+        // this callback, before yielding to another product event or user turn.
+        fencing = window.qualificationMeasurementTerminal(); fencing.catch(() => {});
+        closeSession()?.catch(() => {});
+        done.resolve(result);
+      } catch (error) { mediaFailure ??= error; done.reject(error); }
+    };
     const refuse = reason => {
       if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
         throw new Error('Unknown qualification media refusal');
       }
-      done.resolve({ refusal: reason });
+      settle({ refusal: reason });
     };
     const sourceStatus = () => {
       const status = scripted.diagnostics();
@@ -26,6 +45,7 @@ window.composedQualification = {
       return status;
     };
     const finishTiming = () => {
+      if (terminal || mediaFailure) return;
       try {
         const status = sourceStatus();
         if (status.refusal) return;
@@ -35,7 +55,7 @@ window.composedQualification = {
       } catch (error) { fail(error); }
     };
     const onTiming = event => {
-      if (finished) return;
+      if (finished || terminal || mediaFailure) return;
       try {
         if (trace.length >= 100_000) throw new Error('Timing evidence bound exceeded');
         trace.push(event);
@@ -55,13 +75,13 @@ window.composedQualification = {
         // Output and source callbacks can arrive out of order. Select by their
         // rendered/source timestamps, never by delivery order or stop request.
         const stop = outputProbe.stop(output, bargeInAt, teardownAt);
-        if (stop && stoppedAt === undefined) { stoppedAt = stop.stoppedAt; trace.push(stop); done.resolve({}); }
+        if (stop && stoppedAt === undefined) { stoppedAt = stop.stoppedAt; trace.push(stop); settle({}); }
       } catch (error) { fail(error); }
     };
     const player = createPCMPlayer({
       onTiming(event) { onTiming(event.kind === 'playback-stop' ? { ...event, kind: 'playback-stop-request' } : event); },
       observeOutput: source => outputProbe.tap(source, block => {
-        if (finished) return;
+        if (finished || terminal || mediaFailure) return;
         output.push({ at: block.at, timestamp: block.timestamp, rms: block.rms, voiced: block.voiced,
           contextTime: block.contextTime, durationMs: block.durationMs });
         onTiming({ kind: 'playback-rendered', at: block.at, rms: block.rms, voiced: block.voiced,
@@ -77,6 +97,7 @@ window.composedQualification = {
       scripted.startUtterance(); sourceStatus();
       eventsTask = (async () => {
         for await (const event of session.events) {
+          if (terminal) { postMeasurement(); continue; }
           if (event.type === 'ended' && event.reason === 'closed') finishTiming();
           else if (event.type === 'waiting' || event.type === 'ended') {
             // Only the normal end of an otherwise healthy sample is eligible
@@ -86,7 +107,6 @@ window.composedQualification = {
         }
       })().catch(fail);
       const result = await done.promise;
-      sourceStatus();
       if (mediaFailure) throw mediaFailure;
       return { trace, ...result };
     } catch (error) {
@@ -96,7 +116,7 @@ window.composedQualification = {
     } finally {
       finished = true; clearTimeout(timer); unsubscribe(); outputProbe.close();
       try {
-        await session?.close(); await eventsTask;
+        await fencing; await closeSession(); await eventsTask;
         if (mediaFailure) throw mediaFailure;
       }
       finally { try { await player.close(); } finally { await scripted.close(); } }

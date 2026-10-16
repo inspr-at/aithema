@@ -209,7 +209,8 @@ import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
 import { installQualificationOutputProbe } from '../ops/qualification-output-timing.js';
 import { pageFixture } from './qualification-page-fixture.js';
 
-async function probeFixture(scripted) {
+async function probeFixture(scripted, { onClose = () => {}, onTerminal = () => {} } = {}) {
+  if (scripted && !scripted.stopInput) scripted.stopInput = () => {};
   if (scripted && !scripted.diagnostics) scripted.diagnostics = () => ({ started: true, barged: false });
   const contexts = [], observers = []; let now = 0;
   class Element { attachShadow() { return {}; } }
@@ -238,7 +239,8 @@ async function probeFixture(scripted) {
   }
   class MediaStream {}
   class MediaElement { play() {} }
-  const runtime = { qualificationScriptedCapture: scripted, Element, MutationObserver, document: {}, AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
+  const runtime = { qualificationScriptedCapture: scripted, Element, MutationObserver, document: { querySelector: () => ({ shadowRoot: { querySelector: () => ({ click: onClose }) } }) },
+    qualificationMeasurementTerminal: async () => onTerminal(), AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
     navigator: { mediaDevices: { getUserMedia: async () => new MediaStream() } },
     location: { origin: binding.baselineOrigin, href: binding.baselineOrigin + '/' }, URL,
     performance: { now: () => now }, fetch: async () => ({}), setTimeout, clearTimeout,
@@ -574,12 +576,12 @@ for (const refused of [false, true]) test(`baseline terminal outcome fences inpu
     const scripted = { subscribe(fn) { capture = fn; }, startUtterance() {}, firstAudio() {
       if (refused) capture({ kind: 'capture-outcome', status: 'refused', reason: 'late-first-audio' });
     }, stopInput() { order.push('input-fence'); }, async close() {} };
-    const h = await probeFixture(scripted);
+    const h = await probeFixture(scripted, { onClose: () => order.push('session-close'), onTerminal: () => order.push('node-close') });
     await h.opener(); capture({ kind: 'capture', voiced: true, captureAt: 500, receivedAt: 600, durationMs: 64 });
     await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
     h.emit(h.audio, 1, .2); capture({ kind: 'capture', voiced: true, captureAt: 1900, receivedAt: 2000, durationMs: 64 });
     h.silence(h.audio, 2.1);
-    assert.equal(h.probe.complete(), true); assert.deepEqual(order, ['input-fence']);
+    assert.equal(h.probe.complete(), true); assert.deepEqual(order, ['input-fence', 'session-close', 'node-close']);
     for (const event of [{ type: 'waiting', reason: 'provider' }, { type: 'waiting', reason: 'not-admitted' },
       { type: 'ended', reason: 'closure-uncertain' }]) await h.final(event);
     const result = h.probe.result();
@@ -598,5 +600,5 @@ for (const reason of ['limit', 'provider']) test(`baseline waiting:${reason} bef
     try { await h.final({ type: 'waiting', reason }); assert.equal(h.probe.complete(), true); h.probe.result(); }
     finally { await h.probe.close(); }
   };
-  await assert.rejects(run()); await assertFailureDiagnostic(t, run, 'baseline');
+  await assert.rejects(run(), /Invalid production media evidence: media-waiting/); await assertFailureDiagnostic(t, run, 'baseline');
 });

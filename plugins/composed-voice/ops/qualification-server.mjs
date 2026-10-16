@@ -5,6 +5,8 @@ import { constants } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { qualificationRequestDigest, readPersistedQualificationSnapshot } from '../src/persisted-budget.js';
 
+const sampleComplete = Object.freeze({ refused: 'sample-complete' });
+
 const keyNames = Object.freeze(['ELEVENLABS_API_KEY', 'OPENROUTER_API_KEY']);
 
 /** Server-only, flag-only source of qualification credentials. Errors deliberately
@@ -144,9 +146,13 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
   function dispose(row) {
     if (!row) return;
     if (row.closing) return row.closing;
-    row.closed = true; clearTimeout(row.timer);
+    row.measured = true; row.closed = true; clearTimeout(row.timer);
     row.controller.abort();
-    for (const pending of row.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('Sample closed')); }
+    for (const pending of row.pending.values()) {
+      clearTimeout(pending.timer);
+      if (pending.type === 'admit') pending.resolve(sampleComplete);
+      else pending.reject(new Error('Sample closed'));
+    }
     row.pending.clear(); row.wake?.();
     row.closing = (async () => {
       await row.setup.promise;
@@ -176,8 +182,14 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
   async function start(row, input) {
     const reports = [];
     try {
-      row.sample = await createSample({ ...input, owner: row.owner, signal: row.controller.signal, async admit(spec) {
+      row.sample = await createSample({ ...input, owner: row.owner, signal: row.controller.signal,
+        measurementTerminal: () => row.measured, async admit(spec) {
+        if (row.measured || row.closed) {
+          if (!row.closed && row.queue.length < 128) publish(row, { type: 'post-measurement' });
+          return sampleComplete;
+        }
         const identity = await rpc(row, 'admit', { spec });
+        if (identity === sampleComplete || row.measured || row.closed) return sampleComplete;
         let reported = false;
         const report = terminal => {
           reported = true;
@@ -235,7 +247,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
           const snapshot = readPersistedQualificationSnapshot(control.budgetPath);
           if (snapshot.blocked || !snapshot.runs?.includes(control.runId)) return new Response(null, { status: 403 });
           if (active || !['candidate', 'baseline'].includes(input.lane) || !input.item) throw new Error('Invalid or concurrent sample');
-          const row = { id: randomUUID(), owner, queue: [], pending: new Map(), closed: false, polling: false,
+          const row = { id: randomUUID(), owner, queue: [], pending: new Map(), closed: false, measured: false, polling: false,
             lane: input.lane, admissions: new Map(), setup: Promise.withResolvers(), controller: new AbortController() };
           active = row; row.timer = setTimeout(() => void dispose(row)?.catch(() => {}), 120_000); row.timer.unref?.();
           void start(row, { item: input.item, lane: input.lane, runId: input.runId });
@@ -243,15 +255,18 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
         }
         const row = active;
         if (!row || row.closed || row.owner !== owner || input.sampleId !== row.id) return new Response(null, { status: 403 });
+        if (input.action === 'measurement-terminal') { row.measured = true; return json({ terminal: true }); }
         if (input.action === 'ack') {
           const pending = row.pending.get(input.id); if (!pending) return new Response(null, { status: 403 });
           let value;
-          if (!input.error) {
+          const refused = row.measured && pending.type === 'admit' && input.refused === 'sample-complete';
+          if (!input.error && !refused) {
             try { value = acknowledged(row, pending, input.value); }
             catch { return new Response(null, { status: 403 }); }
           }
           row.pending.delete(input.id); clearTimeout(pending.timer);
-          if (input.error) pending.reject(new Error('Admission refused')); else pending.resolve(value);
+          if (refused || row.measured && pending.type === 'admit') pending.resolve(sampleComplete);
+          else if (input.error) pending.reject(new Error('Admission refused')); else pending.resolve(value);
           return json({ acknowledged: true });
         }
         if (input.action === 'poll') {
