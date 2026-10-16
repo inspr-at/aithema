@@ -175,6 +175,7 @@ test('baseline launcher gets fresh profile and scripted capture, with no loopbac
   const page = new EventEmitter();
   const cdp = new EventEmitter(); cdp.send = async () => {};
   page.createCDPSession = async () => cdp;
+  page.exposeFunction = async () => {};
   page.evaluateOnNewDocument = async (...args) => evaluations.push(args.map(String));
   page.evaluate = async (...args) => evaluations.push(args.map(String));
   page.goto = async url => { assert.equal(url, binding.baselineOrigin + '/'); return { ok: () => false }; };
@@ -601,4 +602,10 @@ for (const reason of ['limit', 'provider']) test(`baseline waiting:${reason} bef
     finally { await h.probe.close(); }
   };
   await assert.rejects(run(), /Invalid production media evidence: media-waiting/); await assertFailureDiagnostic(t, run, 'baseline');
+});
+
+for (const state of ['waiting', 'failed']) test(`baseline production rail ${state} before measurement aborts`, async () => {
+  const h = await probeFixture();
+  try { h.mode(state); assert.equal(h.probe.complete(), true); assert.throws(() => h.probe.result(), /Invalid production media evidence: media-/); }
+  finally { await h.probe.close(); }
 });

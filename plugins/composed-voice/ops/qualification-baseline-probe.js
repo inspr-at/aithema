@@ -33,11 +33,17 @@ export function installBaselineProbe() {
   const nativeAttachShadow = Element.prototype.attachShadow;
   const watch = root => {
     const observer = new MutationObserver(records => {
-      if (!armed || measured || failure || speechStartAt !== undefined) return;
+      if (!armed || failure) return;
       for (const [index, record] of records.entries()) {
         if (record.attributeName !== 'data-state' || !record.target.matches('.audio-rail')) continue;
         const next = records.slice(index + 1).find(row => row.target === record.target && row.attributeName === 'data-state');
         const state = next ? next.oldValue : record.target.getAttribute('data-state');
+        if (['waiting', 'failed'].includes(state)) {
+          if (measured) emit({ kind: 'post-measurement' });
+          else failure ??= state === 'waiting' ? 'media-waiting' : 'media-ended';
+          continue;
+        }
+        if (measured || speechStartAt !== undefined) continue;
         if (state === 'speaking') { openerSpeaking = true; openerFinishedAt = openerDrainedAt = undefined; }
         else if (state === 'listening' && openerSpeaking) {
           openerSpeaking = false; openerFinishedAt = performance.now();

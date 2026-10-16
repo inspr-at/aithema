@@ -31,7 +31,7 @@ export async function assertFailureDiagnostic(t, runSample, lane = 'candidate', 
       if (input.lane === lane) await runSample(input);
       else [{ kind: 'capture', captureAt: 1, voiced: true, durationMs: 4 }, { kind: 'playback-start', firstAudioAt: 10 },
         { kind: 'capture', captureAt: 810, voiced: true, durationMs: 64 }, { kind: 'playback-stop', stoppedAt: 910 }].forEach(input.onTiming);
-      return { hypothesis: 'Wien', entities: [], ttsConfig: { model: 'fixture', voiceId: 'fixture', voiceSettings: fixtureVoiceSettings },
+      return { hypothesis: 'Wien', entities: [{ expected: 'Wien', actual: 'Wien' }], ttsConfig: { model: 'fixture', voiceId: 'fixture', voiceSettings: fixtureVoiceSettings },
         ttsPCM: new Uint8Array([0, 32]), ttsFormat: { encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 } };
     } };
   if (succeeds) {
