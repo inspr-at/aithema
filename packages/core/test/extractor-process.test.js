@@ -232,6 +232,11 @@ for (const mode of ['crash', 'signal', 'heap']) {
     // Date and the deadline timer so loaded child startup cannot consume the
     // production 10s budget. waitFor's real timer still catches missing events.
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+    const virtualTimers = [], scheduleVirtual = globalThis.setTimeout;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+      virtualTimers.push({ callback: callback.name, delay, stack: new Error().stack });
+      return scheduleVirtual(callback, delay, ...args);
+    });
     const plugin = createTextExtractor({ workerURL, limits: { maxHeapMb: 16 } });
     const events = [];
     const spawning = observed.spawned().then(({ child }) => {
@@ -240,7 +245,8 @@ for (const mode of ['crash', 'signal', 'heap']) {
       }
     });
     const result = await waitFor(plugin.extract(bytes(mode)), `${mode} result and child close`).catch(error => {
-      console.error('AIT-222 crash timeout state', { events, active: activeExtractorProcessCount(),
+      console.error('AIT-222 crash timeout state', { events, virtualTimers,
+        warnings: warnings.mock.calls.map(call => call.arguments), active: activeExtractorProcessCount(),
         queued: queuedExtractorProcessCount(), children: observed.children.map(({ child }) => ({
           pid: child.pid, killed: child.killed, exitCode: child.exitCode, signalCode: child.signalCode,
           connected: child.connected, closesGot: child._closesGot, closesNeeded: child._closesNeeded,

@@ -81,6 +81,7 @@ jobs:
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/release-evidence
       - name: AIT-222 temporary Linux crash diagnostics
+        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: node --test scripts/extractor-crash-stress.js
         env:
           AITHEMA_EXTRACTOR_STRESS_REPEATS: '100'
