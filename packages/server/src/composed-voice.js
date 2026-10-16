@@ -6,6 +6,12 @@ import { recoverableVoiceEnd } from '@inspr/aithema-core/voice-lifecycle';
 import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
 import { audioQueue, boundedEvents } from '../../../packages/core/src/voice-components.js';
 
+// Both TTS components cap one speak at 16,000,000 decoded PCM bytes. Reserve
+// that entire response (including the chunk held by the pacer), then drain it
+// before opening the next fragment's provider stream. No speaking-rate guess
+// is needed. A separate chunk ceiling bounds metadata for tiny provider chunks.
+const REPLY_AUDIO_BYTES = 16_000_000, REPLY_AUDIO_CHUNKS = 1024;
+
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');
   return maxDurationSeconds;
@@ -47,7 +53,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   if (!Number.isFinite(browserLivenessDeadlineAt) || Math.min(spendDeadlineAt, browserLivenessDeadlineAt) <= now()) throw new PluginError('deadline');
   let state = { ...createVoiceLifecycle(callId), epoch }, input = true, output = true, utterance,
     sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve();
-  const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), commits = new Map();
+  const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), playbacks = new Set(), commits = new Map();
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); };
   dispatch({ type: 'start' });
@@ -71,6 +77,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const track = (set, promise) => { set.add(promise); promise.finally(() => set.delete(promise)).catch(() => {}); return promise; };
   function silence(reason = 'interrupted') {
     playbackRevision++;
+    for (const playback of playbacks) playback.stop();
     // This effect is synchronous; neither remote acknowledgement nor accounting can delay silence.
     relay.silence({ ...stamp(), playbackRevision, reason });
     for (const job of speechJobs) job.controller.abort();
@@ -152,63 +159,114 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     }).finally(committed.resolve));
     return turn;
   }
-  async function speak(text, revision, turnSignal, replyId, pacing) {
+  function createPlayback(revision, turnSignal, replyId) {
+    const queue = audioQueue(REPLY_AUDIO_BYTES), controller = new AbortController();
+    const signal = AbortSignal.any([turnSignal, controller.signal]), opts = options(signal);
+    let bytes = 0, chunks = 0, drained, endAt, speaking = false, failure;
+    const valid = () => !signal.aborted && revision === playbackRevision && output && current();
+    const clear = () => { queue.clear(); bytes = 0; chunks = 0; drained?.resolve(); drained = undefined; };
+    signal.addEventListener('abort', clear, { once: true });
+    const playback = {
+      signal,
+      stop() { controller.abort(); clear(); },
+      beginSpeak() { speaking = false; },
+      enqueue(value) {
+        if (failure) throw failure;
+        if (!valid()) return;
+        if (bytes + value.byteLength > REPLY_AUDIO_BYTES || chunks >= REPLY_AUDIO_CHUNKS) throw new PluginError('limit', 'Reply audio queue full');
+        if (!bytes) drained = Promise.withResolvers();
+        bytes += value.byteLength; chunks++;
+        queue.push(Uint8Array.from(value));
+      },
+      async drain() { if (drained) await drained.promise; if (failure) throw failure; },
+      async finish() { queue.end(); await pacer; if (failure) throw failure; },
+    };
+    playbacks.add(playback);
+    const pacer = (async () => {
+      try {
+        for await (const chunk of boundedEvents(queue, opts)) {
+          for (let offset = 0; offset < chunk.byteLength; offset += pacedFrameBytes) {
+            const frame = chunk.subarray(offset, offset + pacedFrameBytes), durationMs = frame.byteLength / bytesPerSecond * 1000;
+            // This cursor spans every fragment; provider gaps earn no catch-up
+            // credit. Only the pacer waits: the provider reader only enqueues.
+            const frameEndAt = Math.max(endAt ?? now(), now()) + durationMs;
+            let delay;
+            while ((delay = frameEndAt - now() - leadMs) > 0) await playbackDelay(delay, opts);
+            if (!valid()) return;
+            endAt = Math.max(frameEndAt, now() + durationMs);
+            if (!speaking) { speaking = true; event({ type: 'speaking' }); }
+            await voiceOperation(opts, () => {
+              // The speaking event can synchronously trigger silence. Fence
+              // publication again inside the host callback.
+              if (valid()) return relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat,
+                sampleRateHz: outputAudioFormat.sampleRateHz, channels: outputAudioFormat.channels, bytes: frame });
+            });
+          }
+          if (!valid()) return;
+          bytes -= chunk.byteLength; chunks--;
+          if (!bytes) { drained?.resolve(); drained = undefined; }
+        }
+      } catch (error) { if (!signal.aborted) failure = error; }
+      finally {
+        playback.stop(); signal.removeEventListener('abort', clear); playbacks.delete(playback);
+      }
+    })();
+    if (!valid()) playback.stop();
+    return playback;
+  }
+  async function speak(text, revision, turnSignal, playback) {
     if (!text.trim() || revision !== playbackRevision || !output || !current()) return;
     const controller = new AbortController(), job = { controller }; speechJobs.add(job);
-    const signal = AbortSignal.any([turnSignal, controller.signal]);
+    const signal = AbortSignal.any([turnSignal, controller.signal, playback.signal]);
     try {
       await component('tts', { text, voice, format: outputFormat }, signal, async opts => {
-        let speaking = false;
+        playback.beginSpeak();
         for await (const bytes of boundedEvents(tts.speak({ text, voice, format: outputFormat }, opts), opts)) {
           if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength % sampleBytes || bytes.byteLength > 64_000) throw new PluginError('limit');
-          for (let offset = 0; offset < bytes.byteLength; offset += pacedFrameBytes) {
-            const frame = bytes.subarray(offset, offset + pacedFrameBytes), durationMs = frame.byteLength / bytesPerSecond * 1000;
-            // One cursor spans every fragment of this reply. Provider gaps do
-            // not earn catch-up credit; the first frame always fits L and is immediate.
-            const endAt = Math.max(pacing.endAt ?? now(), now()) + durationMs;
-            let delay;
-            while ((delay = endAt - now() - leadMs) > 0) await playbackDelay(delay, opts);
-            // Silence can arrive during the wait. Fence again before publication.
-            if (signal.aborted || revision !== playbackRevision || !output || !current()) return;
-            pacing.endAt = Math.max(endAt, now() + durationMs);
-            if (!speaking) { speaking = true; event({ type: 'speaking' }); }
-            await voiceOperation(opts, () => relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat, sampleRateHz: outputAudioFormat.sampleRateHz, channels: outputAudioFormat.channels, bytes: frame }));
-          }
+          playback.enqueue(bytes);
         }
       });
     } catch (error) { if (!signal.aborted) throw error; }
     finally { speechJobs.delete(job); }
   }
   async function reply(envelope, revision, signal) {
-    let pending = '', full = '', replyId, complete = false;
-    const pacing = {};
-    for await (const item of boundedEvents(replyExecutor.execute(envelope, options(signal)), options(signal))) {
-      if (complete) throw new PluginError('invalid-output');
-      if (item.type === 'operation') {
-        if (replyId || typeof item.replyId !== 'string') throw new PluginError('invalid-output');
-        replyId = item.replyId;
-      } else if (item.type === 'delta' && replyId && typeof item.text === 'string') {
-        full += item.text; pending += item.text;
-        if (full.length > maxTextCharacters) throw new PluginError('limit');
-        while (pending.length >= fragmentCharacters || /[.!?]\s/u.test(pending)) {
-          let end = Math.min(fragmentCharacters, pending.length);
-          const boundary = /[.!?]\s/u.exec(pending.slice(0, end));
-          if (boundary) end = boundary.index + 2;
-          if (/[\uD800-\uDBFF]/u.test(pending[end - 1])) end--;
-          const fragment = pending.slice(0, end); pending = pending.slice(end);
-          await speak(fragment, revision, signal, replyId, pacing);
-        }
-      } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
-        complete = true;
-        // Publication belongs to admitted reasoning even if playback was interrupted.
-        if (!signal.aborted) {
-          appendHistory('assistant', full);
-          event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
-        }
-        await speak(pending, revision, signal, replyId, pacing);
-      } else throw new PluginError('invalid-output');
+    let pending = '', full = '', replyId, complete = false, playback;
+    try {
+      for await (const item of boundedEvents(replyExecutor.execute(envelope, options(signal)), options(signal))) {
+        if (complete) throw new PluginError('invalid-output');
+        if (item.type === 'operation') {
+          if (replyId || typeof item.replyId !== 'string') throw new PluginError('invalid-output');
+          replyId = item.replyId;
+          playback = createPlayback(revision, signal, replyId);
+        } else if (item.type === 'delta' && replyId && typeof item.text === 'string') {
+          full += item.text; pending += item.text;
+          if (full.length > maxTextCharacters) throw new PluginError('limit');
+          while (pending.length >= fragmentCharacters || /[.!?]\s/u.test(pending)) {
+            let end = Math.min(fragmentCharacters, pending.length);
+            const boundary = /[.!?]\s/u.exec(pending.slice(0, end));
+            if (boundary) end = boundary.index + 2;
+            if (/[\uD800-\uDBFF]/u.test(pending[end - 1])) end--;
+            const fragment = pending.slice(0, end); pending = pending.slice(end);
+            await speak(fragment, revision, signal, playback);
+            // The provider has reached its terminal and finished accounting before
+            // this wait. Never keep a live socket unread while playback drains.
+            await playback.drain();
+          }
+        } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
+          complete = true;
+          // Publication belongs to admitted reasoning even if playback was interrupted.
+          if (!signal.aborted) {
+            appendHistory('assistant', full);
+            event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
+          }
+          await speak(pending, revision, signal, playback);
+        } else throw new PluginError('invalid-output');
+      }
+      if (!complete) throw new PluginError('invalid-output');
+      await playback.finish();
+    } finally {
+      if (playback) { playback.stop(); await playback.finish().catch(() => {}); }
     }
-    if (!complete) throw new PluginError('invalid-output');
   }
   function receiveAudio(bytes, receipt = {}) {
     if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength % 2) return Promise.reject(new TypeError('PCM16 audio required'));

@@ -7,9 +7,10 @@ export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 1
 // Speech API PCM is float32 LE. It must never be sent to a PCM16 player.
 export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_f32le', sampleRateHz: 24000, channels: 1 });
 const STT_MODEL = 'voxtral-mini-transcribe-realtime-2602', TTS_MODEL = 'voxtral-mini-tts-2603';
-// Use the same bounded provider-message allowance as ElevenLabs: its OPS
-// 2026-10-16 probe (5d818c38) returned 102,540 B for one short sentence.
-// 1 MiB gives ~10x headroom; the synthesis total remains 16,000,000 B.
+// Voxtral TTS uses injected fetch/SSE, not the qualification WebSocket connect.
+// Keep a 1 MiB decoded event ceiling and bounded SSE assembly independently
+// of HTTP read coalescing; the synthesis total remains 16,000,000 B.
+// See composed-voice/README.md for all transport and backlog bounds.
 const TTS_MESSAGE_BYTES = 1_048_576;
 const TTS_WIRE_CHARACTERS = 4 * Math.ceil(TTS_MESSAGE_BYTES / 3) + 16_384; // base64 + SSE/JSON metadata
 export const manifest = deepFreeze({ id: 'voxtral', version: '0.0.0', apiVersion: '^1.0.0',

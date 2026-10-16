@@ -11,8 +11,11 @@ export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 1
 export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
 const STT_MODEL = 'scribe_v2_realtime', TTS_MODEL = 'eleven_flash_v2_5';
 // OPS 2026-10-16 (5d818c38): one short sentence arrived as 102,540 B
-// after flush:true. Allow up to 1 MiB per provider message (~10x that
-// observation), independently of the 16,000,000 B synthesis ceiling.
+// after flush:true. The injected connect port also supports transports above
+// qualification-live-transport's 256,000 B wire limit; retain a 1 MiB decoded
+// ceiling for those (and their fixtures), separate from 16,000,000 B per speak.
+// Qualification can carry <192,000 B decoded (base64 plus JSON); its tighter
+// wire/backlog limits apply first. See composed-voice/README.md transport table.
 const TTS_MESSAGE_BYTES = 1_048_576;
 const TTS_WIRE_CHARACTERS = 4 * Math.ceil(TTS_MESSAGE_BYTES / 3) + 16_384; // base64 + bounded JSON metadata
 // Realtime commit guide: transcript processing starts after the first 2 s of audio.

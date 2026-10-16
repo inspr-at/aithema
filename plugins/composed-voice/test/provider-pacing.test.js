@@ -41,7 +41,7 @@ function boundedSocket(signal) {
   };
 }
 
-async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240) } = {}) {
+async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), leaseMs = 600_000, spendMs = 600_000 } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const published = [], events = [], silences = [], reports = [], sockets = [];
   const release = Promise.withResolvers();
@@ -50,7 +50,7 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240) } = {}
     connect: ({ signal }) => { const socket = boundedSocket(signal); sockets.push(socket); return socket; } });
   let turns = 0;
   const coordinator = createComposedVoiceCoordinator({ sessionId: 'provider-pacing', callId: 'provider-pacing', tts,
-    spendDeadlineAt: Date.now() + 600_000, browserLivenessDeadlineAt: Date.now() + 600_000,
+    spendDeadlineAt: Date.now() + spendMs, browserLivenessDeadlineAt: Date.now() + leaseMs,
     outputFormat: 'pcm_s16le', outputAudioFormat: { encoding: 'pcm_s16le', sampleRateHz: 24_000, channels: 1 },
     stt: { async *stream({ audio }) { for await (const _ of audio) { /* drain ingress */ } yield { text: ++turns === 1 ? 'Ja' : '', final: true }; } },
     replyExecutor: { async *execute() {
@@ -119,7 +119,8 @@ test('AIT-258: server reply queue also bounds tiny-chunk metadata', async t => {
 for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', 'lease-expired', 'spend-deadline']) {
   test(`AIT-258: ${action} drops a full reply queue, aborts TTS and settles without playback time`, async t => {
     const filled = Promise.withResolvers(); let aborted = false, finished = false;
-    const h = await setup(t, { blockRelay: true, tts: { async *speak(_, { signal }) {
+    const h = await setup(t, { blockRelay: true, leaseMs: action === 'spend-deadline' ? 900_000 : 600_000,
+      spendMs: action === 'lease-expired' ? 900_000 : 600_000, tts: { async *speak(_, { signal }) {
       signal.addEventListener('abort', () => { aborted = true; }, { once: true });
       try {
         for (let i = 0; i < 250; i++) yield Buffer.alloc(64_000);
@@ -131,7 +132,7 @@ for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', '
     if (action === 'barge-in') pending = h.coordinator.receiveAudio(speech());
     else if (action === 'output-off') pending = h.coordinator.setOutput(false);
     else if (action === 'lease-expired') { t.mock.timers.tick(600_000); pending = Promise.resolve(); }
-    else if (action === 'spend-deadline') { await h.coordinator.heartbeat(); t.mock.timers.tick(600_000); pending = Promise.resolve(); }
+    else if (action === 'spend-deadline') { t.mock.timers.tick(600_000); pending = Promise.resolve(); }
     else pending = h.coordinator[action]();
     assert.ok(h.silences.length > silent, 'silence is synchronous'); assert.equal(aborted, true, 'TTS is aborted synchronously');
     await pending;
@@ -139,7 +140,10 @@ for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', '
     if (action === 'barge-in') await h.coordinator.receiveAudio(Buffer.alloc(16_000));
     await h.coordinator.idle(); assert.equal(finished, true);
     assert.equal(h.published.length, count, 'no frame after the revision fence');
-    assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'admitted reasoning still completes');
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 1, 'interrupted invocation finishes exactly once');
+    if (['barge-in', 'interrupt', 'output-off'].includes(action)) {
+      assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'admitted reasoning still completes');
+    }
     await h.coordinator.close(); t.mock.timers.tick(1_000_000); await tick();
     assert.equal(h.published.length, count, 'terminal cleanup leaves no playback timer');
   });
