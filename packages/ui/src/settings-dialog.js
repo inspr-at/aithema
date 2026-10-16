@@ -9,6 +9,33 @@ import { OperatorSettings } from './operator-settings.js';
 import { icon } from './icons.js';
 
 const SAVE_MESSAGES = ['autosave', 'saving', 'saved', 'failed', 'closePending'];
+// Host summaries supplement the manifest mapping without inventing a rating or rate.
+export function hostSettingsGauges(input) {
+  const gauges = settingsGauges(input);
+  if (input.preset === 'device') return gauges;
+  const { model, voice, visuals } = input, selected = [model, voice, visuals].filter(Boolean);
+  if (model?.facts?.hostQualified === true && ['unverified', 'qualified'].includes(gauges.quality.state)) {
+    gauges.quality = { state: 'hostQualified', fill: 0 };
+  }
+  const reviewed = facts => facts?.hostPriceReviewed === true || facts?.cost &&
+    Number.isFinite(facts.cost.inputMicro) && Number.isFinite(facts.cost.outputMicro) &&
+    typeof facts.cost.reviewedAt === 'string' && Number.isFinite(Date.parse(facts.cost.reviewedAt));
+  if (gauges.cost.state === 'unverified' && selected.every(option => option.facts?.free || reviewed(option.facts))) {
+    gauges.cost = { state: 'hostPriceReviewed', fill: 0 };
+  }
+  const hasCountries = option => Array.isArray(option.facts?.hostCountries) && option.facts.hostCountries.length > 0;
+  if (selected.some(hasCountries)) {
+    // Keep the least private selected lane; one approved model cannot qualify voice/visuals.
+    const rank = ['unverified', 'declared', 'restricted', 'eu', 'device'];
+    const privacy = selected.map(option => hasCountries(option)
+      ? { state: 'restricted', fill: 55, enforced: true, countries: option.facts.hostCountries }
+      : settingsGauges({ preset: input.preset, info: input.info, model: option }).privacy)
+      .reduce((a, b) => rank.indexOf(a.state) <= rank.indexOf(b.state) ? a : b);
+    gauges.privacy = { ...privacy, countries: privacy.state === 'restricted'
+      ? [...new Set(selected.flatMap(option => option.facts?.hostCountries ?? input.info?.policy?.countries ?? []))] : privacy.countries };
+  }
+  return gauges;
+}
 const helpMeasurements = copy => {
   const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => featureConsentText(copy, feature))
     .reduce((longest, text) => text.length > longest.length ? text : longest, '');
@@ -638,7 +665,7 @@ export class SettingsDialog {
     this.#renderSelect('visuals', optional('visuals', device ? [] : info?.visuals ?? [], 'visualsOff', c.visualsOff, 'visuals'), draft.visuals ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });
     const voiceOption = info?.voices?.find(o => o.id === draft.voice) ?? null, visualsOption = info?.visuals?.find(o => o.id === draft.visuals) ?? null;
-    const gauges = settingsGauges({ preset: draft.processingPreset, info: info ?? {}, model: option, effort: draft.effort,
+    const gauges = hostSettingsGauges({ preset: draft.processingPreset, info: info ?? {}, model: option, effort: draft.effort,
       voice: draft.voice === SETTINGS_OFF ? null : voiceOption, visuals: draft.visuals === SETTINGS_OFF ? null : visualsOption });
     for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind]);
     const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : this.#pendingPreset ? { text: c.loading } : null);

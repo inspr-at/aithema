@@ -10,6 +10,11 @@ export function modelPrice(prices, model) {
   return Object.freeze({ prompt: price.prompt, completion: price.completion });
 }
 
+/** Public summary only: the operator has a valid price for this exact model. */
+export function modelPriceReviewed(prices, model) {
+  try { modelPrice(prices, model); return true; } catch { return false; }
+}
+
 // Evaluate the configured decimal rates exactly, including JSON exponent notation.
 // Integer arithmetic prevents a floating-point round-down at a microdollar boundary.
 function decimal(value) {

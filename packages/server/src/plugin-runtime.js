@@ -345,16 +345,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       return await Promise.race([evaluate(session, preset, feature, { ...options, signal: scope.signal, deadlineAt: now() + healthMs }), expired]);
     } finally { scope.signal.removeEventListener('abort', abort); scope.dispose(); }
   }
-  // Public facts only: ids, labels, manifest technical facts and whether the host
-  // charges nothing. Endpoints, accounts, secrets, rates and legal terms stay here.
-  function facts(raw, option = {}) {
+  // Public facts only: ids, labels, manifest technical facts and host summaries.
+  // Endpoints, accounts, secrets, rates and legal terms stay here.
+  function facts(raw, preset, option = {}) {
     const plugin = raw && registry.get(raw.plugin), manifest = plugin?.manifest;
     const model = manifest?.models.find(m => m.id === raw.model) ?? manifest?.models.find(m => m.id === '*');
+    const config = presets[preset], bindings = option.bindings ? Object.values(option.bindings).filter(Boolean) : [raw];
+    // Reuse admission's full evidence/legal verdict at the current host time.
+    const hostQualified = bindings.length > 0 && bindings.every(binding => config?.plugins?.includes(binding?.plugin) &&
+      bindingReason({ binding, plugin: registry.get(binding.plugin), preset, policy: config.policy, now: now() }) === null);
     return { vendor: manifest?.vendor.name ?? null, plugin: raw?.plugin ?? null, model: raw?.model ?? null,
       qualification: model?.qualification ?? 'unverified', processingLocations: [...(model?.processingLocations ?? ['unverified'])],
       streaming: model?.streaming ?? false, structured: model?.structured ?? false, germanQuality: model?.germanQuality ?? 'unverified',
       efforts: [...(model?.efforts ?? [])], operations: [...(model?.operations ?? [])], formats: [...(model?.formats ?? [])],
       cost: model ? structuredClone(model.cost) : null, free: free(raw),
+      ...(hostQualified ? { hostQualified: true, hostCountries: [...new Set(bindings.flatMap(b => b.legal.countries))],
+        hostTraining: bindings.some(b => b.legal.training),
+        hostPriceReviewed: bindings.every(b => registry.get(b.plugin).priceReviewed?.(b.model) === true) } : {}),
       ...(manifest?.liveVoice ? { capabilities: structuredClone(manifest.liveVoice.capabilities), reasoning: manifest.liveVoice.reasoning } : {}),
       ...(option.quality ? { quality: structuredClone(option.quality) } : {}) };
   }
@@ -587,8 +594,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const verdict = async (feature, raw) => raw ? (await boundedEvaluate(probe, preset, feature, { raw })).reason ?? null : 'not configured';
         const models = await Promise.all(choices.models.map(async option => {
           const reaction = option.bindings.reaction, understanding = option.bindings.understanding, raw = reaction ?? understanding;
-          const f = facts(raw, option), effort = option.efforts ? option.effort : null;
-          const supported = [reaction, understanding].filter(Boolean).map(b => facts(b).efforts);
+          const f = facts(raw, preset, option), effort = option.efforts ? option.effort : null;
+          const supported = [reaction, understanding].filter(Boolean).map(b => facts(b, preset).efforts);
           const withEffort = b => b && effort ? { ...b, effort } : b;
           const [textReason, analysisReason] = await Promise.all([verdict('text', withEffort(reaction)), verdict('analysis', withEffort(understanding))]);
           return { id: option.id, label: label(option, raw), configured: Boolean(raw),
@@ -598,7 +605,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const optional = (list, feature) => Promise.all(list.map(async option => {
           const reason = await verdict(option.kind ?? feature, option.binding);
           return { id: option.id, label: label(option, option.binding), ...(option.kind ? { kind: option.kind } : {}), configured: Boolean(option.binding),
-            facts: facts(option.binding), status: status(reason), reason };
+            facts: facts(option.binding, preset), status: status(reason), reason };
         }));
         const [voices, visuals, base] = await Promise.all([optional(choices.voices, 'voice'), optional(choices.visuals, 'images'),
           boundedEvaluate({ ...probe, settings: {} }, preset, 'text')]);
