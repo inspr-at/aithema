@@ -1,4 +1,43 @@
 {
-  "seconds": 100,
-  "evidence": "AIT-199 latest max 86.949s, CI 38770896962-1; historical floor 100s"
+  "seconds": 85,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "b454fd71fa6ca9927ebc02cce384464020b3eac8b36eef86a6544c6bd5e07d44",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:43.317Z",
+        "tests": [
+          {
+            "name": "AIT-140 glass orb and reveal evidence: de, light/dark, 1440/1024/390",
+            "seconds": 31.170040594
+          },
+          {
+            "name": "AIT-140 glass orb and reveal evidence: en, light/dark, 1440/1024/390",
+            "seconds": 31.27391767
+          },
+          {
+            "name": "AIT-140: early leave holds the circle; live exit colour samples every 50ms",
+            "seconds": 19.825186981999998
+          },
+          {
+            "name": "AIT-140: monotonic RGB checks reject excursions with equal endpoints",
+            "seconds": 0.00209308
+          },
+          {
+            "name": "AIT-140: real keyboard navigation, reduced-motion preference, hidden tab and existing component",
+            "seconds": 2.057858069
+          },
+          {
+            "name": "AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect",
+            "seconds": 0.6705298209999999
+          }
+        ]
+      }
+    ]
+  }
 }

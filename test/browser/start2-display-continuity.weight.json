@@ -1,4 +1,27 @@
 {
-  "seconds": 60,
-  "evidence": "AIT-199 latest max 40.700s, CI 38774634960-1; historical floor 60s"
+  "seconds": 40.414,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "f1a068ab80e3e82833cc43a7f9b53d7603ef0eb0c42415fbf4446857b7858c3f",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:43.317Z",
+        "tests": [
+          {
+            "name": "AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence",
+            "seconds": 38.219996845000004
+          },
+          {
+            "name": "AIT-177: continuity baseline awaits the persisted greeting and workspace entry",
+            "seconds": 2.1938883110000003
+          }
+        ]
+      }
+    ]
+  }
 }

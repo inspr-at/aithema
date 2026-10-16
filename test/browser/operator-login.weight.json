@@ -1,4 +1,27 @@
 {
-  "seconds": 80,
-  "evidence": "AIT-223 expanded matrix: CI 38840992859-1, 62.878s rounded up + 10s"
+  "seconds": 41.232,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "71fe1d34d4fa739c5f65479d3ec6479cde0a1575018af8873a758d32b5cd4e2d",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T14:01:17.791Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 28.276383609
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 12.954973378
+          }
+        ]
+      }
+    ]
+  }
 }

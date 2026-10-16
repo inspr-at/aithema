@@ -1,4 +1,27 @@
 {
-  "seconds": 80,
-  "evidence": "AIT-229 round 2, optimized workload at 39a1a2db7320bd3937793a80e8249d340185db07: successful CI browser (5/6), https://github.com/inspr-at/aithema/actions/runs/38902208038/job/116977074168 . Both successful top-level question-card tests total 61.432248566s (59.081557409s AIT-225 + 2.350691157s AIT-229); round up to 70s + 10s margin. Replaces the 130s weight of the old 110.180694596s workload: evidence-only captures and the exhaustive keyboard-height sweep run separately; CI retains all 20 width-specific geometry scenes, representative heights around the 620px compact breakpoint (two resizes and 24 frame assertions per height), and same-page phone/desktop no-drafts/with-drafts/fold/capability-removal probes in DE/EN. Existing UI unit regressions retain HTML/image state, cached drafts and late canvas loads. Six-shard total 2480s; bins 420/420/420/410/400/410s."
+  "seconds": 63.006,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "f0a19c026c69a10c7b4d61fd576bb4e0b9140e4f3b6e6cd32c5a4236216ff88d",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:41.549Z",
+        "tests": [
+          {
+            "name": "AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN; transcript clearance, keyboard, voice and zero target movement",
+            "seconds": 60.301910081
+          },
+          {
+            "name": "AIT-229: no-drafts hosts retain transcript; configured hosts can fold; capability removal restores transcript",
+            "seconds": 2.7039447500000002
+          }
+        ]
+      }
+    ]
+  }
 }

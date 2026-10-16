@@ -1,4 +1,23 @@
 {
-  "seconds": 20,
-  "evidence": "AIT-160 mbp2606 2d9ee5ada7-81358: 0.708s; rounded up + 10s margin"
+  "seconds": 1.594,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "4860c68b9020560a8437a6118a731b7a101961d5d1c3637b9428896f2407c8b3",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:42.008Z",
+        "tests": [
+          {
+            "name": "AIT-160: fake-device AudioWorklet PCM, authenticated relay, physical player, holds and recovery",
+            "seconds": 1.593100232
+          }
+        ]
+      }
+    ]
+  }
 }

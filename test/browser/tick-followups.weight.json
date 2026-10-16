@@ -1,4 +1,43 @@
 {
-  "seconds": 90,
-  "evidence": "AIT-199 latest max 76.289s, CI 38732580354-1; historical floor 90s"
+  "seconds": 108.584,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "49765700ee71845480a7b3686ec4ab3b9cf6f85bdd9bafd98c6f6be99ecd588f",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:41.914Z",
+        "tests": [
+          {
+            "name": "AIT-186 F1: phone header controls never overlap; DE/EN, L/D",
+            "seconds": 31.653098933000003
+          },
+          {
+            "name": "AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px shift",
+            "seconds": 24.959292739000002
+          },
+          {
+            "name": "AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic",
+            "seconds": 14.053519410000002
+          },
+          {
+            "name": "AIT-186 F5: voice-failure popover has readable words and measured viewport width",
+            "seconds": 14.777911904
+          },
+          {
+            "name": "AIT-186 F8: purpose pause keeps Connected with the real open event stream",
+            "seconds": 13.515330892
+          },
+          {
+            "name": "AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpose pause, 390/1440 L/D DE/EN",
+            "seconds": 9.624364742
+          }
+        ]
+      }
+    ]
+  }
 }

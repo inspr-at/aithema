@@ -1,4 +1,31 @@
 {
-  "seconds": 130,
-  "evidence": "AIT-199 latest max 99.923s, CI 38732580354-1; historical floor 130s"
+  "seconds": 87.896,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "0f30a6a95b4030a8d871a107ad601e765b43a8ccf79e246b4789085cd526b5ef",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:42.008Z",
+        "tests": [
+          {
+            "name": "AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift",
+            "seconds": 55.009549985999996
+          },
+          {
+            "name": "AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled",
+            "seconds": 3.057864048
+          },
+          {
+            "name": "AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 29.827865455999998
+          }
+        ]
+      }
+    ]
+  }
 }

@@ -1,4 +1,27 @@
 {
-  "seconds": 80,
-  "evidence": "AIT-199 latest max 62.782s, CI 38770896962-1; historical floor 80s"
+  "seconds": 33.512,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "cae2f76a4e676fe1848b3c7705f0810fc73cb3c954dcbd7f0a172391eb1dd387",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:41.549Z",
+        "tests": [
+          {
+            "name": "AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow, precision, DE/EN light/dark with rotating widths (full evidence matrix)",
+            "seconds": 32.798917066
+          },
+          {
+            "name": "AIT-169 independent edits survive a save in another section, then each section can save with the new revision",
+            "seconds": 0.7129551780000001
+          }
+        ]
+      }
+    ]
+  }
 }

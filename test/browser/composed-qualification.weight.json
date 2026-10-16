@@ -1,4 +1,31 @@
 {
-  "seconds": 210,
-  "evidence": "AIT-160 round 4: mbp2606 a07f31fca9-51695, 2026-10-16, complete touched browser file green: 11/11 in 196.748s (CLI/probes 52.052s; production Web Audio + WebRTC 143.924s; CDP checks 0.671s). All six valid variants include the required 20s corpus prefix; both overlap refusals pass. Rounded up with margin to 210s."
+  "seconds": 149.074,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "abdae818709caf0d92cf6a0af3d0f0b2c88aae4e73d36a34ffba3c4e9962ba8f",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:46.515Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.389405333
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 2.224402811
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 144.459945323
+          }
+        ]
+      }
+    ]
+  }
 }

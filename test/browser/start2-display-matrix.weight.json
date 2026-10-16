@@ -1,4 +1,23 @@
 {
-  "seconds": 70,
-  "evidence": "AIT-199 latest max 52.528s, CI 38773142800-1; historical floor 70s"
+  "seconds": 52.24,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "8f6dc38e762c32160816a640fd2f99b1a5484d1076ff48564e8849ab5507f92b",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:46.515Z",
+        "tests": [
+          {
+            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
+            "seconds": 52.239848288000005
+          }
+        ]
+      }
+    ]
+  }
 }

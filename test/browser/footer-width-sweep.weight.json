@@ -1,4 +1,23 @@
 {
-  "seconds": 30,
-  "evidence": "AIT-199 latest max 13.022s, CI 38732580354-1; historical floor 30s"
+  "seconds": 9.094,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "24412af7fe2e781e118afde8adfed4abfdee8022ac3c1185436726a22059dfd5",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:42.008Z",
+        "tests": [
+          {
+            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "seconds": 9.093761234
+          }
+        ]
+      }
+    ]
+  }
 }

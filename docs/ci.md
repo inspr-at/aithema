@@ -136,3 +136,53 @@ merge-queue and module/CI-environment tests passed, including missing, invalid
 and orphaned weight guards. Algorithm fixtures remain self-contained; the
 real-plan test enforces the live ceiling. This records migration identity, not
 a permanent constraint on future test additions or measured weight refreshes.
+
+
+## AIT-251 measurement and coverage evidence
+
+Profiling started from `5d818c38`, with the weight table and the last three green
+main runs: [38903749704](https://github.com/inspr-at/aithema/actions/runs/38903749704),
+[38900650292](https://github.com/inspr-at/aithema/actions/runs/38900650292) and
+[38898587783](https://github.com/inspr-at/aithema/actions/runs/38898587783).
+The measured p95/maxima of those short series selected the five files below.
+The comparable before/after table uses the instrumented unchanged-workload
+[baseline 38908910516](https://github.com/inspr-at/aithema/actions/runs/38908910516)
+and the first fully green optimized run
+[38911873685](https://github.com/inspr-at/aithema/actions/runs/38911873685), both
+on GitHub's Linux runners. Values sum top-level test durations, in seconds.
+
+| Browser file | Before | After | Cause addressed |
+| --- | ---: | ---: | --- |
+| `pause-phone.test.js` | 203.641 | 170.348 | Reuse Chrome across compatible fixtures; 16ms real PCM replay replaces half a second of silence in each scene. |
+| `upload-capacity.test.js` | 172.315 | 33.115 | Control only upload backoff timers; fence real extraction batches; hold the pending response while measuring the toast. |
+| `composed-qualification.test.js` | 149.070 | 149.074 | Reuse Chrome for the six compatible valid cases; keep all six 20s media prefixes and both overlap refusals. Runtime is effectively unchanged. |
+| `consent-lines.test.js` | 127.683 | 79.242 | Reuse Chrome, retaining fresh fixture pages and storage isolation. |
+| `start2-display.test.js` | 99.330 | 94.294 | Wait for rendered frames and finite animations instead of fixed 120ms sleeps. |
+| **Total** | **752.039** | **526.073** | **225.966s of measured work removed at the cause.** |
+
+This measured saving is separate from replacing padded planning weights. The
+original plan was **2500s**, with bins `410 / 420 / 420 / 420 / 410 / 420`.
+The first generated p95 plan was **1746.395s**, with bins
+`291.594 / 292.871 / 291.961 / 290.607 / 289.225 / 290.137`.
+The five target files' original planning weights alone fell from **810s** to
+**526.073s** (283.927s), while the measured comparison above independently
+clears 200s. The updater also raises underweighted files when CI measures them
+slower; for example language-first-paint rose from 50s to 109.563s.
+
+All **655 original assertion calls** across the five files remain, and four
+checks were added to ensure the controlled upload clock sees the production
+5s/10s retry delays. No width, language, theme, state, top-level test or nested
+scenario was removed. The real backoff timing, Retry-After, cancellation and
+no-early-POST guards still execute in `packages/ui/test/uploads.test.js` in the
+required unit suite. The browser fixtures still test real 11MiB files and
+extractors, retained-file identity, exact attempt counts, pause/resume,
+keyboard controls, accessibility trees, painted underlines and zero movement.
+The final remote timing/upload verification passed **59/59**; upload viewport
+evidence includes the settled phone toast and retry states, with blur and
+pinned fonts. All five changed browser files were exercised on mbp2606, one
+suite at a time, starting below load 10. Full browser validation is PR CI's job.
+
+The committed siblings retain each source observation, SHA and workload hash.
+The first plan has one sample per file (explicit warmup); subsequent refreshes
+extend the rolling series rather than treating this first run as a permanent
+floor. Six shards, the 420s ceiling and all required check names are unchanged.

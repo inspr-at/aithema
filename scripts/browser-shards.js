@@ -1,11 +1,12 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { assertMeasuredWeight } from './browser-timings.js';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// Each browser test owns its sibling .weight.json measurement (AIT-216).
-// Keep slowest observations and round up to 10s plus 10s margin (AIT-191).
+// Each browser test owns its sibling rolling per-test p95 CI measurements.
+// No padded floors: scripts/update-browser-timings.js regenerates the weights.
 export function readBrowserTestWeights(files = discoverBrowserTests(), root = repositoryRoot) {
   const tests = new Set(files);
   for (const entry of readdirSync(resolve(root, 'test/browser'), { withFileTypes: true })) {
@@ -28,6 +29,8 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
         typeof measurement.evidence !== 'string' || !measurement.evidence.trim()) {
       throw new Error(`Invalid browser test weight: ${weightPath}; seconds must be positive finite seconds and evidence must describe the measurement`);
     }
+    try { assertMeasuredWeight(measurement); }
+    catch (error) { throw new Error(`Invalid browser test weight: ${weightPath}; ${error.message}`); }
     weights[file] = measurement.seconds;
   }
   return weights;
@@ -35,8 +38,9 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 
 export const browserTestWeights = readBrowserTestWeights();
 
-// AIT-219: six bins keep 2,280s of measured planning work below 7 min each.
+// Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
+export const browserShardBudget = 420;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');
@@ -88,8 +92,15 @@ export function assertBrowserShardCoverage(files = discoverBrowserTests(), shard
   if (errors.length) throw new Error(errors.join('\n'));
 }
 
+export function assertBrowserShardBudget(totals = browserShardTotals) {
+  if (totals.some(total => !Number.isFinite(total) || total < 0 || total > browserShardBudget)) {
+    throw new Error(`Planned browser shard exceeds ${browserShardBudget}s: ${totals.join(' / ')}`);
+  }
+}
+
 export function selectBrowserTests(args = []) {
   assertBrowserShardCoverage();
+  assertBrowserShardBudget();
   const nodeArgs = [], selections = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--shard') selections.push(args[++i]);
@@ -106,6 +117,7 @@ export function selectBrowserTests(args = []) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   assertBrowserShardCoverage();
+  assertBrowserShardBudget();
   browserShardTotals.forEach((total, index) => {
     console.log(`Browser shard ${index + 1}/${browserShards.length}: projected file work ${total.toFixed(3)}s (${browserShards[index].length} files).`);
   });

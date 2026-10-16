@@ -1,4 +1,23 @@
 {
-  "seconds": 50,
-  "evidence": "AIT-206 round 4 mbp2606 f79fcaf898: 35.453s; rounded up + 10s margin"
+  "seconds": 109.563,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "e01d0a0787df15da9bb602439153902b1c198e6bd2c65d21ff8a2cb23310e0bb",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:43.317Z",
+        "tests": [
+          {
+            "name": "AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
+            "seconds": 109.562887208
+          }
+        ]
+      }
+    ]
+  }
 }

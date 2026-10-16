@@ -1,4 +1,23 @@
 {
-  "seconds": 40,
-  "evidence": "AIT-199 latest max 9.122s, CI 38765085264-1; historical floor 40s"
+  "seconds": 8.08,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "fc60b69ac0897e2ce5a8d2884984b5ffaeaa663f0a811db9e6c9273531e6270f",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:46.515Z",
+        "tests": [
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.079524807
+          }
+        ]
+      }
+    ]
+  }
 }

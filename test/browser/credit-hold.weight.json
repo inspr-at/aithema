@@ -1,4 +1,23 @@
 {
-  "seconds": 80,
-  "evidence": "AIT-199 latest max 62.079s, CI 38774634960-1; historical floor 70s"
+  "seconds": 48.229,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "68094664a2a54bce72495f952522b77fc28b19f11fbb883549b02009efdc7207",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:46.515Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.228512948
+          }
+        ]
+      }
+    ]
+  }
 }

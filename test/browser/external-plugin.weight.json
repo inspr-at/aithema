@@ -1,4 +1,23 @@
 {
-  "seconds": 20,
-  "evidence": "mbp2606 9eb0a6e76b-14883 (1.846s; rounded up + 10s margin)"
+  "seconds": 2.152,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38911873685-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "7d7cbe8bde15da774d6e402af2debf26bdba2db33de1470d749516375e4a5f78",
+    "samples": [
+      {
+        "runId": "38911873685",
+        "attempt": 1,
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:41.549Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 2.1519107049999997
+          }
+        ]
+      }
+    ]
+  }
 }
