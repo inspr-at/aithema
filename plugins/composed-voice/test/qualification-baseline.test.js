@@ -151,3 +151,34 @@ test('binding hard duration stops an idle production conversation and reports un
   assert.equal(h.aborts.length, 1); assert.match(h.aborts[0], /duration bound/);
   assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
 });
+
+test('baseline launcher gets fresh profile and corpus flags, with no loopback headers, control or provider credentials', async t => {
+  const { dir, path } = await fixture(t), launches = [], permissions = [], evaluations = [];
+  const forbidden = ['LOOPBACK_OWNER_SENTINEL', 'b'.repeat(64), 'PROVIDER_KEY_SENTINEL', secret];
+  const page = new EventEmitter();
+  const cdp = new EventEmitter(); cdp.send = async () => {};
+  page.createCDPSession = async () => cdp;
+  page.evaluateOnNewDocument = async (...args) => evaluations.push(args.map(String));
+  page.evaluate = async (...args) => evaluations.push(args.map(String));
+  page.goto = async url => { assert.equal(url, binding.baselineOrigin + '/'); return { ok: () => false }; };
+  page.setExtraHTTPHeaders = () => assert.fail('Baseline must not receive owner headers');
+  const host = createQualificationHost({ binding: { ...binding, baselineAuthFile: path },
+    hostOrigin: 'http://127.0.0.1:4567', runDirectory: dir, ownerHeaders: { cookie: forbidden[0] }, controlCapability: forbidden[1],
+    keys: { ELEVENLABS_API_KEY: forbidden[2] }, verifyCeiling() {}, verifyReceipt() {}, reconcile() {},
+    async launchBrowser(options, lifetime) {
+      launches.push(options); lifetime.registerProcessGroup({ watchdogArmed: true, kill() {} });
+      return { defaultBrowserContext: () => ({ async overridePermissions(origin) { permissions.push(origin); } }),
+        newPage: async () => page, async close() {} };
+    } });
+  t.after(() => host.close());
+  for (let i = 0; i < 2; i++) await assert.rejects(host.runSample({ item: { id: 'one', wavPath: path }, lane: 'baseline', runId: 'fake',
+    admit() { assert.fail('Navigation failed before admission'); }, onTiming() {} }), /Production baseline failed/);
+  assert.notEqual(launches[0].userDataDir, launches[1].userDataDir);
+  assert.deepEqual(permissions, [binding.baselineOrigin, binding.baselineOrigin]);
+  for (const launch of launches) {
+    assert.ok(launch.args.includes(`--use-file-for-fake-audio-capture=${path}`));
+    assert.ok(launch.args.includes('--use-fake-device-for-media-stream'));
+    assert.deepEqual(launch.ignoreDefaultArgs, ['--mute-audio']);
+  }
+  for (const value of forbidden) assert.equal(JSON.stringify({ launches, evaluations }).includes(value), false);
+});

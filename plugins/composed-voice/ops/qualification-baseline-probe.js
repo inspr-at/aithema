@@ -51,7 +51,7 @@ export function installBaselineProbe() {
       };
       sink.onaudioprocess = event => {
         if (!armed || failure || !hypothesis || !responseReady) return; // Exclude the production opener.
-        if (pending.length >= 128) { failure = true; return; } // <= one 8 s candidate playback queue at 16 kHz.
+        if (pending.length * 1024 / context.sampleRate >= 8) { failure = true; return; } // browser-audio.js maxQueuedSeconds.
         pending.push({ samples: Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume()),
           time: event.playbackTime - event.inputBuffer.duration });
         observe();
