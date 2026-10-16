@@ -164,7 +164,8 @@ this request. Automatic focus remains derived; user choice is erasable content.
 Refusals are `{error: 'focus-refused', reason}`: `invalid-request` (400),
 `stale-revision`, `stale-question`, `paused`, `reply-in-flight` (409), or
 `consent-required`, `not-admitted` (403). Availability refusals also carry
-`admissionReason`. Wrong ownership uses the existing indistinguishable 404.
+`admissionReason` (including AIT-261's `one-hour` conversation deadline).
+Wrong ownership uses the existing indistinguishable 404.
 `stale-question` includes removed, clarified, draft/stale assessment and
 withdrawn-source items. Only one reaction or focus availability request may be
 in flight per session. Availability is rechecked transactionally before focus

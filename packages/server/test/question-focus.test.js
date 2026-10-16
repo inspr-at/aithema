@@ -133,3 +133,26 @@ for (const change of ['withdraw', 'pause']) test(`${change} while the focused re
     assert.equal(f.storage.get(f.session.id).questionFocus, null);
   }
 });
+
+for (const stage of ['before-command', 'after-availability']) test(`AIT-261 deadline blocks focus ${stage} without admitting or dispatching`, async t => {
+  const f = fixture(t); let now = 10_000;
+  f.runtime.conversationLimits.configure({ now: () => now, durationMs: 1000 });
+  f.runtime.conversationLimits.start(f.session.id);
+  const attempts = () => f.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
+  const before = attempts();
+  if (stage === 'before-command') now += 1000;
+  else {
+    const check = f.runtime.checkReply;
+    f.runtime.checkReply = async (...args) => { const reason = await check(...args); now += 1000; return reason; };
+  }
+  const response = await f.route('focus-question', f.command());
+  if (stage === 'before-command') {
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'focus-refused', reason: 'not-admitted', admissionReason: 'one-hour' });
+  } else assert.equal(response.status, 202);
+  await f.handlers.idle();
+  assert.equal(attempts(), before, 'deadline refusal reserves no new attempt');
+  assert.equal(f.calls.length, 0, 'the ordinary reaction choke point prevents dispatch');
+  assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'user').length, 1);
+  assert.equal(f.storage.get(f.session.id).transcript.some(turn => turn.focusRequestId), false);
+});
