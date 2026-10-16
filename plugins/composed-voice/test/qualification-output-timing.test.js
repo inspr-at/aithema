@@ -89,7 +89,7 @@ test('output tap waits for the entire PCM block to render before reporting evide
   assert.equal(rendered.length, 0, '10 ms of a 21.3 ms block is not fully rendered');
   renderedTime = duration; timers.shift()();
   assert.equal(rendered.length, 1);
-  assert.equal(rendered[0].rms, Math.fround(.002));
+  assert.ok(Math.abs(rendered[0].rms - Math.fround(.002)) < 1e-12);
   assert.equal(rendered[0].voiced, true, 'quiet output does not inherit capture VAD');
   runtime.qualificationOutputProbe.close();
 });
