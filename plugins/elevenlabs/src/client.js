@@ -162,8 +162,12 @@ export function createElevenLabsClient(ports = {}) {
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
-          if (['speaking', 'listening'].includes(value.type) && control.reportActivity) await voiceOperation(
-            { signal: persistenceCancellation.signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => control.reportActivity(value, opts));
+          if (['speaking', 'listening'].includes(value.type) && control.reportActivity) {
+            await voiceOperation({ signal: persistenceCancellation.signal, deadlineAt: Date.now() + persistenceTimeoutMs }, opts => control.reportActivity(value, opts));
+            // A mode can enable Pause immediately. Persist finals already
+            // captured by this point before exposing that mode to the host.
+            await persistence;
+          }
           if (saved) await saved;
           if (value.type === 'final' && value.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: value.turnId, sequence: captured });
           if (value.type === 'final' && value.role === 'assistant') {

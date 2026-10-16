@@ -53,8 +53,11 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (cancellation.signal.aborted) return;
-          if (['speaking', 'listening'].includes(event.type) && control.reportActivity) await voiceOperation(
-            { signal: cancellation.signal, deadlineAt: Date.now() + 2000 }, opts => control.reportActivity(event, opts));
+          if (['speaking', 'listening'].includes(event.type) && control.reportActivity) {
+            await voiceOperation({ signal: cancellation.signal, deadlineAt: Date.now() + 2000 }, opts => control.reportActivity(event, opts));
+            // The host may pause as soon as it sees this mode.
+            await persistence;
+          }
           if (saved) await saved;
           if (event.type === 'final' && event.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: event.turnId, sequence: ++sequence });
           if (event.type === 'final' && event.role === 'assistant') {
