@@ -172,6 +172,7 @@ export const bandStyles = `
 .footer-popup .host-foot { display:grid; white-space:normal; color:inherit; }
 .host-credits__deadline { display:block; margin-top:4px; }
 [data-footer-popup]:not([data-dismissed]):is(:hover,:focus-within) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
+[data-footer-popup][data-pinned]:not([data-dismissed]) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
 [data-footer-popup][data-dismissed] .footer-popup { visibility:hidden; opacity:0; pointer-events:none; }
 @media(max-width:1099px) {
   .band { grid-template-columns:44px minmax(0,1fr); gap:8px 16px; }
@@ -226,7 +227,6 @@ ${headerGeometry('.band')}
    A fixed brand allocation prevents host text updates from moving controls. */
 .band > .header-actions { grid-column:3; grid-row:1; }
 .band-identity { display:flex; align-items:center; gap:8px; min-width:0; }
-.band[data-branded] { grid-template-columns:192px minmax(0,1fr) var(--aithema-header-actions-width,96px); }
 .band .wordmark { margin:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .wordmark::slotted(*) { margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .host-legal { display:flex; align-items:center; font:inherit; color:inherit; }
@@ -234,7 +234,6 @@ ${headerGeometry('.band')}
 .host-version { white-space:normal; }
 @media(max-width:1099px) {
   .band > .header-actions { grid-column:2; }
-  .band[data-branded] { grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,96px); }
 }
 @media(width < 600px) {
   .display-foot__row { gap:8px; }

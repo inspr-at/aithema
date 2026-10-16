@@ -1185,12 +1185,12 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     };
     const legal = c.querySelector('[slot="legal"]'), notes = c.querySelector('[slot="footer"]');
     const textLines = { notice: text(root.querySelector('#ai-notice')), version: text(value),
-      build: text(build.querySelector('.build-label')), link: text(legal.querySelector('a')), notes: text(notes) };
+      build: text(build.querySelector('.build-label')), notes: text(notes) };
     const versionColours = [...value.querySelectorAll('span')].filter(n => n.getBoundingClientRect().width > 0)
       .map(n => ({ ...text(n), opacity: getComputedStyle(n).opacity }));
     const gap = (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
-    const rhythm = [gap(root.querySelector('#ai-notice'), build), gap(row, build.querySelector('.build-label')),
-      gap(build, legal), gap(legal, notes)];
+    const rhythm = [gap(root.querySelector('#ai-notice'), root.querySelector('.host-version')), gap(row, build.querySelector('.build-label')),
+      gap(root.querySelector('.host-version'), build), gap(build, notes)];
     const rowStyle = getComputedStyle(row);
     const ring = rowStyle.outlineStyle !== 'none' && parseFloat(rowStyle.outlineWidth) > 0;
     const rowBox = row.getBoundingClientRect();
@@ -1822,3 +1822,6 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
   await capture('ait246-r4-1440-light-de-demo-header.png', false);
   if (evidence) await writeFile(join(evidence, 'ait246-r4-geometry.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', checks }, null, 2));
 });
+
+import { hostChromeCheck } from './host-chrome-check.js';
+test('AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN', { timeout: 90_000 }, hostChromeCheck);

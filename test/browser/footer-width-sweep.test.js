@@ -25,7 +25,7 @@ const geometry = page => shadow(page, c => {
     return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
   };
   const visible = node => {
-    if (!node.getClientRects().length || getComputedStyle(node).visibility !== 'visible') return false;
+    if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible') return false;
     for (let parent = node; parent && parent !== root; parent = parent.parentElement) {
       const style = getComputedStyle(parent);
       if (style.display === 'none' || Number(style.opacity) === 0) return false;

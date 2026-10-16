@@ -2,7 +2,7 @@
 // geometry independent of copy, fonts, account reads and conversation stage.
 export function headerGeometry(selector) {
   return `
-${selector} { --band-height:90px; box-sizing:border-box; display:grid; grid-template-columns:44px minmax(0,1fr) var(--aithema-header-actions-width,96px);
+${selector} { --band-height:90px; box-sizing:border-box; display:grid; grid-template-columns:192px minmax(0,1fr) var(--aithema-header-actions-width,96px);
   grid-template-rows:60px; align-items:center; gap:12px 24px;
   padding:12px var(--aithema-gutter,clamp(1.25rem,4vw,3.5rem)) 18px 54px; min-height:90px; }
 ${selector} > .band-orb { width:44px; height:44px; }
@@ -10,7 +10,7 @@ ${selector} > .audio-rail { box-sizing:border-box; justify-self:center; width:mi
   display:grid; grid-template-columns:44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; }
 ${selector} > .header-actions { min-width:0; height:44px; }
 @media(max-width:1099px) {
-  ${selector} { --band-height:130px; grid-template-columns:44px minmax(0,1fr); grid-template-rows:44px 48px; gap:8px 16px; }
+  ${selector} { --band-height:130px; grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,96px); grid-template-rows:44px 48px; gap:8px 16px; }
   ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
   ${selector} > .header-actions { grid-column:2; grid-row:1; justify-self:end; }
 }

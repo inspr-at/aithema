@@ -103,13 +103,13 @@ export class FooterPopups {
       entry.addEventListener('focusin', () => { if (!this.returningFocus) entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, !entry.hasAttribute('data-dismissed')); });
       entry.addEventListener('pointerleave', () => { if (!entry.matches(':focus-within')) entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned') || entry.matches(':focus-within')); });
       entry.addEventListener('focusout', event => { if (!entry.contains(event.relatedTarget)) { entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned')); } });
-      const button = entry.querySelector('.host-credits__button');
+      const button = entry.querySelector('.host-credits__button, .ai-notice');
       button?.addEventListener('click', () => { const pinned = !entry.hasAttribute('data-pinned'); entry.toggleAttribute('data-pinned', pinned); entry.removeAttribute('data-dismissed'); this.expanded(entry, pinned); this.position(entry); });
     }
     this.key = event => {
       if (event.key === 'Escape') for (const entry of this.entries) {
         entry.removeAttribute('data-pinned'); entry.setAttribute('data-dismissed', ''); this.expanded(entry, false);
-        const button = entry.querySelector('.host-credits__button');
+        const button = entry.querySelector('.host-credits__button, .ai-notice');
         if (button && entry.contains(this.root.activeElement)) { this.returningFocus = true; button.focus(); this.returningFocus = false; }
       }
     };
@@ -117,9 +117,9 @@ export class FooterPopups {
     this.resize = () => { for (const entry of this.entries) this.position(entry); };
     this.connect();
   }
-  expanded(entry, value) { entry.querySelector('.host-credits__button')?.setAttribute('aria-expanded', String(value)); }
+  expanded(entry, value) { entry.querySelector('.host-credits__button, .ai-notice')?.setAttribute('aria-expanded', String(value)); }
   connect() {
-    if (this.entries.some(entry => entry.matches('.host-credits') && !entry.hidden)) this.root.ownerDocument.addEventListener('click', this.outside);
+    if (this.entries.some(entry => !entry.hidden)) this.root.ownerDocument.addEventListener('click', this.outside);
     this.root.addEventListener('keydown', this.key); this.view?.addEventListener('resize', this.resize);
     this.view?.addEventListener('scroll', this.resize, { passive: true });
   }
@@ -159,9 +159,9 @@ export class PhoneComposerViewport {
       workspace.toggleAttribute('data-phone-overlay', Boolean(phone && (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0) >= 150));
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
-      const movedNotices = notices.parentNode !== parent;
+      const movedNotices = Boolean(notices && notices.parentNode !== parent);
       if (movedNotices) parent.append(notices);
-      if (!phone) notices.style.minHeight = '';
+      if (!phone && notices) notices.style.minHeight = '';
       if (phone) root.querySelector('.transcript-shell ol').style.paddingBottom = '';
       // Track the unobstructed phone viewport across resize-only keyboards too.
       // Set the attribute before measuring: footer and transcript change together.
@@ -218,7 +218,7 @@ export class PhoneComposerViewport {
     if (Mutation) {
       const notices = this.root.querySelector('.voice-notices'), shell = this.root.querySelector('.transcript-shell');
       const list = shell.querySelector('ol');
-      const phoneNotices = () => notices.parentNode === shell;
+      const phoneNotices = () => notices?.parentNode === shell;
       const reservation = () => phoneNotices() ? notices.style.minHeight : list.style.paddingBottom;
       const reserve = value => { if (phoneNotices()) notices.style.minHeight = value; else list.style.paddingBottom = value; };
       const inlineHeight = () => {
@@ -289,7 +289,7 @@ export class PhoneComposerViewport {
         this.noticeScrollTop = shell.scrollTop;
       });
       const options = { subtree:true, childList:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['hidden'] };
-      this.noticesObserver.observe(notices, options);
+      if (notices) this.noticesObserver.observe(notices, options);
       this.noticesObserver.observe(shell.querySelector('ol'), options);
     }
     this.paint();
