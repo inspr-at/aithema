@@ -8,7 +8,7 @@ export function installBaselineProbe() {
   let agentSink, speechStartAt, speechEndAt, lastVoicedEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt;
   let openerSpeaking = false, bufferedBytes = 0;
   let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure;
-  const emit = event => { if (trace.length >= 100_000) failure = true; else trace.push(event); };
+  const emit = event => { if (trace.length >= 100_000) failure ??= 'trace-bound'; else trace.push(event); };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
   const nativeConnect = AudioNode.prototype.connect;
   const nativeDisconnect = AudioNode.prototype.disconnect;
@@ -99,7 +99,7 @@ export function installBaselineProbe() {
       };
       sink.onaudioprocess = event => {
         if (!armed || failure) return;
-        if (pending.length * 1024 / context.sampleRate >= 8) { failure = true; return; } // browser-audio.js maxQueuedSeconds.
+        if (pending.length * 1024 / context.sampleRate >= 8) { failure = 'output-queue-bound'; return; } // browser-audio.js maxQueuedSeconds.
         pending.push({ samples: Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume()),
           time: event.playbackTime - event.inputBuffer.duration });
         observe();
@@ -172,14 +172,32 @@ export function installBaselineProbe() {
         if (event.type === 'final' && event.role === 'assistant' && openerFinalAt === undefined) {
           openerFinalAt = performance.now(); emit({ kind: 'opener-final', at: openerFinalAt });
         }
-        if (!hypothesis && event.type === 'final' && event.role === 'user' &&
+        if (!failure && !hypothesis && event.type === 'final' && event.role === 'user' &&
           event.userTurnOrdinal === 1 && typeof event.text === 'string' && event.text.trim()) {
-          hypothesis = event.text; speechEndAt = lastVoicedEndAt;
-          emit({ kind: 'user-final', userTurnOrdinal: 1, at: performance.now(), speechEndAt });
-          if (!Number.isFinite(speechEndAt)) failure ??= 'missing-corpus-capture';
-          // The final anchors the utterance; replay device-timestamped blocks,
-          // retaining an early reply's original onset and PCM without an offset.
-          buffered.sort((a, b) => a.at - b.at).forEach(attribute);
+          // A final delayed beyond speech resuming over a buffered reply cannot
+          // anchor corpus speech end: lastVoicedEndAt already includes barge-in.
+          // Inspect the rendered graph at each capture observation, rather than
+          // treating every pause inside the corpus utterance as an endpoint.
+          buffered.sort((a, b) => a.at - b.at);
+          let outputIndex = 0, outputBlock, previousVoicedEndAt;
+          for (const capture of trace.filter(e => e.kind === 'capture').sort((a, b) => a.captureAt - b.captureAt)) {
+            while (outputIndex < buffered.length && buffered[outputIndex].at <= capture.receivedAt) outputBlock = buffered[outputIndex++];
+            if (!capture.voiced) continue;
+            if (outputBlock?.voiced && outputBlock.voicedSince >= previousVoicedEndAt) {
+              failure = 'barge-in-before-user-final';
+              emit({ kind: 'invalid-evidence', reason: failure, captureAt: capture.captureAt });
+              break;
+            }
+            previousVoicedEndAt = capture.captureAt + capture.durationMs;
+          }
+          if (!failure) {
+            hypothesis = event.text; speechEndAt = lastVoicedEndAt;
+            emit({ kind: 'user-final', userTurnOrdinal: 1, at: performance.now(), speechEndAt });
+            if (!Number.isFinite(speechEndAt)) failure ??= 'missing-corpus-capture';
+            // The final anchors the utterance; replay device-timestamped blocks,
+            // retaining an early reply's original onset and PCM without an offset.
+            buffered.forEach(attribute);
+          }
           buffered.length = 0; bufferedBytes = 0;
         }
       }
