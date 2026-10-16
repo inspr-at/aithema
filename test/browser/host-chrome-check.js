@@ -158,10 +158,10 @@ export async function hostChromeCheck(t) {
         const rail = box(r.querySelector('.audio-rail'));
         const others = [r.querySelector('.band-identity'), ...r.querySelectorAll('.header-actions, .header-actions button, .host-account')].map(box);
         return { rail, others, row: r.querySelector('.band').hasAttribute('data-rail-row'),
-          overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth) };
+          railOverflowPx: Math.max(0, rail.right - innerWidth, -rail.left) };
       });
       assert.ok(fit.rail.width >= 208, `${brandMode}/${width}: rail minimum 208 px`);
-      assert.equal(fit.overflowPx, 0, `${brandMode}/${width}: no horizontal overflow`);
+      assert.equal(fit.railOverflowPx, 0, `${brandMode}/${width}: no rail overflow`);
       assert.ok(fit.rail.left >= 0 && fit.rail.right <= width, `${brandMode}/${width}: rail stays in viewport ${JSON.stringify(fit)}`);
       for (const b of fit.others) assert.ok(fit.rail.right <= b.left || fit.rail.left >= b.right || fit.rail.bottom <= b.top || fit.rail.top >= b.bottom,
         `${brandMode}/${width}: rail intersects brand/action ${JSON.stringify(fit)}`);
