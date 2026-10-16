@@ -174,3 +174,14 @@ test('AIT-160: network factory binds grants to stored session owner and keeps ac
   assert.equal(storage.voiceCalls(session.id)[0].paused, true);
   assert.equal((await post('alice', 'command', { name: 'heartbeat' }, connectionId)).status, 403);
 });
+
+test('product interrupt and lifecycle teardown retain distinct playback stop origins', async () => {
+  const h = relayFixture(), origins = [];
+  const media = createComposedBrowserMedia({ openRelay: grant => h.relay.connect(grant),
+    capture: async () => ({ stop() {} }), player: { play() {}, stop({ origin }) { origins.push(origin); } } });
+  const session = await media.connect(h.relay.grant);
+  h.relay.silence({ playbackRevision: 1, reason: 'barge-in' }); await tick();
+  assert.deepEqual(origins, ['interrupt']);
+  await session.close();
+  assert.deepEqual(origins, ['interrupt', 'teardown']);
+});

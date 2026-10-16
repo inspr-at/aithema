@@ -1,6 +1,7 @@
 import { createPCMCapture, createPCMPlayer } from '/plugins/composed-voice/src/browser-audio.js';
 import { createNetworkRelayClient } from '/plugins/composed-voice/src/network-client.js';
 import { createComposedBrowserMedia } from '/plugins/composed-voice/src/client.js';
+import { installQualificationOutputProbe, qualificationObservationWindow } from '/composed/qualification-output-timing.js';
 
 // This hook contains no provider, transcript, accounting or fixture authority.
 window.composedQualification = {
@@ -8,7 +9,8 @@ window.composedQualification = {
     const trace = [], done = Promise.withResolvers();
     done.promise.catch(() => {});
     const scripted = window.qualificationScriptedCapture;
-    let session, eventsTask, finished = false, firstAudioAt, bargeInAt, mediaFailure, stoppedAt = -Infinity;
+    let session, eventsTask, finished = false, firstAudioAt, bargeInAt, mediaFailure, stoppedAt, teardownAt = Infinity;
+    const outputProbe = installQualificationOutputProbe(), output = [];
     const fail = error => { mediaFailure ??= error; done.reject(error); };
     const refuse = reason => {
       if (!['late-first-audio', 'barge-in-before-first-audio', 'missing-playback-stop'].includes(reason)) {
@@ -49,14 +51,27 @@ window.composedQualification = {
         // Both lanes use the injected stream's onset in the SOURCE clock. Only
         // the product's own capture/VAD/turn logic may interrupt its playback.
         if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt) bargeInAt ??= event.captureAt;
-        if (event.kind === 'playback-stop') stoppedAt = Math.max(stoppedAt, event.stoppedAt);
-        if (stoppedAt >= bargeInAt) done.resolve({});
+        if (event.kind === 'playback-stop-request' && event.origin !== 'interrupt') teardownAt = Math.min(teardownAt, event.requestedAt);
+        // Output and source callbacks can arrive out of order. Select by their
+        // rendered/source timestamps, never by delivery order or stop request.
+        const stop = output.reduce((first, block) => {
+          const next = outputProbe.stop(block, bargeInAt, teardownAt);
+          return next && (!first || next.stoppedAt < first.stoppedAt) ? next : first;
+        }, undefined);
+        if (stop && stoppedAt === undefined) { stoppedAt = stop.stoppedAt; trace.push(stop); done.resolve({}); }
       } catch (error) { fail(error); }
     };
-    const player = createPCMPlayer({ onTiming });
+    const player = createPCMPlayer({
+      onTiming(event) { onTiming(event.kind === 'playback-stop' ? { ...event, kind: 'playback-stop-request' } : event); },
+      observeOutput: source => outputProbe.tap(source, block => {
+        if (finished) return;
+        output.push({ at: block.at, timestamp: block.timestamp, voiced: block.voiced });
+        onTiming({ kind: 'playback-rendered', at: block.at, voiced: block.voiced, outputTimestamp: block.timestamp });
+      }, { onFault: fail }),
+    });
     const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onFault: fail }),
       openRelay: createNetworkRelayClient({ headers }) });
-    const timer = setTimeout(finishTiming, 50_000);
+    const timer = setTimeout(finishTiming, qualificationObservationWindow(grant.opaque.spendDeadlineAt));
     const unsubscribe = scripted.subscribe(onTiming);
     try {
       session = await media.connect(grant);
@@ -76,11 +91,11 @@ window.composedQualification = {
       if (mediaFailure) throw mediaFailure;
       return { trace, ...result };
     } catch (error) {
-      const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
+      const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop', 'playback-stop-request', 'playback-rendered'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
       counts.voiced = trace.filter(event => event.kind === 'capture' && event.voiced).length;
       throw new Error(`${error.message}; device evidence ${JSON.stringify(counts)}`, { cause: error });
     } finally {
-      finished = true; clearTimeout(timer); unsubscribe();
+      finished = true; clearTimeout(timer); unsubscribe(); outputProbe.close();
       try {
         await session?.close(); await eventsTask;
         if (mediaFailure) throw mediaFailure;

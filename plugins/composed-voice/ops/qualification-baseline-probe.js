@@ -5,6 +5,7 @@
  * chosen for ~21 ms output observations at 48 kHz, not a quality threshold. */
 export function installBaselineProbe() {
   const trace = [], pcm = [], buffered = [], contexts = new Set(), observers = [];
+  const outputProbe = window.qualificationOutputProbe;
   let agentSink, speechStartAt, speechEndAt, lastVoicedEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt;
   let openerSpeaking = false, bufferedBytes = 0;
   let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure, refusal;
@@ -12,7 +13,7 @@ export function installBaselineProbe() {
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
   const nativeConnect = AudioNode.prototype.connect;
   const nativeDisconnect = AudioNode.prototype.disconnect;
-  const sinks = new WeakMap(), tapped = new WeakSet();
+  const tapped = new WeakSet();
   // The production rail exposes the SDK's speaking/listening lifecycle. Its
   // first speaking -> listening edge AND first assistant final identify opener
   // completion. Neither sentence silence nor elapsed time can establish it.
@@ -50,67 +51,35 @@ export function installBaselineProbe() {
     if (firstAudioAt === undefined || stoppedAt !== undefined) return;
     if (format && format.sampleRateHz !== sampleRateHz) { failure = 'output-format'; return; }
     format = { encoding: 'pcm_f32le', sampleRateHz, channels: 1 };
-    if (!voiced && bargeInAt !== undefined && at >= bargeInAt) {
-      stoppedAt = at; emit({ kind: 'playback-stop', stoppedAt, outputTimestamp: timestamp }); return;
-    }
+    const stop = outputProbe.stop({ at, timestamp, voiced }, bargeInAt);
+    if (stop) { stoppedAt = stop.stoppedAt; emit(stop); return; }
     bytes += samples.byteLength;
     if (bytes > 16_000_000) { failure = 'pcm-bound'; return; }
     pcm.push(samples);
   };
   function output(source, volume = () => 1) {
-    const context = source.context;
-    let sink = sinks.get(context);
-    if (!sink) {
-      sink = context.createScriptProcessor(1024, 1, 1);
-      const pending = []; let observer, voicedSince;
-      const observe = () => {
-        clearTimeout(observer);
-        if (!armed || failure) return;
-        const timestamp = context.getOutputTimestamp();
-        while (pending.length && timestamp.performanceTime > 0 && timestamp.contextTime >= pending[0].time) {
-          const { samples, time } = pending.shift();
-          rendered(samples, timestamp.performanceTime + (time - timestamp.contextTime) * 1000, timestamp);
+    outputProbe.tap(source, block => {
+      const { at, voiced, sink } = block;
+      if (agentSink && agentSink !== sink) return;
+      if (voiced) agentSink ??= sink;
+      if (speechStartAt === undefined) {
+        if (voiced) openerDrainedAt = undefined;
+        // Drain only the opener's graph after its completion signals.
+        else if (agentSink === sink && [openerFinalAt, openerFinishedAt].every(Number.isFinite) &&
+          at >= Math.max(openerFinalAt, openerFinishedAt) && openerDrainedAt === undefined) {
+          openerDrainedAt = at; emit({ kind: 'opener-drained', at });
+          window.qualificationScriptedCapture?.startUtterance();
         }
-        // Same 10 ms rendered-clock observation interval as browser-audio.js.
-        if (pending.length) observer = setTimeout(observe, 10);
-      };
-      const rendered = (samples, at, timestamp) => {
-        const voiced = rms(samples) >= 0.015;
-        if (agentSink && agentSink !== sink) return;
-        if (voiced) { agentSink ??= sink; voicedSince ??= at; }
-        else voicedSince = undefined;
-        if (speechStartAt === undefined) {
-          if (voiced) openerDrainedAt = undefined;
-          // Drain only the graph that rendered the opener, after its own
-          // completion signals. A pause between opener sentences cannot pass.
-          else if (agentSink === sink && [openerFinalAt, openerFinishedAt].every(Number.isFinite) &&
-            at >= Math.max(openerFinalAt, openerFinishedAt) && openerDrainedAt === undefined) {
-            openerDrainedAt = at; emit({ kind: 'opener-drained', at });
-            window.qualificationScriptedCapture?.startUtterance();
-          }
-          return;
-        }
-        if (at < speechStartAt || agentSink !== sink) return;
-        const block = { samples, at, timestamp, voiced, voicedSince, sampleRateHz: context.sampleRate };
-        if (hypothesis) attribute(block);
-        else {
-          bufferedBytes += samples.byteLength;
-          if (bufferedBytes > 16_000_000) { failure = 'reply-buffer-bound'; return; }
-          buffered.push(block);
-        }
-      };
-      sink.onaudioprocess = event => {
-        if (!armed || failure) return;
-        if (pending.length * 1024 / context.sampleRate >= 8) { failure = 'output-queue-bound'; return; } // browser-audio.js maxQueuedSeconds.
-        pending.push({ samples: Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume()),
-          time: event.playbackTime - event.inputBuffer.duration });
-        observe();
-      };
-      const silence = context.createGain(); silence.gain.value = 0;
-      nativeConnect.call(sink, silence); nativeConnect.call(silence, context.destination);
-      sinks.set(context, sink);
-    }
-    nativeConnect.call(source, sink);
+        return;
+      }
+      if (at < speechStartAt || agentSink !== sink) return;
+      if (hypothesis) attribute(block);
+      else {
+        bufferedBytes += block.samples.byteLength;
+        if (bufferedBytes > 16_000_000) { failure = 'reply-buffer-bound'; return; }
+        buffered.push(block);
+      }
+    }, { volume, enabled: () => armed && !failure, onFault: () => { failure ??= 'output-queue-bound'; } });
   }
   AudioNode.prototype.connect = function(destination, ...args) {
     const result = nativeConnect.call(this, destination, ...args);
@@ -244,7 +213,7 @@ export function installBaselineProbe() {
       return { hypothesis, trace, ttsPCM: btoa(binary), ttsFormat: format };
     },
     async close() {
-      armed = false; unsubscribe?.();
+      armed = false; unsubscribe?.(); outputProbe.close();
       await scripted?.close();
       for (const observer of observers) observer.disconnect();
       Element.prototype.attachShadow = nativeAttachShadow;

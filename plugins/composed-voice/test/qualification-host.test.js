@@ -120,7 +120,7 @@ export function createQualificationServer(options) {
     const outgoing = request(fixture.url + path, { method, headers }, response => { response.resume(); resolve(response.statusCode); });
     outgoing.on('error', reject); outgoing.end(body);
   });
-  for (const path of ['/composed/qualification', '/composed/qualification-page.js', '/plugins/composed-voice/src/browser-audio.js', '/plugins/composed-voice/src/network-client.js', '/plugins/composed-voice/src/pcm-capture-worklet.js']) {
+  for (const path of ['/composed/qualification', '/composed/qualification-page.js', '/composed/qualification-output-timing.js', '/plugins/composed-voice/src/browser-audio.js', '/plugins/composed-voice/src/network-client.js', '/plugins/composed-voice/src/pcm-capture-worklet.js']) {
     assert.equal(await status(path), 200, path);
   }
   assert.equal(await status('/composed/relay', 'POST', new Uint8Array(1280)), 403); // Relay refused the missing grant, rather than 415/404.

@@ -13,12 +13,12 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
     const events = voiceEvents(); let transport, recording, input = true, output = true, stopped = false,
       playbackRevision = 0, holdRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0, captureController;
     const owner = Symbol('composed-media'), pendingPlayback = new Set();
-    const stopPlayback = () => {
-      if (mediaOwner === owner) player.stop();
+    const stopPlayback = (origin = 'interrupt') => {
+      if (mediaOwner === owner) player.stop({ origin });
       pendingPlayback.clear(); pendingPlaybackBytes = 0;
     };
-    const localStop = () => { captureController?.abort(); recording?.stop(); recording = undefined; stopPlayback(); playbackRevision++; };
-    const mute = () => { stopPlayback(); playbackRevision++; };
+    const localStop = () => { captureController?.abort(); recording?.stop(); recording = undefined; stopPlayback('teardown'); playbackRevision++; };
+    const mute = (origin = 'control') => { stopPlayback(origin); playbackRevision++; };
     const stop = () => { if (stopped) return; stopped = true; hold = true; localStop(); };
     async function captureOn() {
       if (stopped || hold || !input || recording) return;
@@ -100,7 +100,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
         async setInput(on, opts) { input = Boolean(on); if (!input) { captureController?.abort(); recording?.stop(); recording = undefined; }
           await transport.command('setInput', on, opts); if (input) await captureOn(); },
         async setOutput(on, opts) { output = Boolean(on); if (!output) mute(); await transport.command('setOutput', on, opts); },
-        interrupt(opts) { mute(); return transport.command('interrupt', opts); },
+        interrupt(opts) { mute('interrupt'); return transport.command('interrupt', opts); },
         sendText: (text, opts) => transport.command('sendText', text, opts),
         updateContext: (value, opts) => transport.command('updateContext', value, opts),
         heartbeat: opts => lifecycle.heartbeat(opts),

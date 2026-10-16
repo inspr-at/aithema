@@ -81,7 +81,7 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
   const page = new EventEmitter(), cdp = new EventEmitter();
   cdp.send = async (method, params) => { sent.push({ method, params }); };
   page.createCDPSession = async () => cdp;
-  page.evaluateOnNewDocument = async fn => { assert.equal(fn.name, 'installBaselineProbe'); };
+  page.evaluateOnNewDocument = async fn => { assert.ok(['installQualificationOutputProbe', 'installBaselineProbe'].includes(fn.name)); };
   page.url = () => binding.baselineOrigin + '/';
   const response = (path, body) => page.emit('response', { url: () => binding.baselineOrigin + path, ok: () => true,
     request: () => ({ method: () => 'POST' }), json: async () => body });
@@ -205,6 +205,8 @@ test('baseline launcher gets fresh profile and scripted capture, with no loopbac
 
 import { runInNewContext } from 'node:vm';
 import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
+import { installQualificationOutputProbe } from '../ops/qualification-output-timing.js';
+import { pageFixture } from './qualification-page-fixture.js';
 
 async function probeFixture(scripted) {
   if (scripted && !scripted.diagnostics) scripted.diagnostics = () => ({ started: true, barged: false });
@@ -241,6 +243,7 @@ async function probeFixture(scripted) {
     performance: { now: () => now }, fetch: async () => ({}), setTimeout, clearTimeout,
     btoa: value => Buffer.from(value, 'binary').toString('base64') };
   runtime.window = runtime;
+  runInNewContext(`(${installQualificationOutputProbe.toString()})()`, runtime);
   runInNewContext(`(${installBaselineProbe.toString()})()`, runtime);
   const probe = runtime.qualificationBaselineProbe; probe.arm();
   await runtime.navigator.mediaDevices.getUserMedia({ audio: true });
@@ -514,4 +517,27 @@ test('late baseline user final consumes source refusal and completes before a du
   assert.equal(h.probe.result().refusal, 'late-first-audio');
   assert.equal(h.probe.diagnostics().failure, undefined);
   await h.probe.close();
+});
+
+// Both real lane runners consume the same rendered trace, including a near-
+// threshold block. Neither an interrupt request nor still-voiced output stops it.
+test('candidate and baseline use the same rendered silence stop timestamp', async () => {
+  const baseline = await probeFixture();
+  await baseline.opener();
+  baseline.emit(baseline.capture, .5, .2); baseline.emit(baseline.capture, .6, 0);
+  await baseline.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  baseline.emit(baseline.audio, 1, .2); baseline.emit(baseline.capture, 2, .2);
+  const outputTrace = [];
+  for (const [seconds, level] of [[2, .2], [2.1, .0151], [2.2, .0149], [2.3, 0]]) {
+    baseline.emit(baseline.audio, seconds, level);
+    outputTrace.push({ at: seconds * 1000, voiced: level >= .015,
+      timestamp: { contextTime: seconds + .1, performanceTime: (seconds + .1) * 1000 } });
+  }
+  const candidate = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true, outputTrace, firstAudioAt: 1000, bargeInAt: 1900 });
+  const result = await candidate.run();
+  const stop = trace => trace.find(row => row.kind === 'playback-stop').stoppedAt;
+  assert.equal(result.refusal, undefined);
+  assert.ok(Math.abs(stop(result.trace) - stop(baseline.probe.result().trace)) < .001);
+  assert.equal(stop(result.trace), 2200);
+  await baseline.probe.close();
 });

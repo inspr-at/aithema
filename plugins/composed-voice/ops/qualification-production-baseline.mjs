@@ -4,6 +4,7 @@ import { lstat, open } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { IncompleteMediaEvidence } from '../src/live-qualification.js';
 import { installBaselineProbe } from './qualification-baseline-probe.js';
+import { installQualificationOutputProbe, qualificationObservationWindow } from './qualification-output-timing.js';
 
 export function baselineOrigin(value) {
   try {
@@ -69,6 +70,7 @@ export async function installBaselineAuth(cdp, origin, auth, allowRequest = () =
 export async function prepareBaselinePage(page, origin, auth, allowRequest) {
   const cdp = await page.createCDPSession();
   await installBaselineAuth(cdp, origin, auth, allowRequest);
+  await page.evaluateOnNewDocument(installQualificationOutputProbe);
   await page.evaluateOnNewDocument(installBaselineProbe);
 }
 
@@ -179,7 +181,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     phase = 'observe';
     // Leave time for classification and ordinary close BEFORE the independent
     // paid-duration watchdog. Only an actual polling timeout is a timing miss.
-    const evidenceTimeoutMs = Math.max(1, Math.min(50_000, conversationDeadlineAt - Date.now() - 500));
+    const evidenceTimeoutMs = qualificationObservationWindow(conversationDeadlineAt);
     await bounded(page.waitForFunction(() => window.qualificationBaselineProbe.complete(), { timeout: evidenceTimeoutMs, polling: 25 }));
     phase = 'result';
     const diagnostics = await bounded(page.evaluate(() => window.qualificationBaselineProbe.diagnostics()));

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { readFile } from 'node:fs/promises';
 import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
 import { installScriptedCapture } from '../ops/qualification-scripted-capture.mjs';
 import { createQualificationMediaProbe, IncompleteMediaEvidence } from '../src/live-qualification.js';
@@ -79,50 +78,7 @@ test('late observed onset refuses scheduling instead of playing an unanchored se
   await h.capture.close();
 });
 
-// Execute the real page harness with fake media ports, so refusal returned from
-// page.evaluate retains the trace rather than throwing past the run coordinator.
-async function pageFixture(reason, { type = 'waiting', firstAudio = false, bargeIn = false, sourceRefusal, sourceFailure,
-  missingDiagnostics = false, closeError = false, productStop = false, productError = false, stopBeforeSource = false, errorAfterStop = false } = {}) {
-  const source = (await readFile(new URL('../ops/qualification-page.js', import.meta.url), 'utf8'))
-    .replace(/^import .*;\n/gmu, '');
-  let onTiming, sourceTiming, started = false, connected = false, closed = false, interrupts = 0, inputChanges = 0;
-  const runtime = { setTimeout, clearTimeout,
-    createPCMPlayer(options) { onTiming = options.onTiming; return { async close() {} }; },
-    createPCMCapture: () => {}, createNetworkRelayClient: () => {},
-    createComposedBrowserMedia: () => ({ async connect() {
-      connected = true;
-      return { events: (async function* () {
-        if (stopBeforeSource) onTiming({ kind: 'playback-stop', stoppedAt: 910 });
-        if (bargeIn) {
-          sourceTiming({ kind: 'capture', captureAt: 810, voiced: true, durationMs: 64 });
-          assert.equal(interrupts, 0, 'source observation cannot interrupt');
-          assert.equal(inputChanges, 0, 'capture stays open for product VAD');
-        }
-        if (productError) throw new Error('product event exception');
-        if (productStop) {
-          onTiming({ kind: 'playback-stop', stoppedAt: 910 });
-          if (errorAfterStop) yield { type: 'ended', reason: 'closure-uncertain' };
-        }
-        else yield { type, reason };
-      })(), async interrupt() { interrupts++; }, async setInput() { inputChanges++; },
-        async close() { if (closeError) throw new Error('close failed'); } };
-    } }),
-    qualificationScriptedCapture: { subscribe(fn) { sourceTiming = fn; return () => {}; },
-      diagnostics() { return missingDiagnostics ? undefined : { started, barged: firstAudio, failure: sourceFailure, refusal: sourceRefusal }; },
-      startUtterance() {
-        assert.equal(connected, true); started = true;
-        sourceTiming({ kind: 'capture', captureAt: 1, voiced: true, durationMs: 4 });
-        onTiming({ kind: 'playback-scheduled', scheduledAt: 10 });
-        if (firstAudio) onTiming({ kind: 'playback-start', firstAudioAt: 10 });
-      }, firstAudio() {
-        if (sourceRefusal || sourceFailure) sourceTiming({ kind: 'capture-outcome',
-          status: sourceFailure ? 'error' : 'refused', reason: sourceFailure || sourceRefusal });
-      }, async close() { closed = true; } },
-  };
-  runtime.window = runtime;
-  runInNewContext(source, runtime);
-  return { run: () => runtime.composedQualification.run({ grant: {}, headers: {} }), state: () => ({ started, closed, interrupts, inputChanges }) };
-}
+import { pageFixture } from './qualification-page-fixture.js';
 
 for (const [type, reason] of [['waiting', 'limit'], ['waiting', 'transport-failed'], ['ended', 'closure-uncertain'],
   ['ended', 'start-failed'], ['ended', 'transport-failed'], ['ended', 'protocol-error']]) {
@@ -168,4 +124,38 @@ test('external refusal reasons cannot insert values into diagnostics', () => {
   assert.throws(() => new IncompleteMediaEvidence('PRIVATE_EXTERNAL_REASON'), error => {
     assert.equal(error.message, 'Unknown qualification media refusal'); return true;
   });
+});
+
+for (const deadlineSeconds of [1, 20, 50, 51, 60, 120]) test(`candidate observation fits ${deadlineSeconds}s sample deadline`, async () => {
+  const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true,
+    deadlineSeconds, deadlineElapsedMs: 100 });
+  assert.equal((await h.run()).refusal, 'missing-playback-stop');
+  assert.equal(h.timers.length, 1);
+  assert.ok(h.timers[0].ms <= Math.min(50_000, deadlineSeconds * 1000 - 600));
+  assert.ok(h.timers[0].ms >= Math.min(50_000, deadlineSeconds * 1000 - 650));
+});
+
+for (const teardownStop of [false, true]) test(`explicit stop alone cannot qualify (teardown ${teardownStop})`, async () => {
+  const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true,
+    productStop: true, teardownStop, silentOutput: teardownStop });
+  const result = await h.run();
+  assert.equal(result.refusal, 'missing-playback-stop');
+  assert.equal(result.trace.some(row => row.kind === 'playback-stop'), false);
+  assert.equal(result.trace.find(row => row.kind === 'playback-stop-request').origin, teardownStop ? 'teardown' : 'interrupt');
+});
+
+test('evidence probe refuses teardown-originated stop events', () => {
+  const probe = createQualificationMediaProbe();
+  for (const event of [{ kind: 'capture', voiced: true, captureAt: 1, durationMs: 4 },
+    { kind: 'playback-start', firstAudioAt: 10 }, { kind: 'capture', voiced: true, captureAt: 810, durationMs: 64 },
+    { kind: 'playback-stop', stoppedAt: 910, origin: 'teardown' }]) probe.onTiming(event);
+  assert.throws(() => probe.evidence(), error => error.reason === 'missing-playback-stop');
+});
+
+test('candidate rendered silence qualifies without an explicit player stop', async () => {
+  const h = await pageFixture(undefined, { firstAudio: true, bargeIn: true, productStop: true, explicitStop: false });
+  const result = await h.run();
+  assert.equal(result.refusal, undefined);
+  assert.equal(result.trace.find(row => row.kind === 'playback-stop').stoppedAt, 910);
+  assert.equal(result.trace.some(row => row.kind === 'playback-stop-request'), false);
 });

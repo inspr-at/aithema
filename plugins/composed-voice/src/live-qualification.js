@@ -45,7 +45,7 @@ const FAILURE_MESSAGES = new Set([
   'Invalid transcript', 'Entity evidence required', 'Qualification lane has zero valid samples',
   'Qualification refusal limit reached',
 ]);
-const TIMING_KINDS = new Set(['capture', 'playback-start', 'playback-stop', 'playback-scheduled',
+const TIMING_KINDS = new Set(['capture', 'playback-start', 'playback-stop', 'playback-stop-request', 'playback-rendered', 'playback-scheduled',
   'opener-finished', 'opener-drained', 'opener-final', 'user-final', 'invalid-evidence', 'capture-outcome']);
 const TIMING_FIELDS = ['at', 'captureAt', 'receivedAt', 'durationMs', 'captureFrame', 'contextSampleRate',
   'firstAudioAt', 'scheduledAt', 'contextStart', 'requestedAt', 'stoppedAt', 'speechEndAt'];
@@ -56,6 +56,7 @@ function traceSummary(trace = []) {
     const row = { kind };
     for (const key of TIMING_FIELDS) if (Number.isFinite(event?.[key])) row[key] = event[key];
     if (typeof event?.voiced === 'boolean') row.voiced = event.voiced;
+    if (['interrupt', 'control', 'teardown', 'rendered-silence'].includes(event?.origin)) row.origin = event.origin;
     const timestamp = event?.outputTimestamp;
     if (timestamp) row.outputTimestamp = Object.fromEntries(['contextTime', 'performanceTime']
       .filter(key => Number.isFinite(timestamp[key])).map(key => [key, timestamp[key]]));
@@ -119,7 +120,7 @@ export function createQualificationMediaProbe() {
       const voiced = trace.filter(e => e.kind === 'capture' && e.voiced);
       const speechEndAt = Math.max(...voiced.filter(e => e.captureAt < firstAudioAt).map(e => e.captureAt + e.durationMs));
       const bargeInAt = Math.min(...voiced.filter(e => e.captureAt >= firstAudioAt).map(e => e.captureAt));
-      const stoppedAt = Math.min(...trace.filter(e => e.kind === 'playback-stop' && e.stoppedAt >= bargeInAt).map(e => e.stoppedAt));
+      const stoppedAt = Math.min(...trace.filter(e => e.kind === 'playback-stop' && e.origin !== 'teardown' && e.stoppedAt >= bargeInAt).map(e => e.stoppedAt));
       // Missing observations cannot establish a timing miss. Lane runners may
       // explicitly refuse a healthy sample at their evidence deadline.
       if (![firstAudioAt, speechEndAt, bargeInAt].every(Number.isFinite)) throw new Error('Incomplete qualification evidence');

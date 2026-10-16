@@ -228,7 +228,8 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     assert.ok(Math.abs(bargeInAt - firstAudioAt - 800) < 150, `${lane}: barge-in onset uses the shared injected-source clock`);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));
     assert.ok(trace.some(event => event.kind === 'playback-start' && event.outputTimestamp.contextTime > 0 && event.outputTimestamp.performanceTime > 0));
-    assert.ok(trace.some(event => event.kind === 'playback-stop' && event.outputTimestamp));
+    assert.ok(trace.some(event => event.kind === 'playback-stop' && event.origin === 'rendered-silence' && event.outputTimestamp));
+    if (lane === 'candidate') assert.ok(trace.some(event => event.kind === 'playback-stop-request' && event.origin === 'interrupt'));
   }
   assert.equal(JSON.parse(await readFile(join(output, 'blind.json'))).length, 2);
   if (process.env.AITHEMA_EVIDENCE_DIR) {
