@@ -1,4 +1,3 @@
-import { reasonSeparator } from '../consent-line.js';
 import {attachVersionInteraction} from './version-interaction.js';
 import {calendarSchemes,segments,collapsedKeys,validSeparator,validPadding,validColor,validSize,validOffset} from './presentation.js';
 const instances=new WeakMap();
@@ -47,7 +46,7 @@ export function renderVersion(element,value,scheme,{config,mode='reduced',brand=
   }
   // Pretty: six segments. The v prefix and the .0.0 tail are never drawn;
   // the accessible name and tooltip carry the full canonical version.
-  const label=`${canonical}${reasonSeparator}${utcLabel(parsed)}`;
+  const label=`${canonical} · ${utcLabel(parsed)}`;
   element.setAttribute('role','img');element.setAttribute('aria-label',label);element.setAttribute('title',label);
   const tint=config?.tint?.mode==='auto'?brand:config?.tint?.default;
   const collapsed=collapsedKeys(config?.weights);

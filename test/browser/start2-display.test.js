@@ -455,7 +455,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   const canvasFrame = async () => (await page.$('aithema-session >>> .canvas-html >>> iframe')).contentFrame();
   await t.test('populated canvas keeps interactive state and focus through durable events', async () => {
     await scene('de', 'light', 1440);
-    const frame = await canvasFrame(); await frame.click('#count'); await frame.focus('#design'); await frame.type('#design', '\u00a0· geändert');
+    const frame = await canvasFrame(); await frame.click('#count'); await frame.focus('#design'); await frame.type('#design', ' · geändert');
     const before = await frame.$eval('#design', n => n.value);
     await shadow(page, c => { globalThis.canvasFrameBefore = c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe');
       c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }); });

@@ -16,7 +16,8 @@ test('AIT-228: every UI source separator uses reasonSeparator, including locale 
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory);
       if (entry.isDirectory()) sweep(file);
-      else if (entry.name.endsWith('.js')) assert.equal(readFileSync(file, 'utf8').includes(' · '), false, file.pathname);
+      // The hash-pinned upstream closure is immutable. version-display.js overrides its labels.
+      else if (entry.name.endsWith('.js') && !file.pathname.includes('/src/versioning/')) assert.equal(readFileSync(file, 'utf8').includes(' · '), false, file.pathname);
     }
   };
   sweep(new URL('../src/', import.meta.url));

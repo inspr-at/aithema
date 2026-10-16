@@ -452,7 +452,7 @@ test('AIT-237: Settings Done explicitly confirms unchanged defaults', async t =>
 for (const copy of [de, en]) test(`AIT-237 ${copy.display.locale}: drafts off action opens Settings at visuals without saving`, async t => {
   const h = fixture(t, { copy });
   const line = h.root.querySelector('.concept-activity-text');
-  assert.equal(line.textContent.replaceAll('\u00a0', ' '), `${copy.display.draftsDisabled}\u00a0· ${copy.display.draftsEnable}`);
+  assert.equal(line.textContent, `${copy.display.draftsDisabled}\u00a0· ${copy.display.draftsEnable}`);
   const action = line.querySelector('.consent-action'); action.click(); await tick();
   assert.equal(h.dialog.open, true);
   assert.equal(h.q('[data-tab="model"]').getAttribute('aria-selected'), 'true');
