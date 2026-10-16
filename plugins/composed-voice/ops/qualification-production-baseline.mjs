@@ -181,7 +181,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     await save();
     for (const event of result.trace) onTiming(event);
     return { ...result, physicalBrowserMedia, ttsPCM: new Uint8Array(Buffer.from(result.ttsPCM, 'base64')),
-      baselineSession: labels() };
+      ttsConfig: binding.baseline.tts, baselineSession: labels() };
   } catch {
     // Persist a value-free refusal independently of result(), which must never
     // return invalid audio. Dispatched attempts stay uncertain, with no retry.

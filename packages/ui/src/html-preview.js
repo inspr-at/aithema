@@ -52,7 +52,7 @@ function verifyHostPolicy(document) {
 // Powerful features stay off even where a browser would delegate them.
 const PERMISSIONS = ['camera', 'microphone', 'geolocation', 'display-capture', 'clipboard-read', 'clipboard-write', 'payment', 'usb',
   'serial', 'hid', 'bluetooth', 'midi', 'publickey-credentials-get', 'screen-wake-lock', 'fullscreen'].map(f => `${f} 'none'`).join('; ');
-export const previewCopy = Object.freeze({ label: 'Draft — generated', title: 'Generated click-dummy draft', width: 'Preview width',
+export const previewCopy = Object.freeze({ label: 'Draft — generated', title: 'Generated clickable draft', width: 'Preview width',
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
   policy: 'The host page must block frame navigation before drafts can be shown.' });

@@ -7,12 +7,16 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { assertMatrixCaseCount, matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
 import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+
+// CI keeps every assertion, including paint samples. Evidence-only captures run
+// separately on the remote runner (or nightly) without spending PR runner time.
+const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
 
 test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-reuse-'));
@@ -56,7 +60,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await mockIdentityReads(page);
@@ -113,7 +117,6 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       c.configure({ copy, session, host: { library: true } });
       c.shadowRoot.activeElement?.blur();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
-      for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
     }, locale);
     // The first configured conversation still has an entrance/resize cycle.
@@ -195,93 +198,44 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   for (const row of passLines) t.diagnostic(`PASS head=${row.head} ${row.locale}-${row.theme}-${row.width}/${row.state} 0 px layout shift${row.textPixels ? `; ${row.textPixels} opaque pixels over text` : '; AIT-131 main paint preserved'}`);
 });
 
-test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewport down to 320px', { timeout: 120_000 }, async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-account-band-'));
+test('AIT-246 visitor header has two icons for guest, pending and verified email identities', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-visitor-band-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const browser = await browserForFile();
+  const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
-  if (evidence) await mkdir(evidence, { recursive: true });
+  await mockIdentityReads(page);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-  await until(page, () => document.querySelector('aithema-session')?.session?.id && !document.querySelector('#demo-account').hidden);
-  await shadow(page, c => { globalThis.accountSeed = c.session; });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.visitorHeaderSeed = structuredClone(c.session); });
+  let cases = 0;
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of matrixWidths([1440, 390, 320], theme, 1, 'display-account')) for (const folded of [false, true]) {
-    const height = width < 600 ? 844 : 900;
-    await page.setViewport({ width, height }); await page.select('#theme', theme);
-    await page.evaluate(async ({ locale, folded }) => {
-      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
-      const { paintUtilities } = await import('/demo/page-preferences.js');
-      const copy = { en, de }[locale], c = document.querySelector('aithema-session'), s = structuredClone(globalThis.accountSeed);
-      s.locale = locale; s.settings.origin = 'chosen'; s.transcript = [{ id: 'account-source', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' }];
-      s.identity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true };
-      c.configure({ copy, session: s, host: { library: true, verification: true } });
-      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
-      for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
-      document.querySelector('#demo-account').open = false;
-      if (folded) c.shadowRoot.querySelector('.fold').click();
-      window.scrollTo(0, 0);
-    }, { locale, folded });
-    await page.mouse.move(0, 300); await settle();
-    const control = await page.evaluate(() => {
-      const root = document.querySelector('aithema-session').shadowRoot, account = document.querySelector('#demo-account'), summary = account.querySelector('summary'), label = account.querySelector('#demo-account-label');
-      const rect = n => { const b = n.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; };
-      const slot = root.querySelector('slot[name="account"]'), wrap = slot.parentElement;
-      const range = document.createRange(); range.selectNodeContents(label);
-      const text = range.getBoundingClientRect(), icon = rect(account.querySelector('.utility-icon svg')), chevron = rect(account.querySelector('.utility-chevron svg'));
-      return { box: rect(summary), band: rect(root.querySelector('.band')), gear: rect(root.querySelector('.settings-open')), name: summary.getAttribute('aria-label'), title: summary.title,
-        inRightGroup: wrap.parentElement.classList.contains('header-actions'), beforeGear: wrap.nextElementSibling.classList.contains('settings-open'),
-        label: getComputedStyle(label).display !== 'none', icon, chevron,
-        gaps: [text.left - icon.right, chevron.left - text.right], gap: parseFloat(getComputedStyle(summary).gap),
-        extras: Boolean(root.querySelector('.host-extras')), emailInSettings: Boolean(root.querySelector('dialog.settings .host-verify')) };
-    });
-    const context = `${width}/${theme}/${locale}/${folded}: ${JSON.stringify(control)}`;
-    assert.equal(control.inRightGroup, true, context); assert.equal(control.beforeGear, true, context);
-    assert.ok(control.box.top >= control.band.top && control.box.bottom <= control.band.bottom, context);
-    assert.ok(control.box.left >= 0 && control.box.right <= control.gear.left + .5 && control.gear.right <= width + .5, context);
-    assert.equal(control.icon.width, 16); assert.equal(control.icon.height, 16); assert.equal(control.label, width >= 600);
-    assert.equal(control.name, { de, en }[locale].host.slots.account); assert.equal(control.title, control.name);
-    assert.equal(control.extras, false); assert.equal(control.emailInSettings, true);
-    if (control.label) {
-      assert.equal(control.chevron.width, 10); assert.equal(control.chevron.height, 10);
-      for (const gap of control.gaps) assert.ok(Math.abs(gap - control.gap) <= .5, `icon · label · chevron share the menu gap: ${context}`);
+    await page.setViewport({ width, height: 900 }); await page.select('#theme', theme);
+    for (const status of ['guest', 'pending', 'verified']) {
+      await shadow(page, async (c, { locale, folded, status }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const s = structuredClone(window.visitorHeaderSeed); s.locale = locale; s.settings.origin = 'chosen';
+        s.transcript = [{ id: 'visitor-header', role: 'user', content: 'A website for our bakery.' }];
+        s.identity = { status, address: status === 'guest' ? null : 'visitor@example.test', verificationRequired: false, assessmentUnlocked: true };
+        c.setAttribute('motion', 'off'); c.configure({ copy, session: s, host: { library: true, verification: true } });
+        if (folded) c.shadowRoot.querySelector('.fold').click();
+      }, { locale, folded, status });
+      await finishWorkspaceEntry(page);
+      const header = await shadow(page, c => {
+        const root = c.shadowRoot, band = root.querySelector('.band');
+        return { icons: [...band.querySelectorAll('.header-actions button')].filter(n => n.checkVisibility({ visibilityProperty: true })).map(n => n.className),
+          accounts: root.querySelector('slot[name="account"]').assignedElements().length,
+          emailInSettings: Boolean(root.querySelector('dialog.settings .host-verify')) };
+      });
+      assert.deepEqual(header.icons.sort(), ['conversations-toggle', 'settings-open'], `${width}/${locale}/${theme}/${status}/${folded}`);
+      assert.equal(header.accounts, 0); assert.equal(header.emailInSettings, true);
+      assert.equal(await page.$('[slot="account"]'), null);
     }
-    const previous = checks.find(n => n.width === width && n.theme === theme && n.folded === folded);
-    if (previous) for (const key of ['left', 'top', 'width', 'height']) assert.ok(Math.abs(previous.control.box[key] - control.box[key]) <= .5, `locale preserves the account reserve from ${JSON.stringify(previous.control.box)}: ${context}`);
-    if (width === 320) {
-      const selectors = ['.host-account', '.settings-open'], before = await boxes(page, selectors);
-      // Exercise a wider font's intrinsic label width without changing the evidence's typography.
-      await page.$eval('#theme-value', n => { n.style.fontSize = '16px'; });
-      const stressed = await boxes(page, selectors);
-      await page.$eval('#theme-value', n => n.style.removeProperty('font-size'));
-      sameBoxes(before, stressed, 'wider theme glyphs preserve the account and gear reserve');
-    }
-    const shot = async suffix => {
-      if (!evidence) return;
-      const name = `r3-demo-account-${folded ? 'folded' : 'unfolded'}-${suffix}-${width}-${theme}-${locale}.png`;
-      await page.screenshot({ path: join(evidence, name) }); files.push(name);
-    };
-    await shot('closed');
-    const before = await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']);
-    await page.click('#demo-account summary'); await settle();
-    const panel = await page.$eval('#demo-account', account => {
-      const b = account.querySelector('div').getBoundingClientRect(), control = account.querySelector('summary').getBoundingClientRect();
-      return { open: account.open, left: b.left, top: b.top, right: b.right, bottom: b.bottom, controlBottom: control.bottom,
-        bandBottom: document.querySelector('aithema-session').shadowRoot.querySelector('.band').getBoundingClientRect().bottom,
-        position: getComputedStyle(account.querySelector('div')).position };
-    });
-    assert.equal(panel.open, true); assert.ok(panel.left >= 0 && panel.right <= width + .5 && panel.top >= panel.controlBottom + 5.5 && panel.bottom <= height, JSON.stringify(panel));
-    if (width < 400) {
-      assert.equal(panel.position, 'fixed'); assert.equal(panel.left, 12); assert.equal(panel.right, width - 12);
-      assert.ok(panel.top >= panel.bandBottom + 5.5, 'the viewport panel sits below the whole band');
-    }
-    sameBoxes(before, await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']), 'account disclosure changes no band layout');
-    await shot('open'); await page.keyboard.press('Escape'); assert.equal(await page.$eval('#demo-account', n => n.open), false);
-    checks.push({ width, theme, locale, folded, control, panel });
+    cases++;
   }
-  assertMatrixCaseCount('display-account', checks.length);
-  if (evidence) await writeFile(join(evidence, 'r3-demo-account-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, files, checks }, null, 2));
+  assertMatrixCaseCount('display-account', cases);
 });
 
 test('AIT-147 Settings footer wraps without moving controls: verification off/unverified/pending/verified, DE/EN, 1440/390, light/dark', { timeout: 120_000 }, async t => {
@@ -292,7 +246,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
   t.after(() => demo.kill());
   const browser = await browserForFile();
   t.after(() => browser.close());
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
@@ -374,7 +328,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
@@ -434,7 +388,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(); page.setDefaultTimeout(15_000);
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+  const evidence = evidenceDirectory, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const draft = copy => `<!doctype html><html lang="${copy.display.locale}"><head><meta charset="utf-8"><title>${copy.layout.canvas}</title>
     <style>body{margin:0;padding:32px;background:#f7f5ef;color:#243b40;font:16px system-ui}h1{font:32px Georgia}input,button{font:inherit;padding:12px;border:1px solid #b4c9c1;border-radius:6px}button{background:#1d6e6a;color:white}p{line-height:1.5}</style></head>
@@ -548,40 +502,45 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   assertMatrixCaseCount('display-orb', checks.filter(check => 'target' in check).length);
   await t.test('conversations menu corners stay painted above the second band row at medium widths and fit all header widths', async () => {
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
-      const label = `${locale}/${theme}/${width}`;
-      await scene(locale, theme, width);
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+      // Keep this scene loaded while resizing; menu geometry does not need a new
+      // executable canvas and session render for every width.
+      await scene(locale, theme, 390);
       await shadow(page, async (c, locale) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         c.configure({ copy, session: c.session, host: { library: true } });
       }, locale);
-      const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
-      const before = await boxes(page, selectors);
-      await page.click('aithema-session >>> .conversations-toggle');
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
-      await settle();
-      const menu = await shadow(page, c => {
-        const root = c.shadowRoot, n = root.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
-        const anchor = root.querySelector('.conversations-toggle').getBoundingClientRect();
-        const orb = root.querySelector('.band-orb [role="button"]'), target = orb.getBoundingClientRect();
-        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom,
-          anchor: { left: anchor.left, right: anchor.right, bottom: anchor.bottom },
-          orbHit: orb.contains(root.elementFromPoint(target.left + 1, target.top + 22)),
-          corners: [[b.left + 8, b.top + 8], [b.right - 8, b.top + 8], [b.left + 8, b.bottom - 8], [b.right - 8, b.bottom - 8]]
-            .map(([x, y]) => { const hit = root.elementFromPoint(x, y); return { painted: n.contains(hit), hit: hit?.className }; }) };
-      });
-      assert.ok(menu.left >= 0 && menu.right <= width + .5 && menu.top >= 0 && menu.bottom <= (width === 390 ? 844 : 900), `${label}: menu fits ${JSON.stringify(menu)}`);
-      assert.ok(menu.corners.every(n => n.painted), `${label}: ${JSON.stringify(menu)}`);
-      assert.ok(Math.abs(menu.top - menu.anchor.bottom - 6) <= .5, `${label}: menu opens below its icon`);
-      if (width >= 600) assert.ok(Math.abs(menu.right - menu.anchor.right) <= .5, `${label}: menu aligns with its icon's right edge`);
-      else assert.ok(menu.left <= menu.anchor.left && menu.right >= menu.anchor.right, `${label}: phone menu spans its icon`);
-      assert.equal(menu.orbHit, true, `${label}: menu preserves the orb's outer hit ring`);
-      sameBoxes(before, await boxes(page, selectors), `${label}: opening the menu keeps the band fixed`);
-      await shot('conversations-medium', locale, theme, width);
-      checks.push({ locale, theme, width, menu });
-      await shadow(page, c => c.shadowRoot.querySelector('.conversations-toggle').focus());
-      await page.keyboard.press('Escape');
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
+      for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
+        const label = `${locale}/${theme}/${width}`;
+        await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+        const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
+        const before = await boxes(page, selectors);
+        await page.click('aithema-session >>> .conversations-toggle');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
+        await settle();
+        const menu = await shadow(page, c => {
+          const root = c.shadowRoot, n = root.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
+          const anchor = root.querySelector('.conversations-toggle').getBoundingClientRect();
+          const orb = root.querySelector('.band-orb [role="button"]'), target = orb.getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom,
+            anchor: { left: anchor.left, right: anchor.right, bottom: anchor.bottom },
+            orbHit: orb.contains(root.elementFromPoint(target.left + 1, target.top + 22)),
+            corners: [[b.left + 8, b.top + 8], [b.right - 8, b.top + 8], [b.left + 8, b.bottom - 8], [b.right - 8, b.bottom - 8]]
+              .map(([x, y]) => { const hit = root.elementFromPoint(x, y); return { painted: n.contains(hit), hit: hit?.className }; }) };
+        });
+        assert.ok(menu.left >= 0 && menu.right <= width + .5 && menu.top >= 0 && menu.bottom <= (width === 390 ? 844 : 900), `${label}: menu fits ${JSON.stringify(menu)}`);
+        assert.ok(menu.corners.every(n => n.painted), `${label}: ${JSON.stringify(menu)}`);
+        assert.ok(Math.abs(menu.top - menu.anchor.bottom - 6) <= .5, `${label}: menu opens below its icon`);
+        if (width >= 600) assert.ok(Math.abs(menu.right - menu.anchor.right) <= .5, `${label}: menu aligns with its icon's right edge`);
+        else assert.ok(menu.left <= menu.anchor.left && menu.right >= menu.anchor.right, `${label}: phone menu spans its icon`);
+        assert.equal(menu.orbHit, true, `${label}: menu preserves the orb's outer hit ring`);
+        sameBoxes(before, await boxes(page, selectors), `${label}: opening the menu keeps the band fixed`);
+        await shot('conversations-medium', locale, theme, width);
+        checks.push({ locale, theme, width, menu });
+        await shadow(page, c => c.shadowRoot.querySelector('.conversations-toggle').focus());
+        await page.keyboard.press('Escape');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
+      }
     }
   });
   if (evidence) await writeFile(join(evidence, 'display-regressions-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit,
@@ -595,7 +554,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = evidenceDirectory;
   page.on('pageerror', error => errors.push(error.message));
   await page.setRequestInterception(true);
   page.on('request', async request => {
@@ -716,7 +675,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = evidenceDirectory;
   page.on('pageerror', error => errors.push(error.message));
   await page.setRequestInterception(true);
   page.on('request', async request => {
@@ -992,7 +951,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
+  const page = await browser.newPage(), errors = [], evidence = evidenceDirectory, passLines = [];
   page.on('pageerror', error => errors.push(error.message));
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -1246,4 +1205,428 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   assert.equal(await shadow(page, c => Boolean(c.session.id && c.shadowRoot.querySelector('textarea'))), true);
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait105-version-pass-lines.json'), JSON.stringify(passLines, null, 2));
+});
+
+test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, export, pointer hints and appearance', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ui-polish-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await browserForFile(), page = await browser.newPage();
+  const emulation = await page.createCDPSession();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = evidenceDirectory, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => {
+    window.polishSeed = structuredClone(c.session);
+    const fetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const response = await fetch(url, init);
+      if ((init.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname.endsWith('/settings')) {
+        // Keep the real catalog, with the scene's acknowledged selection.
+        const catalog = await response.json();
+        return Response.json({ ...catalog, processingPreset: c.session.processingPreset, settings: c.session.settings, engine: c.session.engine });
+      }
+      return response;
+    };
+  });
+  const stable = ['.band', '.audio-rail', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
+  const record = (label, state, detail = {}) => {
+    checks.push({ head: evidenceCommit, label, state, ...detail });
+  };
+  const states = [
+    ['option-unoffered', 'visuals not offered', 'draftsUnoffered'],
+    ['preset-unconfigured', 'preset not configured', 'draftsPreset', 'draftsChoose'],
+    ['device', 'unavailable on device', 'draftsDevice', 'draftsChoose'],
+    ['quote-missing', null, 'draftsQuote', 'draftsRetry'],
+    ['admission-timeout', 'admission deadline', 'draftsTimeout', 'draftsRetry'],
+  ];
+  // One loaded page, reused across widths/locales; iterate every state in-page.
+  // Theme-independent behavior uses DE light and EN dark; appearance checks select all themes.
+  for (const locale of ['de', 'en']) for (const width of [1440, 390, 320]) {
+    const theme = locale === 'de' ? 'light' : 'dark';
+    const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: false });
+    await page.select('#theme', theme);
+    const configure = (state, reason) => shadow(page, async (c, { locale, state, reason }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const s = structuredClone(window.polishSeed);
+      s.locale = locale; s.processingPreset = state === 'device' ? 'device' : 'best';
+      s.settings = { ...s.settings, origin: 'chosen' }; s.paused = false; s.pauseReason = null;
+      s.transcript = [{ id: 'polish-user', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' },
+        { id: 'polish-reply', role: 'assistant', content: locale === 'de' ? 'Wie sollen Kunden bestellen?' : 'How should customers order?' }];
+      s.transcript[1].inputRevision = inputRevision(s);
+      s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
+      s.featureMatrix = { [s.processingPreset]: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key,
+        ['html', 'images'].includes(key) ? { available: !reason, reason } : { available: true, reason: null }])) };
+      s.conceptVisualKind = 'html'; s.conceptCost = state.includes('quote-missing') ? null : { maxMicro: 400_000 };
+      s.concepts = state === 'draft-ready-quote-missing' ? [{ id: 'polish-ready', mediaType: 'text/html', turnIds: ['polish-user'], referenceIds: [], archived: false }] : []; s.conceptStatus = { phase: 'idle' };
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ copy, session: s, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1,
+        host: { library: true } });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
+      window.scrollTo(0, 0);
+    }, { locale, state, reason });
+    let baseline;
+    for (const [state, reason, message, action] of states) {
+      await configure(state, reason); await finishWorkspaceEntry(page);
+      const text = await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent);
+      assert.equal(text, copy.display[message] + (action ? `\u00a0· ${copy.display[action]}` : ''), `${label}/${state}: exact mirrored copy and NBSP`);
+      const current = await boxes(page, stable);
+      if (baseline) assert.deepEqual(current, baseline, `${label}/${state}: 0 px layout shift across refusals`);
+      else baseline = current;
+      const actionNode = 'aithema-session >>> .drafts-settings-action';
+      if (action) {
+        const actionBox = await boxes(page, ['.drafts-settings-action']);
+        await page.hover(actionNode);
+        assert.deepEqual(await boxes(page, stable), current, `${label}/${state}: 0 px hover shift`);
+        assert.deepEqual(await boxes(page, ['.drafts-settings-action']), actionBox, `${label}/${state}: action stays under pointer`);
+      }
+      record(label, state, { text, displacementPx: 0 });
+      if (action === 'draftsChoose' && width === 1440) {
+        await page.click(actionNode);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-tab="model"]').getAttribute('aria-selected')), 'true');
+        if (state === 'device') {
+          assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.preset-option[data-preset="device"]')), true);
+          const presetView = await shadow(page, c => {
+            const root = c.shadowRoot, field = root.querySelector('.presets').closest('fieldset').getBoundingClientRect();
+            const body = root.querySelector('.settings__body').getBoundingClientRect();
+            return field.top >= body.top && field.bottom <= body.bottom;
+          });
+          assert.equal(presetView, true, `${label}: processing heading and all preset choices are in view`);
+          record(label, 'device-preset-settings');
+        }
+        await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+      } else if (action === 'draftsRetry' && width === 1440) {
+        // Retry reads a snapshot; it must never request or charge for a draft.
+        let reads = 0, paidRequests = 0;
+        const interceptor = async request => {
+          if (request.url() === `${demo.url}/api/sessions/${windowSeedId}` && request.method() === 'GET') {
+            reads++; await request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(retrySnapshot) });
+          } else { if (request.method() === 'POST' && request.url().endsWith('/concepts')) paidRequests++; await request.continue(); }
+        };
+        const retrySnapshot = await shadow(page, c => c.session), windowSeedId = retrySnapshot.id;
+        await page.setRequestInterception(true); page.on('request', interceptor);
+        await page.click(actionNode); await until(page, () => true); await settle();
+        page.off('request', interceptor); await page.setRequestInterception(false);
+        assert.equal(reads, 1); assert.equal(paidRequests, 0);
+      }
+      if (state === 'device' || state === 'option-unoffered') {
+        await shadow(page, c => c.shadowRoot.querySelector('.understanding > .foot').scrollIntoView({ block: 'center' }));
+        const footer = await shadow(page, c => {
+          const root = c.shadowRoot, link = root.querySelector('.export'), create = root.querySelector('.create-project');
+          const a = link.getBoundingClientRect(), b = create.getBoundingClientRect();
+          const range = document.createRange(); range.selectNodeContents(link.querySelector('[data-copy]'));
+          const other = document.createRange(); other.selectNodeContents(create.querySelector('span'));
+          const reason = root.querySelector('.export-reason');
+          return { disabled: link.getAttribute('aria-disabled'), href: link.getAttribute('href'), why: link.title,
+            reason: reason?.textContent, reasonVisible: Boolean(reason?.checkVisibility() && getComputedStyle(reason).visibility === 'visible'),
+            described: link.getAttribute('aria-describedby') === reason?.id, tabIndex: link.tabIndex, role: link.getAttribute('role'),
+            underline: getComputedStyle(link).textDecorationLine, lines: range.getClientRects().length, projectLines: other.getClientRects().length,
+            stacked: b.top >= a.bottom, right: Math.max(a.right, b.right) };
+        });
+        if (width < 480) { assert.equal(footer.lines, 1); assert.equal(footer.projectLines, 1); }
+        else { assert.ok(footer.lines <= 2); assert.ok(footer.projectLines <= 2); }
+        assert.equal(footer.stacked, width < 480); assert.ok(footer.right <= width);
+        if (state === 'device') { assert.equal(footer.disabled, 'true'); assert.equal(footer.href, null); assert.equal(footer.underline, 'none'); assert.equal(footer.why, copy.deviceExportUnavailable);
+          assert.equal(footer.reason, copy.deviceExportUnavailable); assert.equal(footer.reasonVisible, true);
+          assert.equal(footer.described, true); assert.equal(footer.tabIndex, 0); assert.equal(footer.role, 'link'); }
+        else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); assert.equal(footer.reasonVisible, false); }
+        record(label, `${state}-footer`, footer);
+      }
+    }
+    await configure('draft-ready-quote-missing', null); await finishWorkspaceEntry(page);
+    const ready = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.concept-activity-text').textContent,
+      recovery: Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action')) }));
+    assert.deepEqual(ready, { text: copy.conceptDraftReady.replace('{number}', '1'), recovery: false });
+    record(label, 'draft-ready-quote-missing', ready);
+    // Pointer/platform behavior is independent of width; cover both platforms
+    // and touch once per locale, alongside the narrow footer checks.
+    if (width === 390) {
+      await configure('option-unoffered', 'visuals not offered'); await finishWorkspaceEntry(page);
+      for (const [platform, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
+        await page.evaluate(platform => Object.defineProperty(navigator, 'platform', { configurable: true, value: platform }), platform);
+        await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.shortcut.replace('{key}', key));
+        record(label, `fine-${platform}`);
+      }
+      const fineBoxes = await boxes(page, stable.concat('.send', '.attach'));
+      await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+      assert.equal(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), true);
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden');
+      assert.deepEqual(await boxes(page, stable.concat('.send', '.attach')), fineBoxes, `${label}: touch hint hides with 0 px shift`);
+      record(label, 'coarse');
+      await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+    }
+    await shadow(page, c => c.openSettings());
+    let utilityBaseline;
+    for (const choice of ['light', 'dark', 'system']) {
+      await page.select('#theme', choice);
+      const metrics = await page.evaluate(() => {
+        const root = document.querySelector('aithema-session').shadowRoot, value = document.querySelector('#theme-value'), chevron = document.querySelector('.utility-theme .utility-chevron');
+        const box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+        return { gap: chevron.getBoundingClientRect().left - value.getBoundingClientRect().right,
+          boxes: [box(document.querySelector('.utility-theme')), box(document.querySelector('.utility-language')), box(root.querySelector('.done'))] };
+      });
+      assert.equal(metrics.gap, 4, `${label}/${choice}: appearance chevron hugs actual text`);
+      if (utilityBaseline) assert.deepEqual(metrics.boxes, utilityBaseline, `${label}/${choice}: 0 px preference and Done shift`);
+      else utilityBaseline = metrics.boxes;
+      record(label, `appearance-${choice}`, metrics);
+    }
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+  }
+  assert.equal(checks.length, 74, 'all states at desktop/390/320 in DE/EN, pointer/platform cases and desktop recovery actions');
+  if (evidence) await writeFile(join(evidence, 'ait246-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', fonts: 'Chrome baseline UI/display stacks pinned', checks }, null, 2));
+});
+
+test('AIT-246 round 2 regressions: visible export reason, device preset destination and existing drafts without a quote', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-polish-round2-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'));
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.round2Seed = structuredClone(c.session); });
+  const configure = (device, items = []) => shadow(page, async (c, { device, items }) => {
+    const { en } = await import('/packages/ui/src/i18n/en.js');
+    const { inputRevision } = await import('/packages/core/src/session.js');
+    const s = structuredClone(window.round2Seed);
+    s.paused = false; s.pauseReason = null;
+    s.transcript = [{ id: 'round2-user', role: 'user', content: 'A bakery website.' }, { id: 'round2-reply', role: 'assistant', content: 'How should customers order?' }];
+    s.transcript[1].inputRevision = inputRevision(s);
+    s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
+    s.settings.origin = 'chosen'; s.processingPreset = device ? 'device' : 'best';
+    s.conceptVisualKind = 'html'; s.conceptCost = null; s.concepts = items;
+    s.conceptStatus = { phase: 'idle' };
+    s.featureMatrix = { [s.processingPreset]: { html: { available: !device, reason: device ? 'unavailable on device' : null } } };
+    c.setAttribute('motion', 'off'); c.configure({ copy: en, session: s });
+  }, { device, items });
+  await t.test('disabled export has a visible, associated reason and remains keyboard focusable', async () => {
+    await configure(true); await finishWorkspaceEntry(page);
+    const result = await shadow(page, c => {
+      const link = c.shadowRoot.querySelector('.export'), reason = c.shadowRoot.getElementById(link.getAttribute('aria-describedby'));
+      link.focus();
+      return { focused: c.shadowRoot.activeElement === link, role: link.getAttribute('role'),
+        reason: reason?.textContent, visible: Boolean(reason && reason.checkVisibility() && getComputedStyle(reason).visibility === 'visible') };
+    });
+    assert.deepEqual(result, { focused: true, role: 'link', reason: en.deviceExportUnavailable, visible: true });
+  });
+  await t.test('device recovery opens and focuses the selected processing preset', async () => {
+    await configure(true); await finishWorkspaceEntry(page);
+    await page.click('aithema-session >>> .drafts-settings-action');
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.preset-option[data-preset="device"]')), true);
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+  });
+  await t.test('a missing quote preserves the ready sentence for existing drafts', async () => {
+    await configure(false, [{ id: 'ready-round2', mediaType: 'text/html', turnIds: [], referenceIds: [], archived: false }]);
+    await finishWorkspaceEntry(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), en.conceptDraftReady.replace('{number}', '1'));
+    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action'))), false);
+  });
+});
+
+test('AIT-246 round 3: person-facing visual options and provider description, DE/EN light/dark desktop/phone', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-polish-round3-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_COMMIT: evidenceCommit });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = evidenceDirectory, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.select('#theme', theme);
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ copy, session: c.session });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
+      c.shadowRoot.querySelector('.settings-open').click();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="visuals"] [data-value="claude-html"]'));
+    await shadow(page, c => {
+      const select = c.shadowRoot.querySelector('[data-select="visuals"]');
+      select.scrollIntoView({ block: 'center' });
+      select.querySelector('.select__button').click();
+    });
+    const actual = await shadow(page, c => [...c.shadowRoot.querySelectorAll('[data-select="visuals"] [role="option"]')].map(node => ({
+      id: node.dataset.value, label: node.querySelector('strong').textContent, description: node.querySelector('.option-label small')?.textContent ?? '',
+    })));
+    assert.deepEqual(actual.map(o => o.id), ['off', 'fake-html', 'claude-html', 'fake-images', 'openai-images']);
+    assert.deepEqual(actual.find(o => o.id === 'claude-html'), { id: 'claude-html', label: locale === 'de' ? 'Klickbarer Entwurf' : 'Clickable draft', description: locale === 'de' ? 'über Claude' : 'via Claude' });
+    assert.doesNotMatch(actual.map(o => `${o.label} ${o.description}`).join(' '), /dummy|\bfake\b|\bmock\b|\bHTML\b|\bPNG\b|\bagent\b|deterministi/iu);
+    await shadow(page, async c => {
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.mouse.move(-1, -1);
+    const visible = await shadow(page, c => {
+      const root = c.shadowRoot, option = root.querySelector('[data-select="visuals"] [data-value="claude-html"]');
+      const description = option.querySelector('.option-label small'), body = root.querySelector('.settings__body');
+      const r = description.getBoundingClientRect(), b = body.getBoundingClientRect();
+      return { menuOpen: !option.closest('[role="listbox"]').hidden, descriptionVisible: r.top >= b.top && r.bottom <= b.bottom && r.left >= 0 && r.right <= innerWidth,
+        focused: Boolean(root.activeElement), font: getComputedStyle(description).fontFamily };
+    });
+    assert.equal(visible.menuOpen, true); assert.equal(visible.descriptionVisible, true, `${locale}/${theme}/${width}: description in viewport`);
+    assert.equal(visible.focused, false, 'blur before viewport evidence');
+    const file = `ait246-${width}-${theme}-${locale}-visual-options.png`;
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+    checks.push({ head: evidenceCommit, locale, theme, width, file, options: actual, ...visible });
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  }
+  assert.equal(checks.length, 8);
+  if (evidence) await writeFile(join(evidence, 'ait246-round3-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
+});
+
+test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE/EN at 390/320', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-narrow-draft-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'fake', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = evidenceDirectory, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await mockIdentityReads(page);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.narrowDraftSeed = structuredClone(c.session); });
+  const states = [
+    ['option-unoffered', 'visuals not offered'], ['preset-unconfigured', 'preset not configured'],
+    ['device', 'unavailable on device'], ['quote-missing', null], ['admission-timeout', 'admission deadline'],
+    ['not-configured', 'not configured'], ['off', 'visuals off'], ['low', 'budget'],
+    ['unavailable', 'unavailable'], ['request', null], ['draft-ready', null], ['draft-ready-quote-missing', null],
+  ];
+  const capture = async (file, cropBand = true) => {
+    if (!evidence) return;
+    await shadow(page, async c => {
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.mouse.move(-1, -1);
+    const clip = cropBand ? await shadow(page, c => {
+      const root = c.shadowRoot, a = root.querySelector('.band').getBoundingClientRect(), b = root.querySelector('.concept-bar').getBoundingClientRect();
+      return { x: 0, y: Math.max(0, a.top), width: innerWidth, height: Math.min(innerHeight, b.bottom) - Math.max(0, a.top) };
+    }) : undefined;
+    await page.screenshot({ path: join(evidence, file), clip, captureBeyondViewport: false });
+  };
+  for (const locale of ['de', 'en']) for (const width of [390, 320]) {
+    const theme = locale === 'de' ? 'light' : 'dark';
+    await page.setViewport({ width, height: 844 }); await page.select('#theme', theme);
+    let baseline;
+    for (const [state, reason] of states) {
+      await shadow(page, async (c, { locale, state, reason }) => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const { inputRevision } = await import('/packages/core/src/session.js');
+        const s = structuredClone(window.narrowDraftSeed);
+        s.locale = locale; s.processingPreset = state === 'device' ? 'device' : 'best';
+        s.settings = { ...s.settings, origin: 'chosen' }; s.paused = false; s.pauseReason = null;
+        s.transcript = [{ id: 'narrow-user', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' },
+          { id: 'narrow-reply', role: 'assistant', content: locale === 'de' ? 'Wie sollen Kunden bestellen?' : 'How should customers order?' }];
+        s.transcript[1].inputRevision = inputRevision(s);
+        s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
+        s.featureMatrix = { [s.processingPreset]: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key,
+          ['html', 'images'].includes(key) ? { available: !reason, reason } : { available: true, reason: null }])) };
+        s.conceptVisualKind = 'html'; s.conceptCost = state.includes('quote-missing') ? null : { maxMicro: 400_000 };
+        s.concepts = state.startsWith('draft-ready') ? [{ id: 'narrow-ready', mediaType: 'text/html', turnIds: ['narrow-user'], referenceIds: [], archived: false }] : [];
+        s.conceptStatus = { phase: 'idle' };
+        c.setAttribute('motion', 'off');
+        c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+        c.configure({ copy, session: s, host: { library: true } });
+        document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+        const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
+        window.scrollTo(0, 0);
+      }, { locale, state, reason });
+      await finishWorkspaceEntry(page);
+      const geometry = await shadow(page, c => {
+        const root = c.shadowRoot, rail = root.querySelector('.concept-bar');
+        const box = r => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+        const visible = n => n.checkVisibility({ visibilityProperty: true });
+        const parts = [];
+        // Compare independent painted primitives, never an ancestor with its descendants.
+        const seen = new Set();
+        for (const selector of ['.concept-scene', '.concept-request', '.drafts-settings-action', '.consent-action', '.concept-preview-glyph svg', '.concept-preview img', '.concept-progress']) {
+          const n = rail.querySelector(selector);
+          if (n && visible(n) && !seen.has(n)) { seen.add(n); parts.push({ name: selector, ...box(n.getBoundingClientRect()) }); }
+        }
+        for (const selector of ['.concept-activity-text', '.concept-countdown', '.concept-preview-label']) {
+          const n = rail.querySelector(selector); if (!n || !visible(n)) continue;
+          const walker = document.createTreeWalker(n, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const text = walker.currentNode;
+            if (!text.textContent.trim() || text.parentElement.closest('button') && selector !== '.concept-preview-label') continue;
+            const range = document.createRange(); range.selectNodeContents(text);
+            for (const r of range.getClientRects()) if (r.width && r.height) parts.push({ name: `${selector}: ${text.textContent}`, ...box(r) });
+          }
+        }
+        const controls = [...root.querySelectorAll('.motion-toggle, .band button, .band-orb [role="button"]')]
+          .filter(n => visible(n) && !n.matches('.fold')).map(n => ({ name: n.className, ...box(n.getBoundingClientRect()) }));
+        return { bounds: box(rail.getBoundingClientRect()), parts, controls, fold: { name: '.fold', ...box(root.querySelector('.fold').getBoundingClientRect()) } };
+      });
+      const context = `${width}/${locale}/${state}: ${JSON.stringify(geometry)}`;
+      assert.ok(geometry.parts.length >= 2, context);
+      for (const control of geometry.controls) {
+        const fold = geometry.fold;
+        assert.ok(Math.min(control.right, fold.right) <= Math.max(control.left, fold.left) + .1 || Math.min(control.bottom, fold.bottom) <= Math.max(control.top, fold.top) + .1, `fold intersects ${control.name}; ${context}`);
+      }
+      const sceneBox = geometry.parts.find(p => p.name === '.concept-scene');
+      assert.ok(sceneBox.left >= geometry.fold.right + 8 || sceneBox.top >= geometry.fold.bottom + 8, `scene clears fold control by 8 px; ${context}`);
+      for (const [i, a] of geometry.parts.entries()) {
+        assert.ok(a.left >= geometry.bounds.left && a.right <= geometry.bounds.right + .5 && a.top >= geometry.bounds.top && a.bottom <= geometry.bounds.bottom + .5, context);
+        for (const b of [...geometry.parts.slice(i + 1), geometry.fold]) assert.ok(Math.min(a.right, b.right) <= Math.max(a.left, b.left) + .1 || Math.min(a.bottom, b.bottom) <= Math.max(a.top, b.top) + .1, `intersecting ${a.name} / ${b.name}; ${context}`);
+      }
+      const current = await boxes(page, ['.concept-bar', '.composer-shell', '.display-foot']);
+      if (baseline) assert.deepEqual(current, baseline, `${context}: 0 px between all draft-line states`); else baseline = current;
+      if (state === 'draft-ready-quote-missing') {
+        const status = geometry.parts.filter(p => p.name.startsWith('.concept-activity-text:'));
+        const label = geometry.parts.filter(p => p.name.startsWith('.concept-preview-label:'));
+        const scene = geometry.parts.find(p => p.name === '.concept-scene'), glyph = geometry.parts.find(p => p.name === '.concept-preview-glyph svg');
+        assert.equal(status.length, 1, context); assert.equal(label.length, 1, context);
+        assert.equal(status[0].name, `.concept-activity-text: ${{ de, en }[locale].conceptDraftReady.replace('{number}', '1')}`);
+        assert.ok(scene.top < status[0].bottom && status[0].top < scene.bottom, context);
+        assert.ok(label[0].top >= status[0].bottom && glyph.top >= scene.bottom, context);
+        assert.equal(scene.left, glyph.left, context); assert.equal(status[0].left, label[0].left, context);
+        if (width === 390) await capture(`ait246-r5-${width}-${theme}-${locale}-draft-ready.png`);
+      }
+      checks.push({ head: evidenceCommit, width, locale, theme, state, displacementPx: 0, ...geometry });
+    }
+  }
+  assert.equal(checks.length, 48);
+  // Show the actual demo header's copy, in a settled desktop viewport.
+  await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', 'light');
+  await page.evaluate(() => localStorage.setItem('aithema-demo-locale', 'de'));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id && document.documentElement.lang === 'de');
+  await shadow(page, c => {
+    c.setAttribute('motion', 'off');
+    c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+    c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+  });
+  await page.$eval('.demo-strip', n => n.scrollIntoView({ block: 'end' }));
+  assert.doesNotMatch(await page.$eval('.demo-strip', n => n.textContent), /Klick-Dummy|click-dummy|\bfake\b|\bmock\b/iu);
+  await capture('ait246-r4-1440-light-de-demo-header.png', false);
+  if (evidence) await writeFile(join(evidence, 'ait246-r4-geometry.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', checks }, null, 2));
 });

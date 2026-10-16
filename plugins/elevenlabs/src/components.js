@@ -5,6 +5,7 @@ import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { processingScope } from '../../../packages/core/src/presets.js';
 import { consentCoverage } from '@inspr/aithema-core';
 import { componentInvocation, boundedEvents } from '../../../packages/core/src/voice-components.js';
+import { validateVoiceSettings } from './voice-settings.js';
 
 export const STT_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 });
 export const TTS_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
@@ -26,7 +27,8 @@ function configuration(raw = {}) {
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/' ||
     raw.secretRef !== undefined && (typeof raw.secretRef !== 'string' || !raw.secretRef) ||
     ![raw.sttMicroPerSecond, raw.ttsMicroPerCharacter].every(n => n === undefined || Number.isSafeInteger(n) && n >= 0)) throw new TypeError('Invalid ElevenLabs component configuration');
-  return Object.freeze({ ...raw, endpoint: url.origin });
+  return Object.freeze({ ...raw, endpoint: url.origin,
+    ...(raw.voiceSettings !== undefined ? { voiceSettings: validateVoiceSettings(raw.voiceSettings) } : {}) });
 }
 function cost(quantity, rate) {
   if (!Number.isFinite(quantity) || quantity < 0 || !Number.isSafeInteger(rate) || rate < 0) throw new PluginError('not-admitted', 'Configured component tariff required');
@@ -230,7 +232,8 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
         catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
         invocation.identify('requestId', socket.requestId);
         stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
-        for (const message of [{ text: ' ' }, { text: wireText, flush: true }, { text: '' }]) {
+        for (const message of [{ text: ' ', ...(config.voiceSettings ? { voice_settings: config.voiceSettings } : {}) },
+          { text: wireText, flush: true }, { text: '' }]) {
           await voiceOperation(opts, () => socket.send(JSON.stringify(message)));
         }
         for await (const wire of boundedEvents(socket.events, opts)) {

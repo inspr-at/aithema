@@ -198,7 +198,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       await Promise.all(reports);
       if (!(result.ttsPCM instanceof Uint8Array) || result.ttsPCM.length > 16_000_000) throw new Error('Bounded server PCM required');
       publish(row, { type: 'result', result: { hypothesis: result.hypothesis, entities: result.entities,
-        ttsFormat: result.ttsFormat, ttsPCM: Buffer.from(result.ttsPCM).toString('base64') } });
+        ttsConfig: result.ttsConfig, ttsFormat: result.ttsFormat, ttsPCM: Buffer.from(result.ttsPCM).toString('base64') } });
     } catch {
       row.setup.resolve();
       if (!row.closed) publish(row, { type: 'failure', error: 'OPS sample failed; retain reservations and inspect server evidence' });

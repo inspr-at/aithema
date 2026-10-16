@@ -1,4 +1,4 @@
 {
   "seconds": 110,
-  "evidence": "AIT-199 latest max 97.777s, CI 38765085264-1; historical floor 110s"
+  "evidence": "AIT-246 round 5, optimized workload at eb82c40dbdbc8754f5ce44438fe46c65feb143a2: successful CI browser (3/6), https://github.com/inspr-at/aithema/actions/runs/38894713067/job/116952641709 . Sum of all 15 successful top-level start2-display tests = 99.366242501s; round up to 100s + 10s margin (also retains main's 110s floor). Replaces the 200s measurement of the old workload: page/scene reuse and removal of duplicate evidence captures and repeated behavior cases; all required assertions retained."
 }

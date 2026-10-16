@@ -5,16 +5,16 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launchQualificationHost, createQualificationHost } from '../ops/qualification-live-host.mjs';
-import { fixtureBinding } from '../../elevenlabs/test/component-fixtures.js';
+import { fixtureBinding, fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
 
 const binding = () => ({
   stt: { ...fixtureBinding('stt'), secretRef: 'ELEVENLABS_API_KEY', microPerSecond: 10 },
-  tts: { ...fixtureBinding('tts'), secretRef: 'ELEVENLABS_API_KEY', voiceId: 'fixture-voice', microPerCharacter: 2 },
+  tts: { ...fixtureBinding('tts'), secretRef: 'ELEVENLABS_API_KEY', voiceId: 'fixture-voice', microPerCharacter: 2, voiceSettings: fixtureVoiceSettings },
   reasoning: { plugin: 'openrouter', model: 'anthropic/fixture', effort: 'none',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions', accountRef: 'fixture-account', secretRef: 'OPENROUTER_API_KEY',
-    maxMicro: 100000, maxTokens: 128, maxInputTokens: 4096, rates: { inputMicro: 1, outputMicro: 2 },
+    maxMicro: 100000, maxTokens: 128, maxInputTokens: 32768, rates: { inputMicro: 1, outputMicro: 2 },
     legal: { purpose: 'models-international', consentVersion: 1, recipient: 'OpenRouter, Inc.', processors: ['Anthropic'], dataCategories: ['messages'] } },
-  baseline: { ...fixtureBinding('stt'), model: 'agent_fixture', agentId: 'agent_fixture', secretRef: 'ELEVENLABS_API_KEY', microPerMinute: 1000 },
+  baseline: { ...fixtureBinding('stt'), model: 'agent_fixture', agentId: 'agent_fixture', secretRef: 'ELEVENLABS_API_KEY', microPerMinute: 1000, tts: { model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings } },
   baselineOrigin: 'https://start2.example', baselineReasoningCeilingMicro: 23, maxDurationSeconds: 60, reasoningAttempts: 2,
 });
 const decision = { contract: 'synthetic-contract', items: ['voice-elevenlabs', 'models-international'] };
@@ -32,7 +32,10 @@ test('launcher passes file paths and explicit loopback flags, then uses normal v
     },
     async fetchImpl(url, options) {
       calls.push({ url, options });
-      if (url.endsWith('/api/sessions')) return Response.json({ id: 'fixture-session' }, { status: 201, headers: { 'set-cookie': 'aithema-visitor=fixture-owner; HttpOnly' } });
+      if (url.endsWith('/api/sessions')) {
+        const index = calls.filter(call => call.url.endsWith('/api/sessions')).length;
+        return Response.json({ id: index === 1 ? 'fixture-session' : `fixture-session-${index}` }, { status: 201, headers: { 'set-cookie': 'aithema-visitor=fixture-owner; HttpOnly' } });
+      }
       if (options.method !== 'POST') return Response.json({ contract: decision.contract });
       return Response.json({ granted: true });
     },
@@ -50,6 +53,12 @@ test('launcher passes file paths and explicit loopback flags, then uses normal v
   assert.equal(calls.length, 3);
   assert.deepEqual(JSON.parse(calls[2].options.body), { granted: true, processing: decision });
   assert.equal(calls[2].options.headers.cookie, host.ownerHeaders.cookie);
+  assert.equal(await host.prepareCandidateSession(), 'fixture-session');
+  assert.equal(calls.length, 3, 'first sample uses the newly created empty session');
+  assert.equal(await host.prepareCandidateSession(), 'fixture-session-2');
+  assert.equal(calls.length, 6, 'later samples get fresh canonical history and the same explicit consent decision');
+  assert.equal(calls[3].options.headers.cookie, host.ownerHeaders.cookie);
+  assert.deepEqual(JSON.parse(calls[5].options.body), { granted: true, processing: decision });
   await host.close(); await host.close();
   await assert.rejects(readFile(values.AITHEMA_COMPOSED_BINDING_FILE), { code: 'ENOENT' });
 });

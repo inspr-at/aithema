@@ -232,7 +232,7 @@ test('concept kinds and the rail state in plain words: pending, ready revision, 
   assert.equal(state({ phase: 'failed', error: 'concept-unavailable' }), en.conceptFailed);
   assert.equal(state({ phase: 'idle' }, { feature: { available: false, reason: 'Budget used up' }, items: [draft('html1')] }), en.display.draftsLow, 'a closed credit feature says why, also with drafts shown');
   assert.equal(state({ phase: 'failed' }, { requestError: 'Refused.' }), 'Refused.');
-  assert.equal(state({ phase: 'idle' }), en.display.draftsUnavailable);
+  assert.equal(state({ phase: 'idle' }), `${en.display.draftsQuote}\u00a0· ${en.display.draftsRetry}`);
   const german = (status, extra) => conceptStateText({ copy: de, status, feature: on, items: [draft('html1')], kind: 'html', ...extra });
   assert.equal(german({ phase: 'ready' }), 'Fassung 1 des Entwurfs ist fertig.');
   assert.equal(german({ phase: 'failed', reason: 'OpenRouter spend cap exhausted' }), 'Ausgabenlimit für OpenRouter erreicht.');

@@ -71,3 +71,4 @@ export function fixtureConsent(binding, covered = true) {
   } } };
 }
 export const fixtureConfig = { secretRef: 'synthetic-only', voiceId: 'fixture-voice', sttMicroPerSecond: 10, ttsMicroPerCharacter: 2 };
+export const fixtureVoiceSettings = { stability: 0.4, similarity_boost: 0.8, style: 0.2, use_speaker_boost: false, speed: 0.9 };

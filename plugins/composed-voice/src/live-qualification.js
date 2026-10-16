@@ -3,6 +3,7 @@ import { mkdir, open, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { evaluateQualification } from './qualification.js';
 import { openPersistedQualificationBudget } from './persisted-budget.js';
+import { validateVoiceSettings } from '../../elevenlabs/src/voice-settings.js';
 
 const BLIND_FORMAT = Object.freeze({ encoding: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
 function blindWav(pcm, format) {
@@ -138,14 +139,19 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
         const result = await host.runSample({ item, lane, runId: plan.runId,
           admit: spec => budget.admit({ ...spec, lane, runId: plan.runId }), onTiming: probe.onTiming });
         const media = probe.evidence();
+        if (!/^[A-Za-z0-9_-]{1,128}$/u.test(result.ttsConfig?.model ?? '') ||
+          !/^[A-Za-z0-9_-]{1,128}$/u.test(result.ttsConfig?.voiceId ?? '')) throw new Error('Explicit lane TTS model and saved voice required');
+        const ttsConfig = { model: result.ttsConfig.model, voiceId: result.ttsConfig.voiceId,
+          voiceSettings: validateVoiceSettings(result.ttsConfig.voiceSettings) };
         const sample = { ...media, physicalBrowserMedia: result.physicalBrowserMedia,
+          ttsConfig,
           reference: item.reference, hypothesis: result.hypothesis, entities: result.entities,
           ...(result.baselineSession ? { baselineSession: result.baselineSession } : {}) };
         samples[lane].push(sample);
         if (!(result.ttsPCM instanceof Uint8Array) || !result.ttsPCM.length ||
           !['pcm_s16le', 'pcm_f32le'].includes(result.ttsFormat?.encoding) || result.ttsFormat.channels !== 1 ||
           !Number.isSafeInteger(result.ttsFormat.sampleRateHz)) throw new Error('Blind PCM audio and explicit format required');
-        pair.push({ lane, audio: result.ttsPCM, format: result.ttsFormat });
+        pair.push({ lane, audio: result.ttsPCM, format: result.ttsFormat, ttsConfig });
         await host.reconcile({ snapshot: budget.snapshot(), reconcile: receipt => budget.reconcile(receipt) });
         if (budget.snapshot().blocked) throw new Error('Qualification spend overrun');
       }
@@ -154,12 +160,14 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
         const file = `${index + 1}-${slot ? 'B' : 'A'}.wav`;
         await writeFile(join(outputDirectory, file), blindWav(entry.audio, entry.format), { flag: 'wx', mode: 0o600 });
         blind.push({ sample: index + 1, label: slot ? 'B' : 'A', file, format: BLIND_FORMAT });
-        answerKey.push({ file, lane: entry.lane, sourceFormat: entry.format });
+        answerKey.push({ file, lane: entry.lane, sourceFormat: entry.format, ttsConfig: entry.ttsConfig });
       }
       await writeFile(join(outputDirectory, 'observations.json'), JSON.stringify(samples, null, 2), { mode: 0o600 });
     }
     const report = { mode: 'live', runId: plan.runId, candidate: evaluateQualification(samples.candidate),
-      baseline: evaluateQualification(samples.baseline), budget: budget.snapshot(), blindPreference: 'pending' };
+      baseline: evaluateQualification(samples.baseline),
+      tts: Object.fromEntries(['candidate', 'baseline'].map(lane => [lane, samples[lane].map(sample => sample.ttsConfig)])),
+      budget: budget.snapshot(), blindPreference: 'pending' };
     await writeFile(join(outputDirectory, 'blind.json'), JSON.stringify(blind, null, 2), { flag: 'wx', mode: 0o600 });
     await writeFile(join(outputDirectory, 'ops-answer-key.json'), JSON.stringify(answerKey, null, 2), { flag: 'wx', mode: 0o600 });
     await writeFile(join(outputDirectory, 'report.json'), JSON.stringify(report, null, 2), { flag: 'wx', mode: 0o600 });
