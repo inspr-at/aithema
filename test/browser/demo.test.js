@@ -1830,10 +1830,12 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     await page.evaluate(() => window.customCatalog.release());
     await until(page, () => {
       const c = document.querySelector('aithema-session');
-      return c.session.processingPreset === 'custom' && c.session.settings.origin === 'chosen'
-        && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
+      return window.customCatalog.posts.length > 0 && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
     });
     const applied = await inShadow(page, c => ({ processingPreset: c.session.processingPreset, ...c.session.settings }));
+    t.diagnostic(JSON.stringify({ locale, width, applied, posts: await page.evaluate(() => window.customCatalog.posts) }));
+    assert.equal(applied.processingPreset, 'custom');
+    assert.equal(applied.origin, 'chosen');
     assert.equal(applied.voice, 'off', 'Custom must never inherit Best voice');
     assert.equal(applied.visuals, 'off', 'Custom must never inherit Best HTML drafts');
     assert.equal(await page.evaluate(() => window.customCatalog.posts.length), 1);
