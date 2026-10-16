@@ -54,6 +54,28 @@ function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) 
   return sameTurn && !providerAhead ? [] : [{ role: 'user', content: latest.content }];
 }
 
+export function buildVoiceReplyRequest({ session, messages, call, purposePolicy, hostPrompt = '', offTopicTurns = 0 }) {
+  const latestInput = unrecordedVoiceInput(session, messages, call);
+  const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
+  const normalize = text => text?.trim().replace(/\s+/gu, ' ');
+  // This recognizes prompt input covered by the canonical typed revision.
+  // It never supplies an operation key, ordinal, claim or paid state (Rule C).
+  const typedEcho = person?.voiceCallId === call.callId && person.voiceProviderId === call.providerSessionId &&
+    latestInput.length > 0 && normalize(person.content) === normalize(latestInput.at(-1).content);
+  const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true, purposePolicy,
+    offTopicTurns });
+  // Focus is derived by the asynchronous understanding lane. It is usable
+  // only once that final assessment covers every input in this reply request.
+  const currentFocus = !latestInput.length && !session.understanding.draft &&
+    session.understanding.inputRevision === inputRevision(session) &&
+    session.understanding.openQuestions?.includes(session.focusedQuestion);
+  // The session owns history, including typed turns, withdrawals and heard
+  // prefixes. Provider text supplies only the newest unrecorded person input.
+  return { ...trusted, ...(purposePolicy && (!latestInput.length || typedEcho) ? { safeguardRevision: inputRevision(session) } : {}), system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
+    ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
+    ...latestInput] };
+}
+
 export { createFacadeSecrets } from '../elevenlabs-compat.js';
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
@@ -283,27 +305,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       throw error;
     } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
-  function buildVoiceRequest(session, messages, call) {
-    const latestInput = unrecordedVoiceInput(session, messages, call);
-    const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
-    const normalize = text => text?.trim().replace(/\s+/gu, ' ');
-    // This recognizes prompt input covered by the canonical typed revision.
-    // It never supplies an operation key, ordinal, claim or paid state (Rule C).
-    const typedEcho = person?.voiceCallId === call.callId && person.voiceProviderId === call.providerSessionId &&
-      latestInput.length > 0 && normalize(person.content) === normalize(latestInput.at(-1).content);
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true, purposePolicy,
-      offTopicTurns: storage.safeguards(session.id).offTopicTurns });
-    // Focus is derived by the asynchronous understanding lane. It is usable
-    // only once that final assessment covers every input in this reply request.
-    const currentFocus = !latestInput.length && !session.understanding.draft &&
-      session.understanding.inputRevision === inputRevision(session) &&
-      session.understanding.openQuestions?.includes(session.focusedQuestion);
-    // The session owns history, including typed turns, withdrawals and heard
-    // prefixes. Provider text supplies only the newest unrecorded person input.
-    return { ...trusted, ...(purposePolicy && (!latestInput.length || typedEcho) ? { safeguardRevision: inputRevision(session) } : {}), system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
-      ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
-      ...latestInput] };
-  }
+  const buildVoiceRequest = (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, purposePolicy, hostPrompt,
+    offTopicTurns: storage.safeguards(session.id).offTopicTurns });
   const callbackOperations = { secrets, staticSecretRef, presentation, timeoutMs: turnTimeoutMs, log,
     turnOperations: {
       run(context, execute, options) {

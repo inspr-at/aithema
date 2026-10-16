@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan, verifyCorpusLeadingSilence } from '../src/live-qualification.js';
 import { initializeQualificationBudget } from '../src/persisted-budget.js';
+import { fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
 
 const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40 },
   { kind: 'playback-start', firstAudioAt: 900, outputTimestamp: { contextTime: 0.9, performanceTime: 900 } },
@@ -44,6 +45,7 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
       }
       events.forEach(onTiming);
       return { hypothesis: 'Müller GmbH', entities: [{ expected: 'Müller GmbH', actual: 'Müller GmbH' }],
+        ttsConfig: { model: lane === 'candidate' ? 'eleven_flash_v2_5' : 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings },
         ttsPCM: lane === 'candidate' ? new Uint8Array([0, 0, 128, 62]) : new Uint8Array([0, 32]),
         ttsFormat: { encoding: lane === 'candidate' ? 'pcm_f32le' : 'pcm_s16le', sampleRateHz: 24000, channels: 1 } };
     },
@@ -59,13 +61,22 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
   assert.equal(report.candidate.wer, 0); assert.equal(report.candidate.firstAudioMs.p95, 760);
   assert.equal(report.candidate.bargeInStopMs, 100); assert.equal(report.candidate.qualified, false);
   assert.equal(report.budget.exposureMicro, 6); assert.equal(report.budget.records.length, 6);
+  assert.deepEqual(report.tts, {
+    candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
+    baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
+  });
+  assert.deepEqual(JSON.parse(await readFile(join(outputDirectory, 'report.json'))).tts, report.tts);
+  const observations = JSON.parse(await readFile(join(outputDirectory, 'observations.json')));
+  for (const lane of ['candidate', 'baseline']) assert.deepEqual(observations[lane][0].ttsConfig, report.tts[lane][0]);
   const blind = JSON.parse(await readFile(join(outputDirectory, 'blind.json')));
   assert.deepEqual(blind.map(row => row.label), ['A', 'B']); assert.ok(blind.every(row => !Object.hasOwn(row, 'lane')));
   const wavs = await Promise.all(blind.map(row => readFile(join(outputDirectory, row.file))));
   assert.ok(wavs.every(wav => wav.subarray(0, 4).toString() === 'RIFF' && wav.readUInt16LE(20) === 1 && wav.readUInt16LE(34) === 16));
   assert.ok(blind.every(row => row.format.encoding === 'pcm_s16le' && row.format.sampleRateHz === 24000));
   assert.deepEqual(wavs[0], wavs[1]);
-  assert.equal(JSON.parse(await readFile(join(outputDirectory, 'ops-answer-key.json'))).length, 2);
+  const answerKey = JSON.parse(await readFile(join(outputDirectory, 'ops-answer-key.json')));
+  assert.equal(answerKey.length, 2);
+  for (const row of answerKey) assert.deepEqual(row.ttsConfig, report.tts[row.lane][0]);
   await assert.rejects(runLiveQualification(options), /Run already claimed/);
 });
 

@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import { aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { voiceOverrides } from './options.js';
+import { VOICE_SETTING_KEYS } from './voice-settings.js';
 
 /** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */
 export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
@@ -183,8 +184,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const language = ['en', 'de'].includes(config.agent?.language) ? config.agent.language : 'de';
   const firstMessage = openers[language];
   const body = { name: agentName, conversation_config: {
-    tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
-      ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
+    tts: { ...pick(config.tts, ['voice_id', 'model_id', ...VOICE_SETTING_KEYS, 'optimize_streaming_latency', 'agent_output_audio_format']),
+      ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, VOICE_SETTING_KEYS) } : {}) },
     asr: { ...pick(config.asr, ['quality', 'provider', 'user_input_audio_format']), keywords: [...ASR_KEYWORDS] },
     turn: { ...pick(config.turn, ['mode']), ...TURN_POLICY, silence_end_call_timeout: SILENCE_END_CALL_TIMEOUT },
     conversation: { max_duration_seconds: maxDurationSeconds, client_events: [...CLIENT_EVENTS] },
