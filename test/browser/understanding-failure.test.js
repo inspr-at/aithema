@@ -407,7 +407,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
   if (evidence) await writeFile(join(evidence, 'ait212-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
 
-test('AIT-212 two failures: one visible Retry recovers reply then overview once, in place at 0 px', { timeout: 60_000 }, async t => {
+test('AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px', { timeout: 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-two-failures-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(dir, 'unused.sqlite'));
   const browser = await browserForFile(), page = await browser.newPage(), passes = [];
@@ -415,9 +415,9 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  const capture = async (locale, width, state) => {
+  const capture = async (locale, width, theme, state) => {
     if (!evidence) return;
-    const stem = `ait212-two-failures-${locale}-${width}-light-${state}`;
+    const stem = `ait221-${locale}-${width}-${theme}-${state}`;
     await settle(page);
     await captureViewport(page, { path: join(evidence, `${stem}.png`), fullPage: false, captureBeyondViewport: false });
     if (width === 390) {
@@ -432,19 +432,21 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
       await settle(page);
     }
   };
-  for (const [locale, width] of [['de', 390], ['de', 1440], ['en', 1440]]) {
+  await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
+  for (const locale of ['de', 'en']) for (const width of evidence ? [390, 1024, 1440] : [390, 1440]) for (const theme of ['light', 'dark']) await t.test(`${locale} ${width} ${theme}`, async () => {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
-    await until(page, () => document.querySelector('aithema-session')?.shadowRoot);
-    await shadow(page, async (c, locale) => {
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await shadow(page, async (c, locale, theme) => {
       const session = await (await fetch('/two-failures?locale=' + locale)).json();
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light');
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
       // Pin the production Chrome baseline stack for both evidence states.
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.configure({ session, copy }); window.twoFailureCopy = copy.reasoningFailed;
-    }, locale);
+      c.configure({ session, copy, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
+      window.twoFailureCopy = `${copy.reasoningFailed} · ${copy.retry}`;
+    }, locale, theme);
     await settle(page);
     const state = await shadow(page, c => ({
       retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
@@ -452,14 +454,45 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
       overview: c.shadowRoot.querySelector('.notice-text').textContent,
       inlineHidden: c.shadowRoot.querySelector('.overview-retry').hidden,
       expectedReply: window.twoFailureCopy,
+      atFirstFailure: c.shadowRoot.querySelector('.retry').parentElement === c.shadowRoot.querySelector('.reaction-failure'),
+      inFooter: Boolean(c.shadowRoot.querySelector('.understanding > .foot > .retry')),
+      projectVisible: Boolean(c.shadowRoot.querySelector('.create-project').getClientRects().length),
     }));
+    assert.equal(state.atFirstFailure, true, 'the single Retry belongs to the reply notice, the first failure in reading order');
+    assert.equal(state.inFooter, false); assert.equal(state.projectVisible, true, 'project action returns when Retry leaves the footer');
     assert.equal(state.retries, 1); assert.equal(state.reply, state.expectedReply);
     assert.equal(state.overview, locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden.' : "The overview couldn't be built just now.");
     assert.equal(state.inlineHidden, true);
     const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
     const before = await boxes(page, targets);
     const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
-    await capture(locale, width, 'before');
+    await capture(locale, width, theme, 'two-failures');
+    // Exercise placement changes in the same page without another provider run.
+    await shadow(page, c => {
+      window.bothFailures = structuredClone(c.session.operations);
+      const failures = c.session.operations.failures.filter(f => f.lane === 'understanding');
+      c.receive({ type: 'lane.status', data: { ...c.session.operations, failures, lastFailure: failures[0] } });
+    });
+    await settle(page);
+    const overviewOnly = await shadow(page, c => ({
+      inline: !c.shadowRoot.querySelector('.notice > .overview-retry')?.hidden,
+      footerHidden: c.shadowRoot.querySelector('.retry').hidden,
+      inFooter: Boolean(c.shadowRoot.querySelector('.understanding > .foot > .retry')),
+      replyHidden: c.shadowRoot.querySelector('.reaction-failure').hidden,
+      retries: [...c.shadowRoot.querySelectorAll('.overview-retry, .retry')].filter(e => !e.hidden).length,
+      projectVisible: Boolean(c.shadowRoot.querySelector('.create-project').getClientRects().length),
+    }));
+    assert.deepEqual(overviewOnly, { inline: true, footerHidden: true, inFooter: true, replyHidden: true, retries: 1, projectVisible: true }, 'overview-only keeps AIT-198 inline Retry and releases the project row');
+    assert.deepEqual(await boxes(page, targets), before, 'overview-only transition shifts exactly 0 px');
+    await capture(locale, width, theme, 'overview-only');
+    await shadow(page, c => c.receive({ type: 'lane.status', data: window.bothFailures }));
+    await settle(page);
+    assert.deepEqual(await boxes(page, targets), before, 'restoring two failures shifts exactly 0 px');
+    await shadow(page, c => {
+      const retry = c.shadowRoot.querySelector('.retry'); retry.focus(); window.firstFailureRetry = retry;
+      c.receive({ type: 'lane.status', data: { ...c.session.operations } });
+    });
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement === window.firstFailureRetry && c.shadowRoot.querySelector('.reaction-failure > .retry') === window.firstFailureRetry), true, 'live status preserves the reply Retry node and keyboard focus');
     await shadow(page, c => c.shadowRoot.querySelector('.retry').scrollIntoView({ block: 'center' }));
     await settle(page);
     assert.equal(await shadow(page, c => {
@@ -484,11 +517,11 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.reaction-failure').hidden), true);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), locale === 'de' ? 'Aktuelle Einschätzung' : 'Current assessment');
     assert.deepEqual(await boxes(page, targets), before, 'both successful lanes settle in place at exactly 0 px');
-    await capture(locale, width, 'after');
-    passes.push({ head: evidenceCommit, locale, width, theme: 'light', retries: 1, lanes: ['reaction', 'understanding'], attemptsPerLane: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true });
-    console.log(`AIT-212 TWO-FAILURES PASS ${locale} ${width} light: one Retry; reply then overview exactly once; both settled; 0 px`);
-  }
-  if (evidence) await writeFile(join(evidence, 'ait212-two-failures-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+    await capture(locale, width, theme, 'recovered');
+    passes.push({ head: evidenceCommit, locale, width, theme, retries: 1, lanes: ['reaction', 'understanding'], attemptsPerLane: 1, layoutShiftPx: 0, reducedMotion: true, baselineFonts: true, pass: true });
+    console.log(`AIT-221 PASS ${locale} ${width} ${theme}: one Retry; reply then overview exactly once; both settled; 0 px`);
+  });
+  if (evidence) await writeFile(join(evidence, 'ait221-passes.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
 
 test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440', { timeout: 60_000 }, async t => {
