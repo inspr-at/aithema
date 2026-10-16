@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { fullMatrix } from './matrix-coverage.js';
+import { captureEvidence, settleEvidenceFrame, evidenceBrowserArgs } from './start2-display-helpers.js';
 
 // PR artifacts must not enable evidence-only captures or the exhaustive sweep.
 // Run separately on mbp2606 with EVIDENCE_OUT for the original full matrix.
@@ -30,9 +31,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     });
     t.after(() => demo.kill());
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+      env: { PATH: process.env.PATH, HOME: homedir() }, args: [...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), ...(evidenceDirectory ? evidenceBrowserArgs : [])] });
     t.after(() => browser.close());
-    const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [], keyboardChecks = [], stabilityChecks = [];
+    const page = await browser.newPage(), evidence = evidenceDirectory, files = [], captures = {}, checks = [], keyboardChecks = [], stabilityChecks = [];
     const accessibility = await page.createCDPSession(), accessibilityChecks = [];
     // Chrome's full accessibility snapshot includes the session's shadow root.
     const optionSnapshot = async heading => {
@@ -86,16 +87,10 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
           });
           try {
-            await page.evaluate(async () => {
-              await document.fonts.ready;
-              for (const animation of document.getAnimations()) {
-                if (animation.effect?.getComputedTiming().iterations !== Infinity) await animation.finished.catch(() => {});
-              }
-            });
-            await nextFrame(page); await nextFrame(page);
             const file = `ait-225-${label}-${state}.png`;
-            await page.screenshot({ path: join(evidence, file), fullPage: false,
-              ...(height ? { clip: { x: 0, y: 0, width, height }, captureBeyondViewport: false } : {}) });
+            const { iconBoxes, frame } = await captureEvidence(page, { path: join(evidence, file),
+              ...(height ? { clip: { x: 0, y: 0, width, height } } : {}) });
+            captures[file] = { iconBoxes, frame };
             files.push(file);
           } finally {
             await page.evaluate(() => { globalThis.qcardShotFocus?.focus({ preventScroll: true }); delete globalThis.qcardShotFocus; });
@@ -217,6 +212,28 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.equal(geometry.heading, locale === 'de' ? 'Offene Frage' : 'Open question');
         assert.equal(geometry.horizontalOverflow, false); assert.notEqual(geometry.arrowFills[0], geometry.arrowFills[1]);
         const fullCardNames = width === 390 && theme === 'light' ? await optionSnapshot(geometry.heading) : undefined;
+        if (locale === 'de' && theme === 'light' && width === 1440) {
+          // A cheap real-browser contract in the existing fixture; no extra page
+          // or screenshot in CI. Exercise shadow animations and a queued scroll.
+          await shadow(page, c => {
+            const host = document.createElement('div'); host.id = 'capture-contract';
+            host.style.cssText = 'position:fixed;left:-1000px;top:0';
+            const root = host.attachShadow({ mode: 'open' });
+            root.innerHTML = '<div style="width:20px;height:20px;overflow:auto"><div style="width:100px;height:100px"></div></div>';
+            c.shadowRoot.append(host);
+            const pane = root.firstElementChild;
+            pane.scrollTo(10.5, 10.5);
+            pane.firstElementChild.animate([{ opacity: .5 }, { opacity: 1 }], { duration: 50 });
+            requestAnimationFrame(() => { pane.scrollTop = 12.5; pane.scrollLeft = 13.5; });
+            c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
+          });
+          const settled = await settleEvidenceFrame(page);
+          assert.equal(settled.settledFrames, 2);
+          assert.ok(settled.scroll.every(pair => pair.every(Number.isInteger)), 'all nested scroll origins are integer');
+          assert.equal(await shadow(page, c => Boolean(c.shadowRoot.activeElement)), false, 'capture blurs controls');
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#capture-contract').shadowRoot.getAnimations().length), 0, 'nested shadow animation finished');
+          await shadow(page, c => c.shadowRoot.querySelector('#capture-contract').remove());
+        }
         await shot('card');
         const cardRest = await assertRest('card');
         // The two-row rail can bound the option list sooner with Linux fonts.
@@ -535,6 +552,12 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 await shadow(page, c => { c.shadowRoot.querySelector('.voice-reply-dialog').close(); c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }); });
                 assert.deepEqual(await boxes(page, ['.band', '.qcard', '.composer']), fallbackBoxes, 'reading the full reply moves band, card and composer exactly 0 px');
               }
+              // Exercise the no-op follower scroll loop in CI too, without a shot.
+              if (height === 320 && locale === 'de' && theme === 'light' && !evidence) {
+                const frame = await settleEvidenceFrame(page);
+                assert.equal(frame.settledFrames, 2, 'short transcript drains duplicate follower scrolls');
+                await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
+              }
               await shot(`keyboard-${height}`, height);
               assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
               if (height === 508 && theme === 'light') await scene.test(`AIT-225: ${locale} chip accessibility snapshot announces suggestion; Tab to chip 2 survives re-render fully visible`, async () => {
@@ -662,7 +685,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
       await writeFile(join(evidence, 'index.md'), `# AIT-225 round 5 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json)\u00a0· metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
-      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
+      await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, captures, rasterArgs: evidenceBrowserArgs, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         accessibilityPassLines: accessibilityChecks,
         stabilityPassLines: stabilityChecks.map(check => ({ ...check, viewport: `390×${check.height}`, pass: true })),
@@ -685,7 +708,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   t.after(() => demo.kill());
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: process.platform === 'linux' ? ['--no-sandbox'] : [] });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'), args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), ...(evidenceDirectory ? evidenceBrowserArgs : [])] });
   t.after(() => browser.close());
   const page = await browser.newPage(), evidence = evidenceDirectory, checks = [];
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -733,13 +756,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     const shot = async state => {
       if (!evidence || !(locale === 'de' && theme === 'light' && width === 390 && ['quote-missing', 'consent-needed', 'drafts-removed'].includes(state)
         || locale === 'en' && theme === 'dark' && width === 1440 && state === 'quote-missing')) return;
-      await page.mouse.move(-1, -1);
-      await shadow(page, async c => {
-        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); await document.fonts.ready;
-        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
-      });
-      await nextFrame(page);
-      await page.screenshot({ path: join(evidence, `ait-229-${label}-${state}.png`), fullPage: false });
+      await captureEvidence(page, { path: join(evidence, `ait-229-${label}-${state}.png`) });
     };
     for (const question of [false, true]) {
       await page.evaluate(question => globalThis.noDraftsReply(question ? [{ text: 'Yes' }, { text: 'No' }] : []), question);
