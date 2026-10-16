@@ -10,5 +10,6 @@ serveExtractor(async bytes => {
     process.send?.({ type: 'started' });
     await new Promise(() => {});
   }
+  process._rawDebug('AIT-222 fixture reached process.exit', mode);
   process.exit(1);
 });

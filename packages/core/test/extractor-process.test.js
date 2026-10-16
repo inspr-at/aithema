@@ -258,6 +258,9 @@ for (const mode of ['crash', 'signal', 'heap']) {
           console.error('AIT-222 child CPU/wait state', await Promise.allSettled([
             readFile(`/proc/${child.pid}/stat`, 'utf8'), readFile(`/proc/${child.pid}/wchan`, 'utf8'),
           ]));
+          if (mode === 'crash') console.error('AIT-222 native stacks', await promisify(childProcess.execFile)('sudo',
+            ['-n', 'gdb', '--batch', '-ex', 'thread apply all bt', '-p', String(child.pid)],
+            { timeout: 10_000, maxBuffer: 1024 * 1024 }).catch(error => ({ message: error.message, stdout: error.stdout, stderr: error.stderr })));
         }
       }
       throw error;

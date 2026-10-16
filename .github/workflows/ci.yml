@@ -99,6 +99,7 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci
+      - run: command -v gdb
       - name: AIT-222 temporary isolated Linux crash reproduction
         run: node scripts/extractor-crash-stress.js
 
