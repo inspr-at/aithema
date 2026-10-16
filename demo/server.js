@@ -45,6 +45,10 @@ const qualificationKeys = await qualificationOps?.loadQualificationKeys();
 const qualificationControl = await qualificationOps?.loadQualificationControl();
 const resolveProviderSecret = ref => qualification.enabled ? qualificationKeys[ref] : process.env[ref];
 if (qualification.enabled && !process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE) throw new TypeError('OPS AITHEMA_COMPOSED_QUALIFICATION_MODULE required');
+const qualificationModule = qualification.enabled ? await import(
+  pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href
+) : undefined;
+const qualificationBinding = await qualificationModule?.loadQualificationBinding?.(process.env.AITHEMA_COMPOSED_BINDING_FILE);
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
 const build = buildInfo();
 // The demo is deterministic unless the operator explicitly selects a provider.
@@ -112,10 +116,12 @@ if (imageMode === 'openai') {
   if (voiceHost && imageHost.consent !== voiceHost.consent) throw new TypeError('Images and voice require the same authoritative consent port');
 }
 const voiceBinding = voiceHost?.binding ? createDurationBinding(normalizeElevenLabsDurationBinding(voiceHost.binding)) : undefined;
-const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceBinding ? [voiceBinding] : []), ...(html.binding?.legal ? [html.binding] : [])];
+const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceBinding ? [voiceBinding] : []), ...(html.binding?.legal ? [html.binding] : []),
+  ...(qualificationModule?.qualificationProcessingBindings?.(qualificationBinding) ?? [])];
 const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length || voiceMode === 'elevenlabs'
   ? createProcessingConsent({ storage, bindings: liveBindings, voiceConfigured: voiceMode === 'elevenlabs',
-    voiceBinding: () => readVoiceState().binding }) : createMockConsent(storage));
+    voiceBinding: qualificationBinding ? undefined : () => readVoiceState().binding,
+    operationsForBinding: qualificationModule?.qualificationProcessingOperations }) : createMockConsent(storage));
 if (voiceHost?.staticSecretRef) {
   const resolve = secrets.resolve;
   secrets.resolve = ref => ref === voiceHost.staticSecretRef ? resolveProviderSecret(ref) : resolve(ref);
@@ -172,13 +178,16 @@ const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options =>
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();
 const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin: deployment.publicOrigin });
-const qualificationPorts = qualification.enabled ? await (await import(
-  pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href
-)).createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers, keys: qualificationKeys }) : {};
+const qualificationPorts = qualificationModule ? await qualificationModule.createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers: { ...handlers, consent }, keys: qualificationKeys, binding: qualificationBinding }) : {};
 const qualificationMount = qualificationOps?.createQualificationMount({ ...qualificationPorts, ...qualification,
   control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
+  const qualificationHold = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/(?:pause|consent|erase|settings|withdraw)$/u.exec(new URL(request.url).pathname);
+  if (qualificationPorts.revokeSession && qualificationHold && request.method === 'POST') {
+    try { storage.authorize(qualificationHold[1], ownership.token(request)); await qualificationPorts.revokeSession(qualificationHold[1]); }
+    catch { return new Response(null, { status: 403 }); }
+  }
   const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
   const qualificationPath = new URL(request.url).pathname;
   if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });

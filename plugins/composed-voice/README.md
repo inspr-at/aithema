@@ -331,7 +331,7 @@ call `settleOrphan(attemptId)` for its dispatched attempts. This marks them sett
 and uncertain while keeping their full reservation. Receipts for in-flight attempts
 are refused; only settled attempts can be reconciled.
 
-## OPS host template — PR 4c
+## Live qualification host — PR 4d
 
 The OPS directory is **source-only** and excluded in full from release packages. Run this tooling from the repo checkout; the demo imports it only when qualification is explicitly enabled.
 
@@ -371,7 +371,7 @@ with mode **exactly 0600** (including no special, group or other bits). The load
 checks the opened inode with `O_NOFOLLOW`, bounds the file to 16 KiB, and refuses
 unknown/duplicate keys, malformed lines, and missing/empty required keys. Values
 are literal, not shell-expanded or unquoted. Refusals never include values,
-input lines or filesystem error details. The OPS server module receives the
+input lines or filesystem error details. The reference server module receives the
 frozen `keys` object; only server provider resolvers may use it. Never log it.
 The template/CLI forwards the path and never reads the values. The file exists
 for **the run window only**; OPS stops the host, then **trashes it afterwards**.
@@ -387,7 +387,8 @@ The demo mounts qualification only with `AITHEMA_COMPOSED_QUALIFICATION=1`:
 | `AITHEMA_COMPOSED_RELAY_ORIGIN` | Required explicit loopback http(s) **browser** origin. It controls Host and Origin checks and must also be passed to the composed factory's `relayOrigin`. |
 | `AITHEMA_COMPOSED_KEYS_FILE` | Absolute run-window keys file; regular, non-symlink, running-user-owned, exactly 0600. Required under the flag. |
 | `AITHEMA_COMPOSED_CONTROL_FILE` | Absolute path to the CLI-created per-run 0600 control file; server-only capability, run ID and shared durable budget path. Required under the flag. |
-| `AITHEMA_COMPOSED_QUALIFICATION_MODULE` | Required path to OPS's server module, exporting `createQualificationServer({ relayOrigin, authenticateRelay, storage, handlers, keys })`. Loaded only with the flag. |
+| `AITHEMA_COMPOSED_QUALIFICATION_MODULE` | Path to the repository's `ops/qualification-live-server.mjs`, exporting `createQualificationServer({ relayOrigin, authenticateRelay, storage, handlers, keys, binding })`. Loaded only with the flag. |
+| `AITHEMA_COMPOSED_BINDING_FILE` | Absolute non-secret JSON binding file, required by the reference module; validated before provider setup or storage. The launcher generates it from OPS's explicit `binding`. |
 
 The mount precedes the demo's JSON-only mutations and 404 so binary PCM reaches
 `networkRelay.handle` at **POST /composed/relay**. It uses the existing visitor
@@ -402,7 +403,7 @@ return 404, and the OPS module is never imported. start2's normal preset is unch
 
 ### Exact ports
 
-OPS's browser-side `host.mjs` exports `createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability })` and delegates to
+OPS's account wrapper `host.mjs` exports `createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability })` and delegates to
 the template with these options. There are **no successful accounting defaults**:
 
 | Option or method | Required contract |
@@ -420,7 +421,7 @@ the template with these options. There are **no successful accounting defaults**
 | `runSample({ item, lane, runId, admit, onTiming })` | `item.wavPath` is an absolute corpus WAV on mbp2606; `item.id`/`sampleId` identify the server sample. Launch a fresh profile, open the loopback page through `hostOrigin`, admit every dispatch, then return `{ physicalBrowserMedia, hypothesis, entities, ttsPCM: Uint8Array, ttsFormat: { encoding, sampleRateHz, channels } }`. Hypothesis/entities/PCM come from the server; corpus references stay in the CLI. `onTiming(event)` receives the browser's event values unchanged. |
 | `close()` | Abort active samples and kill owned browser process groups; it has no host-process lifecycle authority. |
 
-OPS's **server** module returns `{ networkRelay, createSample }`. Construct the
+AIT's **reference server** `ops/qualification-live-server.mjs` returns `{ networkRelay, createSample }`. Construct the
 composed factory with the supplied `authenticateRelay` and `relayOrigin`; expose
 its `networkRelay` (including revoke/close). `createSample({ item, lane, runId,
 owner, signal, admit })` must verify the stored session owner and exact consent/holds,
@@ -439,9 +440,13 @@ use it; retries include `retryOf`. Await `attempt.consume()` before transport,
 then report exactly once, or use `dispatch(async ({ attempt, report }) => ...)`
 which consumes first and reports uncertainty if the action has no terminal.
 Admission, consume and report each await the CLI's acknowledgement; failure or timeout blocks work. Each acknowledgement is independently checked against the shared ledger: admission must match the exact reserved attempt, run ID, lane, request digest, provider/pricing identity and server-derived claim ID; consume requires the committed dispatched state; report requires the committed terminal. Unknown, forged and other-run identities are refused, even with the capability. The mount resolves the identity from the ledger rather than trusting client fields. The mount drains reports before publishing the result.
-OPS must place reasoning admission at its actual dispatch boundary while keeping
-the existing Rule C operation store. The parent remains zero-cost. Server-side
-receipt implementations and provider adapters belong solely to OPS's ops-qa module.
+The reference module places OpenRouter admission at its actual dispatch boundary
+inside the existing Rule C operation store. The parent remains zero-cost. Provider
+adapters and product wiring belong to AIT in this repository. Server-side receipt
+verification/reconciliation, tariff ceiling proofs and keys remain solely with
+OPS's account-specific ops-qa module. Estimated component usage and stream cost
+never release reservations: every dispatched terminal retains uncertainty until
+OPS supplies an authenticated receipt.
 
 ### Browser lifetime and output-device contracts
 
@@ -517,16 +522,100 @@ wrappers, service sandbox/type overrides, `audio-service-*` switches and
 capture setting is allowed. The normal runner applies the same policy before launch. The plan's existing checklist
 cannot bypass this probe.
 
-Example browser module (account ports and any server launcher remain OPS-owned):
+### Reference binding and launcher
+
+Use `ops/qualification-live-server.mjs` with your non-secret `binding`; OPS no
+longer implements a server module or provider adapter. Its constructor is inert:
+no sockets, provider requests or credentials are resolved until `createSample`.
+`handlers.consent` is the host's authoritative exact-scope consent port. The demo
+loads the binding before normal initialization, includes its four processing
+bindings in the normal consent document, and passes that same ledger to the
+module. Missing or malformed money settings refuse construction.
+
+| Binding field | Required value / source |
+| --- | --- |
+| `stt` | Processing binding for ElevenLabs `scribe_v2_realtime`, plus explicit integer `microPerSecond >= 0`. |
+| `tts` | Processing binding for ElevenLabs `eleven_flash_v2_5`, plus saved `voiceId` and explicit integer `microPerCharacter >= 0`. |
+| `reasoning` | Existing OpenRouter private binding: `plugin`, `model`, `effort`, `endpoint`, `accountRef`, `secretRef`, `maxMicro`, `maxTokens`, `maxInputTokens`, `rates: { inputMicro, outputMicro }` and `legal`; optional `routing`. Rates are integer micro-USD per token. No model/routing fallback. |
+| `baseline` | ElevenLabs processing binding whose `model` equals its existing `agentId`, plus explicit integer `microPerMinute >= 0`; proof must cover the whole agent conversation, including its provider-managed reasoning/STT/TTS. |
+| `maxDurationSeconds` | Explicit positive integer, at most 60 (`MAX_SAMPLE_SECONDS`, within the composed grant window). Determines the paid baseline ceiling and sample deadline. |
+| `reasoningAttempts` | Explicit 1 or 2 (`MAX_REASONING_ATTEMPTS`); retries are new admissions with `retryOf`, within the same Rule C operation. Only a transport/provider failure before any text permits retry. |
+
+Each processing binding supplies `plugin`, `model`, `endpoint`, `accountRef`,
+`secretRef`, optional `routing` and `legal: { purpose, consentVersion: 1,
+recipient, processors, dataCategories }`. The legal purpose is
+`voice-elevenlabs` for STT/TTS/baseline and `models-international` for reasoning.
+Endpoint origins are the existing `https://api.elevenlabs.io` and
+`https://openrouter.ai/api/v1/chat/completions`. Secret references are exactly
+`ELEVENLABS_API_KEY` and `OPENROUTER_API_KEY`; values belong only in the keys file.
+Tariffs must come from OPS proofs, including any billable whitespace or rounding.
+There are no example tariff values that could accidentally authorize a paid run.
+
+The candidate uses the composed coordinator, real ElevenLabs component parsers,
+OpenRouter adapter and existing Rule C executor/store. The baseline reuses the
+production `mintConversationCredential` signed-URL path for the selected existing
+agent. It adds only a server PCM transport bridge: the SDK's private audio player
+cannot expose the shared capture/playback probe events. Both lanes therefore use
+the unchanged qualification page and its physical browser PCM probes. The bridge
+accepts server-announced mono PCM output and requires PCM16 16 kHz input. It sends
+only production's existing silent continuation/locale override, with no prompt,
+model, voice, agent creation or agent-settings writes. A signed URL stays on the
+server. Provider-managed baseline component/reasoning costs belong to its single
+verified conversation ceiling; the module never creates an independent baseline
+component call. Its budget specification uses the existing `reasoning` role with
+`operation: start`, `provider: elevenlabs` and `lane: baseline`. OPS must verify the unchanged agent is reachable with its existing
+reasoning backend and that its whole-conversation ceiling is enforceable.
+
+`createSample` requires `item: { id, sessionId, expectedEntities: string[] }`, lane,
+run ID, authenticated owner, signal and admission port. The launcher supplies the
+normal visitor session ID; the template sends expected entities only over Node's
+capability-authenticated control port, never to the browser or providers. Corpus
+reference sentences remain in the CLI. The first finalized corpus transcript is
+latched before later barge-in utterances; matching uses the scoring evaluator's
+NFC, de-AT case, trimmed/collapsed whitespace normalization with letter/number
+boundaries. Each expected entity returns `{ expected, actual }`, using an empty
+actual for a miss. Close stops media/work, persists the terminal, drains exactly
+one report per attempt and only then resolves the result. Owner, consent revision
+and holds are rechecked before admission, consume and transport; the demo revokes
+the sample before acknowledging consent, pause, settings, withdrawal or erasure
+mutations.
+
+`ops/qualification-live-host.mjs` exports `launchQualificationHost(options)` and
+`createQualificationHost(options)`. The former starts the flagged demo on the
+explicit loopback origin, creates a visitor through `/api/sessions`, retains its
+owner cookie, checks the current consent contract and records OPS's explicit
+`consentDecision`. It returns `{ hostOrigin, sessionId, ownerHeaders, close }`.
+The latter wraps that result in the existing browser template and closes both
+browser groups and the owned host. Ordinary demo voice/image/HTML initialization
+is off in this isolated host, so startup never ensures or modifies an agent.
+The launcher forwards keys/control paths without opening either file, filters the
+child environment, and never records child output or owner headers as evidence.
+The generated binding file is removed at shutdown; database and run evidence stay
+in `runDirectory`. All processes run as mba on mbp2606, in the same user/session.
+
+OPS still supplies exactly:
+
+- `verifyCeiling(spec)` with enforceable tariff proofs for every attempt and retry;
+- `verifyReceipt(receipt, storedAttempt)` and `reconcile({ snapshot, reconcile })`
+  using authenticated ElevenLabs history/OpenRouter generation receipts;
+- the short-lived, mba-owned 0600 keys file;
+- the explicit non-secret binding, current consent decision, and plan (corpus WAVs,
+  reference sentences, `expected` string or string array, checklist and ceilings);
+- the installed Chrome path and required output-device/protocol probes;
+- execution on mbp2606 as mba, private evidence retention, orphan handling,
+  reconciliation, host shutdown and keys-file disposal.
+
+Example OPS account wrapper (paths only; import binding/decision from OPS's
+non-secret run configuration):
 
 ```js
-import { createQualificationHost as template } from '/path/to/aithema/plugins/composed-voice/ops/qualification-host-template.mjs';
-import { verifyCeiling, verifyReceipt, reconcile, ownerHeaders } from './ops-qa-ports.mjs';
-export async function createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability }) {
-  // OPS starts its flagged host here, passing keysFile as AITHEMA_COMPOSED_KEYS_FILE
-  // and controlFile as AITHEMA_COMPOSED_CONTROL_FILE, and stops it in close().
-  return template({ controlCapability, hostOrigin: 'http://127.0.0.1:43101', sampleTimeoutMs,
-    executablePath: '/ops/chrome', ownerHeaders, verifyCeiling, verifyReceipt, reconcile });
+import { createQualificationHost as reference } from '/path/to/aithema/plugins/composed-voice/ops/qualification-live-host.mjs';
+import { verifyCeiling, verifyReceipt, reconcile } from './ops-qa-ports.mjs';
+import { binding, consentDecision } from './run-binding.mjs';
+export function createQualificationHost(cli) {
+  return reference({ ...cli, binding, consentDecision,
+    hostOrigin: 'http://127.0.0.1:43101', executablePath: '/ops/chrome',
+    verifyCeiling, verifyReceipt, reconcile });
 }
 ```
 
@@ -564,15 +653,16 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
    do not assume this fake stream has zero latency. Rerun the normal probe
    before dispatch.
 4. **The CLI, host, Chrome and budget DB must belong to mba on mbp2606**: the server accepts only a control file owned by its own user and must read the budget DB.
-   OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host as mba using the supplied `controlFile`. This command names paths only; no key values
-   belong on the command line. OPS supplies its reviewed module and bindings:
+   OPS places the keys file privately for the run window. Its CLI-loaded account wrapper delegates host startup to the reference launcher as mba using the supplied `controlFile`. This command names paths only; no key values
+   belong on the command line. Use the reference module with the OPS binding (the launcher sets these fields):
 
    ```sh
    AITHEMA_COMPOSED_QUALIFICATION=1 AITHEMA_LISTEN_HOST=127.0.0.1 \
      PORT=43101 AITHEMA_COMPOSED_RELAY_ORIGIN=http://127.0.0.1:43101 \
      AITHEMA_COMPOSED_KEYS_FILE=/absolute/run/provider.keys \
      AITHEMA_COMPOSED_CONTROL_FILE="$controlFile" \
-     AITHEMA_COMPOSED_QUALIFICATION_MODULE=/absolute/run/server.mjs \
+     AITHEMA_COMPOSED_BINDING_FILE=/absolute/run/binding.json \
+     AITHEMA_COMPOSED_QUALIFICATION_MODULE="$PWD/plugins/composed-voice/ops/qualification-live-server.mjs" \
      node demo/server.js
    ```
 
@@ -584,7 +674,18 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
    Puppeteer's default `--mute-audio` is removed. The hook disables echo
    cancellation/noise suppression. Include utterance, endpoint silence and a
    later voiced segment for barge-in; timestamps are never synthesized/shifted.
-6. Initialize the shared persisted budget **once**, then run the CLI commands in
+6. From the PR 4d implementation checkout (immutable SHA recorded below), run:
+
+   ```sh
+   node scripts/composed-qualification.js --operator-approved --initialize \
+     --budget /absolute/run/budget.sqlite
+   node scripts/composed-qualification.js --operator-approved \
+     --budget /absolute/run/budget.sqlite --plan /absolute/run/plan.json \
+     --host /absolute/ops-qa/host.mjs --keys-file /absolute/run/provider.keys \
+     --out /absolute/run/evidence --sample-timeout-ms 1200000
+   ```
+
+   Initialize the shared persisted budget **once**, then run the CLI commands in
    the pre-live section with `--keys-file /absolute/run/provider.keys` and,
    optionally, `--sample-timeout-ms 1200000`. Use a run directory under the
    running user's `~/ci.noindex/aithema-runs/`. The CLI checks the plan/budget
@@ -618,7 +719,7 @@ Only when OPS deliberately chooses the remote variant, run the flagged host in
 its reviewed container with host networking, loopback bind `PORT=43100`, and a
 read-only mount of its run-window 0600, container-user-owned keys file. Set
 `AITHEMA_COMPOSED_KEYS_FILE` to that absolute in-container path; environment-key
-fallback is still forbidden. Keep the server module/data mounts OPS-owned.
+fallback is still forbidden. Keep the account data mounts OPS-owned; use the repository reference server module.
 From mbp2606 keep this forward alive:
 
 ```sh

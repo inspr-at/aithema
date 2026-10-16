@@ -56,6 +56,8 @@ const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: s
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'] } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
+  const logs = [], browserResponses = [];
+  for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
   const specs = [], reports = [], wires = [], order = [], terminals = new Map(), baselineSent = [], sockets = [];
   const wireFixture = JSON.parse(await readFile(new URL('../../../test/fixtures/elevenlabs-wire.json', import.meta.url)));
   let sttIndex = 0, reasoningIndex = 0, baselineFeed;
@@ -75,7 +77,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
         observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
         const socket = fixtureSocket({ role: 'tts' }); sockets.push(socket); return socket;
       }
-      observed('voice');
+      observed('reasoning');
       const queue = [], ready = Promise.withResolvers(); let wake, ended = false;
       const push = event => { queue.push(JSON.stringify(event)); wake?.(); wake = undefined; };
       // Agent events are synthetic protocol fixtures; source is the official
@@ -99,7 +101,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
     },
     async fetch(url, init) {
       if (url.includes('/convai/conversation/get-signed-url')) {
-        observed('voice'); assert.equal(init.method, 'GET');
+        observed('reasoning'); assert.equal(init.method, 'GET');
         assert.equal(init.headers['xi-api-key'], sentinel);
         const mint = wireFixture.mints.find(value => value.name === 'websocket');
         return new Response(mint.response.body, { status: mint.response.status });
@@ -128,7 +130,10 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
   const start = (lane = 'candidate', overrides = {}) => server.createSample({ lane, runId: 'fixture-run', owner, admit,
     item: { id: 'one', sessionId: session.id, expectedEntities: ['Wien', 'Müller GmbH'] }, ...overrides });
   async function open(sample) {
-    return createNetworkRelayClient({ url: `${relayOrigin}/composed/relay`, fetch: (url, init) => server.networkRelay.handle(new Request(url, init)) })(sample.grant);
+    return createNetworkRelayClient({ url: `${relayOrigin}/composed/relay`, fetch: async (url, init) => {
+      const response = await server.networkRelay.handle(new Request(url, init));
+      browserResponses.push(await response.clone().text()); return response;
+    } })(sample.grant);
   }
   async function audioFrame(transport) {
     for (;;) {
@@ -138,7 +143,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       assert.notEqual(value.value.event?.type, 'waiting', JSON.stringify(value.value));
     }
   }
-  return { server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit,
+  return { logs, browserResponses, server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit,
     baselineSent, baselineFeed: value => baselineFeed(value) };
 }
 
@@ -159,7 +164,7 @@ test('candidate uses real component wire parsers and Rule C; consumes before tra
     assert.ok(h.order.indexOf(`consume:${spec.attemptId}`) < h.order.indexOf(`wire:${spec.attemptId}`));
     assert.ok(h.order.indexOf(`wire:${spec.attemptId}`) < h.order.indexOf(`report:${spec.attemptId}`));
   }
-  assert.doesNotMatch(JSON.stringify({ specs: h.specs, reports: h.reports, answer, grant: sample.grant, records: h.storage.voiceCalls(h.session.id) }), new RegExp(sentinel));
+  assert.doesNotMatch(JSON.stringify({ logs: h.logs, browserResponses: h.browserResponses, specs: h.specs, reports: h.reports, answer, grant: sample.grant, records: h.storage.voiceCalls(h.session.id) }), new RegExp(sentinel));
   assert.equal(h.storage.voiceCalls(h.session.id)[0].terminal.usage.costSource, 'separate-component-claims');
 });
 
@@ -205,10 +210,10 @@ test('baseline uses production credential fixture and only silent locale overrid
   await transport.command('interrupt'); await sample.close();
   const result = await sample.result;
   assert.equal(result.hypothesis, 'In Wien bei Müller GmbH.');
-  assert.equal(h.specs.length, 1); assert.equal(h.specs[0].role, 'voice'); assert.equal(h.reports.length, 1);
+  assert.equal(h.specs.length, 1); assert.equal(h.specs[0].role, 'reasoning'); assert.equal(h.reports.length, 1);
   assert.deepEqual(h.baselineSent[0], { type: 'conversation_initiation_client_data',
     conversation_config_override: { agent: { language: 'de', first_message: '' } } });
-  assert.equal(h.wires.filter(wire => wire.role === 'voice').length, 2, 'one admitted baseline mint and connection');
+  assert.equal(h.wires.filter(wire => wire.role === 'reasoning').length, 2, 'one admitted baseline mint and connection');
   assert.equal(result.ttsFormat.sampleRateHz, 24000);
   assert.doesNotMatch(JSON.stringify({ result, grant: sample.grant, spec: h.specs, calls: h.storage.voiceCalls(h.session.id) }), /signature=|fixture-api-value|SYNTHETIC_ONLY/);
 });

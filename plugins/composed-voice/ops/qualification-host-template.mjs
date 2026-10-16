@@ -98,9 +98,10 @@ export function createQualificationHost(options = {}) {
           const error = new Error('Qualification refused: null or unverified audio output device');
           error.physicalBrowserMedia = physicalBrowserMedia; throw error;
         }
-        // Corpus reference/expected text stays in the CLI; only capture metadata
-        // crosses to the server. The provider transcript is server-authoritative.
-        ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId } }, lifetime.signal)));
+        // Reference sentences stay in the CLI. Expected entities travel only
+        // on Node control requests; providers and Chrome receive neither.
+        ({ sampleId } = await bounded(post({ action: 'start', lane, runId, item: { id: item.id, sampleId: item.sampleId, ...(options.sessionId ? { sessionId: options.sessionId,
+          expectedEntities: Array.isArray(item.expected) ? item.expected : [item.expected] } : {}) } }, lifetime.signal)));
         polling = (async () => {
           try {
             while (!lifetime.signal.aborted) {

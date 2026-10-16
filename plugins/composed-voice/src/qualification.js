@@ -4,7 +4,7 @@ import { createComposedVoiceCoordinator } from '../../../packages/server/src/com
 export const QUALIFICATION_THRESHOLDS = Object.freeze({ wer: 0.08, entityAccuracy: 0.95,
   firstAudioP95Ms: 1500, bargeInStopMs: 300, capMicro: 25_000_000 });
 const words = text => text.normalize('NFC').toLocaleLowerCase('de-AT').match(/[\p{L}\p{N}]+/gu) ?? [];
-const entity = text => text.normalize('NFC').trim().toLocaleLowerCase('de-AT').replace(/\s+/gu, ' ');
+export const normalizeQualificationEntity = text => text.normalize('NFC').trim().toLocaleLowerCase('de-AT').replace(/\s+/gu, ' ');
 function distance(reference, hypothesis) {
   let row = Array.from({ length: hypothesis.length + 1 }, (_, i) => i);
   for (let i = 0; i < reference.length; i++) {
@@ -29,7 +29,7 @@ export function evaluateQualification(samples, { blindPreference = 'pending' } =
     errors += distance(ref, hyp); references += ref.length;
     for (const value of sample.entities) {
       if (typeof value.expected !== 'string' || !value.expected.trim() || typeof value.actual !== 'string') throw new TypeError('Entity evidence required');
-      entities++; correct += Number(entity(value.expected) === entity(value.actual));
+      entities++; correct += Number(normalizeQualificationEntity(value.expected) === normalizeQualificationEntity(value.actual));
     }
     latency.push(sample.firstAudioAt - sample.speechEndAt); stops.push(sample.stoppedAt - sample.bargeInAt);
   }
