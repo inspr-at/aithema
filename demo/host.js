@@ -178,8 +178,8 @@ for (const [selector, action] of [['#fake-say', () => fakeVoice?.speak()],
 }
 // A device conversation lives in its tab, so crossing that boundary starts a new session.
 component.addEventListener('aithema-new-conversation', event => {
-  const { processingPreset, settings } = event.detail;
-  void open(true, { processingPreset, settings });
+  const { processingPreset, settings, confirm } = event.detail;
+  void open(true, { processingPreset, settings, confirm });
 });
 // The settings dialog defers consent to this host interface.
 // The library opened, created or reset a conversation: this host owns its voice clients, so it switches.

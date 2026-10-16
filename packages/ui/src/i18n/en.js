@@ -17,6 +17,8 @@ export const en = {
     international: 'international', eu: 'in the EU', device: 'on your device', localModel: 'Local model',
     deviceProvider: 'your device', hostProvider: 'this host', testProvider: 'local test', testVoice: 'Test voice',
     draftsOff: 'Visual drafts are not set up on this host.',
+    draftsDisabled: 'Visual drafts are turned off', draftsEnable: 'Turn on in settings',
+    draftsUnavailable: 'Visual drafts are not available right now.',
     draftsOn: 'Request a draft · ~{credits} credits', draftsCost: '~{credits} credits',
     draftsLow: 'There are not enough credits available for another draft right now.',
     newConversation: 'New conversation', manageConversations: 'Manage all conversations', currentConversation: 'now',
