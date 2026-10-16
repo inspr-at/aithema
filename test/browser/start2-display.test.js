@@ -475,13 +475,16 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   async function shot(state, locale, theme, width) {
     const name = `${state}-${width}-${theme}-${locale}.png`;
     if (evidence) {
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle();
+      // Reopen from the verified outer-ring click after clearing capture focus/hover.
+      if (state === 'orb-hit-area-open') await shadow(page, c => c.shadowRoot.querySelector('.band-orb [role="button"]').click());
       await shadow(page, async c => {
-        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
         await document.fonts.ready;
         await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
           .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       });
-      await page.mouse.move(-1, -1); await settle();
       await page.screenshot({ path: join(evidence, name), fullPage: false }); files.push(name);
     }
   }
