@@ -12,6 +12,9 @@ import { normalizeExtractorLimits, extractorLifetime, sniffDocument, unreadable,
 const corePath = dirname(fileURLToPath(import.meta.url));
 const offlineURL = new URL('./extractor-offline.js', import.meta.url);
 const execute = promisify(execFile);
+// Node 24 shutdown can join a Sparkplug compiler waiting for main-thread GC
+// (nodejs/node#54918), including process.exit on parent IPC disconnect.
+export const EXTRACTOR_EXEC_ARGV = Object.freeze(['--no-concurrent-sparkplug']);
 export async function residentBytes(pid, { platform = process.platform, readProc = readFile } = {}) {
   if (platform === 'linux') {
     // VmRSS is already in kB: no page-size command or cached promise is needed.
@@ -75,7 +78,7 @@ export async function runExtractorProcess(workerURL, bytes, mediaType, limits, l
     const workerPath = fileURLToPath(workerURL);
     child = fork(workerPath, [], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'], serialization: 'advanced',
       // No inherited credentials, NODE_OPTIONS, preload hooks or shell environment.
-      env: { NODE_NO_WARNINGS: '1' }, execArgv: [`--max-old-space-size=${limits.maxHeapMb}`, '--permission',
+      env: { NODE_NO_WARNINGS: '1' }, execArgv: [...EXTRACTOR_EXEC_ARGV, `--max-old-space-size=${limits.maxHeapMb}`, '--permission',
         `--allow-fs-read=${resolve(corePath, '..')}`, `--allow-fs-read=${dirname(workerPath)}`,
         `--allow-fs-read=${dirname(fileURLToPath(parserURL))}`,
         // Node checks package metadata through installation aliases before resolving symlinks.

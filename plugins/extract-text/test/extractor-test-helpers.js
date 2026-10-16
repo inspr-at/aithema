@@ -23,10 +23,9 @@ export async function waitFor(operation, label) {
 
 // Keep this observer in the permitted extractor test tree. The shared fixture
 // polls every millisecond; spawn, started and close events provide all we need.
-export function observeParsers(t, { execArgv = [] } = {}) {
+export function observeParsers(t) {
   const original = childProcess.fork, children = [], events = new EventEmitter();
   t.mock.method(childProcess, 'fork', (...args) => {
-    args[2] = { ...args[2], execArgv: [...args[2].execArgv, ...execArgv] };
     const child = original(...args);
     const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
     const started = new Promise(resolve => {
