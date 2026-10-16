@@ -297,6 +297,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 @media(width < 360px) {
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
+  .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }

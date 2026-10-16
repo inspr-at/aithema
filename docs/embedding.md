@@ -410,6 +410,10 @@ options. An off-only/unconfigured host supplies neither (including an empty
 reply replay/text-reading action is mounted. This condition deliberately ignores
 the currently selected voice, preset, consent and temporary availability verdicts:
 a bound host retains its voice controls when voice is switched off or interrupted.
+A catalog voice option without its browser client also mounts no voice chrome;
+Settings continues to describe the server catalog. The demo maps an unbound
+ElevenLabs runtime to `voiceMode: off`, so a setup `voiceDisabledReason` cannot
+accidentally mount its browser adapter.
 The desktop header stays 90 px high through voice and conversation states;
 the phone frame follows the approved voice-specific rows.
 
