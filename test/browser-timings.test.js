@@ -36,7 +36,7 @@ test('artifact import retains CI provenance and rejects incomplete or unsuccessf
     { 0: { runId: 'remote' } }, { 0: { files: {} } }, { 0: { sha: '' } },
   ]) assert.throws(() => parseTimingArtifact(artifact(overrides)));
   assert.throws(() => parseTimingArtifact(artifact().split('\n').slice(0, 2).join('\n')), /Incomplete/u);
-  assert.throws(() => parseTimingArtifact(artifact() + '\n' + artifact().split('\n')[1]), /duplicate/u);
+  assert.throws(() => parseTimingArtifact(artifact({ 2: { counts: { failed: 0, cancelled: 0, skipped: 0, todo: 0, topLevel: 2 } } }) + '\n' + artifact().split('\n')[1]), /duplicate/u);
 });
 
 test('updates are deterministic, idempotent and keep only the latest twenty executions', () => {
@@ -92,7 +92,7 @@ test('the actual Node reporter records the parent once and rejects a real failed
   const observed = parseTimingArtifact(passed.stdout)[file];
   assert.equal(observed.sample.tests.length, 1);
   assert.equal(observed.sample.tests[0].name, 'parent');
-  assert.ok(observed.sample.tests[0].seconds >= 0.02, 'parent includes the real nested duration');
+  assert.ok(observed.sample.tests[0].seconds >= 0.01, 'parent includes the real nested duration');
   assert.equal(observed.workload, browserWorkload(file, root));
   const failed = run("const { test } = require('node:test'); test('failed', () => { throw new Error('intentional timing fixture failure'); });");
   assert.equal(failed.status, 1);

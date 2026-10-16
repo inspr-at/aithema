@@ -163,6 +163,13 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
             }
           }
         }
+        // Let each real extractor finish before sending the next fixture batch.
+        // Otherwise its accepted event changes inputRevision during multipart
+        // parsing and the route correctly refuses the next request with 429.
+        if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
+          const c = document.querySelector('aithema-session');
+          while (c.session.uploads.some(upload => upload.state === 'pending')) await new Promise(resolve => setTimeout(resolve, 10));
+        }
         const response = await original(url, options);
         if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
           const body = await response.clone().json();
