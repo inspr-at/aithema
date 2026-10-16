@@ -65,7 +65,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .select__button { display:flex; align-items:center; gap:.6rem; width:100%; padding:.45rem .75rem; text-align:left;
   border:1px solid var(--aithema-line); border-radius:.65rem; background:var(--aithema-field); }
 .select__button[aria-expanded=true] { border-color:var(--aithema-accent); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 30%,transparent); }
-.select__button[aria-disabled=true] { color:var(--aithema-muted); cursor:help; }
+.select__button[aria-disabled=true] { color:var(--aithema-muted); }
+.select__button[aria-disabled=true]:not(:disabled) { cursor:help; }
 .select__spinner { display:grid; place-items:center; flex:none; width:1rem; height:1rem; animation:settings-loading 1.2s linear infinite; }
 .select__spinner svg { display:block; width:100%; height:100%; }
 @keyframes settings-loading { to { transform:rotate(360deg); } }

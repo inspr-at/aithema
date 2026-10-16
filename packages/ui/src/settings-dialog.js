@@ -654,9 +654,10 @@ export class SettingsDialog {
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
     const done = this.#q('.done');
-    done.disabled = Boolean(this.#pendingPreset);
+    // ConsentSettings owns the shared button while its editor is active.
+    if (!this.#consentEditor?.active) done.disabled = Boolean(this.#pendingPreset);
     done.setAttribute('aria-disabled', String(done.disabled));
-    if (done.disabled) done.setAttribute('aria-describedby', 'settings-notice');
+    if (this.#pendingPreset) done.setAttribute('aria-describedby', 'settings-notice');
     else done.removeAttribute('aria-describedby');
     this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset)));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';

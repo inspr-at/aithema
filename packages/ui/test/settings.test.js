@@ -656,3 +656,13 @@ test('AIT-234: a failed catalog retains Custom for explicit reload without savin
   assert.equal(h.posts[0].voice, 'off'); assert.equal(h.posts[0].visuals, 'off');
   assert.equal(h.c.session.settings.origin, 'chosen');
 });
+
+// Done is also the consent editor's save button; rendering Custom must respect that owner.
+test('AIT-234: an invalid consent document keeps the shared Done button disabled', async t => {
+  const h = fixture(t, { matrix: { best: { text: refused('current processing consent required') } } });
+  h.root.querySelector('.composer-reason .consent-action').click(); await tick(10);
+  assert.equal(h.q('.consent-status').textContent, en.host.consentFailed);
+  assert.equal(h.q('.done').disabled, true);
+  assert.equal(h.q('.done').getAttribute('aria-disabled'), 'true');
+  assert.equal(h.q('.done').hasAttribute('aria-describedby'), false, 'consent failure is not catalog loading');
+});
