@@ -54,7 +54,12 @@ export function createQualificationHost(options = {}) {
       const baselineAuth = lane === 'baseline' ? await loadBaselineAuth(options.binding?.baselineAuthFile) : undefined;
       running = true;
       let browser, sampleId, polling, measured = false;
-      const postMeasurement = [];
+      let evidenceRun, postMeasurementCount = 0;
+      const recordTiming = event => {
+        if (event.kind === 'post-measurement') postMeasurementCount++;
+        onTiming(event);
+      };
+      const recordPostMeasurement = () => recordTiming({ kind: 'post-measurement' });
       const lifetime = new AbortController(), ready = Promise.withResolvers(), result = Promise.withResolvers();
       const processGroups = new Set(), deadlineAt = Date.now() + sampleTimeoutMs;
       const kill = () => { for (const group of processGroups) group.kill(); };
@@ -82,7 +87,7 @@ export function createQualificationHost(options = {}) {
       try {
         const clips = await bounded(readQualificationCorpus(item));
         const run = join(runDirectory, createHash('sha256').update(runId).digest('hex').slice(0, 24));
-        await bounded(mkdir(run, { recursive: true }));
+        await bounded(mkdir(run, { recursive: true })); evidenceRun = run;
         const profile = await bounded(mkdtemp(join(run, `${lane}-chrome-`)));
         const launch = options.launchBrowser ?? launchLocalBrowser;
         browser = await bounded(Promise.resolve().then(() => launch({ executablePath: options.executablePath ?? process.env.CHROME_PATH, headless: true,
@@ -108,7 +113,7 @@ export function createQualificationHost(options = {}) {
           return physicalBrowserMedia;
         };
         if (lane === 'baseline') {
-          const answer = await runProductionBaseline({ page, binding: options.binding, item, runId, admit, onTiming,
+          const answer = await runProductionBaseline({ page, binding: options.binding, item, runId, admit, onTiming: recordTiming,
             auth: baselineAuth,
             async boundConversation(deadlineAt) {
               for (const group of processGroups) {
@@ -154,10 +159,10 @@ export function createQualificationHost(options = {}) {
           try {
             while (!lifetime.signal.aborted) {
               const { event } = await post({ action: 'poll', sampleId }, lifetime.signal); if (!event) continue;
-              if (event.type === 'post-measurement') { postMeasurement.push({ kind: 'post-measurement' }); continue; }
+              if (event.type === 'post-measurement') { recordPostMeasurement(); continue; }
               if (event.type === 'ready') { ready.resolve(event.grant); continue; }
               if (event.type === 'failure') {
-                if (measured) { postMeasurement.push({ kind: 'post-measurement' }); continue; }
+                if (measured) { recordPostMeasurement(); continue; }
                 throw new Error(event.error);
               }
               if (event.type === 'result') { result.resolve(event.result); continue; }
@@ -166,7 +171,7 @@ export function createQualificationHost(options = {}) {
                 if (event.type === 'admit') {
                   if (admissions.has(event.spec.attemptId)) throw new Error('Duplicate remote attempt');
                   if (measured) {
-                    postMeasurement.push({ kind: 'post-measurement' });
+                    recordPostMeasurement();
                     await post({ action: 'ack', sampleId, id: event.id, refused: 'sample-complete' }, lifetime.signal);
                     continue;
                   }
@@ -180,7 +185,7 @@ export function createQualificationHost(options = {}) {
                   else throw new Error('Unknown remote admission operation');
                 }
               } catch { error = true; }
-              if (error && measured && event.type === 'admit') { refused = 'sample-complete'; postMeasurement.push({ kind: 'post-measurement' }); }
+              if (error && measured && event.type === 'admit') { refused = 'sample-complete'; recordPostMeasurement(); }
               await post({ action: 'ack', sampleId, id: event.id, value, error, refused }, lifetime.signal);
               if (error && !refused) throw new Error('Remote provider admission refused');
             }
@@ -189,10 +194,9 @@ export function createQualificationHost(options = {}) {
         polling.catch(() => {});
         const grant = await bounded(ready.promise);
         const media = await bounded(page.evaluate(input => window.composedQualification.run(input), { grant, headers }));
-        for (const event of media.trace) onTiming(event);
-        if (media.refusal) { postMeasurement.forEach(onTiming); throw new IncompleteMediaEvidence(media.refusal); }
+        for (const event of media.trace) recordTiming(event);
+        if (media.refusal) throw new IncompleteMediaEvidence(media.refusal);
         const answer = await bounded(result.promise);
-        postMeasurement.forEach(onTiming);
         // Keep observed source/device timestamps unchanged in the probe.
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat, ttsConfig: answer.ttsConfig };
@@ -210,10 +214,20 @@ export function createQualificationHost(options = {}) {
           }
         }
         finally {
-          try { await Promise.race([browser?.close().catch(() => {}), new Promise(resolve => { const closing = setTimeout(resolve, 1000); closing.unref(); })]); }
-          finally {
-            clearTimeout(timer); process.removeListener('exit', onExit); process.removeListener('SIGTERM', onTerm); process.removeListener('SIGINT', onInterrupt);
-            lifetimes.delete(lease); running = false;
+          try {
+            // Refused-sample summaries have a closed event-kind allowlist.
+            // Retain this numeric count independently for both lanes.
+            if (evidenceRun) {
+              const sample = createHash('sha256').update(`${runId}:${item.sampleId ?? item.id}`).digest('hex').slice(0, 24);
+              await writeFile(join(evidenceRun, `${lane}-post-measurement-${sample}.json`),
+                JSON.stringify({ counts: { 'post-measurement': postMeasurementCount } }), { mode: 0o600 });
+            }
+          } finally {
+            try { await Promise.race([browser?.close().catch(() => {}), new Promise(resolve => { const closing = setTimeout(resolve, 1000); closing.unref(); })]); }
+            finally {
+              clearTimeout(timer); process.removeListener('exit', onExit); process.removeListener('SIGTERM', onTerm); process.removeListener('SIGINT', onInterrupt);
+              lifetimes.delete(lease); running = false;
+            }
           }
         }
       }

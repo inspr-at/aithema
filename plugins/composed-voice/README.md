@@ -991,8 +991,9 @@ export function createQualificationHost(cli) {
    input in both lanes and starts session close immediately. Candidate control
    also fences new admissions with the fixed no-spend refusal `sample-complete`.
    Later events are counted as `post-measurement` in the value-free trace and
-   cannot change the outcome. Already reserved/dispatched attempts remain in
-   the ledger, including any second dispatch that preceded the fence.
+   cannot change the outcome. The OPS run directory also retains a numeric
+   `<lane>-post-measurement-<digest>.json` count, including for typed refusals.
+   Already reserved/dispatched attempts remain in the ledger, including any second dispatch that preceded the fence.
    Incomplete media (missing first audio, pre-reply voiced capture, voiced
    barge-in capture, or playback-stop at/after barge-in) refuses that lane's sample
    without retrying. The run aborts immediately with phase `refusal-limit` when
