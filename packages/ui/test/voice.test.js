@@ -1216,3 +1216,16 @@ for (const boundary of ['speaking', 'provider assistant final', 'saved assistant
   assert.equal(root.querySelector('.turn.user.partial'), null);
   await emit(partial); assert.equal(root.querySelector('.turn.user.partial'), null);
 });
+
+test('AIT-235: an already saved typed echo removes its hypothesis without duplicating the saved row', async t => {
+  const { c, root, identity, emit, partial, final } = await transcriptFixture(t);
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'typed', role: 'user', content: final.text,
+    voiceCallId: identity.callId, voiceProviderId: identity.providerSessionId } });
+  const savedRow = root.querySelector('[data-id="typed"]');
+  await emit(partial); assert.equal(root.querySelectorAll('.turn').length, 3);
+  await emit(final);
+  assert.equal(root.querySelectorAll('.turn').length, 2);
+  assert.equal(root.querySelector('[data-id="typed"]'), savedRow);
+  assert.equal(root.querySelector('.partial'), null);
+  await emit(partial); assert.equal(root.querySelectorAll('.turn').length, 2);
+});

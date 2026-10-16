@@ -84,3 +84,13 @@ test('AIT-235: providers with stable turn ids also fence late partials without o
   const result = transition(state, { ...final, turnId: 'stable', userTurnOrdinal: undefined }).state;
   assert.equal(transition(result, event).state.pending.partial, false);
 });
+
+test('AIT-235: a final for an older stable turn id cannot consume a newer hypothesis', () => {
+  const state = transition(undefined, { ...partial('Next utterance'), turnId: 'next', userTurnOrdinal: undefined }).state;
+  for (const event of [{ ...final, turnId: 'previous', userTurnOrdinal: undefined },
+    { ...saved, data: { ...saved.data, id: 'previous', userTurnOrdinal: undefined } }]) {
+    const result = transition(state, event);
+    assert.equal(result.state.pending, state.pending);
+    assert.equal(result.replacement, undefined);
+  }
+});

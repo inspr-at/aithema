@@ -27,7 +27,7 @@ export function voiceTranscriptTransition({ pending = null, finalized = new Map(
       close(final);
       const id = final.id ?? final.turnId;
       const matches = pending && sameCall(pending, final) && (pending.finalId ? (pending.finalId === id || pending.finalId === event.providerTurnId)
-        : ordinal(pending) && ordinal(final) ? ordinal(pending) === ordinal(final) : true);
+        : ordinal(pending) && ordinal(final) ? ordinal(pending) === ordinal(final) : pending.id === id);
       if (matches) {
         close(pending);
         if (event.type === 'turn.final') return { state: { pending: null, finalized }, replacement: { from: pending.id, to: id } };
