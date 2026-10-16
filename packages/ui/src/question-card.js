@@ -55,7 +55,7 @@ export const questionCardStyles = `
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
 /* Latest is a floating action, never an invisible row below the last turn. */
-.transcript-shell .transcript-latest { position:sticky; bottom:0; flex:none; align-self:flex-end;
+.conversation:has(.qcard:not([hidden])) .transcript-latest { position:sticky; bottom:0; flex:none; align-self:flex-end;
   height:44px; margin:-44px 0 0 auto; }
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,var(--question-card-limit,35dvh),calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
@@ -130,7 +130,7 @@ export class QuestionCard {
       if (this.frame != null) return;
       this.frame = this.view.requestAnimationFrame(() => {
         this.frame = null; this.reserve();
-        if (this.followsTranscript()) this.onResize?.({ following: true });
+        if (!this.card.hidden && this.followsTranscript()) this.onResize?.({ following: true });
       });
     };
     this.viewportResize = () => {

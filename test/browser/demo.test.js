@@ -1531,6 +1531,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     });
 
     // Withdraw upload under the pointer: the chip stays where it is, focus stays on it, the understanding rebuilds.
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.qcard').hidden), true,
+      'upload anchoring also holds when there is no question-card reservation');
     const chipSelector = textChip;
     // The pointer rests on the button and the keyboard presses it, so both anchoring and focus are checked.
     const rowBefore = await restOnRow(page, chipSelector, '.upload-withdraw');
