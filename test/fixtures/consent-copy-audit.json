@@ -138,9 +138,9 @@
       "finalState": "feature-specific C1 copy; no generic reason exposed"
     },
     {
-      "site": "packages/ui/src/audio-rail.js:182",
+      "site": "packages/ui/src/audio-rail.js:184",
       "file": "packages/ui/src/audio-rail.js",
-      "line": 182,
+      "line": 184,
       "classification": "visible",
       "exposure": "Voice status and action aria-describedby.",
       "resolution": "Existing C1 renderer uses the shared sentence helper.",
