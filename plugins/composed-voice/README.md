@@ -1082,6 +1082,54 @@ export function createQualificationHost(cli) {
    the original exception is rethrown. If evidence storage itself is unavailable,
    the durable ledger is still authoritative.
 
+   Baseline setup failures retain a fixed reason `setup-failed:<step>`:
+   `goto`, `preflight`, `chooser`, `consent-ready`, `consent-items`, `grant`,
+   `ready`, `jobs`, or `session-id`. Missing required consent appends only its
+   allowlisted item ID, for example
+   `setup-failed:consent-items:models-international`. Puppeteer and wall-clock
+   timeouts retain the active step. In the private OPS run directory
+   (`runDirectory/<run-hash>/`), the existing baseline evidence writer also
+   saves an exclusively created 0600 `failure.json` (or `failure-<uuid>.json`
+   when one exists):
+   `{ "reason": "setup-failed:goto", "setup": { "step": "goto", "elapsedMs": 125034.2 } }`.
+   `elapsedMs` is a number measuring just the failing step; `setup.missingItemId`
+   may be `voice-elevenlabs` or `models-international`. No page text, URLs,
+   credentials or session IDs enter this summary. The coordinator's separate
+   `--out/failure.json` retains its existing redaction rules. Navigation waits
+   for DOM content and `aithema-session[data-aithema-mounted]`, so production's
+   long-lived session event stream cannot hold it at network idle. The physical
+   output probe uses no network-idle wait and remains inside the setup bound.
+
+   **Run the free setup check after every start2 configuration change**, before
+   authorizing another paid sample. On the browser host, use the separate ops
+   CLI (no provider keys, budget, plan or candidate host required):
+
+   ```sh
+   node plugins/composed-voice/ops/qualification-host-template.mjs \
+     --baseline-setup-only --config /absolute/baseline-setup-config.json \
+     --run-id unique-free-check --out /absolute/baseline-setup-result.json
+   ```
+
+   The JSON config accepts only `binding` (including `baselineOrigin`,
+   `baselineAuthFile` and the existing baseline/duration/ceiling fields),
+   `consentDecision`, and optional `executablePath`, `runDirectory`,
+   `sampleTimeoutMs`. It opens start2's ordinary visitor and consent UI through
+   `session-id`, then stops before admission or voice start, without opening or
+   writing a ledger. Compare `offeredConsentItemIds` with OPS's consent decision;
+   only `voice-elevenlabs` and `models-international` can appear. Successful
+   0600 output is `{ "ok": true, "offeredConsentItemIds": ["voice-elevenlabs",
+   "models-international"], "visitorSessionId": "<already recorded identity>" }`.
+   A failed check returns `{ "ok": false, "step": "consent-items",
+   "elapsedMs": 12.3, "missingItemId": "voice-elevenlabs",
+   "offeredConsentItemIds": ["models-international"] }` and exits 1.
+   Output creation is exclusive; retain it and use a new run ID/output path.
+   The same result is retained as `baseline-setup.json` in the OPS run directory.
+   For host callers, construct the browser template with
+   `baselineSetupOnly: true`, then call `runBaselineSetup({ runId })`.
+   That host rejects `runSample`; setup accepts no lane/sample arguments, and
+   the free CLI rejects paid flags. Accounting ports and candidate credentials
+   remain mandatory for ordinary hosts.
+
    Before a terminal measurement, every `waiting` or `ended` reason except the
    normal `ended: closed` aborts with `failure.json` (phase `runSample`, lane),
    including `waiting: limit` (a product resource bound) and `waiting: provider`.

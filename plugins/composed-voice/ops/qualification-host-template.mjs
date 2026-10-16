@@ -1,7 +1,9 @@
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { probePhysicalOutput, findRefusedOutputFlags } from './qualification-output-probe.mjs';
 import { baselineOrigin, baselineAttemptCeiling, loadBaselineAuth, runProductionBaseline } from './qualification-production-baseline.mjs';
@@ -15,8 +17,10 @@ import { launchLocalBrowser } from './qualification-browser.mjs';
 /** Inert browser-side factory. OPS ports are mandatory and remain authoritative;
  * their account operations run on the flagged server, never in Chrome. */
 export function createQualificationHost(options = {}) {
-  const hostOrigin = loopbackOrigin(options.hostOrigin);
-  for (const port of ['verifyCeiling', 'verifyReceipt', 'reconcile']) {
+  if (options.baselineSetupOnly !== undefined && typeof options.baselineSetupOnly !== 'boolean') throw new TypeError('baselineSetupOnly must be boolean');
+  const setupOnly = options.baselineSetupOnly === true;
+  const hostOrigin = setupOnly ? undefined : loopbackOrigin(options.hostOrigin);
+  for (const port of setupOnly ? [] : ['verifyCeiling', 'verifyReceipt', 'reconcile']) {
     if (typeof options[port] !== 'function') throw new TypeError(`OPS ${port} port required`);
   }
   const runDirectory = options.runDirectory ?? join(homedir(), 'ci.noindex', 'aithema-runs');
@@ -25,9 +29,9 @@ export function createQualificationHost(options = {}) {
   if (!Number.isSafeInteger(sampleTimeoutMs) || sampleTimeoutMs < 1 || sampleTimeoutMs > 20 * 60_000) throw new TypeError('sampleTimeoutMs must be 1..1200000');
   if (options.launchBrowser !== undefined && typeof options.launchBrowser !== 'function') throw new TypeError('launchBrowser must be a function');
   if (options.prepareCandidateSession !== undefined && typeof options.prepareCandidateSession !== 'function') throw new TypeError('prepareCandidateSession must be a function');
-  if (!options.ownerHeaders || !Object.keys(options.ownerHeaders).length) throw new TypeError('Existing owner authentication headers required');
-  if (!/^[a-f0-9]{64}$/u.test(options.controlCapability ?? '')) throw new TypeError('CLI controlCapability required');
-  if (Object.keys(options.ownerHeaders).some(name => name.toLowerCase() === 'x-aithema-qualification-control')) throw new TypeError('Control capability must stay out of browser ownerHeaders');
+  if (!setupOnly && (!options.ownerHeaders || !Object.keys(options.ownerHeaders).length)) throw new TypeError('Existing owner authentication headers required');
+  if (!setupOnly && !/^[a-f0-9]{64}$/u.test(options.controlCapability ?? '')) throw new TypeError('CLI controlCapability required');
+  if (Object.keys(options.ownerHeaders ?? {}).some(name => name.toLowerCase() === 'x-aithema-qualification-control')) throw new TypeError('Control capability must stay out of browser ownerHeaders');
   const baselineSessions = new Map(); let identityWrites = Promise.resolve();
   const lifetimes = new Set(); let closed = false, running = false;
   const headers = { ...options.ownerHeaders };
@@ -38,14 +42,11 @@ export function createQualificationHost(options = {}) {
     if (!response.ok) throw new Error(`Qualification control refused (${response.status})`);
     return response.json();
   };
-  return Object.freeze({
-    verifyCeiling: options.verifyCeiling,
-    verifyReceipt: options.verifyReceipt,
-    reconcile: input => options.reconcile({ ...input, baselineSessions: [...baselineSessions.values()] }),
-    async runSample({ item, lane, runId, admit, onTiming }) {
+  const run = async ({ item, lane, runId, admit, onTiming }) => {
       if (closed || running) throw new Error('Qualification host closed or already running');
       if (![admit, onTiming].every(fn => typeof fn === 'function')) throw new TypeError('admit and onTiming required');
-      if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !['utterancePath', 'bargeInPath'].every(key => isAbsolute(item?.[key] ?? ''))) throw new TypeError('Sample identity and absolute corpus utterancePath and bargeInPath required');
+      if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !runId ||
+        !setupOnly && !['utterancePath', 'bargeInPath'].every(key => isAbsolute(item?.[key] ?? ''))) throw new TypeError('Sample identity and absolute corpus utterancePath and bargeInPath required');
       const launchArgs = options.launchArgs ?? [];
       if (findRefusedOutputFlags(launchArgs).length || launchArgs.some(arg => /fake-audio|user-data-dir|use-fake-device/u.test(arg))) throw new TypeError('Qualification capture/output flags cannot be overridden');
       if (lane === 'baseline') baselineAttemptCeiling(options.binding);
@@ -86,7 +87,7 @@ export function createQualificationHost(options = {}) {
       ready.promise.catch(() => {}); result.promise.catch(() => {});
       const admissions = new Map();
       try {
-        const clips = await bounded(readQualificationCorpus(item));
+        const clips = setupOnly ? undefined : await bounded(readQualificationCorpus(item));
         const run = join(runDirectory, createHash('sha256').update(runId).digest('hex').slice(0, 24));
         await bounded(mkdir(run, { recursive: true })); evidenceRun = run;
         const profile = await bounded(mkdtemp(join(run, `${lane}-chrome-`)));
@@ -103,7 +104,7 @@ export function createQualificationHost(options = {}) {
         const page = await bounded(browser.newPage());
         // Puppeteer uses CDP Page.addScriptToEvaluateOnNewDocument, just as the
         // baseline probe does. Install the same capture before either navigation.
-        await bounded(page.evaluateOnNewDocument(installScriptedCapture, clips));
+        if (!setupOnly) await bounded(page.evaluateOnNewDocument(installScriptedCapture, clips));
         const preflight = async () => {
           const physicalBrowserMedia = await bounded(probePhysicalOutput(page, browser));
           await bounded(writeFile(join(run, `${lane}-physical-browser-media.json`), JSON.stringify({ physicalBrowserMedia }, null, 2), { mode: 0o600 }));
@@ -115,7 +116,7 @@ export function createQualificationHost(options = {}) {
         };
         if (lane === 'baseline') {
           const answer = await runProductionBaseline({ page, binding: options.binding, item, runId, admit, onTiming: recordTiming,
-            auth: baselineAuth,
+            auth: baselineAuth, setupOnly,
             async boundConversation(deadlineAt) {
               for (const group of processGroups) {
                 if (typeof group.limitDeadline !== 'function') throw new Error('Baseline requires a duration watchdog');
@@ -125,6 +126,16 @@ export function createQualificationHost(options = {}) {
             async recordEvidence(evidence) {
               const file = createHash('sha256').update(`${runId}:${item.sampleId ?? item.id}`).digest('hex').slice(0, 24);
               await writeFile(join(run, `baseline-invalid-${file}.json`), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+              if (evidence.status === 'setup-failed') {
+                // The baseline owns these fixed labels. Keep visitor/run IDs
+                // in the existing private identity evidence, never this summary.
+                const diagnostic = { reason: evidence.reason, setup: evidence.setup };
+                try { await writeFile(join(run, 'failure.json'), JSON.stringify(diagnostic, null, 2), { mode: 0o600, flag: 'wx' }); }
+                catch (error) {
+                  if (error.code !== 'EEXIST') throw error;
+                  await writeFile(join(run, `failure-${randomUUID()}.json`), JSON.stringify(diagnostic, null, 2), { mode: 0o600, flag: 'wx' });
+                }
+              }
             },
             async recordIdentity(identity) {
               const key = `${runId}:${item.sampleId ?? item.id}`;
@@ -134,6 +145,10 @@ export function createQualificationHost(options = {}) {
               identityWrites = identityWrites.then(() => writeFile(join(run, `baseline-session-${file}.json`), JSON.stringify(identity, null, 2), { mode: 0o600 }));
               await identityWrites;
             } });
+          if (setupOnly) {
+            await writeFile(join(run, 'baseline-setup.json'), JSON.stringify(answer, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+            return answer;
+          }
           return { ...answer, entities: matchQualificationEntities(answer.hypothesis,
             item.expected === undefined ? [] : Array.isArray(item.expected) ? item.expected : [item.expected]) };
         }
@@ -258,7 +273,41 @@ export function createQualificationHost(options = {}) {
           }
         }
       }
+    };
+  return Object.freeze({
+    verifyCeiling: options.verifyCeiling,
+    verifyReceipt: options.verifyReceipt,
+    reconcile: input => options.reconcile({ ...input, baselineSessions: [...baselineSessions.values()] }),
+    async runSample(input) {
+      if (setupOnly) throw new Error('baselineSetupOnly refuses the paid sample loop');
+      return run(input);
+    },
+    async runBaselineSetup(input) {
+      if (!setupOnly) throw new Error('Explicit baselineSetupOnly host required');
+      if (!input || Object.keys(input).some(key => key !== 'runId')) throw new TypeError('Baseline setup accepts runId only; no lanes or samples');
+      return run({ item: { id: 'baseline-setup' }, lane: 'baseline', runId: input.runId,
+        admit() { throw new Error('Baseline setup cannot admit'); }, onTiming() {} });
     },
     async close() { closed = true; for (const lease of lifetimes) lease.abort(new Error('Qualification host closed')); },
   });
+}
+
+// Separate free CLI: it cannot enter the paid coordinator or load an OPS host
+// module. Unknown options (including plans, samples, lanes and keys) refuse.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { values } = parseArgs({ options: { 'baseline-setup-only': { type: 'boolean', default: false },
+    config: { type: 'string' }, out: { type: 'string' }, 'run-id': { type: 'string' } } });
+  if (values['baseline-setup-only'] !== true || !isAbsolute(values.config ?? '') || !isAbsolute(values.out ?? '') || !values['run-id']) {
+    throw new Error('Explicit --baseline-setup-only, absolute --config and --out, and --run-id required');
+  }
+  const config = JSON.parse(await readFile(values.config, 'utf8'));
+  if (!config || Object.keys(config).some(key => !['binding', 'consentDecision', 'executablePath', 'runDirectory', 'sampleTimeoutMs'].includes(key))) {
+    throw new Error('Baseline setup config accepts binding, consentDecision, executablePath, runDirectory and sampleTimeoutMs only');
+  }
+  const host = createQualificationHost({ ...config, baselineSetupOnly: true });
+  try {
+    const result = await host.runBaselineSetup({ runId: values['run-id'] });
+    await writeFile(values.out, JSON.stringify(result, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    if (!result.ok) process.exitCode = 1;
+  } finally { await host.close(); }
 }

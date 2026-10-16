@@ -77,11 +77,17 @@ export async function prepareBaselinePage(page, origin, auth, allowRequest) {
 /** Use only production's normal visitor UI and response identities. No control
  * mount, owner headers, provider secret, mint, SDK option or agent write. */
 export async function runProductionBaseline({ page, binding, item, runId, admit, onTiming, consentDecision,
-  bounded, abort, recordIdentity, recordEvidence = async () => {}, auth, preflight, boundConversation }) {
+  bounded, abort, recordIdentity, recordEvidence = async () => {}, auth, preflight, boundConversation, setupOnly = false }) {
   const origin = baselineOrigin(binding.baselineOrigin), base = binding.baseline;
   const maxMicro = baselineAttemptCeiling(binding);
   const identity = { lane: 'baseline', runId, sampleId: item.sampleId ?? item.id };
   const jobs = new Set(); let admission, admitting = false, consumed = false, voiceStartId, durationTimer, closeTimer, stopping, responseFailure, durationBoundReached = false, phase = 'setup';
+  const consentItemIds = ['voice-elevenlabs', 'models-international'], offeredConsentItemIds = [];
+  let setupStep = 'goto', stepStartedAt = performance.now(), missingItemId;
+  const step = async (id, action) => {
+    setupStep = id; stepStartedAt = performance.now();
+    return bounded(Promise.resolve().then(action));
+  };
   const track = promise => { jobs.add(promise); promise.finally(() => jobs.delete(promise)).catch(() => {}); return promise; };
   const labels = () => Object.fromEntries(['lane', 'runId', 'sampleId', 'visitorSessionId', 'providerSessionId', 'attemptId', 'callId']
     .filter(key => identity[key] !== undefined).map(key => [key, identity[key]]));
@@ -122,11 +128,10 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       }
     }, identity);
   })();
-  await bounded(page.exposeFunction('qualificationMeasurementTerminal', stop));
   page.on('response', response);
   // A browser recovery or duplicate start would require a new paid attempt.
   // Refuse it: this corpus sample admits exactly one production conversation.
-  await prepareBaselinePage(page, origin, auth, event => {
+  const allowRequest = event => {
     const value = event.request, url = new URL(value.url);
     if (url.origin !== origin) return true;
     if (/\/voice\/[^/]+\/(?:recover|resume|takeover|replay)$/u.test(url.pathname)) return false;
@@ -137,26 +142,47 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       try { const body = JSON.parse(value.postData); identity.callId = body.callId; identity.tabId = body.tabId; } catch { /* response still records identity */ }
     }
     return true;
-  });
+  };
   try {
-    const navigated = await bounded(page.goto(`${origin}/`, { waitUntil: 'networkidle0' }));
-    if (!navigated?.ok() || new URL(page.url()).origin !== origin) throw new Error();
-    const physicalBrowserMedia = await bounded(preflight());
-    await bounded(page.waitForSelector('aithema-session >>> .chooser__continue'));
-    await bounded(page.click('aithema-session >>> .chooser__continue'));
-    await bounded(page.waitForSelector('#consent-status[data-state="ready"]'));
+    await step('goto', async () => {
+      await bounded(page.exposeFunction('qualificationMeasurementTerminal', stop));
+      await bounded(prepareBaselinePage(page, origin, auth, allowRequest));
+      // Production keeps its session event stream open. Network idle can never
+      // be the readiness signal; wait for the component's explicit mount hook.
+      const navigated = await bounded(page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' }));
+      if (!navigated?.ok() || new URL(page.url()).origin !== origin) throw new Error();
+      await bounded(page.waitForSelector('aithema-session[data-aithema-mounted]'));
+    });
+    const physicalBrowserMedia = await step('preflight', preflight);
+    // Read the created visitor's response while its document is still alive.
+    // Leaving for consent first can strand Puppeteer's response-body promise.
+    await step('jobs', () => Promise.all([...jobs]));
+    await step('chooser', async () => {
+      await bounded(page.waitForSelector('aithema-session >>> .chooser__continue'));
+      await bounded(page.click('aithema-session >>> .chooser__continue'));
+    });
+    await step('consent-ready', () => page.waitForSelector('#consent-status[data-state="ready"]'));
     // Select only OPS's authorized purposes from the document presented by
     // production. Its contract is submitted by production's own consent page.
-    for (const id of consentDecision.items) {
-      const selector = `input[name="item"][value="${id}"]`;
-      if (await page.$(selector)) {
-        if (!await page.$eval(selector, element => element.checked)) await bounded(page.click(selector));
-      } else if (['voice-elevenlabs', 'models-international'].includes(id)) throw new Error();
-    }
-    await bounded(page.click('[data-grant]'));
-    await bounded(page.waitForSelector('aithema-session >>> .ready__start'));
-    await bounded(Promise.all([...jobs]));
-    if (responseFailure || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity.visitorSessionId ?? '')) throw new Error();
+    await step('consent-items', async () => {
+      for (const id of consentItemIds) {
+        if (await bounded(page.$(`input[name="item"][value="${id}"]`))) offeredConsentItemIds.push(id);
+      }
+      for (const id of consentDecision.items) {
+        const selector = `input[name="item"][value="${id}"]`;
+        if (await bounded(page.$(selector))) {
+          if (!await bounded(page.$eval(selector, element => element.checked))) await bounded(page.click(selector));
+        } else if (consentItemIds.includes(id)) { missingItemId = id; throw new Error(); }
+      }
+    });
+    await step('grant', () => page.click('[data-grant]'));
+    await step('ready', () => page.waitForSelector('aithema-session >>> .ready__start'));
+    await step('jobs', () => Promise.all([...jobs]));
+    await step('session-id', () => {
+      if (responseFailure || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity.visitorSessionId ?? '')) throw new Error();
+    });
+    if (setupOnly) return { ok: true, offeredConsentItemIds,
+      ...(identity.visitorSessionId ? { visitorSessionId: identity.visitorSessionId } : {}) };
     const spec = { attemptId: `qualification-${randomUUID()}`, lane: 'baseline', role: 'reasoning',
       provider: base.plugin, model: base.model, operation: 'start', accountRef: base.accountRef, endpoint: base.endpoint,
       maxMicro,
@@ -205,7 +231,9 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     // In particular, result/close/persistence failures retain their abort path.
     const status = consumed ? 'invalid' : admitting ? 'not-admitted' : 'setup-failed';
     const diagnostics = consumed ? await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined) : undefined;
-    let reason = !consumed ? status : durationBoundReached ? 'duration-bound' :
+    const setup = status === 'setup-failed' ? { step: setupStep, elapsedMs: Math.max(0, performance.now() - stepStartedAt),
+      ...(missingItemId ? { missingItemId } : {}) } : undefined;
+    let reason = setup ? `setup-failed:${setup.step}${missingItemId ? `:${missingItemId}` : ''}` : !consumed ? status : durationBoundReached ? 'duration-bound' :
       diagnostics?.failure || diagnostics?.source?.failure ||
       (!hasDiagnostics(diagnostics) ? 'missing-diagnostics' : 'exception');
     let timingRefusal = phase === 'refused' && error instanceof IncompleteMediaEvidence &&
@@ -224,7 +252,8 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       }
     }
     if (timingRefusal) await bounded(page.evaluate(reason => window.qualificationBaselineProbe.finish(reason), reason));
-    await recordEvidence({ ...labels(), status, reason, ...(diagnostics ? { diagnostics } : {}) });
+    await recordEvidence({ ...labels(), status, reason, ...(setup ? { setup } : {}), ...(diagnostics ? { diagnostics } : {}) });
+    if (setupOnly && setup) return { ok: false, ...setup, offeredConsentItemIds };
     if (timingRefusal) {
       // Reading evidence is part of the protocol: a CDP/probe error here aborts.
       if (!(error instanceof IncompleteMediaEvidence)) {
@@ -237,11 +266,13 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       }
       throw new IncompleteMediaEvidence(reason);
     }
-    throw new Error(`Production baseline failed; ${consumed ? 'invalid evidence' : status} (${reason}); ${consumed ? 'retain uncertain exposure and inspect private session receipts' : 'no conversation dispatched'}`);
+    const failure = new Error(`Production baseline failed; ${consumed ? 'invalid evidence' : status} (${reason}); ${consumed ? 'retain uncertain exposure and inspect private session receipts' : 'no conversation dispatched'}`);
+    if (setup) failure.baselineSetup = setup;
+    throw failure;
   }
   finally {
     clearTimeout(durationTimer); clearTimeout(closeTimer);
-    try { await bounded(stop()).catch(() => {}); await Promise.allSettled([...jobs]); await save(); }
+    try { await bounded(stop()).catch(() => {}); await bounded(Promise.allSettled([...jobs])).catch(() => {}); await save(); }
     finally {
       page.off('response', response);
       if (admission) await admission.report({ attemptId: identity.attemptId, outcome: consumed ? 'uncertain' : 'cancelled' });

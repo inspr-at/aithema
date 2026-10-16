@@ -14,7 +14,7 @@ import { PRELIVE_CHECKS } from '../../plugins/composed-voice/src/live-qualificat
 import { browserPath } from '../../scripts/install-test-browser.js';
 import puppeteer from './launch.js';
 import { connect as connectBrowser } from 'puppeteer-core';
-import { readBrowserEvidence, combineOutputEvidence } from '../../plugins/composed-voice/ops/qualification-output-probe.mjs';
+import { readBrowserEvidence, combineOutputEvidence, probePhysicalOutput } from '../../plugins/composed-voice/ops/qualification-output-probe.mjs';
 import { fixtureVoiceSettings } from '../../plugins/elevenlabs/test/component-fixtures.js';
 
 test('AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes', { timeout: 90_000 }, async () => {
@@ -304,6 +304,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
     if (!overlap) await page.evaluateOnNewDocument(installScriptedCapture, clips);
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));
     const abort = new AbortController(); let watchdog;
+    const setupWatchdog = setTimeout(() => abort.abort(new Error('Fixture setup bound')), 10_000);
     const expired = new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
     expired.catch(() => {});
     let result;
@@ -317,6 +318,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
         preflight: async () => ({ fixtureOnly: true, verified: false }), recordIdentity: async identity => identities.push(identity), recordEvidence: async evidence => refusals.push(evidence),
         boundConversation: async deadline => { watchdog = setTimeout(() => abort.abort(new Error('fixture duration watchdog')), deadline - Date.now()); },
         admit: async spec => {
+          clearTimeout(setupWatchdog);
           assert.equal(production.dispatches.length, 0, 'durable admission precedes production conversation');
           // Synthetic tariff: 600 micro/min * 28 s / 60 + 25 reasoning micro.
           assert.equal(spec.maxMicro, 305);
@@ -374,6 +376,41 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       }
     } catch (error) {
       error.message += `; fixture logs: ${JSON.stringify(logs)}; probe: ${JSON.stringify(await page.evaluate(() => window.qualificationBaselineProbe?.diagnostics()).catch(() => null))}`; throw error;
-    } finally { clearTimeout(watchdog); await page.close(); await browser.defaultBrowserContext().clearPermissionOverrides(); await production.close(); }
+    } finally { clearTimeout(setupWatchdog); clearTimeout(watchdog); await page.close(); await browser.defaultBrowserContext().clearPermissionOverrides(); await production.close(); }
   });
+});
+
+
+test('AIT-272 baseline setup completes while production session events stay open', { timeout: 15_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'baseline-open-events-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const production = await startFakeProductionOrigin(directory, { longPoll: true });
+  t.after(() => production.close());
+  const browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
+    args: [...production.launchArgs, '--autoplay-policy=no-user-gesture-required',
+      ...(process.platform === 'linux' ? ['--no-sandbox'] : [])] });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  page.setDefaultNavigationTimeout(1500);
+  page.setDefaultTimeout(3000);
+  const identities = [];
+  const result = await runProductionBaseline({ page, setupOnly: true,
+    binding: { baselineOrigin: production.origin, maxDurationSeconds: 1, baselineReasoningCeilingMicro: 0,
+      baseline: { microPerMinute: 0 } }, item: { id: 'free' }, runId: 'open-events',
+    auth: { username: production.username, password: production.password },
+    consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
+    bounded: async action => {
+      let timer;
+      try { return await Promise.race([action, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Fixture setup bound')), 4000); })]); }
+      finally { clearTimeout(timer); }
+    },
+    // Exercise the real probe on the page with an open stream. Its evidence
+    // remains a fixture result; this check never qualifies physical hardware.
+    preflight: () => probePhysicalOutput(page, browser),
+    recordIdentity: async identity => identities.push(identity),
+    admit() { assert.fail('Free setup must never admit'); }, onTiming() { assert.fail('Free setup must never measure'); },
+  });
+  assert.deepEqual(result, { ok: true, offeredConsentItemIds: ['voice-elevenlabs', 'models-international'], visitorSessionId: 'production-visitor' });
+  assert.ok(identities.some(identity => identity.visitorSessionId === result.visitorSessionId));
+  assert.equal(production.dispatches.length, 0);
 });

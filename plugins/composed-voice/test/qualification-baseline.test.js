@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assertFailureDiagnostic, assertNoFailureDiagnostic } from './qualification-failure-fixture.js';
@@ -47,6 +47,9 @@ test('CDP sends basic auth only for a server challenge from baselineOrigin; othe
 });
 
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { runProductionBaseline, baselineOrigin } from '../ops/qualification-production-baseline.mjs';
 import { startBaselineSample } from '../ops/qualification-live-baseline.mjs';
 import { createQualificationHost } from '../ops/qualification-host-template.mjs';
@@ -75,7 +78,8 @@ test('baseline missing auth refuses before browser, control or admission', async
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
+async function productionFixture(t, { setupOnly = false, failStep, missingItemId, longPoll = false, duration = false, refusal, duplicate = false, configured = binding, admit, invalidEvidence, mediaRefusal, diagnosticsMissing = false, resultError = false, afterResultError = false } = {}) {
+  const fail = step => { if (failStep === step) throw Object.assign(new Error(secret + ' https://private.invalid/?session=SECRET_SESSION'), { name: 'TimeoutError' }); };
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [], evidence = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
@@ -85,11 +89,26 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
   page.evaluateOnNewDocument = async fn => { assert.ok(['installQualificationOutputProbe', 'installBaselineProbe'].includes(fn.name)); };
   page.url = () => binding.baselineOrigin + '/';
   const response = (path, body) => page.emit('response', { url: () => binding.baselineOrigin + path, ok: () => true,
-    request: () => ({ method: () => 'POST' }), json: async () => body });
-  page.goto = async () => { response('/api/sessions', { id: 'production-visitor' }); return { ok: () => true }; };
-  page.waitForSelector = async () => {};
-  page.$ = async () => true; page.$eval = async () => false;
+    request: () => ({ method: () => 'POST' }), json: async () => {
+      if (path === '/api/sessions' && failStep === 'jobs') await new Promise(resolve => setTimeout(resolve, 20));
+      if (path === '/api/sessions') fail('jobs');
+      return body;
+    } });
+  page.goto = async (_url, options) => {
+    fail('goto');
+    if (longPoll && options.waitUntil === 'networkidle0') throw Object.assign(new Error('Open event stream prevents idle'), { name: 'TimeoutError' });
+    response('/api/sessions', { id: failStep === 'session-id' ? undefined : 'production-visitor' });
+    return { ok: () => true };
+  };
+  page.waitForSelector = async selector => {
+    if (selector.includes('.chooser__continue')) fail('chooser');
+    if (selector.includes('consent-status')) fail('consent-ready');
+    if (selector.includes('.ready__start')) fail('ready');
+  };
+  page.$ = async selector => { fail('consent-items'); return !missingItemId || !selector.includes(missingItemId); };
+  page.$eval = async () => false;
   page.click = async selector => {
+    if (selector === '[data-grant]') fail('grant');
     if (selector.endsWith('.ready__start')) {
       order.push('conversation');
       assert.ok(order.includes('consume'));
@@ -119,10 +138,10 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       ] };
     if (input?.visitorSessionId) { order.push('stop'); if (afterResultError) throw new Error('Post-result protocol failure'); }
   };
-  const run = () => runProductionBaseline({ page, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
+  const run = () => runProductionBaseline({ page, setupOnly, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
     auth: { username: 'fake-operator', password: secret }, consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
     bounded: promise => Promise.race([promise, expiry.promise]), abort(error) { aborts.push(error.message); expiry.reject(error); },
-    preflight: async () => ({ verified: true }), boundConversation: async deadlineAt => {
+    preflight: async () => { fail('preflight'); return { verified: true }; }, boundConversation: async deadlineAt => {
       assert.ok(deadlineAt > Date.now()); order.push('duration-watchdog');
     }, recordIdentity: async value => identities.push(value), recordEvidence: async value => evidence.push(value), onTiming: event => timings.push(event),
     async admit(spec) {
@@ -138,8 +157,128 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       return { attempt: { attemptId: spec.attemptId, async consume() { if (refusal === 'consume') throw new Error('fake consume denied'); order.push('consume'); } },
         report: async terminal => reports.push(terminal) };
     } });
-  return { run, page, sent, order, reports, identities, timings, aborts, evidence };
+  return { run, page, sent, order, reports, identities, timings, aborts, evidence, expire: () => expiry.reject(new Error(secret)) };
 }
+
+const setupSteps = ['goto', 'preflight', 'chooser', 'consent-ready', 'consent-items', 'grant', 'ready', 'jobs', 'session-id'];
+for (const step of setupSteps) test(`baseline setup preserves ${step} on a Puppeteer timeout without disclosing page values`, async t => {
+  const h = await productionFixture(t, { failStep: step });
+  await assert.rejects(h.run(), error => {
+    assert.match(error.message, new RegExp(`setup-failed:${step}\\)`));
+    assert.doesNotMatch(error.message, /FAKE_BASIC_AUTH|private.invalid|SECRET_SESSION/);
+    assert.equal(error.baselineSetup.step, step);
+    assert.equal(typeof error.baselineSetup.elapsedMs, 'number');
+    assert.ok(Number.isFinite(error.baselineSetup.elapsedMs) && error.baselineSetup.elapsedMs >= 0);
+    return true;
+  });
+  assert.equal(h.evidence[0].reason, `setup-failed:${step}`);
+  assert.equal(h.evidence[0].setup.step, step);
+  assert.equal(h.order.includes('admit'), false);
+});
+
+for (const missingItemId of ['voice-elevenlabs', 'models-international']) test(`baseline setup names only missing consent id ${missingItemId}`, async t => {
+  const h = await productionFixture(t, { missingItemId });
+  await assert.rejects(h.run(), new RegExp(`setup-failed:consent-items:${missingItemId}`));
+  assert.deepEqual(h.evidence[0].setup.missingItemId, missingItemId);
+  const free = await productionFixture(t, { missingItemId, setupOnly: true });
+  const result = await free.run();
+  assert.equal(result.ok, false); assert.equal(result.step, 'consent-items');
+  assert.equal(result.missingItemId, missingItemId);
+  assert.deepEqual(result.offeredConsentItemIds, ['voice-elevenlabs', 'models-international'].filter(id => id !== missingItemId));
+});
+
+test('baseline proceeds with a permanently open event request', async t => {
+  const h = await productionFixture(t, { longPoll: true, setupOnly: true });
+  const result = await h.run();
+  assert.equal(result.ok, true);
+  assert.equal(h.order.includes('admit'), false);
+});
+
+test('baseline drains the visitor response before chooser navigation can destroy its document', async t => {
+  const h = await productionFixture(t, { setupOnly: true });
+  h.page.goto = async () => {
+    h.page.emit('response', { url: () => binding.baselineOrigin + '/api/sessions', ok: () => true,
+      request: () => ({ method: () => 'POST' }), async json() {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        return { id: 'production-visitor' };
+      } });
+    return { ok: () => true };
+  };
+  const click = h.page.click.bind(h.page);
+  h.page.click = async selector => {
+    if (selector.endsWith('.chooser__continue')) assert.ok(h.identities.some(identity => identity.visitorSessionId === 'production-visitor'), 'identity body must be recorded before leaving its document');
+    return click(selector);
+  };
+  assert.equal((await h.run()).ok, true);
+  assert.equal(h.order.includes('admit'), false);
+});
+
+test('baseline setup-only reaches session-id without admission, voice start or ledger rows', async t => {
+  const { dir } = await fixture(t), path = join(dir, 'free-budget.sqlite');
+  initializeQualificationBudget({ path });
+  const budget = openPersistedQualificationBudget({ path, verifyCeiling() { assert.fail('must not price'); }, verifyReceipt() { assert.fail('must not reconcile'); } });
+  t.after(() => budget.close());
+  const h = await productionFixture(t, { setupOnly: true, admit() { assert.fail('must not admit'); } });
+  assert.deepEqual(await h.run(), { ok: true, offeredConsentItemIds: ['voice-elevenlabs', 'models-international'], visitorSessionId: 'production-visitor' });
+  assert.ok(h.identities.some(identity => identity.visitorSessionId === 'production-visitor'));
+  assert.equal(h.order.includes('admit'), false); assert.equal(h.order.includes('conversation'), false);
+  assert.equal(h.timings.length, 0); assert.equal(h.reports.length, 0);
+  assert.equal(budget.snapshot().records.length, 0);
+});
+
+test('setup-only host refuses every paid lane and sample option before launch', async () => {
+  const host = createQualificationHost({ baselineSetupOnly: true, launchBrowser() { assert.fail('must not launch'); } });
+  for (const lane of ['candidate', 'baseline']) await assert.rejects(host.runSample({ lane, admit() { assert.fail('must not admit'); } }), /refuses the paid sample loop/);
+  for (const extra of [{ lane: 'baseline' }, { samples: 1 }, { item: {} }, { admit() {} }]) {
+    await assert.rejects(host.runBaselineSetup({ runId: 'free', ...extra }), /runId only/);
+  }
+  await host.close();
+});
+
+test('a wall-clock bound retains its active setup step and numeric elapsed time', async t => {
+  const h = await productionFixture(t);
+  h.page.$ = () => new Promise(() => {});
+  const timer = setTimeout(h.expire, 25); t.after(() => clearTimeout(timer));
+  await assert.rejects(h.run(), /setup-failed:consent-items/);
+  assert.ok(h.evidence[0].setup.elapsedMs > 0);
+});
+
+test('setup-only host writes private failure summaries and preserves earlier diagnostics', async t => {
+  const { dir, path } = await fixture(t), page = new EventEmitter(), cdp = new EventEmitter();
+  cdp.send = async () => {}; page.createCDPSession = async () => cdp;
+  page.exposeFunction = async () => {}; page.evaluateOnNewDocument = async () => {};
+  page.goto = async () => { throw new Error(secret); }; page.evaluate = async () => {};
+  const runId = 'free-failure', run = join(dir, createHash('sha256').update(runId).digest('hex').slice(0, 24));
+  const host = createQualificationHost({ baselineSetupOnly: true, runDirectory: dir,
+    binding: { ...binding, baselineAuthFile: path },
+    async launchBrowser(_options, lifetime) {
+      lifetime.registerProcessGroup({ watchdogArmed: true, kill() {} });
+      return { defaultBrowserContext: () => ({ async overridePermissions() {} }), newPage: async () => page, async close() {} };
+    } });
+  t.after(() => host.close());
+  const result = await host.runBaselineSetup({ runId });
+  assert.equal(result.ok, false); assert.equal(result.step, 'goto');
+  assert.deepEqual(result.offeredConsentItemIds, []);
+  const failureFile = join(run, 'failure.json'), setupFile = join(run, 'baseline-setup.json');
+  const original = await readFile(failureFile, 'utf8'), diagnostic = JSON.parse(original);
+  assert.deepEqual(diagnostic, { reason: 'setup-failed:goto', setup: { step: 'goto', elapsedMs: result.elapsedMs } });
+  assert.deepEqual(JSON.parse(await readFile(setupFile, 'utf8')), result);
+  assert.equal((await stat(failureFile)).mode & 0o777, 0o600);
+  assert.equal((await stat(setupFile)).mode & 0o777, 0o600);
+  assert.doesNotMatch(original, /FAKE_BASIC_AUTH|fake-operator|free-failure|visitorSessionId|https:/);
+  await assert.rejects(host.runBaselineSetup({ runId }), { code: 'EEXIST' });
+  assert.equal(await readFile(failureFile, 'utf8'), original);
+  assert.equal((await readdir(run)).filter(name => /^failure-.*\.json$/.test(name)).length, 1);
+});
+
+test('free baseline CLI refuses paid options before reading config or launching', () => {
+  const cli = fileURLToPath(new URL('../ops/qualification-host-template.mjs', import.meta.url));
+  for (const option of ['--plan', '--budget', '--keys-file', '--lane', '--samples']) {
+    const child = spawnSync(process.execPath, [cli, '--baseline-setup-only', '--config', '/unopened/setup.json', option, 'paid'], { encoding: 'utf8' });
+    assert.notEqual(child.status, 0); assert.match(child.stderr, /Unknown option/);
+    assert.doesNotMatch(child.stderr, /ENOENT|Chrome|Baseline auth/);
+  }
+});
 
 test('production flow admits/consumes once before conversation, labels both identities and retains uncertain terminal', async t => {
   const h = await productionFixture(t, { duplicate: true }), result = await h.run();
@@ -474,7 +613,7 @@ test('production navigation failure is setup-failed rather than invalid media', 
   await assert.rejects(h.run(), /Production baseline failed; setup-failed/);
   assert.equal(h.evidence.length, 1);
   assert.equal(h.evidence[0].status, 'setup-failed');
-  assert.equal(h.evidence[0].reason, 'setup-failed');
+  assert.equal(h.evidence[0].reason, 'setup-failed:goto');
   assert.doesNotMatch(JSON.stringify(h.evidence), /PRIVATE_SETUP_SENTINEL|hypothesis|ttsPCM/);
   assert.equal(h.reports.length, 0);
 });
