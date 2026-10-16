@@ -990,9 +990,18 @@ export function createQualificationHost(cli) {
    A confirmed output stop or typed timing refusal synchronously fences scripted
    input in both lanes and starts session close immediately. Candidate control
    also fences new admissions with the fixed no-spend refusal `sample-complete`.
-   Later events are counted as `post-measurement` in the value-free trace and
-   cannot change the outcome. The OPS run directory also retains a numeric
+   Later lane/media events and refused late admissions are counted as
+   `post-measurement` in the value-free trace and cannot change the outcome.
+   The server's result/failure settles the sample after close: missing transcript
+   or audio, stop failure, PCM bound and rejected report still abort immediately
+   with the fixed cause in `failure.json`, even after a measured output stop.
+   Only a typed `late-first-audio` or `barge-in-before-first-audio` refusal may
+   retain its outcome when settlement reports missing audio with a transcript
+   already captured; missing transcript and every other failure still abort.
+   The OPS run directory also retains a numeric
    `<lane>-post-measurement-<digest>.json` count, including for typed refusals.
+   A failed count write emits a fixed, value-free warning and preserves the
+   original sample result or exception.
    Already reserved/dispatched attempts remain in the ledger, including any second dispatch that preceded the fence.
    Incomplete media (missing first audio, pre-reply voiced capture, voiced
    barge-in capture, or playback-stop at/after barge-in) refuses that lane's sample

@@ -19,6 +19,7 @@ import { readQualificationCorpus } from '../src/qualification-corpus.js';
 import { IncompleteMediaEvidence } from '../src/live-qualification.js';
 import { QualificationSampleFailure, QUALIFICATION_SAMPLE_FAILURES } from '../src/qualification-failure.js';
 import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
+import { installScriptedCapture } from '../ops/qualification-scripted-capture.mjs';
 
 const sentinel = 'SENTINEL_FAKE_QUALIFICATION_VALUE_NEVER_LOG';
 async function keysFixture(t) {
@@ -428,7 +429,7 @@ async function settlementFixture(t, { reason, refusal, countWriteFailure = false
   };
   browser.newPage = async () => page;
   const ports = { createHash, mkdir, mkdtemp, writeFile, homedir, isAbsolute, join, loopbackOrigin,
-    findRefusedOutputFlags, readQualificationCorpus, IncompleteMediaEvidence, QualificationSampleFailure, QUALIFICATION_SAMPLE_FAILURES,
+    findRefusedOutputFlags, readQualificationCorpus, installScriptedCapture, IncompleteMediaEvidence, QualificationSampleFailure, QUALIFICATION_SAMPLE_FAILURES,
     probePhysicalOutput: async () => ({ verified: true }),
     async fetch(_url, options) {
       const request = JSON.parse(options.body), json = value => Response.json(value);
