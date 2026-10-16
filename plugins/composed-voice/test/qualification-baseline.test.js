@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { assertFailureDiagnostic } from './qualification-failure-fixture.js';
+import { assertFailureDiagnostic, assertNoFailureDiagnostic } from './qualification-failure-fixture.js';
 import { loadBaselineAuth, installBaselineAuth } from '../ops/qualification-production-baseline.mjs';
 
 const secret = 'FAKE_BASIC_AUTH_VALUE_NEVER_IN_EVIDENCE';
@@ -81,6 +81,7 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
   const page = new EventEmitter(), cdp = new EventEmitter();
   cdp.send = async (method, params) => { sent.push({ method, params }); };
   page.createCDPSession = async () => cdp;
+  page.exposeFunction = async () => {};
   page.evaluateOnNewDocument = async fn => { assert.ok(['installQualificationOutputProbe', 'installBaselineProbe'].includes(fn.name)); };
   page.url = () => binding.baselineOrigin + '/';
   const response = (path, body) => page.emit('response', { url: () => binding.baselineOrigin + path, ok: () => true,
@@ -174,6 +175,7 @@ test('baseline launcher gets fresh profile and scripted capture, with no loopbac
   const page = new EventEmitter();
   const cdp = new EventEmitter(); cdp.send = async () => {};
   page.createCDPSession = async () => cdp;
+  page.exposeFunction = async () => {};
   page.evaluateOnNewDocument = async (...args) => evaluations.push(args.map(String));
   page.evaluate = async (...args) => evaluations.push(args.map(String));
   page.goto = async url => { assert.equal(url, binding.baselineOrigin + '/'); return { ok: () => false }; };
@@ -208,7 +210,8 @@ import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
 import { installQualificationOutputProbe } from '../ops/qualification-output-timing.js';
 import { pageFixture } from './qualification-page-fixture.js';
 
-async function probeFixture(scripted) {
+async function probeFixture(scripted, { onClose = () => {}, onTerminal = () => {} } = {}) {
+  if (scripted && !scripted.stopInput) scripted.stopInput = () => {};
   if (scripted && !scripted.diagnostics) scripted.diagnostics = () => ({ started: true, barged: false });
   const contexts = [], observers = []; let now = 0;
   class Element { attachShadow() { return {}; } }
@@ -237,7 +240,8 @@ async function probeFixture(scripted) {
   }
   class MediaStream {}
   class MediaElement { play() {} }
-  const runtime = { qualificationScriptedCapture: scripted, Element, MutationObserver, document: {}, AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
+  const runtime = { qualificationScriptedCapture: scripted, Element, MutationObserver, document: { querySelector: () => ({ shadowRoot: { querySelector: () => ({ click: onClose }) } }) },
+    qualificationMeasurementTerminal: async () => onTerminal(), AudioNode: Node, AudioContext: Context, MediaStream, HTMLMediaElement: MediaElement,
     navigator: { mediaDevices: { getUserMedia: async () => new MediaStream() } },
     location: { origin: binding.baselineOrigin, href: binding.baselineOrigin + '/' }, URL,
     performance: { now: () => now }, fetch: async () => ({}), setTimeout, clearTimeout,
@@ -565,4 +569,47 @@ for (const gapMs of [120, 250]) test(`baseline sustained silence resets after a 
   assert.equal(h.probe.complete(), true);
   assert.equal(h.probe.result().trace.find(row => row.kind === 'playback-stop').stoppedAt, 2500);
   await h.probe.close();
+});
+
+for (const refused of [false, true]) test(`baseline terminal outcome fences input and ignores late product events (refused ${refused})`, async t => {
+  const run = async input => {
+    const order = []; let capture;
+    const scripted = { subscribe(fn) { capture = fn; }, startUtterance() {}, firstAudio() {
+      if (refused) capture({ kind: 'capture-outcome', status: 'refused', reason: 'late-first-audio' });
+    }, stopInput() { order.push('input-fence'); }, async close() {} };
+    const h = await probeFixture(scripted, { onClose: () => order.push('session-close'), onTerminal: () => order.push('node-close') });
+    await h.opener(); capture({ kind: 'capture', voiced: true, captureAt: 500, receivedAt: 600, durationMs: 64 });
+    await h.final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+    h.emit(h.audio, 1, .2); capture({ kind: 'capture', voiced: true, captureAt: 1900, receivedAt: 2000, durationMs: 64 });
+    h.silence(h.audio, 2.1);
+    assert.equal(h.probe.complete(), true); assert.deepEqual(order, ['input-fence', 'session-close', 'node-close']);
+    for (const event of [{ type: 'waiting', reason: 'provider' }, { type: 'waiting', reason: 'not-admitted' },
+      { type: 'ended', reason: 'closure-uncertain' }]) {
+      // AudioRail renders waiting directly and maps ended:closure-uncertain to
+      // idle; SDK media lifecycle events do not use transcript persistence.
+      h.mode(event.type === 'ended' ? 'idle' : 'waiting');
+    }
+    const result = h.probe.result();
+    assert.equal(result.refusal, refused ? 'late-first-audio' : undefined);
+    assert.equal(result.trace.filter(e => e.kind === 'post-measurement').length, 3);
+    assert.equal(h.probe.diagnostics().failure, undefined);
+    result.trace.forEach(input.onTiming); await h.probe.close();
+  };
+  if (refused) await run({ onTiming() {} });
+  else await assertNoFailureDiagnostic(t, run, 'baseline');
+});
+
+for (const reason of ['limit', 'provider']) test(`baseline waiting:${reason} before terminal outcome aborts with failure.json`, async t => {
+  const run = async () => {
+    const h = await probeFixture();
+    try { await h.final({ type: 'waiting', reason }); assert.equal(h.probe.complete(), true); h.probe.result(); }
+    finally { await h.probe.close(); }
+  };
+  await assert.rejects(run(), /Invalid production media evidence: media-waiting/); await assertFailureDiagnostic(t, run, 'baseline');
+});
+
+for (const state of ['waiting', 'failed']) test(`baseline production rail ${state} before measurement aborts`, async () => {
+  const h = await probeFixture();
+  try { h.mode(state); assert.equal(h.probe.complete(), true); assert.throws(() => h.probe.result(), /Invalid production media evidence: media-/); }
+  finally { await h.probe.close(); }
 });

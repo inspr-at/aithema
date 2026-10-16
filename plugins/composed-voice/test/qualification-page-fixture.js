@@ -6,12 +6,14 @@ import { installQualificationOutputProbe, qualificationObservationWindow } from 
 // Execute the real page harness with fake media ports, so refusal returned from
 // page.evaluate retains the trace rather than throwing past the run coordinator.
 export async function pageFixture(reason, { type = 'waiting', firstAudio = false, bargeIn = false, sourceRefusal, sourceFailure,
-  missingDiagnostics = false, closeError = false, productStop = false, productError = false, stopBeforeSource = false, errorAfterStop = false, teardownStop = false, silentOutput = true, outputTrace, explicitStop = true, stopRequestedAt = 850, deadlineSeconds = 60, deadlineElapsedMs = 0, firstAudioAt = 10, bargeInAt = 810 } = {}) {
+  missingDiagnostics = false, closeError = false, productStop = false, productError = false, stopBeforeSource = false, errorAfterStop = false, lateEvents = [], teardownStop = false, silentOutput = true, outputTrace, explicitStop = true, stopRequestedAt = 850, deadlineSeconds = 60, deadlineElapsedMs = 0, firstAudioAt = 10, bargeInAt = 810 } = {}) {
   const source = (await readFile(new URL('../ops/qualification-page.js', import.meta.url), 'utf8'))
     .replace(/^import .*;\n/gmu, '');
   let onTiming, onRendered, sourceTiming, started = false, connected = false, closed = false, interrupts = 0, inputChanges = 0;
-  const timers = [];
-  const runtime = { qualificationObservationWindow, installQualificationOutputProbe: () => runtime.qualificationOutputProbe,
+  const timers = [], order = []; let fenced = false;
+  const stopInput = () => { fenced = true; order.push('input-fence'); };
+  const measurementTerminal = async () => { order.push('server-fence'); };
+  const runtime = { qualificationMeasurementTerminal: measurementTerminal, qualificationObservationWindow, installQualificationOutputProbe: () => runtime.qualificationOutputProbe,
     AudioNode: class { connect() {} },
     setTimeout(fn, ms) { timers.push({ fn, ms }); return setTimeout(fn, ms); }, clearTimeout,
     createPCMPlayer(options) { onTiming = options.onTiming; options.observeOutput({}); return { async close() {} }; },
@@ -30,12 +32,17 @@ export async function pageFixture(reason, { type = 'waiting', firstAudio = false
           if (explicitStop) onTiming({ kind: 'playback-stop', requestedAt: stopRequestedAt, stoppedAt: stopRequestedAt, origin: teardownStop ? 'teardown' : 'interrupt' });
           if (!stopBeforeSource) render();
           if (errorAfterStop) yield { type: 'ended', reason: 'closure-uncertain' };
+          for (const event of lateEvents) {
+            assert.equal(fenced, true, 'input fenced before another product event');
+            assert.ok(order.includes('session-close'), 'session close already initiated');
+            yield event;
+          }
         }
         if (!productStop || teardownStop || !silentOutput) yield { type, reason };
       })(), async interrupt() { interrupts++; }, async setInput() { inputChanges++; },
-        async close() { if (closeError) throw new Error('close failed'); } };
+        async close() { order.push('session-close'); if (closeError) throw new Error('close failed'); } };
     } }),
-    qualificationScriptedCapture: { subscribe(fn) { sourceTiming = fn; return () => {}; },
+    qualificationScriptedCapture: { stopInput, subscribe(fn) { sourceTiming = fn; return () => {}; },
       diagnostics() { return missingDiagnostics ? undefined : { started, barged: firstAudio, failure: sourceFailure, refusal: sourceRefusal }; },
       startUtterance() {
         assert.equal(connected, true); started = true;
@@ -57,5 +64,5 @@ export async function pageFixture(reason, { type = 'waiting', firstAudio = false
     for (const block of blocks) onRendered(block);
   };
   runInNewContext(source, runtime);
-  return { run: () => runtime.composedQualification.run({ grant: { opaque: { spendDeadlineAt: Date.now() + deadlineSeconds * 1000 - deadlineElapsedMs } }, headers: {} }), timers, state: () => ({ started, closed, interrupts, inputChanges }) };
+  return { run: () => runtime.composedQualification.run({ grant: { opaque: { spendDeadlineAt: Date.now() + deadlineSeconds * 1000 - deadlineElapsedMs } }, headers: {} }), timers, order, state: () => ({ started, closed, interrupts, inputChanges }) };
 }

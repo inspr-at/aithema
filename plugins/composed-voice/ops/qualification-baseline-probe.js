@@ -9,8 +9,20 @@ export function installBaselineProbe() {
   const outputProbe = window.qualificationOutputProbe;
   let agentSink, speechStartAt, speechEndAt, lastVoicedEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt;
   let openerSpeaking = false, bufferedBytes = 0;
+  let measured = false, closing;
   let armed = false, bytes = 0, format, hypothesis, firstAudioAt, bargeInAt, stoppedAt, failure, refusal;
-  const emit = event => { if (trace.length >= 100_000) failure ??= 'trace-bound'; else trace.push(event); };
+  const emit = event => { if (trace.length >= 100_000) { if (!measured) failure ??= 'trace-bound'; } else trace.push(event); };
+  const settle = () => {
+    if (measured || failure) return;
+    measured = true;
+    window.qualificationScriptedCapture?.stopInput();
+    // Use production's normal stop control in this same callback. The Node
+    // notification also runs its existing close/persistence fallback.
+    const close = document.querySelector?.('aithema-session')?.shadowRoot?.querySelector('.voice-close');
+    if (close && !close.disabled) close.click();
+    closing = window.qualificationMeasurementTerminal?.();
+    closing?.catch(() => { failure ??= 'close-failed'; });
+  };
   const rms = samples => Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
   const nativeConnect = AudioNode.prototype.connect;
   const nativeDisconnect = AudioNode.prototype.disconnect;
@@ -21,11 +33,22 @@ export function installBaselineProbe() {
   const nativeAttachShadow = Element.prototype.attachShadow;
   const watch = root => {
     const observer = new MutationObserver(records => {
-      if (!armed || failure || speechStartAt !== undefined) return;
+      if (!armed || failure) return;
       for (const [index, record] of records.entries()) {
         if (record.attributeName !== 'data-state' || !record.target.matches('.audio-rail')) continue;
         const next = records.slice(index + 1).find(row => row.target === record.target && row.attributeName === 'data-state');
         const state = next ? next.oldValue : record.target.getAttribute('data-state');
+        if (measured) {
+          // Production maps ended:closed/closure-uncertain to idle, other
+          // terminal reasons to failed. Count either after the measurement.
+          if (['waiting', 'failed', 'idle'].includes(state)) emit({ kind: 'post-measurement' });
+          continue;
+        }
+        if (['waiting', 'failed'].includes(state)) {
+          failure ??= state === 'waiting' ? 'media-waiting' : 'media-ended';
+          continue;
+        }
+        if (speechStartAt !== undefined) continue;
         if (state === 'speaking') { openerSpeaking = true; openerFinishedAt = openerDrainedAt = undefined; }
         else if (state === 'listening' && openerSpeaking) {
           openerSpeaking = false; openerFinishedAt = performance.now();
@@ -43,10 +66,10 @@ export function installBaselineProbe() {
   const observeStop = () => {
     if (stoppedAt !== undefined) return;
     const stop = outputProbe.stop(rendered, bargeInAt);
-    if (stop) { stoppedAt = stop.stoppedAt; emit(stop); }
+    if (stop) { stoppedAt = stop.stoppedAt; emit(stop); settle(); }
   };
   const attribute = ({ samples, at, timestamp, rms, voiced, voicedSince, contextTime, durationMs, sampleRateHz }) => {
-    if (!hypothesis || failure || at < speechEndAt || voiced && voicedSince < speechEndAt) return;
+    if (measured || !hypothesis || failure || at < speechEndAt || voiced && voicedSince < speechEndAt) return;
     if (voiced && firstAudioAt === undefined) {
       firstAudioAt = at;
       emit({ kind: 'playback-start', firstAudioAt, outputTimestamp: timestamp });
@@ -54,7 +77,7 @@ export function installBaselineProbe() {
       // Capture callbacks may precede the asynchronously persisted user final.
       bargeInAt = trace.find(e => e.kind === 'capture' && e.voiced && e.captureAt >= firstAudioAt)?.captureAt;
     }
-    if (firstAudioAt === undefined || stoppedAt !== undefined) return;
+    if (measured || firstAudioAt === undefined || stoppedAt !== undefined) return;
     if (format && format.sampleRateHz !== sampleRateHz) { failure = 'output-format'; return; }
     format = { encoding: 'pcm_f32le', sampleRateHz, channels: 1 };
     rendered.push({ at, timestamp, rms, voiced, contextTime, durationMs }); observeStop();
@@ -85,7 +108,7 @@ export function installBaselineProbe() {
         if (bufferedBytes > 16_000_000) { failure = 'reply-buffer-bound'; return; }
         buffered.push(block);
       }
-    }, { volume, enabled: () => armed && !failure, onFault: () => { failure ??= 'output-queue-bound'; } });
+    }, { volume, enabled: () => armed && !measured && !failure, onFault: () => { if (measured) { emit({ kind: 'post-measurement' }); return; } failure ??= 'output-queue-bound'; } });
   }
   AudioNode.prototype.connect = function(destination, ...args) {
     const result = nativeConnect.call(this, destination, ...args);
@@ -105,10 +128,10 @@ export function installBaselineProbe() {
     return nativePlay.apply(this, args);
   };
   const capture = event => {
-    if (!armed || failure || refusal) return;
+    if (!armed || measured || failure || refusal) return;
     if (event.kind === 'capture-outcome') {
       emit(event);
-      if (event.status === 'refused' && event.reason === 'late-first-audio') refusal = event.reason;
+      if (event.status === 'refused' && event.reason === 'late-first-audio') { refusal = event.reason; settle(); }
       else failure = 'scripted-capture-failed';
       return;
     }
@@ -158,6 +181,12 @@ export function installBaselineProbe() {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
       if (armed && url.origin === location.origin && /\/voice\/[^/]+\/events$/u.test(url.pathname)) {
         const event = JSON.parse(init?.body).event;
+        if (measured) {
+          emit({ kind: 'post-measurement' }); return fetch(input, init);
+        }
+        if (event.type === 'waiting' || event.type === 'ended' && event.reason !== 'closed') {
+          failure ??= `media-${event.type}`;
+        }
         if (event.type === 'final' && event.role === 'assistant' && openerFinalAt === undefined) {
           openerFinalAt = performance.now(); emit({ kind: 'opener-final', at: openerFinalAt });
         }
@@ -190,7 +219,7 @@ export function installBaselineProbe() {
           buffered.length = 0; bufferedBytes = 0;
         }
       }
-    } catch { failure ??= 'probe-exception'; }
+    } catch { if (measured) emit({ kind: 'post-measurement' }); else failure ??= 'probe-exception'; }
     return fetch(input, init);
   };
   window.qualificationBaselineProbe = {
@@ -201,12 +230,18 @@ export function installBaselineProbe() {
       voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
     trace: () => trace,
     complete() {
+      if (measured) return true;
       const source = scripted?.diagnostics?.();
       if (scripted && (!source || typeof source.started !== 'boolean' || typeof source.barged !== 'boolean')) failure ??= 'missing-scripted-diagnostics';
       if (source?.failure) failure ??= 'scripted-capture-failed';
       if (source?.refusal === 'late-first-audio') refusal ??= source.refusal;
       else if (source?.refusal) failure ??= 'scripted-capture-failed';
+      if (refusal) settle();
       return !!failure || !!refusal || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite);
+    },
+    finish(reason) {
+      if (!['late-first-audio', 'missing-playback-stop'].includes(reason)) throw new Error('Unknown qualification media refusal');
+      refusal ??= reason; settle();
     },
     result() {
       if (failure) throw new Error(`Invalid production media evidence: ${failure}`);
@@ -221,6 +256,7 @@ export function installBaselineProbe() {
       return { hypothesis, trace, ttsPCM: btoa(binary), ttsFormat: format };
     },
     async close() {
+      await closing;
       armed = false; unsubscribe?.(); outputProbe.close();
       await scripted?.close();
       for (const observer of observers) observer.disconnect();

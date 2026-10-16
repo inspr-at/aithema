@@ -109,6 +109,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     // The visitor's normal stop command drains production persistence. When a
     // startup stalls, also send its ordinary owner-authenticated close request.
     await page.evaluate(async identity => {
+      window.qualificationScriptedCapture?.stopInput();
       const root = document.querySelector('aithema-session')?.shadowRoot;
       const close = root?.querySelector('.voice-close');
       if (close && !close.disabled) close.click();
@@ -121,6 +122,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       }
     }, identity);
   })();
+  await bounded(page.exposeFunction('qualificationMeasurementTerminal', stop));
   page.on('response', response);
   // A browser recovery or duplicate start would require a new paid attempt.
   // Refuse it: this corpus sample admits exactly one production conversation.
@@ -184,6 +186,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     const evidenceTimeoutMs = qualificationObservationWindow(conversationDeadlineAt);
     await bounded(page.waitForFunction(() => window.qualificationBaselineProbe.complete(), { timeout: evidenceTimeoutMs, polling: 25 }));
     phase = 'result';
+    await bounded(stop());
     const diagnostics = await bounded(page.evaluate(() => window.qualificationBaselineProbe.diagnostics()));
     if (!hasDiagnostics(diagnostics)) throw new Error('Missing baseline capture diagnostics');
     if (diagnostics.failure || diagnostics.source.failure) throw new Error('Invalid baseline capture evidence');
@@ -220,13 +223,14 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
         reason = 'missing-playback-stop'; timingRefusal = true;
       }
     }
+    if (timingRefusal) await bounded(page.evaluate(reason => window.qualificationBaselineProbe.finish(reason), reason));
     await recordEvidence({ ...labels(), status, reason, ...(diagnostics ? { diagnostics } : {}) });
     if (timingRefusal) {
       // Reading evidence is part of the protocol: a CDP/probe error here aborts.
       if (!(error instanceof IncompleteMediaEvidence)) {
+        await bounded(stop());
         const trace = await bounded(page.evaluate(() => window.qualificationBaselineProbe.trace()));
         for (const event of trace) onTiming(event);
-        await bounded(stop());
         await bounded(Promise.all([...jobs]));
         if (responseFailure) throw new Error('Baseline response protocol failed');
         await save();

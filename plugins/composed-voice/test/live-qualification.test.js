@@ -535,7 +535,7 @@ for (const kind of ['playback-start', 'speech-end', 'barge-in']) test(`missing $
   assertValueFree(record);
 });
 
-for (const reason of ['media-wait-limit', 'missing-first-audio', 'missing-speech-end', 'missing-barge-in'])
+for (const reason of ['missing-first-audio', 'missing-speech-end', 'missing-barge-in', 'media-wait-limit'])
 test(`non-timing or untyped ${reason} cannot be constructed as a refusal`, () => {
   assert.throws(() => new IncompleteMediaEvidence(reason), /Unknown qualification media refusal/);
 });
