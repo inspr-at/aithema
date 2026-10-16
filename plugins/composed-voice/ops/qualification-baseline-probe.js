@@ -113,6 +113,9 @@ export function installBaselineProbe() {
   };
   window.qualificationBaselineProbe = {
     arm() { armed = true; },
+    diagnostics() { return { armed, hasHypothesis: !!hypothesis, responseReady, firstAudioAt, bargeInAt, stoppedAt, failure,
+      counts: Object.fromEntries(['capture', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(e => e.kind === kind).length])),
+      voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
     complete() { return !!failure || [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite); },
     result() {
       if (failure || !hypothesis || !pcm.length || ![firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite)) throw new Error('Incomplete production media evidence');

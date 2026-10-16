@@ -640,3 +640,15 @@ test('independent watchdog kills browser group after runner SIGKILL', { timeout:
   const [code, signal] = await ended;
   assert.equal(code, null); assert.equal(signal, 'SIGKILL');
 });
+
+test('paid conversation watchdog acknowledges a shorter deadline and kills without CDP cooperation', { timeout: 10_000 }, async t => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH } });
+  t.after(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} });
+  const ended = once(child, 'exit'), deadlineAt = Date.now() + 8000;
+  const guard = guardBrowserProcessGroup(child.pid, { deadlineAt });
+  // Synthetic deadlines exercise the existing watchdog contract, not a quality
+  // threshold: a paid binding must shorten the launch/sample wall-clock bound.
+  await assert.rejects(guard.limitDeadline(deadlineAt + 1), /Invalid browser duration bound/);
+  await guard.limitDeadline(Date.now() + 500);
+  assert.deepEqual(await ended, [null, 'SIGKILL']);
+});

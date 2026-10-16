@@ -277,7 +277,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
             format: result.ttsFormat, reports, otherOriginRequests: production.requests }, null, 2));
       }
     } catch (error) {
-      error.message += `; fixture logs: ${JSON.stringify(logs)}`; throw error;
+      error.message += `; fixture logs: ${JSON.stringify(logs)}; probe: ${JSON.stringify(await page.evaluate(() => window.qualificationBaselineProbe?.diagnostics()).catch(() => null))}`; throw error;
     } finally { clearTimeout(watchdog); await browser.close(); await production.close(); }
   });
 });

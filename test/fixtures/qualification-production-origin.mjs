@@ -19,9 +19,9 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
     if (url.hostname === 'other.fixture.test') {
       requests.push({ origin: url.origin, authorization: req.headers.authorization });
       if (url.pathname === '/challenge' && !req.headers.authorization) {
-        res.writeHead(401, { 'www-authenticate': 'Basic realm="other-origin"', 'access-control-allow-origin': origin }); res.end(); return;
+        res.writeHead(401, { 'www-authenticate': 'Basic realm="other-origin"', 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true' }); res.end(); return;
       }
-      res.writeHead(200, { 'access-control-allow-origin': origin }); res.end('other'); return;
+      res.writeHead(200, { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true' }); res.end('other'); return;
     }
     if (req.headers.authorization !== expectedAuth) { res.writeHead(401, { 'www-authenticate': 'Basic realm="fake-start2"' }); res.end(); return; }
     let text = ''; for await (const bytes of req) text += bytes;

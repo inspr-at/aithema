@@ -42,6 +42,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       deadlineAt = message.deadlineAt; process.send?.({ deadlineAt });
     }
   });
+  process.channel?.unref();
   const alive = target => {
     try { process.kill(target, 0); return true; }
     catch (error) { return error.code === 'EPERM'; } // Cross-user controller is still alive.
