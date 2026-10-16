@@ -81,6 +81,7 @@ const openGeneral = async (page, returned = false) => {
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   }
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email').dataset.emailReservation !== 'union');
   // Scroll the last section into view; the footer stays fixed.
   await shadow(page, c => { const s = c.shadowRoot; s.querySelector('.settings__body').scrollTop = s.querySelector('.settings__body').scrollHeight; });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

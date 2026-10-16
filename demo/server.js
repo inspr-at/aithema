@@ -2,7 +2,7 @@ import { start2PurposePolicy } from './safeguards.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
 import { createOperatorSessions, createSQLiteOperatorStore } from '@inspr/aithema-server';
 import { mkdir, readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
@@ -37,6 +37,14 @@ import { createConfirmationPage } from './confirmation-page.js';
 import { createAdminHTTP } from './admin-http.js';
 
 const deployment = deploymentConfig();
+// Refuse before database, ordinary provider setup or listener startup.
+// Source-only OPS tooling is absent from release packages; load it only under its flag.
+const qualificationOps = process.env.AITHEMA_COMPOSED_QUALIFICATION === '1' ? await import('../plugins/composed-voice/ops/qualification-server.mjs') : undefined;
+const qualification = qualificationOps?.qualificationSettings() ?? { enabled: false };
+const qualificationKeys = await qualificationOps?.loadQualificationKeys();
+const qualificationControl = await qualificationOps?.loadQualificationControl();
+const resolveProviderSecret = ref => qualification.enabled ? qualificationKeys[ref] : process.env[ref];
+if (qualification.enabled && !process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE) throw new TypeError('OPS AITHEMA_COMPOSED_QUALIFICATION_MODULE required');
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
 const build = buildInfo();
 // The demo is deterministic unless the operator explicitly selects a provider.
@@ -77,10 +85,10 @@ const understandingBinding = openrouter?.understanding ?? privateBinding;
 const spendCap = provider === 'openrouter' || html.mode === 'claude' ? createSpendCap({ storage, account: 'start2-openrouter',
   capMicro: openrouter?.capMicro ?? html.capMicro }) : undefined;
 const htmlPlugin = html.mode === 'fake' ? createLocalHTML() : html.mode === 'claude'
-  ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro }) : null;
+  ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro, resolveSecret: resolveProviderSecret }) : null;
 const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : {};
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
-  ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding });
+  ? createOpenRouterReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret });
 const secrets = createFacadeSecrets();
 const voiceMode = providerMode(process.env.AITHEMA_VOICE_MODE, live);
 if (!['fake', 'off', 'elevenlabs'].includes(voiceMode)) throw new TypeError('Unknown voice mode');
@@ -91,7 +99,7 @@ if (voiceMode === 'elevenlabs') {
     : createStart2VoiceHost;
   voiceHost = await createVoiceHost({ storage, facadeSecrets: secrets,
     publicOrigin: deployment.publicOrigin, templateAgentId: process.env.AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID,
-    resolveSecret: ref => secrets.resolve(ref) ?? process.env[ref] });
+    resolveSecret: ref => secrets.resolve(ref) ?? resolveProviderSecret(ref) });
 }
 const imageMode = providerMode(process.env.AITHEMA_IMAGE_MODE, live);
 if (!['fake', 'off', 'openai'].includes(imageMode)) throw new TypeError('Unknown image mode');
@@ -110,17 +118,17 @@ const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length
     voiceBinding: () => readVoiceState().binding }) : createMockConsent(storage));
 if (voiceHost?.staticSecretRef) {
   const resolve = secrets.resolve;
-  secrets.resolve = ref => ref === voiceHost.staticSecretRef ? process.env[ref] : resolve(ref);
+  secrets.resolve = ref => ref === voiceHost.staticSecretRef ? resolveProviderSecret(ref) : resolve(ref);
 }
 const policy = imageHost?.policy ?? voiceHost?.policy ?? { endpoints: liveBindings.map(b => b.endpoint) };
 const imagePlugin = imageMode === 'fake' ? createLocalImages() : imageHost ? createOpenAIImages({ binding: imagePluginBinding(imageHost.binding),
-  resolveSecret: imageHost.resolveSecret ?? (ref => process.env[ref]) }) : null;
+  resolveSecret: qualification.enabled ? resolveProviderSecret : imageHost.resolveSecret ?? resolveProviderSecret }) : null;
 const imageSelection = imagePlugin ? { images: imageHost?.binding ?? localImageBinding } : {};
 function configuredVoicePlugin(binding) {
   return createVoiceProvider({ storage, binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef,
       apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute,
       visitorMicroPerMinute: binding.visitorMicroPerMinute,
-      reservationSeconds: binding.reservationSeconds }, resolveSecret: ref => process.env[ref],
+      reservationSeconds: binding.reservationSeconds }, resolveSecret: resolveProviderSecret,
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
     reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log });
 }
@@ -164,8 +172,16 @@ const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options =>
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();
 const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin: deployment.publicOrigin });
+const qualificationPorts = qualification.enabled ? await (await import(
+  pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href
+)).createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers, keys: qualificationKeys }) : {};
+const qualificationMount = qualificationOps?.createQualificationMount({ ...qualificationPorts, ...qualification,
+  control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
+  const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
+  const qualificationPath = new URL(request.url).pathname;
+  if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: build.commit ?? deployment.commit, version: build.version, version_scheme: build.version_scheme, release_channel: build.release_channel, release_sequence: build.release_sequence, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
@@ -218,6 +234,7 @@ allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
+  await qualificationMount?.close();
   await voiceHost?.close?.();
   clearInterval(expiry);
   visitorRetention.close();

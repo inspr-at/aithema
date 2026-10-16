@@ -33,6 +33,7 @@ and target files are permitted; another server file or plugin target fails.
 | `packages/server/src/local-html.js` | `plugins/claude-html/src/index.js` | AIT-211: existing deterministic HTML adapter |
 | `packages/server/elevenlabs-compat.js` | `plugins/elevenlabs/src/provider.js`, `plugins/elevenlabs/src/callbacks.js` | #173: frozen legacy root exports |
 | `packages/server/src/local-images.js` | `plugins/openai-images/src/index.js`, `plugins/openai-images/src/image-artifact.js` | AIT-211 |
+| `demo/server.js` | `plugins/composed-voice/ops/qualification-server.mjs` | AIT-160: explicitly flagged source-only qualification host |
 | `plugins/composed-voice/src/server.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/qualification.js` | `packages/server/src/composed-voice.js` | #173: unpublished composition proof |
 | `packages/server/src/composed-voice.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
@@ -41,7 +42,7 @@ and target files are permitted; another server file or plugin target fails.
 | `plugins/voxtral/src/index.js` | `packages/core/src/voice-components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/elevenlabs/src/components.js` | #173: unpublished composition proof |
 | `plugins/composed-voice/src/configuration.js` | `plugins/voxtral/src/index.js` | #173: unpublished composition proof |
-| `demo/server.js` | Exact VOICE/IMAGE host-module expressions | #173: injected host entrypoints |
+| `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION host-module expressions | #173 / AIT-160: injected host entrypoints |
 | `demo/host.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/consent-page.js` | Relative public source URLs | AIT-205: native browser loading |
 | `demo/admin-view.js` | Relative public source URLs | AIT-205: native browser loading |
@@ -76,7 +77,9 @@ new consumers. Next-release migration notes are in `release/next-notes.md`.
 The checker parses static imports, re-exports, dynamic imports, CommonJS require,
 createRequire bindings (including aliases and namespace factories), TypeScript
 import types and templates. Nonliteral specifiers fail even in package/plugin tests and the simulator,
-except the two exact injected host-module expressions listed above. SDK worklet
+except the exact injected host-module expressions listed above. AIT-160 adds only
+the explicit qualification-module expression and the one source-only host edge;
+the flag and loopback guards remain mandatory. SDK worklet
 loaders use a finite literal import map. Comments and ordinary strings are ignored. Env/config files,
 dependencies and symlinks are not read. Relative browser imports must reach an
 exported target; Node hosts use package specifiers. Run checks on the designated
@@ -116,6 +119,7 @@ they are not test coverage switches.
 | `test/browser/admin-pages.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
 | `test/browser/audio-replay.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/composed-media.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/composed-qualification.test.js` | `CI` ×3 | Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe |
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/consent-lines.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/credit-hold.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |

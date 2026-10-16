@@ -102,6 +102,20 @@ test('changing destructured environment keys requires a declaration', () => {
   }
 });
 
+test('AIT-160 qualification host allowances pin the source edge and OPS module expression', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'aithema-qualification-edge-'));
+  const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };
+  const host = "import '../plugins/composed-voice/ops/qualification-server.mjs';\nimport(pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href);";
+  put('plugins/composed-voice/ops/qualification-server.mjs', ''); put('demo/server.js', host);
+  assert.deepEqual(checkBoundaries(dir), []);
+  put('demo/other.js', host);
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Demo must import a package export')));
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Non-literal')));
+  put('demo/other.js', '');
+  put('demo/server.js', host.replace('AITHEMA_COMPOSED_QUALIFICATION_MODULE', 'AITHEMA_OTHER_MODULE'));
+  assert.ok(checkBoundaries(dir).some(error => error.includes('Non-literal')));
+});
+
 
 test('dev exemptions and AIT-211 cycles are pinned to exact paths', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'aithema-exact-edges-'));

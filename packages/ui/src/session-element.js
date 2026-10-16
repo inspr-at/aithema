@@ -13,6 +13,7 @@ import { SETTINGS_OFF, isDynamicReason, isConsentReason, CONSENT_REASON } from '
 import { aiNotice } from '../../core/src/ai-notice.js';
 import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
+import { voiceTranscriptTransition } from './voice-transcript.js';
 import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
@@ -78,6 +79,7 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #postCallMatrix = null;
+  #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
@@ -130,7 +132,7 @@ export class AithemaSession extends HTMLElement {
         onChange: () => { this.#render('features'); this.#render('transcript'); this.#dialog?.sync(); } }) : null;
     }
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
-    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#reasoningRevision = 0;
+    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
@@ -390,8 +392,25 @@ export class AithemaSession extends HTMLElement {
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       onRender: rail => this.#syncVoicePause(rail),
+      onPartial: event => {
+        if (this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) return;
+        this.#updateVoiceTranscript(event);
+        this.#render('transcript');
+      },
+      onFinal: event => {
+        this.#updateVoiceTranscript(event);
+        // A provider echo can refer to an already saved typed turn under another id.
+        const saved = event.role === 'user' && this.#session.transcript.find(t => t.id === event.turnId ||
+          t.role === 'user' && t.voiceCallId === event.callId && !t.erased && !t.withdrawn &&
+          t.content.trim().replace(/\s+/gu, ' ') === event.text.trim().replace(/\s+/gu, ' '));
+        if (saved) this.#updateVoiceTranscript({ type: 'turn.final', data: { ...saved,
+          callId: event.callId, providerSessionId: event.providerSessionId, userTurnOrdinal: event.userTurnOrdinal }, providerTurnId: event.turnId });
+        this.#render('transcript');
+      },
       // A call that starts, ends or fails moves the stage and the avatar with it.
       onState: state => {
+        if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
+        if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
         // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
         // an invalidation closes the rail without one, and its brief closing state starts nothing.
         if (this.#rail?.session) this.#started = true;
@@ -400,6 +419,7 @@ export class AithemaSession extends HTMLElement {
       },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
+        this.#updateVoiceTranscript({ type: 'reset' }); this.#render('transcript');
         // The in-call verdict cannot describe post-call admission. Keep it closed
         // with waiting copy until a generation-fenced server snapshot replaces it.
         if (this.#rail?.endedCall) this.#postCallMatrix = this.#session.featureMatrix;
@@ -409,6 +429,7 @@ export class AithemaSession extends HTMLElement {
         if (this.isConnected && !this.#rail?.unloading && this.#invalidatedAt <= this.#cursor) void this.#refreshFeatures();
       },
       onPause: paused => {
+        if (paused) { this.#updateVoiceTranscript({ type: 'reset' }); this.#render('transcript'); }
         this.#session.paused = paused; this.#clearNotice();
         this.#render('features'); this.#render('composer'); this.#render('aside');
         this.#host?.update();
@@ -1028,18 +1049,40 @@ export class AithemaSession extends HTMLElement {
           const speaker = element('strong'); speaker.innerHTML = '<i class="speaker-sign" aria-hidden="true"></i><b class="speaker-name"></b>';
           row.append(speaker, element('span', undefined, 'turn-text'));
         }
+        const voicePartial = t === this.#voiceTranscript.pending && t.partial;
+        // Corrections keep the largest provisional footprint; final text
+        // takes over the same node with normal bubble sizing.
+        if (row.classList.contains('partial') && row.dataset.voiceTranscript) {
+          const { height, width } = row.getBoundingClientRect();
+          row.style.setProperty('--voice-min-height', `${Math.max(parseFloat(row.style.getPropertyValue('--voice-min-height')) || 0, height)}px`);
+          row.style.setProperty('--voice-min-width', `${Math.max(parseFloat(row.style.getPropertyValue('--voice-min-width')) || 0, width)}px`);
+        }
+        if (voicePartial) { row.dataset.voiceTranscript = 'partial'; row.setAttribute('aria-hidden', 'true'); row.setAttribute('aria-live', 'off'); }
+        else if (row.dataset.voiceTranscript) {
+          row.dataset.voiceTranscript = 'final';
+          row.style.removeProperty('--voice-min-height'); row.style.removeProperty('--voice-min-width');
+          row.querySelector('.voice-provisional')?.remove();
+        }
         row.className = `turn ${t.role === 'user' ? 'user' : ''} ${t.partial ? 'partial' : ''}`;
         // Redacted rows keep their height only while the pointer rests on the transcript.
         if (!hovered) row.style.minHeight = '';
         row.querySelector('.speaker-name').textContent = t.role === 'user' ? copy.you : copy.assistant;
+        if (voicePartial) {
+          let label = row.querySelector('.voice-provisional');
+          if (!label) { label = node('span', 'voice-provisional'); label.setAttribute('aria-hidden', 'true'); row.querySelector('strong').append(label); }
+          label.textContent = copy.voiceProvisional;
+        }
         const sign = row.querySelector('.speaker-sign');
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
-        const withdrawable = t.role === 'user' && !t.erased;
+        row.querySelector('.turn-text').removeAttribute('tabindex');
+        const withdrawable = t.role === 'user' && !t.erased && !t.partial && t !== this.#voiceTranscript.pending;
         if (withdrawable && !row.querySelector('.withdraw')) row.append(this.#withdrawButton(row));
         const withdraw = row.querySelector('.withdraw');
         if (withdraw) { withdraw.title = copy.display.withdraw; withdraw.setAttribute('aria-label', copy.display.withdraw); }
         if (!withdrawable) row.querySelector('.withdraw')?.remove();
+        // Expose only the final bytes, after the entire row has been updated.
+        if (!voicePartial) { row.removeAttribute('aria-hidden'); row.removeAttribute('aria-live'); }
         if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
       }
       for (const row of rows.values()) row.remove();
@@ -1532,6 +1575,18 @@ export class AithemaSession extends HTMLElement {
     });
     return button;
   }
+  #updateVoiceTranscript(event) {
+    const { state, replacement } = voiceTranscriptTransition(this.#voiceTranscript, event);
+    if (replacement) {
+      const rows = [...this.shadowRoot.querySelectorAll('.turn')];
+      const row = rows.find(row => row.dataset.id === replacement.from);
+      if (row) {
+        if (rows.some(other => other !== row && other.dataset.id === replacement.to)) row.remove();
+        else row.dataset.id = replacement.to;
+      }
+    }
+    this.#voiceTranscript = state;
+  }
   // Uploads sit in the transcript where they arrived: before the first turn saved after them, and
   // ahead of a running reply. A withdrawn upload keeps the place it had on this page; one already
   // withdrawn when the page loaded has no time left (it was erased) and stands before the turns.
@@ -1551,6 +1606,7 @@ export class AithemaSession extends HTMLElement {
       if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }
     entries.push(...uploads.slice(next));
+    if (this.#voiceTranscript.pending) entries.push({ key: this.#voiceTranscript.pending.id, turn: this.#voiceTranscript.pending });
     for (const turn of this.#partials.values()) entries.push({ key: turn.id, turn });
     return entries;
   }
@@ -1850,6 +1906,7 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort();
         void this.#rail.close(event.type === 'turn.withdrawn' ? 'turn-withdrawn' : event.type === 'session.erased' ? 'session-erased'
@@ -1904,6 +1961,7 @@ export class AithemaSession extends HTMLElement {
       }
       if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
+        this.#updateVoiceTranscript(event);
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') {
           this.#partials.clear(); this.#failure = false;
@@ -1999,7 +2057,7 @@ export class AithemaSession extends HTMLElement {
       }
       // An accepted snapshot protects its state from older responses to concurrent restores.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
-      this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
+      this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
       if (session.voiceLifecycle) this.#rail.receiveState(session.voiceLifecycle);
       this.#repaintLocale();
       this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();

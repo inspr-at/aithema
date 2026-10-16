@@ -1,4 +1,4 @@
-import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
+import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd, activeTurns } from '@inspr/aithema-core';
 import { voiceOperation } from '@inspr/aithema-core/live-voice';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
@@ -220,7 +220,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     };
     void settle(); return closing;
   }
-  async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null) {
+  async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false, tabId = null, explicitResume = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
     const authorityKey = `${sessionId}:${callId}`;
@@ -244,7 +244,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
-      entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale, continuation });
+      entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
+        continuation, explicitResume, hasPriorTurns: activeTurns(session).some(turn =>
+          ['user', 'assistant'].includes(turn.role) && typeof turn.content === 'string' && Boolean(turn.content.trim())) });
       await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
       const callbackRequest = entry.callbackContext?.request ?? {}, { overrides, ...startRequest } = callbackRequest;
@@ -575,7 +577,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
             throw new PluginError('not-admitted', 'Processing settings changed');
           }
           if (body.explicit === true) onActivity?.(storage.get(sessionId));
-          return json(await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt, true));
+          return json(await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt, true, null, body.explicit === true));
         }
         if (!entry && previous && storage.get(sessionId).consentWithdrawn) throw new PluginError('not-admitted');
         if (!entry && logical?.holds.includes('server-restart') && ['heartbeat', 'resume', 'events'].includes(action)) {
@@ -618,7 +620,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           try {
             const end = entry.call.spendDeadlineAt;
             void close(entry, 'transport-lost', 'cancelled');
-            return json(await start(request, sessionId, ownerToken, callId, end, true));
+            return json(await start(request, sessionId, ownerToken, callId, end, true, null, body.explicit === true));
           } finally { entry.recovering = false; }
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');

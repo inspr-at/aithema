@@ -4,7 +4,7 @@ const cancelled = () => new DOMException('Capture cancelled', 'AbortError');
  * resurrect a stopped capture. onFault feeds the existing lifecycle controller. */
 export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioContext: Context = globalThis.AudioContext,
   workletURL = new URL('./pcm-capture-worklet.js', import.meta.url), onTiming = () => {}, onFault = () => {},
-  clock = () => performance.now() } = {}) {
+  audioProcessing = true, clock = () => performance.now() } = {}) {
   return async function capture({ signal, onAudio, onError = () => {} }) {
     let stream, context, source, node, stopped = false, pending = 0, tail = Promise.resolve();
     const stop = () => {
@@ -19,7 +19,7 @@ export function createPCMCapture({ mediaDevices = navigator.mediaDevices, AudioC
     try {
       if (signal?.aborted) throw cancelled();
       stream = await mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000,
-        echoCancellation: true, noiseSuppression: true, autoGainControl: false }, video: false });
+        echoCancellation: audioProcessing, noiseSuppression: audioProcessing, autoGainControl: false }, video: false });
       if (stopped || signal?.aborted) { stream.getTracks().forEach(track => track.stop()); throw cancelled(); }
       for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => fault(new Error('Capture track ended')), { once: true });
       context = new Context({ sampleRate: 16000 });

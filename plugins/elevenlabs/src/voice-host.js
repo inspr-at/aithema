@@ -2,11 +2,12 @@ import { ensureAgent, AgentEnsureError } from './ensure-agent.js';
 import { reconcileUsage, readConversationDetails } from './server.js';
 import { AI_NOTICE, aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { manifest } from './manifest.js';
+import { voiceOverrides } from './options.js';
 export { normalizeElevenLabsDurationBinding } from './config.js';
 
 export async function createElevenLabsVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
   apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env, random = Math.random,
-  spokenOpeners, agentName, facadeSecretName, costConfig, qualifyBinding,
+  spokenOpeners, spokenContinuations, agentName, facadeSecretName, costConfig, qualifyBinding,
   accountRef = agentName } = {}) {
   for (const [name, value] of Object.entries({ agentName, facadeSecretName })) {
     if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(value)) {
@@ -20,6 +21,12 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
   // Snapshot host configuration so startup/read-back and subsequent calls always agree.
   spokenOpeners = Object.freeze(Object.fromEntries(Object.keys(AI_NOTICE).map(locale =>
     [locale, aiNoticeText(locale, { opener: spokenOpeners?.[locale] })])));
+  // Continuations are session copy only; never change the managed agent's opener.
+  spokenContinuations = Object.freeze(Object.fromEntries(Object.keys(AI_NOTICE)
+    .filter(locale => spokenContinuations?.[locale] !== undefined).map(locale => {
+      const { firstMessage } = voiceOverrides({ agent: { language: locale, firstMessage: spokenContinuations[locale] } }).agent;
+      return [locale, firstMessage];
+    })));
   const stop = new AbortController(), listeners = new Set();
   let timer, inFlight, backoff = 30_000, costs;
   let availability = { state: 'starting', disabledReason: null, transient: false };
@@ -36,8 +43,8 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       await inFlight;
     },
     // These ports exist while off so the server can keep its handlers alive.
-    presentation: locale => Object.hasOwn(AI_NOTICE, locale)
-      ? { agent: { language: locale, firstMessage: spokenOpeners[locale] } } : undefined,
+    presentation: (locale, { hasPriorTurns = false } = {}) => Object.hasOwn(AI_NOTICE, locale)
+      ? { agent: { language: locale, firstMessage: hasPriorTurns ? spokenContinuations[locale] ?? spokenOpeners[locale] : spokenOpeners[locale] } } : undefined,
     async closeOrphan(call, { signal }) {
       if (!host.binding) throw new AgentEnsureError(host.disabledReason);
       const binding = host.binding;

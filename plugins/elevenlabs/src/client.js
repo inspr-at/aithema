@@ -268,6 +268,7 @@ export function createElevenLabsClient(ports = {}) {
         const current = ++generation;
         playbackInterrupted = false;
         let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
+        let tentativeOpen = true, tentativeSequence = 1, providerMode = 'listening';
         silenceReply = () => {
           lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
           playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
@@ -369,7 +370,14 @@ export function createElevenLabsClient(ports = {}) {
           onConnect({ conversationId }) {
             if (active() && conversationId !== receipt.providerSessionId) void close('provider-identity-mismatch').catch(() => {});
           },
-          onModeChange({ mode }) { if (active() && ['listening', 'speaking'].includes(mode) && !replay.active) emit({ type: mode }); },
+          onModeChange({ mode }) {
+            if (!active() || !['listening', 'speaking'].includes(mode) || replay.active) return;
+            // Tentative events have no provider turn id. After completion, only
+            // the next speaking -> listening boundary admits a new hypothesis.
+            if (mode === 'speaking') tentativeOpen = false;
+            else if (providerMode === 'speaking') { tentativeOpen = true; tentativeSequence++; }
+            providerMode = mode; emit({ type: mode });
+          },
           onAgentChatResponsePart({ event_id: eventId, type, text }) {
             // Provider stream starts/deltas precede the final response and
             // identify the reply, unlike speaking mode or analyser counters.
@@ -383,7 +391,7 @@ export function createElevenLabsClient(ports = {}) {
             const turnId = `${receipt.providerSessionId}:${speaker}:${eventId ?? `callback-${++sequence}`}`;
             if (seen.has(turnId)) return;
             if (seen.size >= 4096) { void close('transcript-limit').catch(() => {}); return; }
-            seen.add(turnId);
+            seen.add(turnId); tentativeOpen = false;
             // Capture order belongs to this provider generation, before async
             // persistence. Paused finals leave a gap instead of shifting IDs.
             const ordinal = speaker === 'user' ? ++userTurnOrdinal : undefined;
@@ -426,7 +434,9 @@ export function createElevenLabsClient(ports = {}) {
             const text = event?.tentative_user_transcription_event?.user_transcript;
             if (active() && !paused && event.type === 'tentative_user_transcript' && typeof text === 'string') {
               if (text.trim()) stopReplayForInput();
-              emit({ type: 'partial', turnId: `${receipt.providerSessionId}:user:pending`, role: 'user', text });
+              if (!tentativeOpen) return;
+              emit({ type: 'partial', turnId: `${receipt.providerSessionId}:user:pending:${tentativeSequence}`, role: 'user', text,
+                userTurnOrdinal: userTurnOrdinal + 1 });
             }
           },
           onInterruption({ event_id: eventId }) {

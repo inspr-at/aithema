@@ -1,14 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { moduleFiles } from '../release/lib/modules.mjs';
 import { execFileSync } from 'node:child_process';
 import { reserveVersion } from '../release/lib/version.mjs';
-import { packRelease, verifyRelease, rollbackArtifact, releasePaths } from '../release/pack.mjs';
+import { packRelease, verifyRelease, rollbackArtifact, releasePaths, admittedPath } from '../release/pack.mjs';
+import { startChild } from './helpers.js';
 const root = new URL('../', import.meta.url);
-test('dry-run pack repeats identical bytes and manifest, pins dependencies, and binds rollback to exact bytes', () => {
+test('dry-run pack repeats identical bytes and manifest, pins dependencies, and binds rollback to exact bytes', async () => {
   const fixture = mkdtempSync(join(tmpdir(), 'aithema-pack-'));
   for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
   const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
@@ -59,7 +60,14 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.throws(() => rollbackArtifact(a.directory, { ...a.manifest, mode: 'release' }, a.manifest.artifacts[0].coordinate), /dry-run/i);
   assert.throws(() => rollbackArtifact(a.directory, a.manifest, a.manifest.artifacts[0].coordinate), /dry-run/i);
   const extracted = join(fixture, 'extracted'); mkdirSync(extracted); execFileSync('tar', ['-xzf', a.artifactPath, '-C', extracted]);
+  assert.equal(existsSync(join(extracted, 'package/plugins/composed-voice/ops')), false, 'OPS qualification stays source-only');
   execFileSync('npm', ['ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: join(extracted, 'package'), stdio: ['ignore', 'pipe', 'pipe'] });
+  const demo = await startChild(join(extracted, 'package/demo/server.js'), join(fixture, 'packed-demo.sqlite'));
+  try {
+    assert.equal((await fetch(`${demo.url}/healthz`)).status, 200);
+    assert.equal((await fetch(`${demo.url}/composed/qualification`)).status, 404);
+    assert.equal((await fetch(`${demo.url}/composed/relay`, { method: 'POST', body: new Uint8Array(1280) })).status, 404);
+  } finally { await demo.kill(); }
   const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession } from '@inspr/aithema-server';
     import { createSession, createMockReasoning } from '@inspr/aithema-core';
     import { manifest as reasoningManifest } from '@inspr/aithema-plugin-openrouter';
@@ -152,4 +160,13 @@ test('module packer refuses same-package imports of every excluded source file',
     assert.ok(!members.has(`src/${excluded}`));
     assert.match(members.get('src/index.js').toString(), /included\.js/u);
   }
+});
+
+
+test('AIT-160: every OPS qualification module is excluded from release admission', () => {
+  const ops = 'plugins/composed-voice/ops';
+  for (const file of [...readdirSync(new URL(ops, root)), 'future-helper.mjs']) {
+    assert.equal(admittedPath(`${ops}/${file}`), false, `${file} must stay source-only`);
+  }
+  assert.ok(!releasePaths(root).some(path => path.startsWith(`${ops}/`)));
 });

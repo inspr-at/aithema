@@ -6,7 +6,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider
 import { PluginRegistry, inputRevision, reduceUnderstanding, applyEvent, createSession } from '@inspr/aithema-core';
 import { listen } from '../src/http.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
-import { createVoiceHost, START2_VOICE_OPENERS } from '../../../demo/start2-voice-host.js';
+import { createVoiceHost, START2_VOICE_OPENERS, START2_VOICE_CONTINUATIONS } from '../../../demo/start2-voice-host.js';
 import { createProcessingConsent, qualifyStartBinding, CONSENT_VALIDITY_MS } from '../../../demo/processing-consent.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
@@ -272,6 +272,28 @@ test('AIT-127: each call carries the conversation language and its matching AI n
     assert.deepEqual(call.overrides, { agent: { language: locale, firstMessage: START2_VOICE_OPENERS[locale] } });
     await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
   }
+});
+for (const locale of ['de', 'en']) test(`AIT-241: ${locale} prior turns select a continuation after pause and resume`, async t => {
+  const h = await fixture(t, { locale }), first = await h.start();
+  assert.equal(first.overrides.agent.firstMessage, START2_VOICE_OPENERS[locale]);
+  h.storage.postTurn(h.session.id, 'prior-turn', new Uint8Array([1]), 'A saved topic', { ownerToken: 'local-owner' });
+  assert.equal((await h.route('/pause', { paused: true })).status, 200);
+  assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId })).status, 200);
+  assert.equal((await h.route('/pause', { paused: false })).status, 200);
+  const writes = h.eleven.requests.filter(request => request.method !== 'GET').length;
+  // A browser-supplied opening cannot override the server's saved history.
+  const response = await h.route('/voice', { callId: 'resumed-call', hasPriorTurns: false, presentation: 'opening' });
+  assert.equal(response.status, 201);
+  const resumed = await response.json();
+  assert.deepEqual(resumed.overrides, { agent: { language: locale, firstMessage: START2_VOICE_CONTINUATIONS[locale] } });
+  const explicit = await h.route(`/voice/${resumed.callId}/recover`, { providerSessionId: resumed.providerSessionId, explicit: true });
+  assert.equal(explicit.status, 200);
+  const recovered = await explicit.json();
+  assert.deepEqual(recovered.overrides, resumed.overrides, 'explicit Resume greets with a continuation');
+  const automatic = await h.route(`/voice/${resumed.callId}/recover`, { providerSessionId: recovered.providerSessionId });
+  assert.equal(automatic.status, 200);
+  assert.deepEqual((await automatic.json()).overrides, { agent: { language: locale, firstMessage: '' } }, 'automatic repair stays silent');
+  assert.equal(h.eleven.requests.filter(request => request.method !== 'GET').length, writes, 'greetings never mutate the agent');
 });
 test('typed reaction and understanding bind different configured models with current consent and share the spend cap', async t => {
   const h = await fixture(t); assert.equal((await h.grant(['models-international'])).status, 200);
