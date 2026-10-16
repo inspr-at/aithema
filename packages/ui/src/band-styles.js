@@ -161,7 +161,6 @@ export const bandStyles = `
   .band { grid-template-columns:44px minmax(0,1fr); gap:8px 16px; }
   .band .audio-rail { grid-column:1/-1; grid-row:2; width:min(100%,720px); }
   .header-actions { grid-column:2; grid-row:1; }
-  .conversations-menu { left:0; right:auto; }
   .edge-column { --band-height:142px; }
 }
 @media(900px <= width < 1024px) {
