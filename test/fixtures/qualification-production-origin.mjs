@@ -70,7 +70,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         // An audible opener on the SAME graph must never enter the reply PCM.
         const start=context.currentTime;oscillator.start();
         gain.gain.setValueAtTime(.6,start+.05);gain.gain.setValueAtTime(0,start+.25);
-        gain.gain.setValueAtTime(.2,start+1.05);gain.gain.setValueAtTime(.08,start+1.5);
+        gain.gain.setValueAtTime(.2,start+1.05);gain.gain.setValueAtTime(.08,start+1.3);
         window.fixtureReplyContextTime=start+1.05;
         window.fixtureOutputClock=()=>context.getOutputTimestamp();
         if(${JSON.stringify(assistantFinal)}==='before-audio')setTimeout(final,1000);
