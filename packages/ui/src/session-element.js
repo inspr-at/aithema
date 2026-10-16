@@ -339,6 +339,7 @@ export class AithemaSession extends HTMLElement {
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
       // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
       consent: opener => this.#dialog.openConsent(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', opener),
+      retry: () => this.#refreshFeatures(),
       settings: opener => this.#dialog.openAt('model', '[data-select="visuals"]', opener),
       receive: event => this.receive(event), feature: options => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true, options) });
     this.#concept.update(this.#session);
@@ -774,6 +775,7 @@ export class AithemaSession extends HTMLElement {
     const create = this.shadowRoot.querySelector('.create-project');
     // Keep the footer's space while removing the device handoff from sight and interaction.
     if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device; }
+    exported.setAttribute('aria-label', device ? `${this.#copy.export}${reasonSeparator}${this.#copy.deviceExportUnavailable}` : this.#copy.export);
     if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
     else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }
@@ -971,6 +973,7 @@ export class AithemaSession extends HTMLElement {
       input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
+      reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;

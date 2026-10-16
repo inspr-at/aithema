@@ -1247,3 +1247,152 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait105-version-pass-lines.json'), JSON.stringify(passLines, null, 2));
 });
+
+test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, export, pointer hints and appearance', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ui-polish-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await browserForFile(), page = await browser.newPage();
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.polishSeed = structuredClone(c.session); });
+  const stable = ['.band', '.audio-rail', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
+  const capture = async (label, state, detail = {}) => {
+    await shadow(page, async c => {
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.mouse.move(-1, -1);
+    const file = `ait246-${label}-${state}.png`;
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+    checks.push({ head: evidenceCommit, label, state, file, ...detail });
+  };
+  const states = [
+    ['option-unoffered', 'visuals not offered', 'draftsUnoffered'],
+    ['preset-unconfigured', 'preset not configured', 'draftsPreset', 'draftsChoose'],
+    ['device', 'unavailable on device', 'draftsDevice', 'draftsChoose'],
+    ['quote-missing', null, 'draftsQuote', 'draftsRetry'],
+    ['admission-timeout', 'admission deadline', 'draftsTimeout', 'draftsRetry'],
+  ];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: false });
+    await page.select('#theme', theme);
+    const configure = (state, reason) => shadow(page, async (c, { locale, state, reason }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const s = structuredClone(window.polishSeed);
+      s.locale = locale; s.processingPreset = state === 'device' ? 'device' : 'best';
+      s.settings = { ...s.settings, origin: 'chosen' }; s.paused = false; s.pauseReason = null;
+      s.transcript = [{ id: 'polish-user', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' },
+        { id: 'polish-reply', role: 'assistant', content: locale === 'de' ? 'Wie sollen Kunden bestellen?' : 'How should customers order?' }];
+      s.transcript[1].inputRevision = inputRevision(s);
+      s.understanding = { ...s.understanding, inputRevision: inputRevision(s), summary: s.transcript[0].content, readinessAssessed: true };
+      s.featureMatrix = { [s.processingPreset]: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key,
+        ['html', 'images'].includes(key) ? { available: !reason, reason } : { available: true, reason: null }])) };
+      s.conceptVisualKind = 'html'; s.conceptCost = state === 'quote-missing' ? null : { maxMicro: 400_000 };
+      s.concepts = []; s.conceptStatus = { phase: 'idle' };
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      c.configure({ copy, session: s, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1,
+        host: { library: true } });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+      const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
+      window.scrollTo(0, 0);
+    }, { locale, state, reason });
+    let baseline;
+    for (const [state, reason, message, action] of states) {
+      await configure(state, reason); await finishWorkspaceEntry(page);
+      const text = await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent);
+      assert.equal(text, copy.display[message] + (action ? `\u00a0· ${copy.display[action]}` : ''), `${label}/${state}: exact mirrored copy and NBSP`);
+      const current = await boxes(page, stable);
+      if (baseline) assert.deepEqual(current, baseline, `${label}/${state}: 0 px layout shift across refusals`);
+      else baseline = current;
+      const actionNode = 'aithema-session >>> .drafts-settings-action';
+      if (action) {
+        const actionBox = await boxes(page, ['.drafts-settings-action']);
+        await page.hover(actionNode);
+        assert.deepEqual(await boxes(page, stable), current, `${label}/${state}: 0 px hover shift`);
+        assert.deepEqual(await boxes(page, ['.drafts-settings-action']), actionBox, `${label}/${state}: action stays under pointer`);
+      }
+      await capture(label, state, { text, displacementPx: 0 });
+      if (action === 'draftsChoose') {
+        await page.click(actionNode);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-tab="model"]').getAttribute('aria-selected')), 'true');
+        await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+      } else if (action === 'draftsRetry') {
+        // Retry reads a snapshot; it must never request or charge for a draft.
+        let reads = 0, paidRequests = 0;
+        const interceptor = async request => {
+          if (request.url() === `${demo.url}/api/sessions/${windowSeedId}` && request.method() === 'GET') {
+            reads++; await request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(retrySnapshot) });
+          } else { if (request.method() === 'POST' && request.url().endsWith('/concepts')) paidRequests++; await request.continue(); }
+        };
+        const retrySnapshot = await shadow(page, c => c.session), windowSeedId = retrySnapshot.id;
+        await page.setRequestInterception(true); page.on('request', interceptor);
+        await page.click(actionNode); await until(page, () => true); await settle();
+        page.off('request', interceptor); await page.setRequestInterception(false);
+        assert.equal(reads, 1); assert.equal(paidRequests, 0);
+      }
+      if (state === 'device' || state === 'option-unoffered') {
+        await shadow(page, c => c.shadowRoot.querySelector('.understanding > .foot').scrollIntoView({ block: 'center' }));
+        const footer = await shadow(page, c => {
+          const root = c.shadowRoot, link = root.querySelector('.export'), create = root.querySelector('.create-project');
+          const a = link.getBoundingClientRect(), b = create.getBoundingClientRect();
+          const range = document.createRange(); range.selectNodeContents(link.querySelector('[data-copy]'));
+          const other = document.createRange(); other.selectNodeContents(create.querySelector('span'));
+          return { disabled: link.getAttribute('aria-disabled'), href: link.getAttribute('href'), why: link.title,
+            underline: getComputedStyle(link).textDecorationLine, lines: range.getClientRects().length, projectLines: other.getClientRects().length,
+            stacked: b.top >= a.bottom, right: Math.max(a.right, b.right) };
+        });
+        assert.equal(footer.lines, 1); assert.equal(footer.projectLines, 1);
+        assert.equal(footer.stacked, width < 480); assert.ok(footer.right <= width);
+        if (state === 'device') { assert.equal(footer.disabled, 'true'); assert.equal(footer.href, null); assert.equal(footer.underline, 'none'); assert.equal(footer.why, copy.deviceExportUnavailable); }
+        else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); }
+        await capture(label, `${state}-footer`, footer);
+      }
+    }
+    await configure('option-unoffered', 'visuals not offered'); await finishWorkspaceEntry(page);
+    for (const [platform, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
+      await page.evaluate(platform => Object.defineProperty(navigator, 'platform', { configurable: true, value: platform }), platform);
+      await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.shortcut.replace('{key}', key));
+      await capture(label, `fine-${platform}`);
+    }
+    const fineBoxes = await boxes(page, stable.concat('.send', '.attach'));
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: true });
+    assert.equal(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), true);
+    assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden');
+    assert.deepEqual(await boxes(page, stable.concat('.send', '.attach')), fineBoxes, `${label}: touch hint hides with 0 px shift`);
+    await capture(label, 'coarse');
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000, hasTouch: false });
+    await shadow(page, c => c.openSettings());
+    let utilityBaseline;
+    for (const choice of ['light', 'dark', 'system']) {
+      await page.select('#theme', choice);
+      const metrics = await page.evaluate(() => {
+        const root = document.querySelector('aithema-session').shadowRoot, value = document.querySelector('#theme-value'), chevron = document.querySelector('.utility-theme .utility-chevron');
+        const box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+        return { gap: chevron.getBoundingClientRect().left - value.getBoundingClientRect().right,
+          boxes: [box(document.querySelector('.utility-theme')), box(document.querySelector('.utility-language')), box(root.querySelector('.done'))] };
+      });
+      assert.equal(metrics.gap, 4, `${label}/${choice}: appearance chevron hugs actual text`);
+      if (utilityBaseline) assert.deepEqual(metrics.boxes, utilityBaseline, `${label}/${choice}: 0 px preference and Done shift`);
+      else utilityBaseline = metrics.boxes;
+      await capture(label, `appearance-${choice}`, metrics);
+    }
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+  }
+  assert.equal(checks.length, 156, 'every changed state at every width, locale and theme');
+  if (evidence) await writeFile(join(evidence, 'ait246-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', fonts: 'Chrome baseline UI/display stacks pinned', checks }, null, 2));
+});

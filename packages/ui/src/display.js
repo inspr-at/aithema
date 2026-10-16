@@ -1,5 +1,5 @@
 import { isConsentReason } from '../../core/src/settings.js';
-import { featureConsentText } from './consent-line.js';
+import { featureConsentText, reasonSeparator } from './consent-line.js';
 
 // AIT-131: public names for served routes. Unknown routes get localized copy, never an id or a host label.
 export const MODEL_DISPLAY_NAMES = Object.freeze({
@@ -34,13 +34,25 @@ export const formatCredits = (micro, locale) => new Intl.NumberFormat(locale, { 
 export function draftsLine({ copy, cost, feature, kind = 'html' }) {
   const reason = feature.rawReason ?? feature.reason ?? '';
   if (!feature.available && reason === 'visuals off') return { state: 'off',
-    text: `${copy.display.draftsDisabled} · ${copy.display.draftsEnable}`, action: false };
+    text: `${copy.display.draftsDisabled}${reasonSeparator}${copy.display.draftsEnable}`, action: false };
   if (!feature.available && isConsentReason(reason)) return { state: 'off',
-    text: `${featureConsentText(copy, kind)} · ${copy.featureConsent.action}`, action: false };
+    text: `${featureConsentText(copy, kind)}${reasonSeparator}${copy.featureConsent.action}`, action: false };
   const low = /(?:credit|spend cap|budget|Ausgabenlimit)/iu.test(reason);
   const known = Number.isSafeInteger(cost?.maxMicro) && cost.maxMicro >= 0;
   if (low) return { state: 'low', text: copy.display.draftsLow, action: false };
-  if (!feature.available && ['not configured', 'preset not configured'].includes(reason)) return { state: 'off', text: copy.display.draftsOff, action: false };
+  if (!feature.available && reason === 'not configured') return { state: 'off', text: copy.display.draftsOff, action: false };
+  const blocked = !feature.available && ({
+    'visuals not offered': 'draftsUnoffered', 'not offered': 'draftsUnoffered',
+    'preset not configured': 'draftsPreset', 'unavailable on device': 'draftsDevice',
+    'admission deadline': 'draftsTimeout',
+  })[reason];
+  const recovery = blocked === 'draftsPreset' || blocked === 'draftsDevice' ? 'settings'
+    : blocked === 'draftsTimeout' || !blocked && !known && feature.available ? 'retry' : null;
+  if (blocked || recovery) {
+    const message = copy.display[blocked ?? 'draftsQuote'], label = recovery === 'settings' ? copy.display.draftsChoose : copy.display.draftsRetry;
+    return { state: 'off', text: recovery ? `${message}${reasonSeparator}${label}` : message, action: false,
+      ...(recovery ? { recovery, message, label } : {}) };
+  }
   if (!known || !feature.available) return { state: 'off', text: copy.display.draftsUnavailable, action: false };
   const credits = Math.ceil(cost.maxMicro / 10_000);
   return { state: 'on', text: copy.display.draftsOn.replace('{credits}', new Intl.NumberFormat(copy.display.locale).format(credits)), action: true };

@@ -27,7 +27,7 @@ export function conceptStateText({ copy, status = { phase: 'idle' }, feature, it
   if (status.phase === 'waiting') return copy.conceptWaiting;
   if (!items.length || !feature.available) {
     const line = draftsLine({ copy, cost, feature, kind: kind === 'html' ? 'html' : 'images' });
-    if (!feature.available && feature.reason && cost && line.state !== 'low' && !/not configured|not set up|not offered|not in preset|visuals off|nicht eingerichtet|nicht angeboten|ausgeschaltet/iu.test(feature.rawReason ?? feature.reason)) return sentence(feature.reason);
+    if (!line.recovery && !feature.available && feature.reason && cost && line.state !== 'low' && !/not configured|not set up|not offered|not in preset|unavailable on device|visuals off|nicht eingerichtet|nicht angeboten|ausgeschaltet/iu.test(feature.rawReason ?? feature.reason)) return sentence(feature.reason);
     return line.action ? '' : line.text;
   }
   return conceptKind(items.at(-1)) === 'html' ? copy.conceptDraftReady.replace('{number}', drafts) : copy.conceptReady;
@@ -48,16 +48,22 @@ export class ConceptView {
     const labels = { '.concept-close': 'conceptClose', '.concept-previous': 'conceptPrevious', '.concept-next': 'conceptNext',
       '.concept-download': 'conceptDownload', '.concept-up': 'conceptUp', '.concept-down': 'conceptDown', '.concept-reject': 'conceptReject', '.concept-preview-label': 'conceptView' };
     for (const [selector, key] of Object.entries(labels)) root.querySelector(selector).textContent = copy[key];
+    root.querySelector('.drafts-reason-reserve').replaceChildren(...[
+      copy.display.draftsUnoffered, copy.display.draftsOff, copy.display.draftsUnavailable,
+      `${copy.display.draftsDisabled}${reasonSeparator}${copy.display.draftsEnable}`,
+      ...['draftsPreset', 'draftsDevice', 'draftsQuote', 'draftsTimeout'].map(key =>
+        `${copy.display[key]}${reasonSeparator}${copy.display[key === 'draftsPreset' || key === 'draftsDevice' ? 'draftsChoose' : 'draftsRetry']}`),
+    ].map(words => { const line = document.createElement('span'); line.textContent = words; return line; }));
     root.querySelector('.concept-image').alt = copy.conceptImageAlt;
     if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
     root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
   }
-  constructor({ root, copy, baseUrl, sessionToken, receive, feature, consent, settings }) {
-    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature, consent, settings });
+  constructor({ root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry }) {
+    Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature, consent, settings, retry });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
     this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-      <div class="concept-activity"><span class="concept-activity-text" role="status"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
+      <div class="concept-activity"><span class="concept-activity-text" role="status"></span><span class="drafts-reason-reserve" aria-hidden="true"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
       <button class="concept-request" type="button"></button>`;
     // The label shares one cell with both possible labels, so the thumbnail keeps its width when an image or a draft arrives.
     root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><img alt="" decoding="async"><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
@@ -193,17 +199,20 @@ export class ConceptView {
     // A reload has no previous words: initialize from the underlying feature verdict.
     // Consent withdrawal and erasure still clear dependent presentation normally.
     if (initial || !this.#session.paused || consentChanged || this.#session.consentWithdrawn || this.#session.tombstone) {
-      if (!feature.available && (feature.rawReason ?? feature.reason) === 'visuals off' && !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError) {
+      const line = draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature });
+      const disabled = !feature.available && (feature.rawReason ?? feature.reason) === 'visuals off';
+      if ((disabled || line.recovery) && !['pending', 'failed', 'waiting'].includes(status.phase) && !this.#requestError) {
         // The same native action as C1; only the destination differs.
         if (!text.querySelector('.drafts-settings-action')) {
-          const label = document.createElement('span'), action = reasonAction('', opener => this.settings?.(opener));
+          const label = document.createElement('span'), action = reasonAction('', opener => text.dataset.recovery === 'retry' ? void this.retry?.() : this.settings?.(opener));
           label.className = 'drafts-disabled-copy'; action.classList.add('drafts-settings-action');
           label.id = 'drafts-disabled-sentence'; action.setAttribute('aria-describedby', label.id);
           action.dataset.focusKey = 'drafts-settings'; text.replaceChildren(label, action);
         }
         delete text.dataset.consentFeature;
-        text.querySelector('.drafts-disabled-copy').textContent = `${this.copy.display.draftsDisabled}${reasonSeparator}`;
-        text.querySelector('.drafts-settings-action').textContent = this.copy.display.draftsEnable;
+        text.dataset.recovery = line.recovery ?? 'settings';
+        text.querySelector('.drafts-disabled-copy').textContent = `${disabled ? this.copy.display.draftsDisabled : line.message}${reasonSeparator}`;
+        text.querySelector('.drafts-settings-action').textContent = disabled ? this.copy.display.draftsEnable : line.label;
       } else paintConsentLine(text, { copy: this.copy, feature: this.visualKind() === 'html' ? 'html' : 'images', verdict: feature, text: words, open: opener => this.consent?.(opener) });
     }
     if (status.phase === 'pending') {
