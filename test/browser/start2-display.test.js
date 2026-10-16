@@ -1535,6 +1535,7 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
     checks.push({ head: evidenceCommit, locale, theme, width, file, options: actual, ...visible });
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   }
   assert.equal(checks.length, 12);
   if (evidence) await writeFile(join(evidence, 'ait246-round3-evidence.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
