@@ -2175,7 +2175,7 @@ erases the old conversation and creates a fresh ID retaining locale/preset.
 Concurrent resets of the same ID share one erasure and one replacement;
 failed erasure retains the original and releases the slot for retry.
 New/reset only change conversation data. Hosts must retain the same owner wallet
-and credit guard across them, as described below. `createMemoryLibrary({erase?, now?})` returns
+across them; each conversation has its own deadline, as described below. `createMemoryLibrary({erase?, now?})` returns
 `{port, wasErased}`. Its default erasure is limited to its own memory;
 a supplied `erase({id, revision})` must confirm `{erased: true}`.
 `libraryConformance(port, {wasErased, foreignPort?, timeoutMs?})` runs destructive
@@ -2267,12 +2267,22 @@ idempotent release and conflicts after release. Never run the kit on a live wall
 `createCredits({sessionId, durationMs?})`
 and `reduceCredits` accept `start`, `balance {balance}`, `pause {paused}`, `tick`,
 authoritative `limit {reason: 'session'|'voiceVisitor'|'host-limit'}` and `closed`, all
-with `now`. Hosts persist one credit guard state per owner and create it only
-when that owner has no existing guard. On library new/reset, persist
-`rebindCredits(existingState, newSessionId)` and re-read the balance; do not call
-`createCredits` again. Rebinding preserves start/deadline, pause and terminal
-state, so neither operation restores the owner's balance or one-hour allowance.
-The one-hour wall-clock guard starts once and pause never extends it.
+with `now`. AIT-261 persists one guard per conversation in
+`conversation_credit_guards`. The first text turn or runtime admission starts
+its one-hour wall-clock deadline. New/reset get a fresh guard and retain the
+same owner wallet and manual pause preference; pause, reconnect and recovery
+never extend a deadline.
+Startup re-arms active deadlines and immediately expires overdue guards, including
+legacy owner guards migrated to their original conversation. State and terminal
+events commit in the same transaction. A timer emits `credits.limit-reached`
+and `conversation.end-requested` with `one-hour` even without further traffic.
+Runtime admission checks before owner/ledger reservations, voice extensions and
+provider dispatch independently enforce expiry when the timer is delayed.
+Voice inherits the conversation deadline and ends through the existing close
+path. Dispatched text finishes and settles normally; its reservation remains
+held through settlement, including when usage remains unknown. A deadline
+refusal before dispatch settles as cancelled at zero cost and releases any
+owner-wallet and voice-cap holds.
 A full outstanding hold only updates the view. An actual denial/elapsed guard
 emits one `conversation.end-requested`; the host stops fresh work, closes transport,
 settles outstanding claims and then records `closed`, preserving the transcript.
@@ -2287,7 +2297,7 @@ safe copy and durable acknowledgements:
 | Identity routes and inline verification | `POST /api/sessions/:id/identity` for address/role, `POST .../identity/resend`, `GET .../identity` for polling. A host verification landing page performs read-only inspection; its explicit confirmation POST redeems host-owned evidence before recording `verification`. Bind evidence to session, address and revision; reject expiry/reuse. Poll/focus updates unlock assessment and concepts while preserving manual pause and hidden-tab holds. Tokens and addresses use erasable records; public replay must hydrate tombstones. |
 | Library routes and view | `GET /api/library?search=&offset=&limit=`, `POST /api/library` (new), `GET /api/library/:id` (open), `PATCH /api/library/:id` (rename), `DELETE /api/library/:id`, `POST /api/library/:id/reset`. Bind the port to the authenticated owner and check every target. Delete/reset await the existing `storage.erase` path, including uploads/concepts, pending-work cancellation and export/cache invalidation. Render search, paging, open, rename, delete confirmation, new/reset and empty/error states. |
 | Handover button/state and route | `POST /api/sessions/:id/handover` for request/retry; publish durable `handover.state` through session replay. Persist `preparing` before calling the configured host delivery port, recheck ownership/revision/consent, report honest sent/failed outcomes, and recover interrupted deliveries using the same key. Keep host payloads erasable and provider errors out of events. |
-| Credits slot and routes | `GET /api/sessions/:id/credits` and optional `POST .../credits/top-up`. Bind the wallet to the authenticated owner across conversations, use `admitCredits` before dispatch, and retain/rebind that owner's guard on new/reset. Render owner, session and voiceVisitor balances, guard countdown, limit reason and host top-up action; guard/denial stop fresh work and close/settle admitted transports gracefully. Re-read host credit policy after verification/top-up; no UI or new/reset action grants funds or admits work. |
+| Credits slot and routes | `GET /api/sessions/:id/credits` and optional `POST .../credits/top-up`. Bind the wallet to the authenticated owner across conversations, use `admitCredits` before dispatch, and retain the per-conversation deadline on recovery. Render owner, session and voiceVisitor balances, terminal reason and host top-up action; guard/denial stop fresh work and close/settle admitted transports gracefully. Re-read host credit policy after verification/top-up; no UI or new/reset action grants funds or admits work. |
 | Account menu / actor role | Host account/status, current address, configured role choices and change/resend controls consume `identity.state`. Propagate explicit role selection through the existing reasoning actor-selection path without treating inferred roles as identity proof. |
 | Settings/preset and legal/footer slots | Connect the existing preset/settings panel and feature matrix to host-approved model, effort, voice, visuals and connector choices. Supply account menu, library view, verification inline, handover button/state, credits, legal links, footer status, branding and optional release-history slots; all text/link destinations are host configuration. |
 
@@ -2567,10 +2577,13 @@ Hosts with delivery retain the existing request/send/confirm flow, including
 30-minute tokens, resend cooldown and five-attempt limit. Tokens are stored only
 as hashes; the labelled demo outbox alone holds raw links in memory. New
 conversations inherit visitor evidence. Live mode continues to hide verification
-until A2's reviewed design; A1 adds no form or admin UI. Without a clock guard,
-the credits API returns `limitSlot:null` and the UI hides the empty countdown.
-Other hosts can retain the guard; `host.credits.ownerGuard:false` disables it.
-Pause, consent, per-call duration and liveness safeguards remain in force.
+until A2's reviewed design; A1 adds no form or admin UI. AIT-261 enforces the
+per-conversation hour independently of the former optional owner guard;
+`host.credits.ownerGuard:false` no longer disables conversation expiry. The
+credits API supplies `limitSlot`; the UI keeps the countdown hidden. All terminal
+reasons disable conversation controls and retain transcript export, with the
+existing DE/EN reason copy. Pause, consent, per-call duration and liveness
+safeguards remain in force.
 
 Address collection and persistence use the internal
 `assertAddressCollectionAllowed()` entry point in `host-handlers.js`, delegating

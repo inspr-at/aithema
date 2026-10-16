@@ -77,8 +77,11 @@ export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0
  * store; use this attemptId for ledger admission, settlement and recovery.
  * Multi-process hosts MUST implement the same in-flight exclusion at the wallet
  * or ledger; this module's set only guards calls in the current process.
+ * beforeReserve is a synchronous server deadline guard, checked immediately
+ * before each reservation. If the wallet await crosses that deadline, its hold
+ * is released before returning the refusal; no provider dispatch has occurred.
  * SQLiteBudgetLedger already accepts caller IDs, so no ledger change is needed. */
-export async function admitCredits(ledger, request, ownerWallet) {
+export async function admitCredits(ledger, request, ownerWallet, { beforeReserve = () => {} } = {}) {
   assertOwnerWalletPort(ownerWallet);
   if (typeof ledger?.admit !== 'function') throw new TypeError('Credit ledger admission required');
   const snapshot = structuredClone(request);
@@ -91,11 +94,17 @@ export async function admitCredits(ledger, request, ownerWallet) {
   try {
     const preview = creditAdmission(ledger, snapshot.sessionId, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0, ownerWallet);
     if (!preview.ok) return preview;
+    beforeReserve();
     const result = await ownerWallet.admit(snapshot);
     if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
     if (!result.ok) {
       if (result.reason === 'attempt-conflict') return { ok: false, reason: 'attempt-conflict', attemptId: snapshot.attemptId };
       return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
+    }
+    // A refusal here precedes ledger admission and cannot have dispatched work.
+    try { beforeReserve(); } catch (error) {
+      await ownerWallet.release({ attemptId: snapshot.attemptId });
+      throw error;
     }
     try {
       return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
@@ -168,8 +177,8 @@ export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS } 
   return { sessionId, status: 'ready', startedAt: null, endsAt: null, durationMs, lastNow: 0,
     balance: null, endReason: null, paused: false };
 }
-/** Hosts persist one guard state per owner. New/reset attach its existing state
- * to the new conversation, retaining elapsed time, pause and terminal status. */
+/** Legacy guard rebinding helper. Server deadlines are per conversation:
+ * New/reset use createCredits; recovery keeps the original session and deadline. */
 export function rebindCredits(state, sessionId) {
   if (!id(state?.sessionId) || !id(sessionId)) throw new TypeError('Invalid credit conversation');
   return { ...structuredClone(state), sessionId, balance: null };

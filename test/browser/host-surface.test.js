@@ -413,3 +413,56 @@ test('AIT-214: retiring an idle session removes its export and reload creates a 
     await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-214-fresh-session.png'), fullPage: false });
   }
 });
+
+test('AIT-261: every terminal reason disables the demo UI and preserves export in DE and EN', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-terminal-browser-'));
+  const demo = await startDemo(directory); let browser;
+  t.after(async () => {
+    try { await browser?.close(); } finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+  });
+  browser = await launch(directory, 'terminal-profile');
+  const page = await browser.newPage(), problems = [];
+  await preparePage(page, ['en'], problems);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(demo.url); await shadow(page, '.composer');
+  const original = await inShadow(page, c => c.session);
+  // Reuse a single page/browser for this state-only matrix. The server's actual
+  // deadline and spend paths are covered with fake clocks in the unit suite.
+  for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+    const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason];
+    await inShadow(page, (c, { original, locale, reason, copy }) => {
+      const session = { ...original, locale, credits: null, transcript: [] };
+      c.configure({ copy, session, host: { credits: true } });
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'terminal-demo-input', role: 'user', content: locale === 'de' ? 'Wir brauchen eine App.' : 'We need an app.' } });
+      c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+      c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason, preserveTranscript: true, settleOutstanding: true } });
+      c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'ending', endReason: reason, remainingMs: 0 } });
+    }, { original, locale, reason, copy: locale === 'de' ? de : en });
+    await until(page, expected => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('form.composer').inert && r.querySelector('.composer-out__body').textContent === expected;
+    }, expected);
+    const state = await inShadow(page, c => {
+      const r = c.shadowRoot, link = r.querySelector('.composer-out__export');
+      return { inert: r.querySelector('form.composer').inert, voiceDisabled: r.querySelector('.voice-start').disabled,
+        exportVisible: link.getClientRects().length > 0 && link.getAttribute('aria-hidden') === 'false', href: link.href,
+        transcript: c.session.transcript[0].content };
+    });
+    assert.equal(state.inert, true); assert.equal(state.voiceDisabled, true); assert.equal(state.exportVisible, true);
+    assert.ok(state.transcript.length > 0);
+    assert.equal(await page.evaluate(async href => (await fetch(href)).status, state.href), 200);
+    assert.equal(await overflow(page), 0);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+      await page.mouse.move(-1, -1);
+      await inShadow(page, async c => {
+        document.activeElement?.blur(); c.shadowRoot.activeElement?.blur(); await document.fonts.ready;
+        await Promise.all(c.shadowRoot.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
+        await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+      });
+      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-261-${locale}-${reason}.png`), fullPage: false });
+    }
+  }
+  assert.deepEqual(problems, []);
+});

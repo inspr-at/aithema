@@ -263,7 +263,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const admitted = await runtime.admitVoice({ session, request: { callId }, options: {
         ...opts, spendDeadlineAt, allowPaused: continuation, voiceContinuation: continuation,
       } }); entry.admission = admitted;
-      const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
+      const end = Math.min(spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000,
+        runtime.conversationLimits?.deadline(sessionId) ?? Infinity);
       if (end <= now()) throw new PluginError('deadline');
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale,
@@ -459,6 +460,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (entry) void close(entry, reason, 'cancelled');
       for (const authority of authorities.values()) if (authority.sessionId === id) {
         storage.transitionVoiceLifecycle(id, authority.callId, { type: 'end', reason }); endAuthority(id, authority.callId);
+      }
+      // Recovery can have durable logical calls without an in-memory authority.
+      if (['one-hour', 'session', 'voiceVisitor', 'host-limit'].includes(reason)) {
+        for (const record of storage.voiceCalls(id)) {
+          const logical = storage.voiceLifecycle(id, record.callId);
+          if (logical && logical.state !== 'ended') storage.transitionVoiceLifecycle(id, record.callId, { type: 'end', reason });
+        }
       }
     },
     async pauseSession(id, paused, opts = {}) {
@@ -673,7 +681,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
-          ...(VOICE_CAP_REASONS.has(error.message) || error.message === 'host-limit' ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
+          ...(VOICE_CAP_REASONS.has(error.message) || ['host-limit', 'one-hour', 'session', 'voiceVisitor'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
         return json({ error: 'voice-unavailable' }, 503);
       }
     },

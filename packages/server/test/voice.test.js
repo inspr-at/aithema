@@ -4,6 +4,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider
   SQLiteBudgetLedger, createVoiceCap, VOICE_CAP_REASON, VOICE_DAY_CAP_REASON } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
 import * as core from '@inspr/aithema-core';
+import { beginVoiceInvocation } from '@inspr/aithema-core/live-voice';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
@@ -3168,4 +3169,87 @@ test('AIT-247 operator socket refuses an actual active voice call without revoki
   assert.equal((await h.route('/voice/operator-call/close', { providerSessionId: call.providerSessionId })).status, 200);
   await h.handlers.idle();
   assert.equal((await adminRequest(socketPath, 'erase-session', { sessionId: h.session.id })).body.result, 'erased');
+});
+
+// The parent spend deadline also bounds separately admitted voice components.
+// Periodic visitor turns/heartbeats cannot move the conversation's deadline.
+test('AIT-261 negative: periodic voice turns cannot run past the conversation hour; the call closes once', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const HOUR = 60 * 60_000;
+  const h = voiceFixture(t, { host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'clock-start', content: 'We need an app.' }); await h.handlers.idle();
+  h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
+  h.advance(HOUR - 10_000);
+  // Run elapsed timers before opening the call; it must inherit the remaining 10 seconds.
+  t.mock.timers.tick(HOUR - 10_000); await new Promise(setImmediate);
+  const grant = await h.start(), identity = { providerSessionId: grant.providerSessionId };
+  assert.equal(grant.spendDeadlineAt, h.now() + 10_000);
+  for (let i = 1; i <= 2; i++) {
+    h.advance(4_000); t.mock.timers.tick(4_000);
+    assert.equal((await h.route(`/voice/${grant.callId}/heartbeat`, identity)).status, 200);
+    assert.equal((await h.route(`/voice/${grant.callId}/events`, { ...identity,
+      event: { callId: grant.callId, type: 'final', turnId: `${grant.providerSessionId}:user:${i}`, role: 'user', text: `Requirement ${i}` },
+    })).status, 200);
+    await h.handlers.idle();
+  }
+  const attempts = h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n;
+  h.advance(2_000); t.mock.timers.tick(2_000); await h.handlers.idle();
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'ended');
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).terminalReason, 'one-hour');
+  assert.deepEqual(h.closeRequests, [grant.providerSessionId]);
+  const response = await h.route('/voice', { callId: 'after-hour' });
+  assert.equal(response.status, 403); assert.equal((await response.json()).reason, 'one-hour');
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_attempts').get().n, attempts);
+  const ends = h.storage.read(h.session.id).filter(e => e.type === 'conversation.end-requested');
+  assert.equal(ends.length, 1); assert.equal(ends[0].data.settleOutstanding, true);
+  assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'credits.limit-reached').length, 1);
+});
+
+for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: voice refused ${stage} at the hour releases its hold without charging the owner`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const HOUR = 60 * 60_000;
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'clock-start', content: 'We need an app.' }); await h.handlers.idle();
+  h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
+  h.advance(HOUR - 1);
+  const wallet = h.host.wallet('voice-owner'), before = wallet.balance();
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'deadline-refusal' } });
+  const id = admitted.options.attempt.attemptId;
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  assert.ok(wallet.balance().committedMicro > before.committedMicro);
+  if (stage === 'before-consume') h.advance(1);
+  else h.beforeCoverage(async () => { h.advance(1); });
+  await assert.rejects(admitted.options.attempt.consume(), { code: 'not-admitted', message: 'one-hour' });
+  assert.equal(h.runtime.budget.get(id).state, 'claimed');
+  admitted.finish();
+  const row = h.runtime.budget.get(id);
+  assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'cancelled');
+  assert.equal(row.settled_micro, 0); assert.equal(row.settled_visitor_micro, 0);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 0);
+  assert.equal(h.storage.db.prepare('SELECT actual_ms FROM voice_cap_reservations WHERE attempt_id=?').get(id).actual_ms, 0);
+  assert.deepEqual(wallet.balance(), before);
+  assert.deepEqual(h.traffic, []);
+  h.runtime.recoverVoiceCap(); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+});
+
+test('AIT-261: dispatched voice keeps its duration hold at the hour until confirmed settlement', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const HOUR = 60 * 60_000;
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 }, host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  await h.route('/turns', { clientEventId: 'clock-start', content: 'We need an app.' }); await h.handlers.idle();
+  h.presets.best.bindings.voice.legal.evidence.expiresAt += HOUR;
+  h.advance(HOUR - 1);
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'deadline-dispatched' } });
+  const invocation = await beginVoiceInvocation(admitted.options, 'deadline-dispatched'); invocation.dispatch();
+  const id = admitted.options.attempt.attemptId;
+  h.advance(1); t.mock.timers.tick(HOUR); await h.handlers.idle();
+  assert.equal(h.runtime.budget.get(id).state, 'dispatched');
+  assert.equal(h.storage.creditState(h.session.id).endReason, 'one-hour');
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  await invocation.finish({ outcome: 'completed', closureConfirmed: true, usage: {
+    providerSeconds: 1, providerMinutes: 1 / 60, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 1000, visitorMicro: 2000,
+  } });
+  admitted.finish();
+  assert.equal(h.runtime.budget.get(id).outcome, 'completed'); assert.equal(h.runtime.budget.get(id).settled_micro, 1000);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 1000);
 });

@@ -6,7 +6,7 @@ import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { createVoiceOperationStore } from './voice-operation-storage.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
-  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin,
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, reduceCredits, aiTextOrigin, withAITextOrigin,
   voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle, parseReply } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -16,7 +16,7 @@ const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash',
 
 // Only core-owned session rows belong here. Host extensions are cleaned by retired.
 export const CORE_RETIREMENT_TABLES = Object.freeze([
-  'safeguard_inputs', 'safeguard_direction', 'host_states', 'content', 'events',
+  'safeguard_inputs', 'safeguard_direction', 'host_states', 'conversation_credit_guards', 'content', 'events',
   'receipts', 'voice_calls', 'voice_lifecycle_calls', 'concept_artifacts', 'uploads',
   'voice_turn_operations', 'session_retention', 'retirement_pending', 'lane_failures',
   'ui_render_claims', 'voice_cap_reservations', 'budget_attempts',
@@ -54,6 +54,7 @@ export class SQLiteStorage {
         PRIMARY KEY(session_id,lane));
       CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS conversation_credit_guards (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
         kind TEXT NOT NULL, bytes TEXT, hash TEXT NOT NULL, at TEXT NOT NULL, tombstone TEXT);
       CREATE TABLE IF NOT EXISTS events (session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -81,6 +82,11 @@ export class SQLiteStorage {
       this.db.exec('ALTER TABLE safeguard_inputs ADD COLUMN assessment_revision TEXT; UPDATE safeguard_inputs SET assessment_revision=revision;');
     }
     this.#migrate();
+    // Preserve the original deadline of legacy guards, only on the conversation
+    // they actually belong to. Never rebind one owner's deadline to New/reset.
+    this.db.exec(`INSERT OR IGNORE INTO conversation_credit_guards
+      SELECT s.id,g.record FROM owner_credit_guards g JOIN sessions s ON s.id=json_extract(g.record,'$.sessionId')
+      WHERE json_extract(s.snapshot,'$.tombstone') IS NULL;`);
     this.voiceTurnStore = createVoiceOperationStore(this);
     this.#retention();
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
@@ -306,6 +312,13 @@ export class SQLiteStorage {
     const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(hash(ownerToken));
     return row ? JSON.parse(row.record) : null;
   }
+  // Legacy deadlines migrate to conversation_credit_guards at startup. Only
+  // the owner's manual pause preference carries across New/reset afterwards.
+  setOwnerPaused(ownerToken, paused) {
+    if (!ownerToken || typeof paused !== 'boolean') throw new TypeError('Invalid owner pause');
+    this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
+      .run(hash(ownerToken), JSON.stringify({ paused }));
+  }
   /** Only trusted reducers enter here. State and its public events commit together. */
   transitionHost(id, update, guard = {}) {
     return this.transaction(() => {
@@ -317,20 +330,19 @@ export class SQLiteStorage {
       return { ...result, events };
     });
   }
-  /** One host clock guard per owner; new/reset never renew its deadline. */
+  creditState(id) {
+    const row = this.db.prepare('SELECT record FROM conversation_credit_guards WHERE session_id=?').get(id);
+    return row ? JSON.parse(row.record) : null;
+  }
+  /** Per-conversation clock and terminal notifications commit atomically.
+   * An omitted owner token is for trusted server admission/timer/recovery only. */
   transitionCredits(id, ownerToken, event, options = {}) {
-    if (options.ownerGuard === false) {
-      this.authorize(id, ownerToken);
-      return { state: null, events: [] };
-    }
     return this.transaction(() => {
-      const session = this.authorize(id, ownerToken), key = session.ownerHash;
-      const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(key);
-      const previous = row ? JSON.parse(row.record) : null;
-      const state = previous ? previous.sessionId === id ? previous : rebindCredits(previous, id) : createCredits({ sessionId: id, ...options });
+      const session = this.get(id); this.#check(session, { ownerToken });
+      const state = this.creditState(id) ?? createCredits({ ...options, sessionId: id });
       const result = reduceCredits(state, { ...event, now: Math.max(event.now, state.lastNow) });
-      this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
-        .run(key, JSON.stringify(result.state));
+      this.db.prepare('INSERT INTO conversation_credit_guards VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET record=excluded.record')
+        .run(id, JSON.stringify(result.state));
       return { ...result, events: result.events.map(e => this.#append(this.get(id), e.type, e.data)) };
     });
   }

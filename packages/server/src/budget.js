@@ -302,6 +302,7 @@ export class SQLiteBudgetLedger {
       } });
     });
   }
+  // Only a consumed dispatch claim can carry provider liability.
   settle(claimId, terminal, rates = { inputMicro: 0, outputMicro: 0 }) {
     if (!terminal || !['completed', 'cancelled', 'uncertain'].includes(terminal.outcome) ||
       !['inputMicro', 'outputMicro'].every(k => integer(rates[k])) ||
@@ -358,7 +359,8 @@ export class SQLiteBudgetLedger {
         integer(terminal.chargedMicro) ? terminal.chargedMicro : 0) : terminal.usage.upstreamMicro;
       this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=?,settled_visitor_micro=? WHERE claim_id=?")
         .run(!dispatched ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome,
-          terminal.usage ? JSON.stringify(terminal.usage) : null, actual, bytes, actual > row.max_micro ? 1 : 0,
+          !dispatched ? JSON.stringify({ providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 })
+            : terminal.usage ? JSON.stringify(terminal.usage) : null, actual, bytes, actual > row.max_micro ? 1 : 0,
           !dispatched ? 0 : uncertain ? Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro) : terminal.usage.visitorMicro, claimId);
       return this.get(row.attempt_id);
     });

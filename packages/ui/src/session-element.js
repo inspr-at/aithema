@@ -729,13 +729,13 @@ export class AithemaSession extends HTMLElement {
     const refresh = (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
-      void this.#rail.close('host-limit');
+      void this.#rail.close(this.#host.endReason ?? 'host-limit');
       this.#creditEndTimer = setTimeout(() => { this.#creditEnding = false; this.#creditsChanged(); }, 600);
     }
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
     if (usedUp && !this.#creditEnding && !this.#creditAnnounced) {
-      this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#copy.hostSurface.usedUp.announce);
+      this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#copy.hostSurface.credits.ended[this.#host.endReason] ?? this.#copy.hostSurface.usedUp.announce);
     }
     if (usedUp && this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') this.#render('transcript');
     this.#render('composer'); this.#render('transcript'); this.#rail?.render(); this.#dialog?.sync();
@@ -1033,7 +1033,8 @@ export class AithemaSession extends HTMLElement {
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
-      setText(out.querySelector('.composer-out__title'), u.title); setText(out.querySelector('.composer-out__body'), u.body);
+      setText(out.querySelector('.composer-out__title'), u.title);
+      setText(out.querySelector('.composer-out__body'), credits.ended[this.#host?.endReason] ?? u.body);
       const delta = this.#host?.deltaCredits ?? '';
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       setText(out.querySelector('.composer-out__none'), u.none);

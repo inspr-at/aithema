@@ -582,3 +582,49 @@ for (const [kind, create, binding, recognizes] of [
     }
   });
 }
+
+for (const lane of ['reaction', 'understanding']) test(`AIT-261: paid ${lane} dispatched before expiry completes and settles at the hour`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
+  const h = setup(t, undefined, { now: () => clock }), gate = deferred(), started = deferred();
+  t.after(() => h.runtime.conversationLimits.close());
+  const admitted = await h.runtime.admit({ session: h.session, lane, operation: lane === 'reaction' ? 'stream' : 'structured', request });
+  const id = admitted.options.attempt.attemptId, maximum = h.runtime.budget.get(id).max_micro;
+  assert.ok(maximum > 0);
+  const work = (async () => {
+    const { beginInvocation } = await import('@inspr/aithema-core');
+    const invocation = await beginInvocation(admitted.options); invocation.dispatch(); started.resolve();
+    await gate.promise; invocation.usage({ inputTokens: 3, outputTokens: 4 }); await invocation.finish(true); admitted.finish();
+  })();
+  await started.promise;
+  clock += 60 * 60_000; t.mock.timers.tick(60 * 60_000);
+  assert.equal(h.storage.creditState(h.session.id).endReason, 'one-hour');
+  assert.equal(h.runtime.budget.get(id).state, 'dispatched');
+  assert.equal(h.runtime.budget.get(id).max_micro, maximum);
+  gate.resolve(); await work;
+  assert.equal(h.runtime.budget.get(id).settled_micro, 11);
+  assert.equal(h.runtime.budget.get(id).outcome, 'completed');
+});
+
+for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: paid dispatch refused ${stage} is cancelled without charge`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let clock = Date.now();
+  t.mock.method(Date, 'now', () => clock);
+  const h = setup(t, undefined, { now: () => clock });
+  t.after(() => h.runtime.conversationLimits.close());
+  const admitted = await h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request });
+  const id = admitted.options.attempt.attemptId, maximum = h.runtime.budget.get(id).max_micro;
+  assert.ok(maximum > 0);
+  const expire = () => { clock += 60 * 60_000; };
+  if (stage === 'before-consume') expire();
+  else h.consent.coverage = async query => { expire(); return grantFor(query); };
+  await assert.rejects(async () => admitted.options.attempt.consume(), { code: 'not-admitted', message: 'one-hour' });
+  assert.equal(h.runtime.budget.get(id).state, 'claimed');
+  // A provider finally block reports its ordinary pre-dispatch cancellation.
+  admitted.options.report({ attemptId: id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+  admitted.finish({ failed: true });
+  assert.equal(h.runtime.budget.get(id).outcome, 'cancelled');
+  assert.equal(h.runtime.budget.get(id).settled_micro, 0);
+  assert.equal(h.runtime.budget.used(h.session.id), 0);
+});
