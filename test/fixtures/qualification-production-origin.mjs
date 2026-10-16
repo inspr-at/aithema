@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio', opener = 'normal', userFinalDelayMs = 400, longPoll = false } = {}) {
+export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio', opener = 'normal', userFinalDelayMs = 400, longPoll = false, mountedAttribute = true } = {}) {
   const key = join(directory, 'synthetic-tls-key.pem'), cert = join(directory, 'synthetic-tls-cert.pem');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
     '-days', '1', '-subj', '/CN=start2.fixture.test'], { stdio: 'ignore' });
@@ -58,7 +58,7 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
       fetch(${JSON.stringify(otherOrigin + '/challenge')},{mode:'cors',credentials:'include'}).catch(()=>{});
       ${longPoll ? "fetch('/api/sessions/production-visitor/events').then(async response=>{const reader=response.body.getReader();while(!(await reader.read()).done){}}).catch(()=>{});" : ''}
       const session=document.querySelector('aithema-session'),root=session.attachShadow({mode:'open'});
-      session.setAttribute('data-aithema-mounted','');
+      ${mountedAttribute ? "session.setAttribute('data-aithema-mounted','');" : ''}
       if(!sessionStorage.getItem('consented')){root.innerHTML='<button class="chooser__continue">Continue</button>';root.querySelector('button').onclick=()=>location.href='/consent/';return;}
       root.innerHTML='<button class="ready__mode" data-mode="voice">Voice</button><button class="ready__start">Start</button><button class="voice-close">Stop</button><div class="audio-rail" data-state="listening"></div>';
       let context,oscillator,gain,stream;
