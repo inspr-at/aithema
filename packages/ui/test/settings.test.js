@@ -603,10 +603,44 @@ test('AIT-234: Custom chosen before the catalog loads applies Custom defaults, n
   h.c.openSettings();
   h.q('[data-preset="custom"]').click();
   await tick();
+  assert.deepEqual(h.posts, [], 'no partial preset can be saved');
+  assert.equal(h.q('[data-preset="custom"]').getAttribute('aria-checked'), 'true');
+  assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.loading);
+  h.q('.done').click(); await tick();
+  assert.equal(h.dialog.open, true, 'Done cannot confirm Best while Custom is pending');
+  assert.deepEqual(h.posts, []);
   held.resolve(); await tick(10);
   assert.deepEqual(h.posts, [{ processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0, confirm: true }]);
   assert.equal(h.c.session.settings.origin, 'chosen');
   assert.equal(h.c.session.processingPreset, 'custom');
   assert.equal(h.c.session.settings.voice, 'off');
   assert.equal(h.c.session.settings.visuals, 'off');
+});
+
+for (const action of ['best', 'dismiss', 'reopen']) test(`AIT-234: ${action} cancels Custom waiting for the catalog`, async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = fixture(t, { loadCatalog: async catalog => { await held.promise; return catalog; } });
+  h.c.openSettings(undefined, { preset: 'custom' });
+  await tick();
+  if (action === 'best') h.q('[data-preset="best"]').click();
+  else { h.dialog.dispatchEvent(new window.Event('cancel', { cancelable: true })); if (action === 'reopen') h.c.openSettings(); }
+  held.resolve(); await tick(10);
+  assert.deepEqual(h.posts, [], 'the stale choice never saves');
+  assert.equal(h.c.session.processingPreset, 'best');
+  if (h.dialog.open) assert.equal(h.q('[data-preset="best"]').getAttribute('aria-checked'), 'true');
+});
+
+test('AIT-234: a failed catalog retains Custom for explicit reload without saving Best', async t => {
+  let reads = 0;
+  const h = fixture(t, { loadCatalog: async catalog => { if (++reads === 1) throw new Error('offline'); return catalog; } });
+  h.c.openSettings(); h.q('[data-preset="custom"]').click(); await tick();
+  assert.deepEqual(h.posts, []);
+  assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.loadFailed);
+  h.q('.done').click(); await tick(); assert.equal(h.dialog.open, true);
+  h.q('.notice-body .notice-action').click(); await tick(10);
+  assert.equal(h.posts.length, 1);
+  assert.equal(h.posts[0].model, 'mock/deep');
+  assert.equal(h.posts[0].voice, 'off'); assert.equal(h.posts[0].visuals, 'off');
+  assert.equal(h.c.session.settings.origin, 'chosen');
 });

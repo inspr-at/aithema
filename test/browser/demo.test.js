@@ -1831,6 +1831,10 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
     const geometry = () => shadowRects(page, 'dialog.settings, .settings__header, .settings-field, .notice-area, .settings-context, .settings__footer, .done');
     await settle();
     const pending = await geometry();
+    assert.deepEqual(await page.evaluate(() => window.customCatalog.posts), [], 'no save before the catalog');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings [data-preset="custom"]').getAttribute('aria-checked')), 'true');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy')), 'true');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.notice-body .notice-text').textContent), ({ de, en })[locale].settings.loading);
     if (evidence) await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-pending.png`), fullPage: false });
     await page.evaluate(() => window.customCatalog.release());
     await until(page, () => {

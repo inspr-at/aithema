@@ -80,7 +80,7 @@ export class SettingsDialog {
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
-  #closeGeneration = 0;
+  #closeGeneration = 0; #pendingPreset = null;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
     if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => this.close() } });
@@ -306,7 +306,8 @@ export class SettingsDialog {
     this.#setTab(tab); this.#render();
     this.#q('.done').focus();
     // The chooser's Custom card preselects the host's Custom preset with its defaults.
-    void this.reload().then(() => { if (preset && this.#dialog.open && preset !== this.#draft?.processingPreset) this.#choosePreset(preset); });
+    void this.reload();
+    if (preset) this.#choosePreset(preset);
   }
   acknowledgeSave() {
     if (!this.#saving && !this.#failed && !this.#pending()) this.#status = this.#copy.settings.saved;
@@ -334,7 +335,12 @@ export class SettingsDialog {
       this.#active = activeSelection({ processingPreset: catalog.processingPreset, settings: catalog.settings, engine: catalog.engine });
       this.#draft = { ...this.#active };
     }
+    // Resolve the latest explicit choice only after the host defaults are known.
+    // Closing cancels it, so a late catalog cannot apply to a reopened dialog.
+    const preset = this.#pendingPreset;
+    this.#pendingPreset = null;
     this.#render();
+    if (preset && this.#dialog.open) this.#choosePreset(preset);
   }
   /** Acknowledged session state changed elsewhere (SSE, another tab, reconfigure). */
   sync() {
@@ -349,7 +355,7 @@ export class SettingsDialog {
   close() {
     if (!this.#dialog.open || this.#closing) return;
     this.#closeGeneration++;
-    this.#closing = true;
+    this.#closing = true; this.#pendingPreset = null;
     clearTimeout(this.#timer); this.#timer = 0;
     for (const select of this.#all('.select')) this.#closeMenu(select);
     this.#q('.disclosure').open = false;
@@ -367,7 +373,7 @@ export class SettingsDialog {
   async closeForVerification() {
     if (!this.#dialog.open) return true;
     clearTimeout(this.#timer); this.#timer = 0;
-    if (this.#failed) return false;
+    if (this.#failed || this.#pendingPreset) return false;
     if (this.#pending() || this.#saving) await this.#save();
     // A failed or blocked save stays in Settings; a dismissal cancels the transition.
     if (!this.#dialog.open || this.#failed || this.#pending()) return false;
@@ -375,6 +381,7 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
+    if (this.#pendingPreset) return;
     // Done owns this interaction only. Later navigation, edits or reopening
     // cancel its close while the save still records the explicit confirmation.
     const generation = ++this.#closeGeneration;
@@ -417,7 +424,15 @@ export class SettingsDialog {
   #choosePreset(preset) {
     const button = this.#q(`.preset-option[data-preset="${preset}"]`);
     this.#help = button.dataset.reason ? `${button.dataset.kind || 'unavailable'}:${button.dataset.reason}` : preset;
-    if (button.getAttribute('aria-disabled') === 'true' || preset === this.#draft?.processingPreset) { this.#showHelp(); return; }
+    if (button.getAttribute('aria-disabled') === 'true') { this.#showHelp(); return; }
+    this.#closeGeneration++;
+    this.#pendingPreset = null;
+    if (preset === this.#draft?.processingPreset) { this.#render(); return; }
+    // Do not merge a preset name into the previous preset's values. The host
+    // owns defaults; keep the choice pending until those defaults arrive.
+    if (!this.#catalog && preset !== 'device') {
+      this.#pendingPreset = preset; this.#notice = null; this.#render(); return;
+    }
     const info = this.#presetInfo(preset);
     // A preset brings its host defaults; returning to the saved preset restores the saved choice.
     const next = preset === this.#active.processingPreset ? { ...this.#active } : preset === 'device'
@@ -431,7 +446,7 @@ export class SettingsDialog {
   }
   #change(patch, debounce = false) {
     if (!this.#draft) return;
-    this.#closeGeneration++;
+    this.#closeGeneration++; this.#pendingPreset = null;
     this.#draft = { ...this.#draft, ...patch }; this.#revision++; this.#failed = false;
     this.#notice = null; this.#status = this.#copy.settings.autosave;
     this.#render();
@@ -441,6 +456,7 @@ export class SettingsDialog {
   }
   // One writer: edits made while a save runs are drained after its acknowledgement.
   #save(retry = false, confirm = false) {
+    if (this.#pendingPreset) return Promise.resolve();
     if (this.#saving) return this.#saving.then(() => { if (this.#pending() && !this.#failed && !this.#timer) return this.#save(); });
     const drain = async () => {
       while ((this.#pending() || confirm) && this.#dialog.open && !this.#closing) {
@@ -532,6 +548,7 @@ export class SettingsDialog {
     return node;
   }
   #renderSelect(name, options, selectedValue, { disabled = false, reason = '' } = {}) {
+    if (this.#pendingPreset) { options = [{ value: 'pending', label: '…' }]; selectedValue = 'pending'; }
     const select = this.#q(`[data-select="${name}"]`), menu = select.querySelector('.select__menu'), button = select.querySelector('.select__button');
     const key = JSON.stringify([options, selectedValue, disabled]);
     if (this.#paintKeys.get(name) !== key) {
@@ -579,7 +596,8 @@ export class SettingsDialog {
       const kind = !catalog ? '' : preset === this.#active?.processingPreset ? '' : !presetInfo?.offered ? 'unavailable' : presetInfo.status === 'available' ? '' : presetInfo.status;
       const reason = kind === 'unavailable' ? presetInfo?.reason ?? 'preset not configured' : kind ? presetInfo?.reason ?? '' : '';
       button.querySelector('.preset-name').textContent = this.#copy.presets[preset];
-      button.setAttribute('aria-checked', String(draft.processingPreset === preset)); button.tabIndex = draft.processingPreset === preset ? 0 : -1;
+      const selected = (this.#pendingPreset ?? draft.processingPreset) === preset;
+      button.setAttribute('aria-checked', String(selected)); button.tabIndex = selected ? 0 : -1;
       button.setAttribute('aria-disabled', String(kind === 'unavailable'));
       if (reason) { button.dataset.reason = reason; button.dataset.kind = kind; } else { delete button.dataset.reason; delete button.dataset.kind; }
       const status = button.querySelector('.option-status');
@@ -614,7 +632,7 @@ export class SettingsDialog {
     const gauges = settingsGauges({ preset: draft.processingPreset, info: info ?? {}, model: option, effort: draft.effort,
       voice: draft.voice === SETTINGS_OFF ? null : voiceOption, visuals: draft.visuals === SETTINGS_OFF ? null : visualsOption });
     for (const kind of GAUGES) this.#paintGauge(kind, gauges[kind]);
-    const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : null);
+    const notice = this.#notice ?? (this.#loadFailed ? { text: c.loadFailed, label: c.reload, action: () => this.reload() } : this.#pendingPreset ? { text: c.loading } : null);
     this.#q('.notice-area').dataset.kind = notice ? 'notice' : '';
     this.#q('.notice-body .notice-text').textContent = notice?.text ?? '';
     this.#q('.notice-body .notice-action').hidden = !notice?.label;
@@ -628,7 +646,8 @@ export class SettingsDialog {
     this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
-    this.#dialog.setAttribute('aria-busy', String(this.#busy));
+    this.#q('.done').setAttribute('aria-disabled', String(Boolean(this.#pendingPreset)));
+    this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset)));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';
     this.#showHelp();
   }
