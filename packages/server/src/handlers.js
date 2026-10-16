@@ -718,7 +718,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       // Retry host cleanup for tombstones too: a previous call may have failed
       // after the durable erase but before the host acknowledged its cleanup.
       const live = new Set(ids);
-      await Promise.all(scope.map(id => live.has(id) ? eraseConversation(id, {}) : host?.erased?.({ sessionId: id })));
+      await Promise.all(scope.map(async id => {
+        if (live.has(id)) return eraseConversation(id, {});
+        // storage.erase commits before truncating the WAL. If that checkpoint
+        // failed, retry it and the event/cancellation cascade before acknowledging.
+        storage.checkpointErasure();
+        const event = storage.read(id).findLast(event => event.type === 'session.erased');
+        await invalidate(id, event, 'session-erased');
+        await host?.erased?.({ sessionId: id });
+      }));
       if (visitor) host.eraseVisitorForOwnerHash(session.ownerHash);
       return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
         erasedSessions: ids.length, providerDeletion: 'not-confirmed' };

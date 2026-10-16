@@ -133,3 +133,16 @@ test('AIT-247 audit failure cannot acknowledge a successful erase', async t => {
   audit.mock.restore();
   assert.equal((await h.erase(a.id)).body.result, 'already-erased');
 });
+
+
+test('AIT-247 a failed post-commit checkpoint retries the erasure cascade and closes SSE', { timeout: 10_000 }, async t => {
+  const h = await fixture(t), a = await h.create();
+  const stream = await sessionFetch(h.url + `/api/sessions/${a.id}/events`), consumed = stream.text();
+  const checkpoint = t.mock.method(h.storage, 'checkpointErasure', () => { throw new Error('checkpoint unavailable'); });
+  assert.equal((await h.erase(a.id)).body.error, 'erasure-failed');
+  assert.ok(h.storage.get(a.id).tombstone, 'the erase transaction committed before the checkpoint failed');
+  checkpoint.mock.restore();
+  assert.equal((await h.erase(a.id)).body.result, 'already-erased');
+  assert.match(await consumed, /event: session.erased/u);
+  assert.equal(h.storage.read(a.id).filter(e => e.type === 'session.erased').length, 1);
+});

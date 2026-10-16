@@ -255,7 +255,8 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     deleteEmail(ownerToken) { const result = visitorCredits.deleteEmail(hash(ownerToken)); purgeMail(); return result; },
     pendingDispatchForSession(id) {
       return Boolean(storage.db.prepare(`SELECT 1 FROM owner_wallet_reservations w LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id
-        WHERE json_extract(w.fingerprint,'$[0]')=? AND w.released=0 AND b.attempt_id IS NULL LIMIT 1`).get(id));
+        WHERE CASE WHEN json_valid(w.fingerprint) THEN json_extract(w.fingerprint,'$[0]') END=?
+        AND w.released=0 AND b.attempt_id IS NULL LIMIT 1`).get(id));
     },
     eraseVisitor(ownerToken) { host.eraseVisitorForOwnerHash(hash(ownerToken)); },
     eraseVisitorForOwnerHash(ownerHash) { visitorCredits.eraseVisitor(ownerHash); purgeMail(); },
