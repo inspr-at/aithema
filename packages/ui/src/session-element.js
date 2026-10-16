@@ -1,4 +1,4 @@
-import { paintConsentLine } from './consent-line.js';
+import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
@@ -18,7 +18,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, uploadRetryDelay, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
@@ -88,6 +88,7 @@ export class AithemaSession extends HTMLElement {
   #paneObserver; #scrollTimers = new Map();
   #questionCard; #disposeVersion;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
+  #uploadController; #uploadRetryTimer = null; #retryFiles = [];
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -109,6 +110,7 @@ export class AithemaSession extends HTMLElement {
   configure(options) {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
+    this.#cancelUploads();
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#laneStatusPending = null;
@@ -132,7 +134,7 @@ export class AithemaSession extends HTMLElement {
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
-    this.#uploadAt.clear(); this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
+    this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused);
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
@@ -155,8 +157,10 @@ export class AithemaSession extends HTMLElement {
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
     this.#observePanes(); this.#syncReconciling();
+    this.#render('composer');
   }
   disconnectedCallback() {
+    this.#cancelUploads();
     this.#stopReconciling();
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
@@ -197,7 +201,9 @@ export class AithemaSession extends HTMLElement {
     const previous = this.#copy, root = this.shadowRoot;
     this.#copy = copy; this.#options.copy = copy; this.#fold?.setCopy(copy); this.#paintMotion(); this.#paintNotice();
     for (const key of ['connecting', 'connected', 'reconnecting']) if (this.#connection === previous[key]) { this.#connection = copy[key]; break; }
-    this.#notice = ''; this.#uploadNotice = ''; this.#chooser.error = '';
+    this.#notice = ''; this.#chooser.error = '';
+    // The current refusal and retained count are rebuilt in the new locale by the composer.
+    this.#uploadNotice = '';
     this.#anchored(() => {
       for (const n of root.querySelectorAll('[data-copy]')) setText(n, copy[n.dataset.copy]);
       const promise = root.querySelector('.promise');
@@ -349,7 +355,7 @@ export class AithemaSession extends HTMLElement {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       if (e.key === 'Enter' && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.#send(); }
     });
-    root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice) { this.#uploadNotice = ''; this.#render('composer'); } });
+    root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice && !this.#retryFiles.length) { this.#uploadNotice = ''; this.#render('composer'); } });
     this.#mountUploads();
     root.querySelector('.expand').addEventListener('click', () => {
       const details = [...root.querySelectorAll('.cleared details')];
@@ -550,7 +556,14 @@ export class AithemaSession extends HTMLElement {
     // Reserve the longest steady status in this locale; action messages use the existing popup.
     reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
-    setText(status.querySelector('.status__label'), words); status.title = words;
+    // Keep the same live message node, anchored to the dock while it is a toast.
+    // The footer's sizer still reserves its steady status width.
+    const label = root.querySelector('.status__label'), message = !this.#rail?.moved && Boolean(this.#notice);
+    const toast = message && root.querySelector('.workspace').dataset.stage === 'live';
+    const parent = toast ? root.querySelector('.composer-dock') : status;
+    if (label.parentNode !== parent) parent.append(label);
+    if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
+    setText(label, words); status.title = words;
     status.toggleAttribute('data-connected', connected);
     status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
@@ -911,13 +924,39 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
-      // An upload refusal stands until the person types or attaches again.
+      // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
-      paintConsentLine(reason, { copy, feature: 'text', text: words,
-        verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
-        open: opener => this.#dialog.openConsent('text', opener) });
-      reason.title = this.#uploadNotice || text.available ? '' : unavailable;
+      if (this.#retryFiles.length) {
+        const refusal = this.#retryRefusal();
+        if (!reason.querySelector('.upload-discard')) {
+          const label = node('span'), discard = reasonAction('', () => {
+            this.#retryFiles = []; this.#uploadNotice = ''; this.#render('composer');
+          });
+          label.id = 'upload-retry-reason'; discard.classList.add('upload-discard');
+          discard.setAttribute('aria-describedby', label.id);
+          reason.replaceChildren(label, discard);
+        }
+        let action = reason.querySelector('.upload-retry');
+        const discard = reason.querySelector('.upload-discard');
+        if (refusal && action) action.parentNode.remove();
+        else if (!refusal && !action) {
+          action = reasonAction('', () => { void this.#attach(this.#retryFiles, true); });
+          action.classList.add('upload-retry'); action.setAttribute('aria-describedby', 'upload-retry-reason');
+          // Buttons form atomic inline boxes; keep the following separator in the same no-wrap span.
+          const joined = node('span'); joined.style.whiteSpace = 'nowrap';
+          joined.append(action, document.createTextNode(reasonSeparator)); reason.insertBefore(joined, discard);
+        }
+        const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
+        setText(reason.querySelector('span'), `${facts}${reasonSeparator}`);
+        if (!refusal) setText(action, copy.uploads.tryAgain);
+        setText(discard, copy.uploads.discard);
+      } else {
+        paintConsentLine(reason, { copy, feature: 'text', text: words,
+          verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
+          open: opener => this.#dialog.openConsent('text', opener) });
+      }
+      reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
@@ -1619,7 +1658,17 @@ export class AithemaSession extends HTMLElement {
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
   }
-  #uploadRefusal(text) { this.#uploadNotice = text; this.#render('composer'); }
+  // Recheck the retained selection without consuming it. Holds clear only the retry action,
+  // so a later resume or withdrawal restores a manual retry without uploading anything.
+  #retryRefusal() {
+    const refusal = this.#attachRefusal();
+    if (refusal) return refusal;
+    return refusalText(this.#copy, planUploads(this.#retryFiles, { limits: this.#limits, uploads: this.#session.uploads }), this.#session.locale);
+  }
+  #uploadRefusal(text) {
+    if (!this.#retryFiles.length) this.#uploadNotice = text;
+    this.#render('composer');
+  }
   // Limits are the host's (possibly lowered) values; the route defaults hold until they arrive.
   #loadLimits() {
     if (this.#limitsLoad) return this.#limitsLoad;
@@ -1630,53 +1679,89 @@ export class AithemaSession extends HTMLElement {
         const response = await fetch(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error();
         const body = await response.json();
-        if (sessionId === this.#session.id) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
+        if (sessionId === this.#session.id && this.isConnected) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
       } catch { if (this.#limitsLoad === load) this.#limitsLoad = null; }
     });
     this.#limitsLoad = load;
     return load;
   }
-  async #attach(files) {
-    if (!files.length) return;
-    const copy = this.#copy, sessionId = this.#session.id, refusal = this.#attachRefusal();
+  async #attach(files, retry = false) {
+    if (!files.length || !this.isConnected) return;
+    const copy = this.#copy, sessionId = this.#session.id, refusal = retry ? this.#retryRefusal() : this.#attachRefusal();
     if (refusal) { this.#uploadRefusal(refusal); return; }
-    this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
+    const controller = new AbortController(); this.#uploadController = controller;
+    const current = () => !controller.signal.aborted && sessionId === this.#session.id && this.isConnected;
+    // An admitted new pick replaces the retained set explicitly; a retry reuses that set.
+    const replacement = !retry && this.#retryFiles.length ? copy.uploads.replaced : '';
+    this.#retryFiles = []; this.#uploading = true; this.#uploadNotice = replacement; this.#render('composer');
     try {
       await this.#loadLimits();
-      if (sessionId !== this.#session.id) return;
+      if (!current()) return;
       // The host's limits may have arrived just now and leave no room: nothing is sent.
-      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = copy.uploads.impossible; return; }
+      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = [replacement, copy.uploads.impossible].filter(Boolean).join(' · '); return; }
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
-      const notices = [refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
+      const notices = [replacement, refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
       if (count) {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0;
         for (const batch of plan.batches) {
-          const failure = await this.#postUploads(batch);
-          if (sessionId !== this.#session.id) return;
-          if (failure) { notices.push(failure); break; }
+          const failure = await this.#postUploads(batch, controller.signal);
+          if (!current()) return;
+          if (failure) {
+            // Earlier batches are already attached; keep only the refused and unattempted files.
+            if (failure === 'upload-rate-limit') this.#retryFiles = plan.batches.flat().slice(sent);
+            else notices.push(failure);
+            break;
+          }
           sent += batch.length;
         }
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
         else this.#clearNotice();
       }
-      this.#uploadNotice = notices.filter(Boolean).join(' ');
+      this.#uploadNotice = notices.filter(Boolean).join(' · ');
     } finally {
-      if (sessionId === this.#session.id) { this.#uploading = false; this.#render('composer'); }
+      if (this.#uploadController === controller) {
+        this.#uploadController = null; this.#uploading = false;
+        if (this.isConnected) this.#render('composer');
+      }
     }
   }
-  /** One multipart request; returns the plain-words failure, or '' once the server accepted it. */
-  async #postUploads(files) {
+  #cancelUploads() {
+    clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
+    this.#retryFiles = []; this.#uploadController?.abort();
+  }
+  #waitForUploadRetry(delay, signal) {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise(resolve => {
+      const finish = () => {
+        clearTimeout(timer); this.#uploadRetryTimer = null;
+        signal.removeEventListener('abort', finish); resolve();
+      };
+      const timer = setTimeout(finish, delay); this.#uploadRetryTimer = timer;
+      signal.addEventListener('abort', finish, { once: true });
+    });
+  }
+  /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
+  async #postUploads(files, signal) {
     const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
+    const current = () => !signal.aborted && sessionId === this.#session.id && this.isConnected;
     form.append('clientEventId', crypto.randomUUID());
     for (const file of files) form.append('files', file, file.name);
     let response, body = null;
     try {
       const path = `${this.#base}/api/sessions/${sessionId}/uploads`;
-      response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken });
-      body = await response.json().catch(() => null);
-    } catch { return copy.uploads.failed; }
-    if (sessionId !== this.#session.id) return '';
+      // A 202 retains its reservation through extraction, so even sequential batches can be busy.
+      // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!current()) return '';
+        response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
+        body = await response.json().catch(() => null);
+        if (!current()) return '';
+        if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
+        await this.#waitForUploadRetry(uploadRetryDelay(response, attempt), signal);
+      }
+    } catch { return current() ? copy.uploads.failed : ''; }
+    if (!current()) return '';
     if (response.ok && body) {
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);
@@ -1684,7 +1769,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;
-    if (response.status === 429) return copy.uploads.busy;
+    if (response.status === 429) return 'upload-rate-limit';
     if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason, 'uploads'));
     return copy.uploads.failed;
   }

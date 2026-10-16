@@ -283,7 +283,7 @@ test('AIT-186 r2: F2 fast ledger settlement, F6 session pause and AIT-174 purpos
     const paused = await shadow(page, c => ({ readiness: c.shadowRoot.querySelector('.readiness').style.visibility,
       composer: c.shadowRoot.querySelector('.composer-reason').textContent, footer: c.shadowRoot.querySelector('.status__label').textContent,
       overview: c.shadowRoot.querySelector('.notice').textContent }));
-    assert.equal(paused.readiness, ''); assert.equal(paused.composer, locale === 'de' ? 'Gespräch pausiert' : 'Session paused');
+    assert.equal(paused.readiness, ''); assert.equal(paused.composer, locale === 'de' ? 'Gespräch pausiert' : 'Conversation paused');
     assert.equal(paused.footer, locale === 'de' ? 'Verbunden' : 'Connected'); assert.equal(paused.overview, overview);
     assert.deepEqual(await boxes(page, [...railBoxes, '.display-foot', '.status']), before, `${label}: F6 pause 0 px`);
     await evidence('F6', page, `${label}-session-pause`, { ...paused, shiftPx: 0 });

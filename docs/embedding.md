@@ -430,6 +430,56 @@ URLs; custom `htmlTemplate` functions receive the same merged `copy` and should
 render its wording. See the [plugin README](../plugins/mail-smtp/README.md) for
 the full field list and fallback behavior.
 
+## Document extraction limits
+
+The offline text/PDF/OOXML extractor ceiling is **20 MiB (20,971,520 bytes)**.
+An input of exactly that size can extract; a larger input returns
+`unreadable` with reason `limit`. Other format, archive and worker bounds still
+apply. Hosts can only lower extractor ceilings, including per-call overrides;
+raising an override is clamped to the configured ceiling.
+
+| Extractor bound | Ceiling |
+| --- | --- |
+| Source bytes | 20 MiB |
+| Retained text | 60,000 characters, including segment separators |
+| PDF pages / Office sheets or slides | 100 |
+| Worker deadline | 10,000 ms |
+| V8 old-space limit (`maxHeapMb`) | 128 MiB |
+| Worker RSS watchdog | 384 MiB, sampled every 25 ms |
+| OOXML ZIP entries | 512 |
+| One uncompressed ZIP part | 16 MiB |
+| Total uncompressed ZIP bytes | 48 MiB |
+| ZIP compression ratio | 100:1 per part |
+| Core `UPLOAD_LIMITS.maxRequestBytes` | 21 MiB |
+| Server multipart request default/ceiling | 21 MiB (hosts may only lower it) |
+| Server file default/ceiling | 20 MiB |
+| Server files per request / documents per session | 8 / 8 |
+| Server source-byte budget per session | 160 MiB |
+| Upload request budget | 25,000 ms |
+
+Uploads use literal `multipart/form-data` file bytes, without base64 encoding.
+The core request budget allows one 20 MiB document plus 1 MiB of form framing;
+the HTTP regression verifies the original bytes reach admission intact. The
+server enforces the same 21 MiB request ceiling, which hosts may only lower.
+At most three requests per server process reserve admission from before body
+reads until all their files finish extraction. A full reservation returns a
+retryable HTTP 429 busy (`upload-rate-limit`) before reading the body. The UI
+plans sequential batches against the advertised limits (20 MiB/file and
+21 MiB/request if the limits GET fails) and retries busy responses up to three
+total attempts, waiting 5 then 10 seconds or the longer `Retry-After` delay.
+Busy is shown only after the attempts fail. The conservative default payload
+and worker allowance is **570 MiB**, plus fixed/service overhead, GC/allocator
+slack and watchdog overshoot; see the [memory formula](extractor-limits.md#pending-jobs-and-resident-memory-round-2).
+Only extracted
+text survives completion; truncation remains explicit through `truncated: true`.
+Image-only PDFs remain unreadable without OCR.
+
+[AIT-219 measurements and reproduction](extractor-limits.md) record three runs
+per format and size on mbp2606. The normal 20 MiB fixtures leave at least 30%
+headroom for heap, RSS and elapsed time under the unchanged bounds. The
+adversarial OOXML and PDF fixtures still trip safety bounds; a file's byte size
+alone does not guarantee extractability.
+
 ## Version source, release mapping and rollback
 
 `release/version.json` is the sole authority. The owner-authorized candidate reserves

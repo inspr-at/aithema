@@ -30,7 +30,7 @@ export const browserTestWeights = {
   'test/browser/confirmation-design.test.js': 90.000, // AIT-199 latest max 68.546s, CI 38732580354-1; historical floor 90s
   'test/browser/consent-lines.test.js': 90.000, // Incoming AIT-197: CI 38774634960-1, 76.396s rounded up + 10s
   'test/browser/credit-hold.test.js': 80.000, // AIT-199 latest max 62.079s, CI 38774634960-1; historical floor 70s
-  'test/browser/demo.test.js': 90.000, // AIT-199 latest max 67.766s, CI 38770896962-1; historical floor 90s
+  'test/browser/demo.test.js': 60.000, // AIT-219 split remainder: CI 38860512464-1, 46.704s rounded up + 10s
   'test/browser/email-ask.test.js': 130.000, // AIT-199 latest max 99.923s, CI 38732580354-1; historical floor 130s
   'test/browser/email-mail-space.test.js': 80.000, // AIT-199 latest max 62.288s, CI 38773142800-1; historical floor 80s
   'test/browser/external-plugin.test.js': 20.000, // mbp2606 9eb0a6e76b-14883 (1.846s; rounded up + 10s margin)
@@ -52,11 +52,13 @@ export const browserTestWeights = {
   'test/browser/start2-display.test.js': 110.000, // AIT-199 latest max 97.777s, CI 38765085264-1; historical floor 110s
   'test/browser/tick-followups.test.js': 90.000, // AIT-199 latest max 76.289s, CI 38732580354-1; historical floor 90s
   'test/browser/understanding-failure.test.js': 60.000, // AIT-212/213 expanded matrix: mbp2606 7ca3832ca3-18003, 44.890s rounded up + 10s
+  'test/browser/upload-capacity.test.js': 200.000, // AIT-219 moved top-level tests: CI 38861681508-1, 183.107s rounded up + 10s
   'test/browser/visitor-credit-tiers.test.js': 110.000, // AIT-199 latest max 96.541s, CI 38770896962-1; historical floor 110s
   'test/browser/voice-presentation.test.js': 90.000, // AIT-199 latest max 68.021s, CI 38770896962-1; historical floor 90s
 };
 
-export const browserShardCount = 4;
+// AIT-219: six bins keep 2,280s of measured planning work below 7 min each.
+export const browserShardCount = 6;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');

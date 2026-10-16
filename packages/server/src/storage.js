@@ -616,7 +616,9 @@ export class SQLiteStorage {
   }
   uploadBytes(id, uploadId) {
     const row = this.db.prepare('SELECT bytes FROM uploads WHERE session_id=? AND id=? AND tombstone IS NULL').get(id, uploadId);
-    return row?.bytes ? new Uint8Array(row.bytes) : null;
+    // SQLite returns an owned Uint8Array, independent of its stored blob. A view
+    // preserves that ownership without copying another whole document.
+    return row?.bytes ? new Uint8Array(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength) : null;
   }
   completeUpload(id, uploadId, result, guard = {}) {
     // Removing original bytes uses the same secure-delete and WAL acknowledgement
