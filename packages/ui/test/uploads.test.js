@@ -278,7 +278,7 @@ test('four 11 MiB files succeed without manual retry after a failed limits GET a
   assert.equal(posts[3].options.body.get('clientEventId'), posts[4].options.body.get('clientEventId'), 'retry keeps the receipt ID');
 });
 
-test('busy is shown only after three failed attempts, honoring Retry-After before retrying', async t => {
+test('the truthful retry line appears only after three failed attempts, honoring Retry-After', async t => {
   let attempts = 0;
   const { root } = setup(t, { post: () => {
     attempts++;
@@ -291,9 +291,54 @@ test('busy is shown only after three failed attempts, honoring Retry-After befor
   t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 2);
   t.mock.timers.tick(9999); await tick(); assert.equal(attempts, 2);
   t.mock.timers.tick(1); await tick(); await tick(); assert.equal(attempts, 3);
-  assert.equal(root.querySelector('.composer-reason').textContent, en.uploads.busy);
+  assert.equal(root.querySelector('.composer-reason').textContent, '1 file not uploaded: the server is busy right now · Try again');
   assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
   t.mock.timers.tick(60_000); await tick(); assert.equal(attempts, 3, 'no fourth attempt');
+});
+
+for (const copy of [de, en]) for (const count of [1, 2]) test(`AIT-219: ${copy.display.locale} exhausted ${count} file(s) retry the retained files without picking again`, async t => {
+  let failing = true;
+  const { c, root, calls } = setup(t, { copy, post: () => failing ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : undefined });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const files = Array.from({ length: count }, (_, i) => file(`retained-${i}.txt`, 10 + i));
+  const descriptors = files => files.map(f => ({ name: f.name, size: f.size }));
+  const posts = () => calls.filter(call => call.options.method === 'POST');
+  await choose(root, files);
+  assert.equal(root.querySelector('.upload-retry'), null, 'no exhausted action during the first attempt');
+  t.mock.timers.tick(5000); await tick(); await tick();
+  assert.equal(root.querySelector('.upload-retry'), null, 'no exhausted action during the second attempt');
+  t.mock.timers.tick(10000); await tick(); await tick();
+  const expected = copy === de
+    ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen`
+    : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again`;
+  assert.equal(root.querySelector('.composer-reason').textContent, expected);
+  assert.equal(posts().length, 3); assert.equal(c.session.uploads.length, 0);
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'false');
+  root.querySelector('textarea').dispatchEvent(new window.Event('input'));
+  assert.equal(root.querySelector('.composer-reason').textContent, expected, 'typing keeps the retained-file action available');
+  failing = false;
+  root.querySelector('.upload-retry').click(); await tick(); await tick();
+  assert.equal(posts().length, 4);
+  assert.deepEqual(descriptors(posts().at(-1).options.body.getAll('files')), descriptors(files));
+  assert.deepEqual(await Promise.all(posts().at(-1).options.body.getAll('files').map(f => f.text())), await Promise.all(files.map(f => f.text())));
+  assert.equal(c.session.uploads.length, count); assert.equal(root.querySelector('.upload-retry'), null);
+});
+
+test('AIT-219: retry retains only unsent batches after an earlier batch succeeds', async t => {
+  let attempts = 0, failing = true;
+  const { c, root, calls } = setup(t, { limits: { ...UPLOAD_LIMITS, maxFilesPerRequest: 1 }, post: () => {
+    if (++attempts > 1 && failing) return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+  } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await choose(root, [file('accepted.txt'), file('refused.txt', 8), file('unsent.txt', 12)]);
+  t.mock.timers.tick(5000); await tick(); await tick();
+  t.mock.timers.tick(10000); await tick(); await tick();
+  assert.equal(c.session.uploads.length, 1);
+  assert.equal(root.querySelector('.composer-reason').textContent, '2 files not uploaded: the server is busy right now · Try again');
+  failing = false;
+  root.querySelector('.upload-retry').click(); await tick(); await tick();
+  assert.deepEqual(calls.filter(call => call.options.method === 'POST').slice(4).map(call => call.options.body.getAll('files').map(f => f.name)), [['refused.txt'], ['unsent.txt']]);
+  assert.equal(c.session.uploads.length, 3);
 });
 
 test('busy retry delays handle Retry-After seconds and HTTP dates, with backoff for missing or invalid headers', () => {
