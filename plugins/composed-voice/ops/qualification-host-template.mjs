@@ -46,7 +46,8 @@ export function createQualificationHost(options = {}) {
           userDataDir: profile, ignoreDefaultArgs: ['--mute-audio'],
           env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR },
           args: ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${item.wavPath}`,
-            '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required', ...launchArgs] });
+            '--use-fake-ui-for-media-stream', '--disable-features=AudioServiceSandbox',
+            '--autoplay-policy=no-user-gesture-required', ...launchArgs] });
         browsers.add(browser);
         await browser.defaultBrowserContext().overridePermissions(hostOrigin, ['microphone']);
         const page = await browser.newPage();
