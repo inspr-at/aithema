@@ -687,7 +687,8 @@ OPS still supplies exactly:
   explicit integer duration) on **every** `plan.corpus` item. Use the same
   unmodified PCM16 mono WAV for candidate and baseline. This leaves time for
   start2's multi-sentence AI notice, connection and actual output drain before
-  the person speaks. Twenty seconds is an input allowance, never proof that
+  the person speaks. Include that silence within the explicit conversation
+  duration and cost ceilings. Twenty seconds is an input allowance, never proof that
   the opener finished: a slower opener invalidates that sample without an
   in-attempt retry. The harness validates the declared zero-PCM prefix before
   dispatching either lane; do not trim, seek, shift timestamps or pad one lane;

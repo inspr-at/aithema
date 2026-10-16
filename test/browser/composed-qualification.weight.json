@@ -1,4 +1,4 @@
 {
-  "seconds": 50,
-  "evidence": "AIT-160 round 2: mbp2606 1af1b4ff27-50992, 2026-10-16, complete touched browser file green in 18.964s (CLI/probes 11.773s; production Web Audio + WebRTC 6.654s; CDP checks 0.453s). Retains conservative slowest 31.371s red replay at 3d6a1e7226-34591: rounded up to 40s + 10s margin."
+  "seconds": 210,
+  "evidence": "AIT-160 round 4: mbp2606 a07f31fca9-51695, 2026-10-16, complete touched browser file green: 11/11 in 196.748s (CLI/probes 52.052s; production Web Audio + WebRTC 143.924s; CDP checks 0.671s). All six valid variants include the required 20s corpus prefix; both overlap refusals pass. Rounded up with margin to 210s."
 }
