@@ -395,8 +395,10 @@ test('AIT-263: playback activity reaches the server before it is exposed to focu
   local.sdk.starts[0].onModeChange({ mode: 'speaking' }); await flush();
   assert.equal(activity.at(-1).type, 'speaking'); assert.equal(exposed.includes('speaking'), false);
   assert.equal(activity.at(-1).providerSessionId, session.providerSessionId);
+  local.sdk.starts[0].onMessage({ role: 'agent', message: 'Reply ready.', event_id: 1 }); await flush();
+  assert.equal(local.persisted.at(-1)?.type, 'final', 'a slow activity acknowledgement cannot delay transcript persistence');
   acknowledged.resolve(); local.sdk.starts[0].onModeChange({ mode: 'listening' });
   await session.close(); await reading;
   assert.deepEqual(activity.map(event => event.type), ['speaking', 'listening']);
-  assert.deepEqual(exposed, ['speaking', 'listening', 'ended']);
+  assert.deepEqual(exposed, ['speaking', 'final', 'listening', 'ended']);
 });

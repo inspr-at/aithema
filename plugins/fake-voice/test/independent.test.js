@@ -216,3 +216,18 @@ test('AIT-263: simulator reports playback activity without adding transcript inp
   assert.equal(activity[0].type, 'listening'); assert.equal(activity[0].providerSessionId, 'segment');
   assert.deepEqual(persisted, []);
 });
+
+test('AIT-263: simulator persists captured finals while playback acknowledgement is pending', async t => {
+  const now = Date.now(), acknowledged = Promise.withResolvers(), entered = Promise.withResolvers(), persisted = [];
+  const control = { start: () => ({ callId: 'activity-pending', providerSessionId: 'segment',
+    spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 }),
+    close: () => ({ closureConfirmed: true }), pause: () => ({ acknowledged: true, paused: true }),
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat: () => ({ acknowledged: true }),
+    reportActivity: async () => { entered.resolve(); await acknowledged.promise; },
+  };
+  const f = createFakeVoice({ control, persistEvent: event => persisted.push(event), document: undefined, copy: { fakeVoiceGreeting: 'Greeting.' } });
+  const session = await f.client.start({ callId: 'activity-pending' });
+  t.after(async () => { acknowledged.resolve(); await session.close(); });
+  await entered.promise; await new Promise(setImmediate);
+  assert.equal(persisted[0]?.type, 'final'); assert.equal(persisted[0]?.role, 'assistant');
+});

@@ -22,7 +22,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       const events = voiceEvents(), cancellation = new AbortController(), commandCancellation = new AbortController();
       const interruptionWaiters = new Set();
       let receipt, open = false, ended = false, paused = false, blocked = false, input = true, output = true, interrupted = false;
-      let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, lastSpokenAssistant, closing, delivery = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
+      let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, lastSpokenAssistant, closing, delivery = Promise.resolve(), persistence = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
       const identity = () => ({ callId: request.callId, providerSessionId: receipt?.providerSessionId,
         ...(receipt?.epoch === undefined ? {} : { epoch: receipt.epoch }) });
       const persist = async event => {
@@ -46,11 +46,16 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       const emit = value => {
         const event = Object.freeze({ ...value, ...identity() });
         if (['listening', 'speaking'].includes(event.type)) lifecycle.dispatch({ type: 'playback', active: event.type === 'speaking' });
+        // Captured transcript writes remain ordered without waiting for the
+        // playback acknowledgement that precedes their public delivery.
+        const saved = ['final', 'heard'].includes(event.type)
+          ? (persistence = persistence.then(() => persist(event))) : null;
+        saved?.catch(() => {}); // Delivery owns failure handling below.
         delivery = delivery.then(async () => {
           if (cancellation.signal.aborted) return;
           if (['speaking', 'listening'].includes(event.type) && control.reportActivity) await voiceOperation(
             { signal: cancellation.signal, deadlineAt: Date.now() + 2000 }, opts => control.reportActivity(event, opts));
-          if (['final', 'heard'].includes(event.type)) await persist(event);
+          if (saved) await saved;
           if (event.type === 'final' && event.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: event.turnId, sequence: ++sequence });
           if (event.type === 'final' && event.role === 'assistant') {
             lastAssistant = { turnId: event.turnId, text: event.text };
