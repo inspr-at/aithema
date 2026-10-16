@@ -419,6 +419,8 @@ export const en = {
     refused: 'Not attached: {list}.', tooLarge: '{name} (too large, up to {size} per file)', type: '{name} (file type not accepted)',
     tooMany: 'No more files fit in this conversation (up to {files}).', sessionFull: 'These files do not fit in this conversation (up to {size} in total).',
     overLimit: 'These files exceed the upload limits of this conversation.', failed: 'The file could not be added.',
+    notUploaded: { one: '1 file not uploaded: the server is busy right now', other: '{count} files not uploaded: the server is busy right now' },
+    tryAgain: 'Try again',
     busy: 'Files are still uploading. Try again in a moment.', impossible: 'Files cannot be uploaded: the upload limits of this host leave no room for a file.',
     reasons: { unsupported: 'file type not accepted', empty: 'the file contains no text', malformed: 'the file is damaged or not in the expected format',
       encrypted: 'the file is password-protected', limit: 'the file is too large or too long to read', deadline: 'reading took too long',

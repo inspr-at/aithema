@@ -88,7 +88,7 @@ export class AithemaSession extends HTMLElement {
   #paneObserver; #scrollTimers = new Map();
   #questionCard; #disposeVersion;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
-  #uploadController; #uploadRetryTimer = null;
+  #uploadController; #uploadRetryTimer = null; #retryFiles = [];
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -134,7 +134,7 @@ export class AithemaSession extends HTMLElement {
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
-    this.#uploadAt.clear(); this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
+    this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused);
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
@@ -551,7 +551,14 @@ export class AithemaSession extends HTMLElement {
     // Reserve the longest steady status in this locale; action messages use the existing popup.
     reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
-    setText(status.querySelector('.status__label'), words); status.title = words;
+    // Keep the same live message node, anchored to the dock while it is a toast.
+    // The footer's sizer still reserves its steady status width.
+    const label = root.querySelector('.status__label'), message = !this.#rail?.moved && Boolean(this.#notice);
+    const toast = message && root.querySelector('.workspace').dataset.stage === 'live';
+    const parent = toast ? root.querySelector('.composer-dock') : status;
+    if (label.parentNode !== parent) parent.append(label);
+    if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
+    setText(label, words); status.title = words;
     status.toggleAttribute('data-connected', connected);
     status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
@@ -868,10 +875,20 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
-      // An upload refusal stands until the person types or attaches again.
+      // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
-      setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
+      if (this.#retryFiles.length) {
+        if (!reason.querySelector('.upload-retry')) {
+          const label = node('span'), action = node('button', 'consent-action upload-retry');
+          label.id = 'upload-retry-reason'; action.type = 'button'; action.setAttribute('aria-describedby', label.id);
+          action.addEventListener('click', () => { void this.#attach(this.#retryFiles); });
+          reason.replaceChildren(label, action);
+        }
+        setText(reason.querySelector('span'), `${plural(copy.uploads.notUploaded, this.#retryFiles.length)} · `);
+        setText(reason.querySelector('.upload-retry'), copy.uploads.tryAgain);
+      } else setText(reason, words);
+      reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
@@ -1596,7 +1613,7 @@ export class AithemaSession extends HTMLElement {
     if (refusal) { this.#uploadRefusal(refusal); return; }
     const controller = new AbortController(); this.#uploadController = controller;
     const current = () => !controller.signal.aborted && sessionId === this.#session.id && this.isConnected;
-    this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
+    this.#retryFiles = []; this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
     try {
       await this.#loadLimits();
       if (!current()) return;
@@ -1610,7 +1627,12 @@ export class AithemaSession extends HTMLElement {
         for (const batch of plan.batches) {
           const failure = await this.#postUploads(batch, controller.signal);
           if (!current()) return;
-          if (failure) { notices.push(failure); break; }
+          if (failure) {
+            // Earlier batches are already attached; keep only the refused and unattempted files.
+            if (failure === 'upload-rate-limit') this.#retryFiles = plan.batches.flat().slice(sent);
+            else notices.push(failure);
+            break;
+          }
           sent += batch.length;
         }
         if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
@@ -1626,7 +1648,7 @@ export class AithemaSession extends HTMLElement {
   }
   #cancelUploads() {
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
-    this.#uploadController?.abort();
+    this.#retryFiles = []; this.#uploadController?.abort();
   }
   #waitForUploadRetry(delay, signal) {
     if (signal.aborted) return Promise.resolve();
@@ -1667,7 +1689,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;
-    if (response.status === 429) return copy.uploads.busy;
+    if (response.status === 429) return 'upload-rate-limit';
     if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason));
     return copy.uploads.failed;
   }

@@ -1382,7 +1382,8 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });
 
-test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted retries keep the composer fixed',
+for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'], [390, 'en', 'dark']])
+  test(`AIT-219: ${width} ${locale} ${theme} retained-file retry, truthful exhaustion and toast above dock`,
   { timeout: 120_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-upload-retry-'));
     const demo = await startDemo(directory); let browser;
@@ -1395,14 +1396,14 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
       env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
       args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-    const page = await browser.newPage(); await preparePage(page, ['de-DE', 'de']);
-    await page.setViewport({ width: 400, height: 900 });
-    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    const page = await browser.newPage(); await preparePage(page, locale === 'de' ? ['de-DE', 'de'] : ['en-US', 'en']);
+    await page.setViewport({ width, height: 900 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await startTyping(page);
-    await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
-    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' }); await revealed(page);
+    await sendTurn(page, locale === 'de' ? 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international' : `We are a bakery and want a preorder app. ${content}`);
+    await waitForShadow(page, 'aside .notice', { text: (locale === 'de' ? de : en).final }); await revealed(page);
     // Keep the real route/extractors for accepted requests. Fail limits discovery and inject one
     // deterministic busy response, since fast extraction can otherwise free the first reservation.
     await page.evaluate(() => {
@@ -1412,7 +1413,7 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
         if (/\/uploads$/u.test(String(url))) {
           if (!options.method) return new Response(null, { status: 503 });
           if (options.method === 'POST') {
-            window.uploadAttempts.push({ names: options.body.getAll('files').map(f => f.name), id: options.body.get('clientEventId') });
+            window.uploadAttempts.push({ files: options.body.getAll('files').map(f => ({ name: f.name, size: f.size })), id: options.body.get('clientEventId') });
             if (window.failUploads || window.uploadAttempts.length === 4) {
               if (window.failUploads) window.exhaustedAttempts++;
               else window.forcedBusy = true;
@@ -1436,14 +1437,39 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
     const geometry = () => Promise.all(controls.map(selector => box(page, selector)));
     const sameControls = async (before, label) => {
       await settle(); const after = await geometry();
-      controls.forEach((selector, i) => sameBox(before[i], after[i], `${label} ${selector}`));
+      controls.forEach((selector, i) => assert.deepEqual(after[i], before[i], `${label} ${selector}: 0 px movement`));
     };
     const shot = async name => {
       if (!process.env.AITHEMA_EVIDENCE_DIR) return;
-      await inShadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await inShadow(page, c => {
+        c.evidenceFocus = c.shadowRoot.activeElement;
+        c.evidenceFocus?.blur(); document.activeElement?.blur();
+      });
       await page.mouse.move(-1, -1); await settle();
       await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
-      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${name}.png`), fullPage: false });
+      try {
+        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-${name}.png`), fullPage: false });
+      } finally {
+        await inShadow(page, c => { c.evidenceFocus?.focus({ preventScroll: true }); delete c.evidenceFocus; });
+      }
+    };
+    // Pin the repository's Chrome baseline font stacks; no screenshot-only typography.
+    await inShadow(page, c => {
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+    });
+    const toastGeometry = async () => {
+      await settle();
+      const rectangles = await inShadow(page, c => {
+        const rect = selector => c.shadowRoot.querySelector(selector).getBoundingClientRect().toJSON();
+        return { toast: rect('.status__label'), dock: rect('.composer-dock'), composer: rect('.composer'), attach: rect('.attach'), send: rect('.send') };
+      });
+      assert.equal(rectangles.dock.top - rectangles.toast.bottom, 8, 'toast bottom = dock top − 8 px');
+      for (const key of ['composer', 'attach', 'send']) {
+        const a = rectangles.toast, b = rectangles[key];
+        assert.equal(a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top, false, `toast does not intersect ${key}`);
+      }
+      return rectangles;
     };
     await settle(); const baseline = await geometry();
     const chooser = await uploadChooser(page); await chooser.accept(paths);
@@ -1454,21 +1480,52 @@ test('AIT-219: four 11 MiB files succeed with automatic busy retry; exhausted re
       notice: c.shadowRoot.querySelector('.composer-reason').textContent, uploads: c.session.uploads.map(({ state, reason }) => ({ state, reason })),
     }))));
     assert.notEqual(await inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), de.uploads.busy);
-    await sameControls(baseline, 'waiting for retry'); await shot('retrying');
+    await sameControls(baseline, 'waiting for retry'); const toast = await toastGeometry(); await shot('retrying');
     await until(page, () => {
       const c = document.querySelector('aithema-session');
       return c.session.uploads.length === 4 && c.session.uploads.every(u => u.state === 'accepted')
         && c.shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false';
     });
-    assert.ok((await page.evaluate(() => window.uploadAttempts)).every(attempt => attempt.names.length === 1), 'fallback batches stay below 21 MiB');
-    await sameControls(baseline, 'four files accepted'); await shot('four-accepted');
+    assert.ok((await page.evaluate(() => window.uploadAttempts)).every(attempt => attempt.files.length === 1), 'fallback batches stay below 21 MiB');
+    await sameControls(baseline, 'four files accepted'); if (width === 400) await shot('four-accepted');
     await page.evaluate(() => { window.failUploads = true; });
-    const retryChooser = await uploadChooser(page); await retryChooser.accept([paths[0]]);
-    await until(page, busy => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === busy, de.uploads.busy);
+    const retryChooser = await uploadChooser(page); await retryChooser.accept(paths.slice(0, 2));
+    const exhausted = locale === 'de' ? '2 Dateien nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen'
+      : '2 files not uploaded: the server is busy right now · Try again';
+    await until(page, words => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === words, exhausted);
     assert.equal(await page.evaluate(() => window.exhaustedAttempts), 3);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.attach').getAttribute('aria-disabled')), 'false');
+    const failedAttempts = await page.evaluate(() => window.uploadAttempts.slice(-3));
+    assert.ok(failedAttempts.every(a => JSON.stringify(a.files) === JSON.stringify(failedAttempts[0].files)), 'all three attempts send the same first batch');
+    await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').focus({ preventScroll: true }));
     await sameControls(baseline, 'busy after three attempts'); await shot('busy-exhausted');
+    assert.equal(await shadowFocus(page), 'consent-action upload-retry', 'mid-sequence evidence restores focus');
+    const actionVisible = await inShadow(page, c => {
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason'), action = r.querySelector('.upload-retry');
+      const outer = line.getBoundingClientRect(), inner = action.getBoundingClientRect();
+      return inner.top >= outer.top && inner.bottom <= outer.bottom;
+    });
+    assert.equal(actionVisible, true, 'Try again is visible inside the fixed reason slot');
+    await page.evaluate(() => { window.failUploads = false; });
+    const retryStart = await page.evaluate(() => window.uploadAttempts.length);
+    await page.keyboard.press('Enter');
+    await until(page, () => {
+      const c = document.querySelector('aithema-session');
+      return c.session.uploads.length === 6 && c.session.uploads.every(u => u.state === 'accepted')
+        && c.shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false';
+    });
+    const resent = await page.evaluate(start => window.uploadAttempts.slice(start).flatMap(a => a.files), retryStart);
+    assert.deepEqual(resent, paths.slice(0, 2).map(path => ({ name: path.split('/').at(-1), size: 11 * 1024 * 1024 })), 'Try again sends exactly the retained files, names, sizes and count');
+    await sameControls(baseline, 'manual retry succeeds');
+    // Read-only duplicate-bubble diagnosis: each durable turn has exactly one DOM row.
+    const transcript = await inShadow(page, c => ({
+      turns: c.session.transcript.map(({ id, role, content }) => ({ id, role, content })),
+      rows: [...c.shadowRoot.querySelectorAll('ol > .turn:not(.partial)')].map(row => ({ id: row.dataset.id, content: row.querySelector('.turn-text').textContent })),
+    }));
+    for (const turn of transcript.turns) assert.equal(transcript.rows.filter(row => row.id === turn.id).length, 1, `one rendered row for turn ${turn.id}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-${locale}-${theme}-${width}-assertions.json`), JSON.stringify({ width, locale, theme, exhausted, baseline, toast, resent, transcript }, null, 2));
     assert.deepEqual(problems, []);
-    t.diagnostic('Four real 11 MiB documents accepted without manual retry; failed limits GET, transient busy, three-attempt exhaustion, 0 px control movement at 400 px.');
+    t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; toast gap 8 px, no composer/button intersection; one DOM row per turn.`);
   });
 
 test('document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)',

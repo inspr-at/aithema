@@ -115,9 +115,10 @@ export const bandStyles = `
 .status__sizer { display:grid; grid-area:1/1; visibility:hidden; pointer-events:none; }
 .status__sizer > span { grid-area:1/1; }
 .connection-timer { grid-column:2; display:inline-block; min-width:8ch; flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.status[data-message] .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
+.status[data-message] .status__label, .composer-dock > .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
   max-width:min(320px,calc(100vw - 24px)); padding:9px 12px; background:var(--aithema-ink); color:var(--aithema-paper);
   border-radius:10px; white-space:normal; overflow:visible; overflow-wrap:anywhere; }
+.composer-dock > .status__label { right:0; bottom:calc(100% + 8px); font:400 12.5px/1.4 var(--aithema-font); }
 .host-credits { position:relative; justify-self:center; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; min-height:44px; padding:0; font-size:12.5px; }
 .host-credits__track { display:inline-block; flex:none; width:90px; height:4px; border-radius:4px; background:var(--aithema-line); overflow:hidden; }
 .host-credits__track i { display:block; height:100%; background:var(--aithema-accent); border-radius:inherit; }
