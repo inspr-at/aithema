@@ -11,9 +11,14 @@ export function createOwnership({ publicOrigin } = {}) { return {
 export const ownership = createOwnership();
 
 export function startExpiry(handlers) {
+  let running = false;
   const expiry = setInterval(async () => {
-    try { await handlers.expire(Date.now() - 365 * 24 * 60 * 60 * 1000); }
+    if (running) return;
+    running = true;
+    // One bounded batch per existing minute tick; no overlapping sweeps.
+    try { await handlers.retire({ before: Date.now() - 365 * 24 * 60 * 60 * 1000, limit: 100 }); }
     catch { console.error({ event: 'session-expiry-failed' }); }
+    finally { running = false; }
   }, 60_000);
   expiry.unref();
   return expiry;

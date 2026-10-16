@@ -112,6 +112,131 @@ ownership. `POST /api/sessions` takes JSON and returns the public session.
 the provenance-preserving ZIP. See the root README's route tables for commands,
 settings, uploads, withdrawal, concepts, and host routes.
 
+## Host retention contract
+
+Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
+sessions**, without possessing visitor tokens. `before` is a nonnegative Unix
+millisecond timestamp; eligibility is strictly `lastActivity < before`. `limit`
+is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
+`retired` counts completed core erasures; `failed` counts sessions that failed
+this call; `more` means another eligible or due retry batch exists. Repeated and overlapping calls are safe. An interrupted
+retirement is durably queued and retried, including the host cleanup hook.
+Hooks must therefore be idempotent. A failing session stays tombstoned and
+pending with a durable attempt count and exponential backoff (1 second up to
+1 hour); the batch continues. Deferred retries do not set `more`: call again
+on the maintenance schedule even when `more` is false. Monitor `failed`;
+host failures can delay deletion beyond the intended retention window.
+
+Last activity is the latest **server timestamp** of person- or host-initiated
+activity: session creation, turns and other committed session changes, authorized
+session and individual library requests (including reads and export), and the
+completion of protected requests, streams and work the person started. Client
+turn timestamps cannot backdate it. The rule lives in `SQLiteStorage.countsAsActivity`:
+direct storage calls are host activity; `storage.systemWork(fn)` marks system work
+and its asynchronous descendants as maintenance. System events, including
+`expire` withdrawal events and the rebuild jobs they schedule, never renew the
+idle clock. Hosts must wrap other system-originated work in `systemWork` too.
+Failed ownership checks and read-only maintenance scans do not renew activity.
+Expire and retire can use the same cutoff in either order without adding an
+extra retention window. In-flight authorized requests, open SSE streams and running
+text reasoning jobs exclude the session from retirement; active voice calls
+and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
+and the final idle check run under the exclusive SQLite writer, before any
+asynchronous cancellation or hook, so newly active sessions cannot be erased
+from a stale candidate list. On migration, the latest stored event timestamp
+initializes activity (unknown timestamps conservatively start at migration).
+
+Retirement uses the erase route's `session.erased` invalidation: it broadcasts
+and closes live streams and cancels lanes, concepts, uploads and voice. It then
+withdraws consent, awaits `host.retired({ sessionId, ownerHash })`, and physically
+deletes core rows in child-before-parent FK order, then the session. The owner
+hash is captured inside the tombstone transaction. No owner token is invented;
+the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
+The host hook runs after the tombstone commits and before the separate core
+purge transaction; it may open its own transaction. The hook has a per-session deadline of 30 seconds (configure the positive integer
+`retiredHookTimeoutMs` in `createHandlers`). A timeout or failure keeps core rows
+pending for retry, counts as failed, and lets the batch continue. The timeout
+cannot cancel host code; hooks must tolerate a late completion overlapping a retry.
+Failures log only session ID and error class, never error content. Core purge and the final batch checkpoint truncate the WAL
+for sessions already purged even if another session's hook fails.
+
+| Data | After successful retirement |
+| --- | --- |
+| Session, settings, consent revision, owner hash | Deleted |
+| Value-free event journal, receipts and content hashes | Deleted |
+| Text, understanding, actor, focused question, identity and library projections | Deleted |
+| Upload bytes, extracted text, concept blobs and feedback | Deleted |
+| Host state, safeguards, voice calls, lifecycle and operation records | Deleted |
+| Processing consent grants and history in the composed demo | Deleted |
+| Per-session budget attempts, corrections, render claims, duration reservations | Deleted |
+| Deployment spend, render and voice totals | Only value-free totals per account or UTC day remain; no session, owner, attempt or provider generation identifiers |
+| Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
+
+SQLite uses `secure_delete` and truncates its WAL before acknowledging the
+full erase. Unreconciled deployment holds remain conservatively charged in
+aggregate; their deleted receipts can no longer be reconciled. Retained totals
+are deployment spend/reserved/uncertain amounts and breach flags per account,
+render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
+On low-volume days, a daily total may reveal one session's usage. Daily buckets
+remain necessary for daily cap enforcement; hosts should aggregate reports by
+week and restrict access to raw daily accounting. This does not erase independent backups or remote provider copies.
+Core removes only its own explicit table list. Hosts must clean their own SQLite
+and external session rows in the idempotent `retired` hook, including in-memory
+projections. Index host `session_id` columns to avoid a full scan per session.
+Host FKs to `sessions(id)` or core child tables such as `content`, `uploads`
+and `concept_artifacts` must be removed or detached before the hook returns;
+a remaining FK blocks core purge and causes a retry. Host tables are never
+automatically deleted merely because they have a `session_id` column. Hosts may
+retain legally required records such as consent proof: that is their decision,
+to document under their own policy, with a schema independent of the deleted
+session (or a detached nullable FK). For example:
+
+```js
+const host = {
+  async retired({ sessionId, ownerHash }) {
+    storage.transaction(() => {
+      storage.db.prepare('DELETE FROM host_consent_events WHERE session_id=?').run(sessionId);
+      storage.db.prepare('DELETE FROM host_consent_grants WHERE session_id=?').run(sessionId);
+    });
+    await removeExternalSessionData({ sessionId, ownerHash }); // idempotent
+  },
+};
+```
+
+The demo deletes its own consent history, session mail outbox and wallet holds. Visitor identity, visitor credit
+accounts and deployment abuse controls are separate host records, governed by
+the host's visitor-retention policy. Shared owner credit guards are removed
+when they refer to the retired session. Do not promise provider-side deletion
+from this API.
+
+For a 24-hour idle policy, run at startup and on the host's existing maintenance
+schedule. Drain batches with a short yield between calls; serialize the loop:
+
+```js
+let retaining = false;
+async function retainIdleSessions() {
+  if (retaining) return;
+  retaining = true;
+  const before = Date.now() - 24 * 60 * 60 * 1000;
+  try {
+    while ((await handlers.retire({ before, limit: 100 })).more) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  } finally { retaining = false; }
+}
+await retainIdleSessions();
+const retentionTimer = setInterval(() => void retainIdleSessions().catch(reportRetentionFailure), 15 * 60_000);
+// Shutdown: clearInterval(retentionTimer), await any running maintenance, then close handlers/storage.
+```
+
+A 15-minute schedule normally deletes after 24 hours of inactivity **plus up to
+15 minutes and backlog/maintenance delays**. Privacy copy must reflect that
+window and distinguish idle retention from a fixed lifetime. The demo keeps its
+existing one-minute schedule and 365-day cutoff, retiring at most 100 sessions
+per tick. The older `expire(before)` only withdraws old turns/uploads; it is not
+a full-erasure contract. Both sweeps query an indexed live-session set, excluding
+tombstones and retired sessions without scanning historical session rows.
+
 ## Web components
 
 A browser build needs an import map or bundler resolving workspace package

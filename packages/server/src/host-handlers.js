@@ -438,6 +438,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     }
   }
   return { handle, initialize, syncPause,
+    retentionActive: id => deliveries.has(id),
     startCredits(id, ownerToken) { if (host?.wallet) return startCredits(id, ownerToken); },
     resume() {
       if (!host) return;
