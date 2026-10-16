@@ -84,6 +84,8 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
   const labels = () => Object.fromEntries(['lane', 'runId', 'sampleId', 'visitorSessionId', 'providerSessionId', 'attemptId', 'callId']
     .filter(key => identity[key] !== undefined).map(key => [key, identity[key]]));
   const save = () => recordIdentity(labels());
+  const hasDiagnostics = value => value && typeof value.hasHypothesis === 'boolean' &&
+    typeof value.source?.started === 'boolean' && typeof value.source.barged === 'boolean';
   const response = value => {
     const url = new URL(value.url());
     if (url.origin !== origin || value.request().method() !== 'POST' || !value.ok()) return;
@@ -181,7 +183,7 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     await bounded(page.waitForFunction(() => window.qualificationBaselineProbe.complete(), { timeout: evidenceTimeoutMs, polling: 25 }));
     phase = 'result';
     const diagnostics = await bounded(page.evaluate(() => window.qualificationBaselineProbe.diagnostics()));
-    if (!diagnostics || !diagnostics.source) throw new Error('Missing baseline capture diagnostics');
+    if (!hasDiagnostics(diagnostics)) throw new Error('Missing baseline capture diagnostics');
     if (diagnostics.failure || diagnostics.source.failure) throw new Error('Invalid baseline capture evidence');
     const result = await bounded(page.evaluate(() => window.qualificationBaselineProbe.result()));
     phase = 'finalize';
@@ -200,12 +202,14 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     const diagnostics = consumed ? await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined) : undefined;
     let reason = !consumed ? status : durationBoundReached ? 'duration-bound' :
       diagnostics?.failure || diagnostics?.source?.failure ||
-      (!diagnostics || !diagnostics.source ? 'missing-diagnostics' : 'exception');
+      (!hasDiagnostics(diagnostics) ? 'missing-diagnostics' : 'exception');
     let timingRefusal = phase === 'refused' && error instanceof IncompleteMediaEvidence &&
-      !!diagnostics?.source && !diagnostics.failure && !diagnostics.source.failure && !durationBoundReached;
+      hasDiagnostics(diagnostics) && !diagnostics.failure && !diagnostics.source.failure && !durationBoundReached;
     if (timingRefusal) reason = error.reason;
-    else if (phase === 'observe' && error.name === 'TimeoutError' && diagnostics?.source?.started === true &&
-      !diagnostics.failure && !diagnostics.source.failure && !durationBoundReached) {
+    else if (phase === 'observe' && error.name === 'TimeoutError' && hasDiagnostics(diagnostics) && diagnostics.source.started === true &&
+      !diagnostics.failure && !diagnostics.source.failure && !durationBoundReached &&
+      (!diagnostics.source.refusal || diagnostics.source.refusal === 'late-first-audio') &&
+      (!diagnostics.refusal || diagnostics.refusal === 'late-first-audio')) {
       if (diagnostics.refusal === 'late-first-audio' || diagnostics.source.refusal === 'late-first-audio' ||
         diagnostics.hasHypothesis === true && !Number.isFinite(diagnostics.firstAudioAt) && Number.isFinite(diagnostics.speechEndAt)) {
         reason = 'late-first-audio'; timingRefusal = true;
