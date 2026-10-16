@@ -133,7 +133,7 @@ export const en = {
     efforts: { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Maximum' },
     voice: 'Speaking and listening', voiceOff: 'Text chat: read and type', visuals: 'Visual concepts', visualsOff: 'Off',
     unavailable: 'Unavailable', consentNeeded: 'Consent needed', limited: 'Currently unavailable', notOffered: 'No longer offered',
-    loading: 'Loading the options this host offers…', loadFailed: 'The settings could not be loaded.', reload: 'Try again',
+    loadingOption: 'Loading…', loading: 'Loading the options this host offers…', loadFailed: 'The settings could not be loaded.', reload: 'Try again',
     autosave: 'Changes save automatically.', saving: 'Saving…', saved: 'Changes saved', failed: 'Your selection could not be saved. Please try again.',
     retry: 'Try again', done: 'Done', continue: 'Continue', closePending: 'Waiting for the current save to be acknowledged…',
     conflict: 'Your settings changed in another window. The saved selection is shown.',
