@@ -594,7 +594,7 @@ test('production navigation failure is setup-failed rather than invalid media', 
   await assert.rejects(h.run(), /Production baseline failed; setup-failed/);
   assert.equal(h.evidence.length, 1);
   assert.equal(h.evidence[0].status, 'setup-failed');
-  assert.equal(h.evidence[0].reason, 'setup-failed');
+  assert.equal(h.evidence[0].reason, 'setup-failed:goto');
   assert.doesNotMatch(JSON.stringify(h.evidence), /PRIVATE_SETUP_SENTINEL|hypothesis|ttsPCM/);
   assert.equal(h.reports.length, 0);
 });
