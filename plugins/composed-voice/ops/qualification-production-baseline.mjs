@@ -154,6 +154,9 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
       await bounded(page.waitForSelector('aithema-session[data-aithema-mounted]'));
     });
     const physicalBrowserMedia = await step('preflight', preflight);
+    // Read the created visitor's response while its document is still alive.
+    // Leaving for consent first can strand Puppeteer's response-body promise.
+    await step('jobs', () => Promise.all([...jobs]));
     await step('chooser', async () => {
       await bounded(page.waitForSelector('aithema-session >>> .chooser__continue'));
       await bounded(page.click('aithema-session >>> .chooser__continue'));
