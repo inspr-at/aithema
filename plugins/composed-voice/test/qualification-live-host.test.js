@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { launchQualificationHost, createQualificationHost } from '../ops/qualification-live-host.mjs';
 import { fixtureBinding, fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
 
@@ -19,11 +19,13 @@ const binding = () => ({
 });
 const decision = { contract: 'synthetic-contract', items: ['voice-elevenlabs', 'models-international'] };
 
-test('launcher passes file paths and explicit loopback flags, then uses normal visitor cookie and consent APIs', async t => {
+test('launcher supports a deep run directory with a private short socket and normal visitor APIs', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-host-test-')); t.after(() => rm(directory, { recursive: true, force: true }));
+  const runDirectory = join(directory, 'deep-run-'.repeat(20));
+  const socketRoot = await mkdtemp('/tmp/aq-test-'); t.after(() => rm(socketRoot, { recursive: true, force: true }));
   const calls = []; let launched;
   const host = await launchQualificationHost({ binding: binding(), hostOrigin: 'http://127.0.0.1:4567',
-    keysFile: '/unopened/provider.keys', controlFile: '/unopened/control.json', runDirectory: directory, consentDecision: decision,
+    keysFile: '/unopened/provider.keys', controlFile: '/unopened/control.json', runDirectory, consentDecision: decision, tmpdirImpl: () => socketRoot,
     forkImpl(file, args, options) {
       launched = { file, args, options };
       const child = new EventEmitter(); child.exitCode = null; child.signalCode = null;
@@ -43,6 +45,15 @@ test('launcher passes file paths and explicit loopback flags, then uses normal v
   assert.deepEqual(host.ownerHeaders, { cookie: 'aithema-visitor=fixture-owner' });
   assert.equal(host.sessionId, 'fixture-session');
   const values = launched.options.env;
+  t.after(() => host.close());
+  const socketDirectory = dirname(values.AITHEMA_ADMIN_SOCKET);
+  assert.equal(dirname(socketDirectory), socketRoot);
+  assert.ok(Buffer.byteLength(values.AITHEMA_ADMIN_SOCKET) < (process.platform === 'darwin' ? 104 : 108));
+  assert.equal((await stat(socketDirectory)).mode & 0o777, 0o700);
+  assert.ok(values.AITHEMA_DB.startsWith(runDirectory + '/'));
+  assert.ok(values.AITHEMA_COMPOSED_BINDING_FILE.startsWith(runDirectory + '/'));
+  // Simulate the host's socket artifact, which shutdown must remove too.
+  await writeFile(values.AITHEMA_ADMIN_SOCKET, 'fixture');
   assert.equal(values.AITHEMA_COMPOSED_QUALIFICATION, '1'); assert.equal(values.AITHEMA_LISTEN_HOST, '127.0.0.1');
   assert.equal(values.AITHEMA_COMPOSED_KEYS_FILE, '/unopened/provider.keys');
   assert.equal(values.AITHEMA_COMPOSED_CONTROL_FILE, '/unopened/control.json');
@@ -61,6 +72,8 @@ test('launcher passes file paths and explicit loopback flags, then uses normal v
   assert.deepEqual(JSON.parse(calls[5].options.body), { granted: true, processing: decision });
   await host.close(); await host.close();
   await assert.rejects(readFile(values.AITHEMA_COMPOSED_BINDING_FILE), { code: 'ENOENT' });
+  await assert.rejects(stat(socketDirectory), { code: 'ENOENT' });
+  assert.ok((await stat(dirname(values.AITHEMA_DB))).isDirectory(), 'retain evidence directory');
 });
 
 test('launcher refuses accounting omissions, malformed binding and missing explicit consent before spawning', async () => {
@@ -73,3 +86,52 @@ test('launcher refuses accounting omissions, malformed binding and missing expli
   await assert.rejects(launchQualificationHost({ ...base, consentDecision: decision, hostOrigin: 'https://example.test' }), /loopback/);
   assert.equal(forks, 0);
 });
+
+
+test('launcher refuses an over-long OS tmpdir before spawning and cleans its private directory', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-path-test-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // Multibyte path also guards against checking JS character count instead of bytes.
+  const socketRoot = join(directory, 'é'.repeat(60));
+  await mkdir(socketRoot);
+  const runDirectory = join(directory, 'runs');
+  let forks = 0;
+  await assert.rejects(launchQualificationHost({ binding: binding(), hostOrigin: 'http://127.0.0.1:4567',
+    keysFile: '/unopened/provider.keys', controlFile: '/unopened/control.json', runDirectory,
+    consentDecision: decision, tmpdirImpl: () => socketRoot,
+    forkImpl() { forks++; assert.fail('must refuse before host startup'); },
+  }), /Qualification admin socket path is too long: requires \d+ bytes including NUL; (darwin|linux) limit is (104|108).*shorter OS temporary directory/);
+  assert.equal(forks, 0);
+  assert.deepEqual(await readdir(socketRoot), []);
+  const [generated] = await readdir(runDirectory);
+  assert.deepEqual(await readdir(join(runDirectory, generated)), []);
+});
+
+for (const failure of ['fork', 'startup', 'visitor']) {
+  test(`launcher cleans socket and binding after ${failure} failure`, async t => {
+    const directory = await mkdtemp('/tmp/aq-fail-');
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const socketRoot = join(directory, 'tmp'), runDirectory = join(directory, 'runs');
+    await mkdir(socketRoot);
+    let values, killed = false;
+    await assert.rejects(launchQualificationHost({ binding: binding(), hostOrigin: 'http://127.0.0.1:4567',
+      keysFile: '/unopened/provider.keys', controlFile: '/unopened/control.json', runDirectory,
+      consentDecision: decision, tmpdirImpl: () => socketRoot,
+      forkImpl(file, args, options) {
+        values = options.env;
+        if (failure === 'fork') throw new Error('synthetic spawn failure');
+        const child = new EventEmitter(); child.exitCode = null; child.signalCode = null;
+        child.kill = () => { killed = true; child.exitCode = 0; queueMicrotask(() => child.emit('exit', 0)); };
+        queueMicrotask(() => {
+          if (failure === 'startup') { child.exitCode = 1; child.emit('exit', 1); }
+          else child.emit('message', { url: 'http://127.0.0.1:4567' });
+        });
+        return child;
+      },
+      async fetchImpl() { throw new Error('synthetic visitor failure'); },
+    }), /Qualification host setup refused/);
+    assert.deepEqual(await readdir(socketRoot), []);
+    await assert.rejects(readFile(values.AITHEMA_COMPOSED_BINDING_FILE), { code: 'ENOENT' });
+    assert.equal(killed, failure === 'visitor');
+  });
+}
