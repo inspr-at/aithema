@@ -234,7 +234,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   assert.equal(h.posts.length, 0, 'an unavailable option is never sent');
   assert.equal(h.q('.context-message').textContent, `Unavailable · ${en.reasons['not configured']}`);
   button.click(); h.option('model', 'Deep (mock)').click(); await tick();
-  assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0 }]);
+  assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0, confirm: true }]);
   assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Mock reasoning/, 'the panel still shows the acknowledged choice');
   assert.equal(h.q('.save-status').textContent, en.settings.saving); assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
   held.resolve(); await tick(6);
@@ -245,7 +245,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   assert.equal(effort.disabled, false); assert.equal(effort.max, '2'); assert.equal(effort.getAttribute('aria-valuetext'), 'Medium');
   effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true })); effort.dispatchEvent(new window.Event('change', { bubbles: true }));
   await tick(6);
-  assert.deepEqual(h.posts.at(-1), { processingPreset: 'best', model: 'mock/deep', effort: 'high', voice: 'fake-voice', visuals: 'off', baseRevision: 1 });
+  assert.deepEqual(h.posts.at(-1), { processingPreset: 'best', model: 'mock/deep', effort: 'high', voice: 'fake-voice', visuals: 'off', baseRevision: 1, confirm: true });
   h.q('.done').click(); await tick(); assert.equal(h.dialog.open, false);
 });
 
@@ -302,7 +302,7 @@ test('a choice that needs consent is saved and the host is asked for consent out
   const h = await opened(fixture(t, { respond: (body, n, ack) => ack(body, { consent: { required: true, features: ['text', 'analysis'] } }) }));
   let asked; h.c.addEventListener('aithema-consent', event => { asked = event.detail; });
   h.q('.preset-option[data-preset="custom"]').click(); await tick(6);
-  assert.deepEqual(h.posts[0], { processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0 });
+  assert.deepEqual(h.posts[0], { processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0, confirm: true });
   assert.equal(h.q('.notice-text').textContent, en.settings.consentRequired);
   h.q('.notice-action').click(); await tick();
   assert.equal(h.dialog.open, false, 'the host consent interface is outside the modal');
@@ -376,7 +376,7 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.equal(cards()[2].getAttribute('aria-pressed'), 'true');
   assert.equal(root.querySelector('.chooser__summary [role=status]').textContent, en.chooser.summary.device);
   cards()[0].click(); root.querySelector('.chooser__continue').click(); await tick(6);
-  assert.deepEqual(h.posts, [{ processingPreset: 'best', baseRevision: 0, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off' }]);
+  assert.deepEqual(h.posts, [{ processingPreset: 'best', baseRevision: 0, confirm: true, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off' }]);
   assert.equal(root.querySelector('.intro').dataset.mode, 'ready'); assert.equal(root.querySelector('.audio-rail').inert, true, 'the call waits for the explicit start');
   const rows = Object.fromEntries([...root.querySelectorAll('.ready__row')].map(row => [row.dataset.ready, [row.querySelector('dd').textContent.replace('✓', ''), row.dataset.state]]));
   assert.deepEqual(rows, { model: ['Mock reasoning', 'selected'], consent: [en.ready.granted, 'confirmed'], microphone: [en.ready.checkOnStart, 'pending'],
@@ -386,14 +386,27 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.equal(root.querySelector('.intro').hidden, true, 'the first message replaces the start screen');
 });
 
-test('AIT-237: unchanged default acknowledgement advances to readiness without claiming a personal choice', async t => {
-  const h = fixture(t, { respond: (_body, _count, _ack, server) => Response.json({ processingPreset: 'best', settings: server.session.settings,
-    engine: server.session.engine, unchanged: true, event: null, featureMatrix: server.session.featureMatrix, consent: { required: false, features: [] } }) });
+test('AIT-237: unchanged entrance confirmation is chosen and remains ready after reconfiguration', async t => {
+  const h = fixture(t);
   h.root.querySelector('.chooser__continue').click(); await tick(6);
-  assert.equal(h.c.session.settings.origin, 'default');
-  assert.equal(h.c.session.settings.revision, 0);
+  assert.equal(h.posts[0].confirm, true);
+  assert.equal(h.c.session.settings.origin, 'chosen');
+  assert.equal(h.c.session.settings.revision, 1);
   assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready');
   assert.equal(h.root.activeElement, h.root.querySelector('.ready__start'));
+  h.c.configure({ copy: en, session: structuredClone(h.server.session) });
+  assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready', 'the durable confirmation survives the consent return');
+});
+
+test('AIT-237: Settings Done explicitly confirms unchanged defaults', async t => {
+  const h = await opened(fixture(t));
+  assert.equal(h.posts.length, 0);
+  h.q('.done').click(); await tick(6);
+  assert.equal(h.posts.length, 1);
+  assert.equal(h.posts[0].confirm, true);
+  assert.equal(h.c.session.settings.origin, 'chosen');
+  assert.equal(h.dialog.open, false);
+  assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready');
 });
 
 for (const copy of [de, en]) test(`AIT-237 ${copy.display.locale}: drafts off action opens Settings at visuals without saving`, async t => {

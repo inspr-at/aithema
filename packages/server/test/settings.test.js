@@ -49,12 +49,12 @@ function host(t, { presets = mockPresetsWithChoices(), consent = mockConsent, re
     ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }) }));
   const create = async (body = {}, token = owner) => { const response = await call('', body, token); return { response, session: await response.json() }; };
   // A save on the current revision, as the settings dialog sends it.
-  const save = (id, body, token = owner) => call(`/${id}/settings`, { baseRevision: storage.get(id).settings.revision, ...body }, token);
+  const save = (id, body, token = owner) => call(`/${id}/settings`, { baseRevision: storage.get(id).settings.revision, confirm: true, ...body }, token);
   return { storage, handlers, runtime: base, presets, registry, call, create, save, close };
 }
 const json = async response => ({ status: response.status, body: await response.json() });
 
-test('AIT-237: best defaults to configured drafts; confirming defaults keeps their origin; personal off survives', async t => {
+test('AIT-237: best defaults to configured drafts; implicit saves keep their origin; personal off survives', async t => {
   const presets = mockPresetsWithChoices();
   presets.best.plugins.push('fake-html');
   presets.best.choices.visuals.push({ id: 'drafts', kind: 'html', binding: localHTMLBinding });
@@ -66,7 +66,7 @@ test('AIT-237: best defaults to configured drafts; confirming defaults keeps the
   const catalog = (await json(await h.call(`/${session.id}/settings`))).body;
   assert.equal(catalog.presets.best.defaults.visuals, 'drafts', 'the picker gets the same default');
   const { model, effort, voice, visuals } = session.settings;
-  const confirmed = await json(await h.save(session.id, { processingPreset: 'best', model, effort, voice, visuals }));
+  const confirmed = await json(await h.save(session.id, { processingPreset: 'best', model, effort, voice, visuals, confirm: false }));
   assert.equal(confirmed.status, 200);
   assert.deepEqual([confirmed.body.unchanged, confirmed.body.settings.origin, confirmed.body.settings.revision], [true, 'default', 0]);
   assert.equal(h.storage.read(session.id).some(e => e.type === 'settings.changed'), false);
@@ -81,6 +81,45 @@ test('AIT-237: best defaults to configured drafts; confirming defaults keeps the
   assert.equal(changedModel.body.settings.visuals, 'off', 'choosing another model preserves a personal off');
   const next = await h.create();
   assert.deepEqual([next.session.settings.visuals, next.session.settings.origin], ['off', 'last']);
+});
+
+test('AIT-237: an unchanged explicit confirmation is chosen, including defaults, last choices and off', async t => {
+  const h = host(t), { session } = await h.create();
+  const confirmed = await json(await h.save(session.id, { processingPreset: 'best' }));
+  assert.equal(confirmed.status, 200);
+  assert.deepEqual([confirmed.body.unchanged, confirmed.body.settings.origin, confirmed.body.settings.revision], [false, 'chosen', 1]);
+  assert.equal(confirmed.body.settings.visuals, 'off', 'confirming an unchanged off is a personal off');
+  assert.equal(confirmed.body.event.type, 'settings.changed');
+  assert.equal(h.storage.lastSettings(owner).settings.origin, 'chosen');
+  const next = (await h.create()).session;
+  assert.equal(next.settings.origin, 'last');
+  const reconfirmed = await json(await h.save(next.id, {}));
+  assert.deepEqual([reconfirmed.body.settings.origin, reconfirmed.body.settings.revision], ['chosen', 1]);
+  const created = await h.create({ processingPreset: 'device', settings: {}, confirm: true });
+  assert.equal(created.session.settings.origin, 'chosen', 'explicit creation confirms even the device defaults');
+});
+
+test('AIT-237: implicit saves preserve provenance even when normalisation changes values', async t => {
+  const h = host(t), { session } = await h.create();
+  const unchanged = await json(await h.call(`/${session.id}/settings`, { baseRevision: 0 }));
+  assert.equal(unchanged.status, 200);
+  assert.deepEqual([unchanged.body.unchanged, unchanged.body.settings.origin, unchanged.body.settings.revision], [true, 'default', 0]);
+  const normalised = await json(await h.call(`/${session.id}/settings`, { baseRevision: 0, model: 'mock/deep' }));
+  assert.equal(normalised.status, 200);
+  assert.deepEqual([normalised.body.settings.model, normalised.body.settings.origin, normalised.body.settings.at], ['mock/deep', 'default', null]);
+  assert.equal(h.storage.lastSettings(owner), null);
+  const created = await h.create({ settings: { model: 'mock/deep' } });
+  assert.equal(created.session.settings.origin, 'default', 'a supplied snapshot alone is not confirmation');
+  await h.save(session.id, { visuals: 'off' });
+  const chosen = h.storage.get(session.id).settings;
+  for (const origin of ['chosen', 'last']) {
+    const current = origin === 'chosen' ? h.storage.get(session.id) : (await h.create()).session;
+    const resaved = await json(await h.save(current.id, { model: 'mock', confirm: false }));
+    assert.equal(resaved.status, 200);
+    assert.deepEqual([resaved.body.settings.origin, resaved.body.settings.at], [origin, current.settings.at]);
+    assert.equal(resaved.body.settings.visuals, 'off');
+  }
+  assert.equal(h.storage.lastSettings(owner).settings.at, chosen.at, 'background saves do not claim a new confirmation time');
 });
 
 test('the catalog shows only ids, labels and manifest facts with each option\'s verdict; private bindings stay on the server', async t => {
@@ -410,7 +449,7 @@ test('erasure removes the stored choice from the owner default, the snapshot and
 
 test('visuals and voice choices drive the image and live-voice features; creation validates an explicit choice', async t => {
   const h = host(t, { presets: mockPresetsWithChoices({ voice: true, images: true }), voice: true, images: true });
-  const created = await h.create({ processingPreset: 'custom', settings: { model: 'mock/deep', effort: 'high', visuals: 'fake-images', voice: 'off' } });
+  const created = await h.create({ processingPreset: 'custom', settings: { model: 'mock/deep', effort: 'high', visuals: 'fake-images', voice: 'off' }, confirm: true });
   assert.equal(created.response.status, 201);
   assert.deepEqual([created.session.settings.origin, created.session.settings.visuals, created.session.engine.visuals.label], ['chosen', 'fake-images', 'Fake images']);
   assert.equal(created.session.featureMatrix.custom.voice.reason, 'voice off');
@@ -431,7 +470,7 @@ test('visuals off stops new concept renders without hiding earlier ones; each ar
   const presets = mockPresetsWithChoices({ images: true });
   presets.custom.choices.visuals.push({ id: 'other-images', label: 'Other images', binding: { ...localImageBinding, maxTokens: 2 } });
   const h = host(t, { presets, images: true });
-  const { session } = await h.create({ processingPreset: 'custom', settings: { model: 'mock/deep', effort: 'high', visuals: 'fake-images', voice: 'off' } });
+  const { session } = await h.create({ processingPreset: 'custom', settings: { model: 'mock/deep', effort: 'high', visuals: 'fake-images', voice: 'off' }, confirm: true });
   const id = session.id, content = 'We need a clear dashboard for our public API.';
   assert.equal((await h.call(`/${id}/turns`, { clientEventId: 'first', content })).status, 200); await h.handlers.idle();
   const current = h.storage.get(id);
