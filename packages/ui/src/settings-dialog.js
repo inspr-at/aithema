@@ -555,6 +555,10 @@ export class SettingsDialog {
   }
   #renderSelect(name, options, selectedValue, { disabled = false, reason = '' } = {}) {
     if (this.#pendingPreset) { options = [{ value: 'pending', label: '…' }]; selectedValue = 'pending'; }
+    // The first catalog owns the model's label. Keep its box in the loading state
+    // until it arrives, rather than painting a fallback as an unavailable option.
+    const loading = !this.#loadFailed && (Boolean(this.#pendingPreset) || (name === 'model' && !this.#catalog));
+    if (loading) options = [];
     const select = this.#q(`[data-select="${name}"]`), menu = select.querySelector('.select__menu'), button = select.querySelector('.select__button');
     const key = JSON.stringify([options, selectedValue, disabled]);
     if (this.#paintKeys.get(name) !== key) {
@@ -563,7 +567,6 @@ export class SettingsDialog {
       menu.replaceChildren(...options.map(option => this.#optionNode({ ...option, selected: option.value === selectedValue })));
       if (focused) [...menu.querySelectorAll('[role=option]')].find(node => node.dataset.value === focused)?.focus();
     }
-    const loading = Boolean(this.#pendingPreset) && !this.#loadFailed;
     const chosen = loading ? null : options.find(option => option.value === selectedValue);
     button.dataset.feature = chosen?.feature ?? (name === 'voice' ? 'voice' : 'text');
     const value = select.querySelector('.select__value');

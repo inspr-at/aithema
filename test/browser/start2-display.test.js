@@ -28,7 +28,7 @@ const settle = page => shadow(page, async c => {
 // separately on the remote runner (or nightly) without spending PR runner time.
 const evidenceDirectory = fullMatrix ? process.env.AITHEMA_EVIDENCE_DIR : undefined;
 
-test('AIT-265: curated host model labels in settings, readiness and footer hover, DE/EN', { timeout: 60_000 }, async t => {
+test('AIT-265/AIT-267: curated option labels and generic unknown served routes, DE/EN', { timeout: 60_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-host-model-label-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
@@ -45,6 +45,7 @@ test('AIT-265: curated host model labels in settings, readiness and footer hover
     window.fetch = async (url, init = {}) => {
       const response = await fetch(url, init);
       if ((init.method ?? 'GET') !== 'GET' || !new URL(url, location.href).pathname.endsWith('/settings')) return response;
+      await window.hostModelCatalogGate;
       const catalog = await response.json();
       catalog.processingPreset = 'best'; catalog.settings = c.session.settings; catalog.engine = c.session.engine;
       catalog.presets.best.models = [{ ...catalog.presets.best.models[0], id: 'default', label: 'Anthropic via OpenRouter' }];
@@ -80,16 +81,17 @@ test('AIT-265: curated host model labels in settings, readiness and footer hover
       }
     }
     assert.ok(inkPixels >= 20, `${locale}/${state}: captured model label glyphs (${inkPixels} ink pixels)`);
-    await writeFile(join(evidenceDirectory, `ait265-${locale}-${state}.png`), png);
+    await writeFile(join(evidenceDirectory, `ait267-${locale}-${state}.png`), png);
   };
   for (const [locale, copy] of [['de', de], ['en', en]]) {
     const expected = copy.catalogLabels['Anthropic via OpenRouter'];
     await shadow(page, async (c, locale) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      window.hostModelCatalogGate = new Promise(resolve => { window.releaseHostModelCatalog = resolve; });
       const session = structuredClone(window.hostModelSeed);
       session.locale = locale; session.transcript = []; session.concepts = [];
       session.settings = { ...session.settings, origin: 'chosen', model: 'default', effort: 'none', voice: 'off', visuals: 'off' };
-      session.engine = { preset: 'best', model: { id: 'default', label: 'Anthropic via OpenRouter' }, effort: 'none', voice: 'off', visuals: 'off' };
+      session.engine = { preset: 'best', model: { id: 'default', label: 'Anthropic via OpenRouter', reply: 'host/private-reply', understanding: 'host/private-understanding' }, effort: 'none', voice: 'off', visuals: 'off' };
       c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
@@ -103,11 +105,27 @@ test('AIT-265: curated host model labels in settings, readiness and footer hover
       return { visibility: getComputedStyle(detail).visibility, lines: detail.textContent.split('\n') };
     });
     assert.equal(footer.visibility, 'visible');
-    assert.equal(footer.lines[1], `${copy.display.reply}: ${expected}`);
-    assert.equal(footer.lines[2], `${copy.display.understanding}: ${expected}`);
+    // AIT-267: intended behaviour change per Tick; unknown served routes no longer inherit the option label.
+    assert.equal(footer.lines[1], `${copy.display.reply}: ${copy.display.modelUnknown}`);
+    assert.equal(footer.lines[2], `${copy.display.understanding}: ${copy.display.modelUnknown}`);
     await shot(locale, 'footer-hover', true);
     await page.click('aithema-session >>> .settings-open');
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] [data-value="default"]'));
+    await settle(page);
+    assert.deepEqual(await shadow(page, c => {
+      const select = c.shadowRoot.querySelector('[data-select="model"]');
+      return [select.querySelector('.select__value').textContent, select.querySelector('.select__button').disabled,
+        select.querySelectorAll('[role="option"]').length];
+    }), [copy.settings.loadingOption, true, 0], `${locale}: no provisional model label before the catalog`);
+    const controls = ['.settings__frame', '[data-select="model"] .select__button', '.effort-area', '.settings-context', '.done'];
+    const loadingBoxes = await boxes(page, controls);
+    await shadow(page, () => window.releaseHostModelCatalog());
+    await until(page, expected => {
+      const select = document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"]');
+      return select?.querySelector('.select__value').textContent === expected &&
+        select.querySelector('[data-value="default"] strong')?.textContent === expected;
+    }, expected);
+    await settle(page);
+    assert.deepEqual(await boxes(page, controls), loadingBoxes, `${locale}: catalog arrival causes 0px layout shift`);
     assert.deepEqual(await shadow(page, c => {
       const select = c.shadowRoot.querySelector('[data-select="model"]');
       return [select.querySelector('.select__value').textContent, select.querySelector('[data-value="default"] strong').textContent];
