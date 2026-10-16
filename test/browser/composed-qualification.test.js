@@ -70,19 +70,17 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
   const sentinel = 'SENTINEL_FAKE_KEYS_FILE_NO_PROVIDER';
   const keysFile = join(directory, 'provider.keys');
   await writeFile(keysFile, `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`, { mode: 0o600 });
-  // Fake microphone uses a real WAV: utterance, endpointing silence, barge-in.
-  const wavPath = join(directory, 'corpus.wav'), rate = 48000, frames = rate * 24, wav = Buffer.alloc(44 + frames * 2);
+  // Separate scripted inputs: immediate utterance and a shared barge-in clip.
+  const utterancePath = join(directory, 'utterance.wav'), bargeInPath = join(directory, 'barge-in.wav');
+  const rate = 48000, frames = rate / 2, wav = Buffer.alloc(44 + frames * 2);
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
-  for (let i = 0; i < frames; i++) {
-    const voiced = i >= rate * 20 && i < rate * 20.5 || i >= rate * 21.8;
-    wav.writeInt16LE(voiced ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12_000) : 0, 44 + i * 2);
-  }
-  await writeFile(wavPath, wav);
+  for (let i = 0; i < frames; i++) wav.writeInt16LE(Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12_000), 44 + i * 2);
+  await writeFile(utterancePath, wav); await writeFile(bargeInPath, wav);
   const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), budget = join(directory, 'qualification.sqlite'), output = join(directory, 'evidence');
   initializeQualificationBudget({ path: budget });
-  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', wavPath, reference: 'Wien', expected: 'Wien', leadingSilenceMs: 20000 }],
+  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', utterancePath, bargeInPath, reference: 'Wien', expected: 'Wien' }],
     ceilingChecks: [{ provider: 'fixture', model: 'fixture', operation: 'stream', accountRef: 'offline-fixture',
       endpoint: 'https://fixture.invalid/stream', maxMicro: 100, request: { fixture: true } }],
     checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'FAKE ONLY; no live qualification',
@@ -129,10 +127,10 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
 `);
   if (process.platform === 'darwin') {
     for (const [name, args] of [
-      ['with-fake-capture', ['--fake-capture-wav', wavPath]],
+      ['with-fake-capture', ['--fake-capture-wav', utterancePath]],
       ['without-fake-capture', []],
-      ['forced-fake-output', ['--fake-capture-wav', wavPath, '--force-fake-output']],
-      ['forced-missing-output', ['--fake-capture-wav', wavPath, '--force-missing-output']],
+      ['forced-fake-output', ['--fake-capture-wav', utterancePath, '--force-fake-output']],
+      ['forced-missing-output', ['--fake-capture-wav', utterancePath, '--force-missing-output']],
     ]) {
       const reportPath = join(directory, `${name}.json`);
       const probeChild = spawn(process.execPath, [fileURLToPath(new URL('../../plugins/composed-voice/ops/qualification-output-probe.mjs', import.meta.url)),

@@ -385,15 +385,23 @@ function inertBrowser(evidence, { args = [process.execPath, '--enable-automation
       return { processInfo };
     }, async detach() {},
   }; } }), defaultBrowserContext: () => ({ async overridePermissions() {} }), async close() {},
-    async newPage() { return { async setExtraHTTPHeaders(headers) {
+    async newPage() { return { async evaluateOnNewDocument() {}, async setExtraHTTPHeaders(headers) {
       assert.equal(Object.keys(headers).some(name => name.toLowerCase() === 'x-aithema-qualification-control'), false);
     }, async setRequestInterception() {}, on() {},
       async goto() { return { status: () => 200 }; }, async waitForFunction() {}, async evaluate() { return evidence; } }; } };
 }
 const hostOptions = directory => ({ hostOrigin: 'http://127.0.0.1:4567', runDirectory: directory,
   ownerHeaders: { cookie: 'fixture' }, controlCapability: fakeControl.capability, verifyCeiling() {}, verifyReceipt() {}, reconcile() {} });
-const sampleOptions = wavPath => ({ item: { id: 'one', wavPath }, lane: 'candidate', runId: 'probe-refusal',
+const sampleOptions = wavPath => ({ item: { id: 'one', utterancePath: wavPath, bargeInPath: wavPath }, lane: 'candidate', runId: 'probe-refusal',
   admit() { assert.fail('No dispatch before probe'); }, onTiming() {} });
+
+async function sampleFixture(path) {
+  const wav = Buffer.alloc(46); wav.write('RIFF'); wav.writeUInt32LE(38, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write('data', 36); wav.writeUInt32LE(2, 40); await writeFile(path, wav);
+  return sampleOptions(path);
+}
 
 test('null-device refusal persists physicalBrowserMedia before control/admission and kills launcher group', async t => {
   const fixture = await keysFixture(t), evidence = { renderingVerified: false, labelledAudioOutputs: 0, outputLatency: 0 };
@@ -407,7 +415,7 @@ test('null-device refusal persists physicalBrowserMedia before control/admission
   } });
   t.after(() => host.close());
   let refused;
-  await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
+  await assert.rejects(host.runSample(await sampleFixture(fixture.path)), error => {
     assert.match(error.message, /null or unverified audio output/);
     refused = error.physicalBrowserMedia;
     assert.equal(refused.verified, false);
@@ -427,7 +435,7 @@ test('null-device refusal persists physicalBrowserMedia before control/admission
 test('launcher must arm watchdog; wall-clock timeout and host close kill even a pending launch', async t => {
   const fixture = await keysFixture(t);
   const unguarded = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async () => inertBrowser({}) });
-  await assert.rejects(unguarded.runSample(sampleOptions(fixture.path)), /without an armed/);
+  await assert.rejects(unguarded.runSample(await sampleFixture(fixture.path)), /without an armed/);
   for (const closeEarly of [false, true]) {
     let killed = 0;
     const started = Promise.withResolvers();
@@ -436,7 +444,7 @@ test('launcher must arm watchdog; wall-clock timeout and host close kill even a 
         lifetime.registerProcessGroup({ watchdogArmed: true, kill() { killed++; } }); started.resolve();
         return new Promise(() => {});
       } });
-    const pending = host.runSample(sampleOptions(fixture.path));
+    const pending = host.runSample(await sampleFixture(fixture.path));
     pending.catch(() => {}); await started.promise;
     if (closeEarly) await host.close();
     await assert.rejects(pending, closeEarly ? /host closed/ : /wall-clock timeout/);
@@ -453,7 +461,7 @@ test('connected launcher output overrides refuse before control/admission despit
       return inertBrowser({ renderingVerified: true, outputLatency: 0.016 }, { args: ['/fixture/chrome', flag] });
     } });
     t.after(() => host.close());
-    await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
+    await assert.rejects(host.runSample(await sampleFixture(fixture.path)), error => {
       assert.match(error.message, /null or unverified audio output/);
       assert.equal(error.physicalBrowserMedia.renderingVerified, true);
       assert.deepEqual(error.physicalBrowserMedia.refusedOutputFlags, [flag]);
@@ -471,7 +479,7 @@ test('unavailable actual command line refuses even with clean requested and loca
       process: () => ({ pid: process.pid, spawnargs: ['/fixture/chrome', '--enable-automation'] }) };
   } });
   t.after(() => host.close());
-  await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
+  await assert.rejects(host.runSample(await sampleFixture(fixture.path)), error => {
     assert.equal(error.physicalBrowserMedia.commandLine.verified, false);
     assert.equal(error.physicalBrowserMedia.verified, false); return true;
   });

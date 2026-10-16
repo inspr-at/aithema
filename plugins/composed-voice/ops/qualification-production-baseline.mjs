@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
+import { IncompleteMediaEvidence } from '../src/live-qualification.js';
 import { installBaselineProbe } from './qualification-baseline-probe.js';
 
 export function baselineOrigin(value) {
@@ -188,9 +189,16 @@ export async function runProductionBaseline({ page, binding, item, runId, admit,
     const status = consumed ? 'invalid' : admitting ? 'not-admitted' : 'setup-failed';
     const diagnostics = consumed ? await bounded(page.evaluate(() => window.qualificationBaselineProbe?.diagnostics())).catch(() => undefined) : undefined;
     const reason = consumed ? diagnostics?.failure || (durationBoundReached ? 'duration-bound' :
-      diagnostics?.hasHypothesis === false ? 'missing-user-final' : 'incomplete-media') : status;
+      diagnostics?.hasHypothesis === false ? 'missing-user-final' :
+      !Number.isFinite(diagnostics?.firstAudioAt) ? 'missing-first-audio' :
+      !Number.isFinite(diagnostics?.bargeInAt) ? 'missing-barge-in' : 'missing-playback-stop') : status;
     await recordEvidence({ ...labels(), status, reason,
       ...(diagnostics ? { diagnostics } : {}) });
+    if (['missing-first-audio', 'missing-barge-in', 'missing-playback-stop'].includes(reason)) {
+      const trace = await bounded(page.evaluate(() => window.qualificationBaselineProbe?.trace())).catch(() => []);
+      for (const event of trace ?? []) onTiming(event);
+      throw new IncompleteMediaEvidence(reason);
+    }
     throw new Error(`Production baseline failed; ${consumed ? 'invalid evidence' : status} (${reason}); ${consumed ? 'retain uncertain exposure and inspect private session receipts' : 'no conversation dispatched'}`);
   }
   finally {

@@ -43,6 +43,7 @@ export function installBaselineProbe() {
     if (voiced && firstAudioAt === undefined) {
       firstAudioAt = at;
       emit({ kind: 'playback-start', firstAudioAt, outputTimestamp: timestamp });
+      window.qualificationScriptedCapture?.firstAudio(firstAudioAt);
       // Capture callbacks may precede the asynchronously persisted user final.
       bargeInAt = trace.find(e => e.kind === 'capture' && e.voiced && e.captureAt >= firstAudioAt)?.captureAt;
     }
@@ -85,6 +86,7 @@ export function installBaselineProbe() {
           else if (agentSink === sink && [openerFinalAt, openerFinishedAt].every(Number.isFinite) &&
             at >= Math.max(openerFinalAt, openerFinishedAt) && openerDrainedAt === undefined) {
             openerDrainedAt = at; emit({ kind: 'opener-drained', at });
+            window.qualificationScriptedCapture?.startUtterance();
           }
           return;
         }
@@ -127,32 +129,38 @@ export function installBaselineProbe() {
     }
     return nativePlay.apply(this, args);
   };
+  const capture = event => {
+    if (!armed || failure) return;
+    const { captureAt, voiced, durationMs } = event;
+    emit(event);
+    if (voiced && speechStartAt === undefined) {
+      speechStartAt = captureAt;
+      if (![openerFinalAt, openerFinishedAt, openerDrainedAt].every(Number.isFinite) ||
+        captureAt < Math.max(openerFinalAt, openerFinishedAt, openerDrainedAt)) {
+        failure = 'opener-overlap'; emit({ kind: 'invalid-evidence', reason: failure, captureAt }); return;
+      }
+    }
+    if (voiced && !hypothesis) lastVoicedEndAt = captureAt + durationMs;
+    if (voiced && captureAt >= firstAudioAt) bargeInAt ??= captureAt;
+  };
+  const scripted = window.qualificationScriptedCapture;
+  const unsubscribe = scripted?.subscribe(capture);
   const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   navigator.mediaDevices.getUserMedia = async function(constraints) {
     const stream = await getUserMedia(constraints);
-    if (armed && constraints?.audio && !tapped.has(stream)) {
+    if (!scripted && armed && constraints?.audio && !tapped.has(stream)) {
       tapped.add(stream);
       const context = new AudioContext({ sampleRate: 16000 }); contexts.add(context);
       const source = context.createMediaStreamSource(stream), sink = context.createScriptProcessor(1024, 1, 1);
       let frames = 0;
       sink.onaudioprocess = event => {
-        if (!armed || failure) return;
         const samples = event.inputBuffer.getChannelData(0), receivedAt = performance.now();
         const frame = Math.round((event.playbackTime - event.inputBuffer.duration) * context.sampleRate);
         const captureAt = receivedAt + (frame / context.sampleRate - context.currentTime) * 1000;
-        const voiced = rms(samples) >= 0.015;
-        emit({ kind: 'capture', captureAt, receivedAt, voiced, durationMs: samples.length / context.sampleRate * 1000,
-          captureFrame: frame, contextSampleRate: context.sampleRate, byteLength: samples.length * 2, wavFrame: frames });
+        capture({ kind: 'capture', captureAt, receivedAt, voiced: rms(samples) >= 0.015,
+          durationMs: samples.length / context.sampleRate * 1000, captureFrame: frame,
+          contextSampleRate: context.sampleRate, byteLength: samples.length * 2, wavFrame: frames });
         frames += samples.length;
-        if (voiced && speechStartAt === undefined) {
-          speechStartAt = captureAt;
-          if (![openerFinalAt, openerFinishedAt, openerDrainedAt].every(Number.isFinite) ||
-            captureAt < Math.max(openerFinalAt, openerFinishedAt, openerDrainedAt)) {
-            failure = 'opener-overlap'; emit({ kind: 'invalid-evidence', reason: failure, captureAt }); return;
-          }
-        }
-        if (voiced && !hypothesis) lastVoicedEndAt = captureAt + samples.length / context.sampleRate * 1000;
-        if (voiced && captureAt >= firstAudioAt) bargeInAt ??= captureAt;
       };
       const silence = context.createGain(); silence.gain.value = 0;
       nativeConnect.call(source, sink); nativeConnect.call(sink, silence); nativeConnect.call(silence, context.destination);
@@ -209,6 +217,7 @@ export function installBaselineProbe() {
     diagnostics() { return { armed, hasHypothesis: !!hypothesis, speechStartAt, speechEndAt, openerFinalAt, openerFinishedAt, openerDrainedAt, bufferedBytes, firstAudioAt, bargeInAt, stoppedAt, failure,
       counts: Object.fromEntries(['capture', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(e => e.kind === kind).length])),
       voiced: trace.filter(e => e.kind === 'capture' && e.voiced).slice(-8) }; },
+    trace: () => trace,
     complete() { return !!failure || !!hypothesis && [firstAudioAt, bargeInAt, stoppedAt].every(Number.isFinite); },
     result() {
       if (failure) throw new Error(`Invalid production media evidence: ${failure}`);
@@ -221,7 +230,8 @@ export function installBaselineProbe() {
       return { hypothesis, trace, ttsPCM: btoa(binary), ttsFormat: format };
     },
     async close() {
-      armed = false;
+      armed = false; unsubscribe?.();
+      await scripted?.close();
       for (const observer of observers) observer.disconnect();
       Element.prototype.attachShadow = nativeAttachShadow;
       HTMLMediaElement.prototype.play = nativePlay; window.fetch = fetch;

@@ -7,11 +7,14 @@ window.composedQualification = {
   async run({ grant, headers }) {
     const trace = [], done = Promise.withResolvers();
     done.promise.catch(() => {});
+    const scripted = window.qualificationScriptedCapture;
     let session, firstAudioAt, bargeInAt, stopping = false;
     const onTiming = event => {
       if (trace.length >= 100_000) { done.reject(new Error('Timing evidence bound exceeded')); return; }
       trace.push(event);
-      if (event.kind === 'playback-start') firstAudioAt ??= event.firstAudioAt;
+      if (event.kind === 'playback-start' && firstAudioAt === undefined) {
+        firstAudioAt = event.firstAudioAt; scripted.firstAudio(firstAudioAt);
+      }
       if (event.kind === 'capture' && event.voiced && event.captureAt >= firstAudioAt && session && !stopping) {
         bargeInAt = event.captureAt; stopping = true;
         void session.interrupt().catch(done.reject);
@@ -21,28 +24,41 @@ window.composedQualification = {
       if (stopping && event.kind === 'playback-stop' && event.stoppedAt >= bargeInAt) done.resolve();
     };
     const player = createPCMPlayer({ onTiming });
-    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onTiming, onFault: done.reject }),
+    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onTiming: event => {
+      if (event.kind !== 'capture') onTiming(event); // Capture evidence uses the injected SOURCE clock.
+    }, onFault: done.reject }),
       openRelay: createNetworkRelayClient({ headers }) });
     const timer = setTimeout(() => done.reject(new Error('Physical capture/output/barge-in evidence timed out')), 50_000);
+    const unsubscribe = scripted.subscribe(onTiming);
     let failure;
     try {
       session = await media.connect(grant);
+      scripted.startUtterance();
       void (async () => {
         for await (const event of session.events) if (event.type === 'waiting' || event.type === 'ended') {
           done.reject(new Error(`Qualification media ${event.type}: ${event.reason}`));
         }
       })().catch(done.reject);
       await done.promise;
-      return trace;
+      return { trace };
     } catch (error) {
       failure = error;
+      // Only explicit harness media failures become refusals. Transport,
+      // permission and output-device failures retain their normal abort path.
+      if (error.message === 'Qualification media waiting: limit' ||
+        error.message === 'Physical capture/output/barge-in evidence timed out' ||
+        error.message?.startsWith('Qualification media ended:')) {
+        const refusal = error.message === 'Qualification media waiting: limit' ? 'media-wait-limit' :
+          firstAudioAt === undefined ? 'missing-first-audio' : bargeInAt === undefined ? 'missing-barge-in' : 'missing-playback-stop';
+        return { trace, refusal };
+      }
       const counts = Object.fromEntries(['capture', 'playback-scheduled', 'playback-start', 'playback-stop'].map(kind => [kind, trace.filter(event => event.kind === kind).length]));
       counts.voiced = trace.filter(event => event.kind === 'capture' && event.voiced).length;
       throw new Error(`${error.message}; device evidence ${JSON.stringify(counts)}`, { cause: error });
     } finally {
-      clearTimeout(timer);
+      clearTimeout(timer); unsubscribe();
       try { await session?.close().catch(error => { if (!failure) throw error; }); }
-      finally { await player.close(); }
+      finally { try { await player.close(); } finally { await scripted.close(); } }
     }
   },
 };

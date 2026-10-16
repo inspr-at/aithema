@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan, verifyCorpusLeadingSilence } from '../src/live-qualification.js';
+import { PRELIVE_CHECKS, createQualificationMediaProbe, runLiveQualification, validateQualificationPlan } from '../src/live-qualification.js';
+import { readQualificationCorpus } from '../src/qualification-corpus.js';
+import { IncompleteMediaEvidence } from '../src/live-qualification.js';
 import { initializeQualificationBudget } from '../src/persisted-budget.js';
 import { fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
 
 const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40 },
   { kind: 'playback-start', firstAudioAt: 900, outputTimestamp: { contextTime: 0.9, performanceTime: 900 } },
   { kind: 'capture', voiced: true, captureAt: 1000, durationMs: 40 }, { kind: 'playback-stop', stoppedAt: 1100 } ];
-const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH', leadingSilenceMs: 20000 }],
+const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH', utterancePath: '/fixture/utterance.wav', bargeInPath: '/fixture/barge-in.wav' }],
   checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'isFinal' } : {}) }])),
   ceilingChecks: [{ provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture', operation: 'stream', maxMicro: 100, request: { seconds: 1 } }] });
 
@@ -55,8 +57,8 @@ test(`OPS harness preserves saved TTS settings (${voiceSettings.style === null ?
         receiptId: row.attemptId, provider: row.provider, model: row.model, operation: row.operation, accountRef: row.accountRef, endpoint: row.endpoint, chargedMicro: 1, estimated: false });
     },
   };
-  const input = plan(); input.corpus[0].wavPath = join(directory, 'corpus.wav');
-  await writeFile(input.corpus[0].wavPath, corpusWav());
+  const input = plan(); input.corpus[0].utterancePath = input.corpus[0].bargeInPath = join(directory, 'corpus.wav');
+  await writeFile(input.corpus[0].utterancePath, corpusWav());
   const options = { operatorApproved: true, plan: input, host, budgetPath, outputDirectory };
   const report = await runLiveQualification(options);
   assert.equal(report.candidate.wer, 0); assert.equal(report.candidate.firstAudioMs.p95, 760);
@@ -150,27 +152,43 @@ export async function createQualificationHost({ controlFile, controlCapability }
   await assert.rejects(readFile(result.controlFile), { code: 'ENOENT' });
 });
 
-for (const leadingSilenceMs of [undefined, 0, 19999, '20000']) test(`plan refuses insufficient or undeclared leading silence: ${leadingSilenceMs}`, () => {
-  const input = plan(); input.corpus[0].leadingSilenceMs = leadingSilenceMs;
-  assert.throws(() => validateQualificationPlan(input), /leading silence/i);
+for (const key of ['utterancePath', 'bargeInPath']) for (const value of [undefined, 'relative.wav'])
+test(`plan requires absolute separate ${key}: ${value}`, () => {
+  const input = plan(); input.corpus[0][key] = value;
+  assert.throws(() => validateQualificationPlan(input), /utterancePath and bargeInPath/);
+});
+
+test('leadingSilenceMs is optional and unused', () => {
+  for (const value of [undefined, 0, 20000]) {
+    const input = plan(); input.corpus[0].leadingSilenceMs = value; validateQualificationPlan(input);
+  }
 });
 
 function corpusWav() {
-  const rate = 16000, dataBytes = rate * 21 * 2, wav = Buffer.alloc(44 + dataBytes);
+  const rate = 16000, dataBytes = rate * 2, wav = Buffer.alloc(44 + dataBytes);
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
   wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate * 2, 28);
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(dataBytes, 40);
-  wav.writeInt16LE(10000, 44 + 20 * rate * 2); return wav;
+  wav.writeInt16LE(10000, 44); return wav;
 }
 
-test('corpus prefix is checked from the same WAV bytes before either lane, without padding or seeking', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'corpus-silence-')), wavPath = join(directory, 'corpus.wav');
+test('separate corpus PCM is preserved without a silence prefix; both inputs validate before dispatch', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'corpus-clips-')), utterancePath = join(directory, 'utterance.wav'), bargeInPath = join(directory, 'barge-in.wav');
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const wav = corpusWav(), item = { wavPath, leadingSilenceMs: 20000 };
-  await writeFile(wavPath, wav); await verifyCorpusLeadingSilence(item);
-  wav.writeInt16LE(10000, 44 + 19 * 16000 * 2); await writeFile(wavPath, wav);
-  await assert.rejects(verifyCorpusLeadingSilence(item), /leading silence/);
-  await writeFile(wavPath, wav.subarray(0, 43)); await assert.rejects(verifyCorpusLeadingSilence(item), /Incomplete corpus WAV/);
+  const wav = corpusWav(), item = { utterancePath, bargeInPath };
+  await writeFile(utterancePath, wav); await writeFile(bargeInPath, wav);
+  const clips = await readQualificationCorpus(item);
+  for (const clip of Object.values(clips)) {
+    assert.equal(clip.sampleRateHz, 16000);
+    assert.deepEqual(Buffer.from(clip.pcm, 'base64'), wav.subarray(44));
+  }
+  for (const path of [utterancePath, bargeInPath]) {
+    await writeFile(path, wav.subarray(0, 43));
+    await assert.rejects(readQualificationCorpus(item), /Incomplete corpus WAV/);
+    await writeFile(path, wav);
+  }
+  const stereo = Buffer.from(wav); stereo.writeUInt16LE(2, 22); await writeFile(bargeInPath, stereo);
+  await assert.rejects(readQualificationCorpus(item), /PCM16 mono/);
 });
 
 // Host-injected clocks and PCM only: these tests never launch a browser or provider.
@@ -189,7 +207,7 @@ async function failureFixture(t, { count = 1, timing = () => diagnosticEvents(),
   initializeQualificationBudget({ path: budgetPath });
   const input = plan(), wavPath = join(directory, 'corpus.wav');
   await writeFile(wavPath, corpusWav());
-  input.corpus = Array.from({ length: count }, (_, index) => ({ ...input.corpus[0], fixtureIndex: index + 1, wavPath }));
+  input.corpus = Array.from({ length: count }, (_, index) => ({ ...input.corpus[0], fixtureIndex: index + 1, utterancePath: wavPath, bargeInPath: wavPath }));
   const calls = [], reconciliations = [];
   const host = {
     verifyCeiling: async attempt => ({ ...attempt, verified: true, reference: 'fixture', expiresAt: Date.now() + 60_000 }),
@@ -229,7 +247,7 @@ for (const phase of ['verifyCorpus', 'runSample', 'evidence', 'ttsConfig', 'pcm'
       },
     });
     const { options } = fixture;
-    if (phase === 'verifyCorpus') Object.defineProperty(options.plan.corpus[0], 'wavPath', { get() { throw abort; } });
+    if (phase === 'verifyCorpus') Object.defineProperty(options.plan.corpus[0], 'utterancePath', { get() { throw abort; } });
     if (phase === 'runSample') {
       const run = options.host.runSample;
       options.host.runSample = async args => { await run(args); throw abort; };
@@ -474,3 +492,30 @@ test('final reconciliation error retains its phase while refusal diagnostics are
   assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'failure.json'))).phase, 'reconcile');
   assert.equal(JSON.parse(await readFile(join(options.outputDirectory, 'refusals.json'))).length, 1);
 });
+
+for (const lane of ['candidate', 'baseline']) {
+  test(`runSample media-wait refusal continues once with exposure retained (${lane})`, async t => {
+    const h = await failureFixture(t, { count: 8, result(index, current) {
+      if (index === 1 && current === lane) throw new IncompleteMediaEvidence('media-wait-limit');
+      return fixtureResult();
+    } });
+    const report = await runLiveQualification(h.options);
+    assert.equal(h.calls.length, 16);
+    assert.deepEqual(report.refusals.map(row => [row.sample, row.lane, row.reason]), [[1, lane, 'media-wait-limit']]);
+    assert.equal(report.budget.exposureMicro, 1600);
+    assert.equal(JSON.parse(await readFile(join(h.options.outputDirectory, 'blind.json'))).length, 14);
+    assertValueFree(report.refusals);
+  });
+  test(`two same-reason runSample media-wait refusals trip early stop (${lane})`, async t => {
+    const h = await failureFixture(t, { count: 12, result(index, current) {
+      if (current === lane && index <= 2) throw new IncompleteMediaEvidence('media-wait-limit');
+      return fixtureResult();
+    } });
+    await assert.rejects(runLiveQualification(h.options), /refusal limit/);
+    const refusals = JSON.parse(await readFile(join(h.options.outputDirectory, 'refusals.json')));
+    assert.deepEqual(refusals.map(row => row.reason), ['media-wait-limit', 'media-wait-limit']);
+    assert.deepEqual(h.calls.at(-1), [2, lane]); assertValueFree(refusals);
+    const budget = JSON.parse(await readFile(join(h.options.outputDirectory, 'budget-final.json')));
+    assert.equal(budget.exposureMicro, h.calls.length * 100);
+  });
+}

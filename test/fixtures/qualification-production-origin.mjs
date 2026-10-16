@@ -40,6 +40,9 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
           method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({granted:true,processing:{contract:'fake-production-contract',items:['voice-elevenlabs','models-international']}})});
           sessionStorage.setItem('consented','1');location.href='/';};</script>`); return;
     }
+    // Legacy direct-probe negative controls retain their fixed WAV. Scripted
+    // capture cases use a short reply timer after their opener; no fixture time
+    // is forwarded as evidence.
     // Corpus timing source: composed-qualification.test.js's WAV has utterance
     // 20..20.5 s and barge-in from 21.8 s after a fixed 20 s prefix. These fixture timers mimic provider final
     // callbacks/reply audio; they never enter probe timestamps or expected text.
@@ -62,7 +65,8 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         let answering=false;
         detect.onaudioprocess=e=>{const samples=e.inputBuffer.getChannelData(0);if(answering&&Math.sqrt(samples.reduce((s,x)=>s+x*x,0)/samples.length)>=.015){gain.gain.cancelScheduledValues(context.currentTime);gain.gain.setValueAtTime(0,context.currentTime);
           answering=false;fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:2,text:'Bitte aufhören'}})});}};
-        setTimeout(()=>{window.fixtureUserFinalAt=performance.now();fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})});},21400);
+        const replyDelay=window.qualificationScriptedCapture ? 2000 : 21000;
+        setTimeout(()=>{window.fixtureUserFinalAt=performance.now();fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})});},replyDelay+400);
         const final=()=>{window.fixtureAssistantFinalAt=performance.now();return fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',text:'Danke.'}})});};
         oscillator=context.createOscillator();gain=context.createGain();gain.gain.value=0;
         ${mediaElement ? `const destination=context.createMediaStreamDestination();oscillator.connect(gain).connect(destination);
@@ -77,12 +81,12 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         gain.gain.setValueAtTime(.6,start+openerStart+.35);gain.gain.setValueAtTime(0,start+openerStart+.55);
         setTimeout(()=>fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',turnId:'opener',text:'AI notice. How can I help?'}})}),(openerStart+.6)*1000);
         setTimeout(()=>{rail.dataset.state='listening';},(openerStart+.65)*1000);
-        gain.gain.setValueAtTime(.2,start+21.05);gain.gain.setValueAtTime(.08,start+21.3);
-        window.fixtureReplyContextTime=start+21.05;
+        gain.gain.setValueAtTime(.2,start+(replyDelay+50)/1000);gain.gain.setValueAtTime(.08,start+(replyDelay+300)/1000);
+        window.fixtureReplyContextTime=start+(replyDelay+50)/1000;
         window.fixtureOutputClock=()=>context.getOutputTimestamp();
-        if(${JSON.stringify(assistantFinal)}==='before-audio')setTimeout(final,21000);
-        if(${JSON.stringify(assistantFinal)}==='after-audio')setTimeout(final,21500);
-        setTimeout(()=>{answering=true;},21100);
+        if(${JSON.stringify(assistantFinal)}==='before-audio')setTimeout(final,replyDelay);
+        if(${JSON.stringify(assistantFinal)}==='after-audio')setTimeout(final,replyDelay+500);
+        setTimeout(()=>{answering=true;},replyDelay+100);
       };})();</script>`);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

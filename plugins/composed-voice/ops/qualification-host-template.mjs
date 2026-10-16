@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { loopbackOrigin } from './qualification-server.mjs';
 import { probePhysicalOutput, findRefusedOutputFlags } from './qualification-output-probe.mjs';
 import { baselineOrigin, baselineAttemptCeiling, loadBaselineAuth, runProductionBaseline } from './qualification-production-baseline.mjs';
 import { matchQualificationEntities } from './qualification-live-server.mjs';
+import { readQualificationCorpus } from '../src/qualification-corpus.js';
+import { IncompleteMediaEvidence } from '../src/live-qualification.js';
+import { installScriptedCapture } from './qualification-scripted-capture.mjs';
 import { launchLocalBrowser } from './qualification-browser.mjs';
 
 /** Inert browser-side factory. OPS ports are mandatory and remain authoritative;
@@ -41,7 +44,7 @@ export function createQualificationHost(options = {}) {
     async runSample({ item, lane, runId, admit, onTiming }) {
       if (closed || running) throw new Error('Qualification host closed or already running');
       if (![admit, onTiming].every(fn => typeof fn === 'function')) throw new TypeError('admit and onTiming required');
-      if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !isAbsolute(item?.wavPath ?? '')) throw new TypeError('Sample identity and absolute corpus wavPath required');
+      if (!['candidate', 'baseline'].includes(lane) || typeof runId !== 'string' || !['utterancePath', 'bargeInPath'].every(key => isAbsolute(item?.[key] ?? ''))) throw new TypeError('Sample identity and absolute corpus utterancePath and bargeInPath required');
       const launchArgs = options.launchArgs ?? [];
       if (findRefusedOutputFlags(launchArgs).length || launchArgs.some(arg => /fake-audio|user-data-dir|use-fake-device/u.test(arg))) throw new TypeError('Qualification capture/output flags cannot be overridden');
       if (lane === 'baseline') baselineAttemptCeiling(options.binding);
@@ -76,7 +79,7 @@ export function createQualificationHost(options = {}) {
       ready.promise.catch(() => {}); result.promise.catch(() => {});
       const admissions = new Map();
       try {
-        await bounded(access(item.wavPath));
+        const clips = await bounded(readQualificationCorpus(item));
         const run = join(runDirectory, createHash('sha256').update(runId).digest('hex').slice(0, 24));
         await bounded(mkdir(run, { recursive: true }));
         const profile = await bounded(mkdtemp(join(run, `${lane}-chrome-`)));
@@ -86,12 +89,14 @@ export function createQualificationHost(options = {}) {
           signal: lifetime.signal, timeout: Math.min(60_000, sampleTimeoutMs),
           handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false,
           env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR },
-          args: ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${item.wavPath}`,
-            '--use-fake-ui-for-media-stream', '--disable-features=AudioServiceSandbox',
+          args: ['--disable-features=AudioServiceSandbox',
             '--autoplay-policy=no-user-gesture-required', ...launchArgs] }, launchLifetime)));
         if (!processGroups.size || [...processGroups].some(group => group.failed)) throw new Error('Launcher returned without an armed process-group watchdog');
         await bounded(browser.defaultBrowserContext().overridePermissions(targetOrigin, ['microphone']));
         const page = await bounded(browser.newPage());
+        // Puppeteer uses CDP Page.addScriptToEvaluateOnNewDocument, just as the
+        // baseline probe does. Install the same capture before either navigation.
+        await bounded(page.evaluateOnNewDocument(installScriptedCapture, clips));
         const preflight = async () => {
           const physicalBrowserMedia = await bounded(probePhysicalOutput(page, browser));
           await bounded(writeFile(join(run, `${lane}-physical-browser-media.json`), JSON.stringify({ physicalBrowserMedia }, null, 2), { mode: 0o600 }));
@@ -168,11 +173,11 @@ export function createQualificationHost(options = {}) {
         })();
         polling.catch(() => {});
         const grant = await bounded(ready.promise);
-        const [trace, answer] = await bounded(Promise.all([
-          page.evaluate(input => window.composedQualification.run(input), { grant, headers }), result.promise,
-        ]));
-        // No wall-clock remapping, fixture offset or reconstructed timestamp.
-        for (const event of trace) onTiming(event);
+        const media = await bounded(page.evaluate(input => window.composedQualification.run(input), { grant, headers }));
+        for (const event of media.trace) onTiming(event);
+        if (media.refusal) throw new IncompleteMediaEvidence(media.refusal);
+        const answer = await bounded(result.promise);
+        // Keep observed source/device timestamps unchanged in the probe.
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat, ttsConfig: answer.ttsConfig };
       } finally {
