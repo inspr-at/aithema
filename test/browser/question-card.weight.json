@@ -1,4 +1,4 @@
 {
-  "seconds": 100,
-  "evidence": "AIT-225 round 4: mbp2606 437ab209b5-11629, 86.188s rounded up + 10s"
+  "seconds": 130,
+  "evidence": "AIT-229: successful CI browser (6/6), head 39d8af9e9ab0c11d907e2574a690527ce25c1278, https://github.com/inspr-at/aithema/actions/runs/38900364578/job/116971350675 . Both successful top-level question-card tests total 110.180694596s (97.862969724s AIT-225 + 12.317724872s AIT-229), with viewport evidence enabled; round up to 120s + 10s margin. This exceeds the binding six-shard capacity: total planned work 2530s > 2520s; builder stopped for coordinator decision."
 }
