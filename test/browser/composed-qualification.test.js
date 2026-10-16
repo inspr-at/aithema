@@ -203,7 +203,17 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   assert.equal(candidate.filter(row => row.role === 'tts').length, 1);
   assert.equal(report.budget.records.filter(row => row.lane === 'baseline').length, 1);
   assert.equal(report.budget.records.length, 4 + stt.length);
-  assert.deepEqual(new Set(report.budget.records.filter(row => row.dispatchedAt).map(row => row.attemptId)), new Set(ports.dispatches));
+  const consumed = report.budget.records.filter(row => row.dispatchedAt), dispatched = new Set(ports.dispatches);
+  for (const attemptId of dispatched) assert.ok(consumed.some(row => row.attemptId === attemptId), 'every dispatch has a consumed admission');
+  // Product VAD may admit the interruption STT immediately before the observed
+  // playback stop closes the sample. A consumed claim can then be cancelled
+  // before the fixture dispatches; it must retain its uncertain terminal.
+  const consumedBeforeTeardown = consumed.filter(row => !dispatched.has(row.attemptId));
+  assert.ok(consumedBeforeTeardown.length <= 1);
+  for (const row of consumedBeforeTeardown) {
+    assert.equal(row.role, 'stt'); assert.equal(row.attemptId, stt[1]?.attemptId);
+    assert.equal(row.outcome, 'uncertain');
+  }
   assert.equal(report.budget.records.filter(row => row.retryOf).length, 1);
   assert.ok(report.budget.records.every(row => row.state === 'settled' &&
     (row.dispatchedAt ? row.receipt : row.outcome === 'cancelled' && row.exposureMicro === 0)));
