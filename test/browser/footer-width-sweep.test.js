@@ -7,7 +7,7 @@ import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
-const widths = [...new Set([...Array.from({ length: 26 }, (_, i) => 600 + i * 20), 699, 700, 701])].sort((a, b) => a - b);
+const widths = [...new Set([320, 390, ...Array.from({ length: 26 }, (_, i) => 600 + i * 20), 699, 700, 701])].sort((a, b) => a - b);
 const shotWidths = [600, 680, 700, 701, 1024];
 const tolerancePx = .25;
 const settle = page => shadow(page, async () => {
@@ -162,7 +162,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
       // Prove the guard still sees an overlong string when its element clips.
       await page.setViewport({ width: 701, height: 900 }); await settle(page);
       const original = await shadow(page, c => {
-        const label = c.shadowRoot.querySelector('.ai-notice__label'), original = label.textContent;
+        const label = c.shadowRoot.querySelector('.display-version'), original = label.textContent;
         label.style.cssText = `width:${label.getBoundingClientRect().width}px;overflow:hidden;text-overflow:ellipsis;flex:none`;
         label.textContent += ' longer translated footer text'.repeat(12);
         return original;
@@ -170,7 +170,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
       const clippedMeasurement = await geometry(page);
       assert.throws(() => assertFits(clippedMeasurement, 'clipped longer string'), /footer overflow/u);
       await shadow(page, (c, original) => {
-        const label = c.shadowRoot.querySelector('.ai-notice__label'); label.textContent = original; label.removeAttribute('style');
+        const label = c.shadowRoot.querySelector('.display-version'); label.textContent = original; label.removeAttribute('style');
       }, original);
       await setBalance(24_000_000);
       for (const width of shotWidths) for (const theme of ['light', 'dark']) {
