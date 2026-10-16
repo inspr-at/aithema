@@ -80,6 +80,7 @@ export class SettingsDialog {
   #consentEditor; #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
   #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
+  #closeGeneration = 0;
   constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
     if (ports.consentDocument) this.#consentEditor = new ConsentSettings({ root: this.#q('.consent-editor'), copy, ports: { load: ports.consentDocument, presentation: ports.consentPresentation, saveButton: this.#q('.done'), changed: () => this.sync(), save: ports.saveConsent, done: () => this.close() } });
@@ -159,6 +160,7 @@ export class SettingsDialog {
     this.#wire();
   }
   setCopy(copy) {
+    this.#closeGeneration++;
     this.#consentEditor?.setCopy(copy);
     const old = this.#copy.settings;
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
@@ -293,6 +295,7 @@ export class SettingsDialog {
   }
   /** Opens on the AI model tab; Continue is the chooser's Custom path. */
   open(opener, { tab = 'model', continueLabel = false, preset } = {}) {
+    this.#closeGeneration++;
     if (this.#dialog.open) return;
     this.#opener = opener ?? null; this.#continue = continueLabel; this.#closing = false;
     this.#active = activeSelection(this.#ports.state().session);
@@ -344,6 +347,7 @@ export class SettingsDialog {
   }
   close() {
     if (!this.#dialog.open || this.#closing) return;
+    this.#closeGeneration++;
     this.#closing = true;
     clearTimeout(this.#timer); this.#timer = 0;
     for (const select of this.#all('.select')) this.#closeMenu(select);
@@ -370,16 +374,22 @@ export class SettingsDialog {
     return true;
   }
   async #done() {
+    // Done owns this interaction only. Later navigation, edits or reopening
+    // cancel its close while the save still records the explicit confirmation.
+    const generation = ++this.#closeGeneration;
+    const current = () => this.#dialog.open && generation === this.#closeGeneration;
     clearTimeout(this.#timer);
     if (this.#timer) { this.#timer = 0; await this.#save(); }
+    if (!current()) return;
     if (this.#saving) { this.#status = this.#copy.settings.closePending; this.#render(); await this.#saving; }
-    if (this.#failed) return;
+    if (!current() || this.#failed) return;
     if ((this.#pending() || this.#ports.state().session.settings?.origin !== 'chosen') && !this.#notice?.explicit) {
-      await this.#save(false, true); if (this.#failed || this.#pending() || this.#notice?.explicit) return;
+      await this.#save(false, true); if (!current() || this.#failed || this.#pending() || this.#notice?.explicit) return;
     }
     this.close();
   }
   #setTab(tab, focus = false) {
+    this.#closeGeneration++;
     this.#tab = tab;
     for (const select of this.#all('.select')) this.#closeMenu(select);
     for (const button of this.#all('[data-tab]')) {
@@ -420,6 +430,7 @@ export class SettingsDialog {
   }
   #change(patch, debounce = false) {
     if (!this.#draft) return;
+    this.#closeGeneration++;
     this.#draft = { ...this.#draft, ...patch }; this.#revision++; this.#failed = false;
     this.#notice = null; this.#status = this.#copy.settings.autosave;
     this.#render();
