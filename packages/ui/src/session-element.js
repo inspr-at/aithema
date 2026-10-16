@@ -264,7 +264,7 @@ export class AithemaSession extends HTMLElement {
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
-          <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
+          <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
           <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
@@ -1070,14 +1070,16 @@ export class AithemaSession extends HTMLElement {
     // Sections appear with the first assessment; empty lists then say so quietly (D15).
     for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
-    root.querySelector('.scale').setAttribute('aria-valuenow', percent);
-    root.querySelector('.scale').setAttribute('aria-valuetext', u.readinessAssessed ? `${percent}%` : copy.notAssessed);
+    const scale = root.querySelector('.scale');
+    const readiness = u.readinessAssessed ? [
+      copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)),
+      copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)),
+    ].join(' · ') : copy.notAssessed;
+    scale.setAttribute('aria-valuenow', percent);
+    scale.setAttribute('aria-valuetext', readiness);
+    scale.title = readiness;
     root.querySelector('.fill').style.width = `${percent}%`;
     root.querySelector('.marker').style.left = `${this.#session.preset.talkMarker}%`;
-    root.querySelector('.talk-progress').textContent = u.readinessAssessed
-      ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
-    root.querySelector('.build-progress').textContent = u.readinessAssessed
-      ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const turns = activeTurns(this.#session), person = turns.findLast(t => t.role === 'user');
