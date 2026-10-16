@@ -186,7 +186,7 @@ export const en = {
     operations: { generate: 'generate', edit: 'edit' },
     labels: { quality: 'AI quality', speed: 'Speed', cost: 'Cost', privacy: 'Privacy', voice: 'Voice', images: 'Images' },
     values: { rated: '{score}%', index: '{index}/5', unverified: 'Unverified', qualified: 'Qualified', none: 'n/a', local: 'Local',
-      hostCountries: 'Provider base', hostQualified: 'Qualified', hostPriceReviewed: 'Reviewed', free: 'None', reviewed: 'Reviewed', off: 'Off', device: 'Device', eu: 'EU', restricted: 'Restricted', declared: 'Declared' },
+      hostCountries: 'Providers', hostQualified: 'Qualified', hostPriceReviewed: 'Reviewed', free: 'None', reviewed: 'Reviewed', off: 'Off', device: 'Device', eu: 'EU', restricted: 'Restricted', declared: 'Declared' },
     // One-line captions under each glass; the help line shows the full detail on hover or focus.
     short: {
       quality: { hostQualified: 'Checked by the host', rated: '{source}', qualified: 'No rating', unverified: 'Manifest: unverified', none: 'No model', local: 'Not rated' },

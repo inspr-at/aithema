@@ -29,7 +29,7 @@ export function hostSettingsGauges(input) {
     const rank = ['unverified', 'declared', 'hostCountries', 'restricted', 'eu', 'device'];
     const privacy = selected.map(option => {
       const base = settingsGauges({ preset: input.preset, info: input.info, model: option }).privacy;
-      // Host countries can strengthen a lane, but never weaken its existing privacy claim.
+      // Keep stronger location claims unless explicit host training contradicts the no-training caption.
       const training = option.facts?.hostTraining === true && base.state === 'eu' && input.preset !== 'eu';
       return hasCountries(option) && (training || rank.indexOf(base.state) < rank.indexOf('hostCountries'))
         ? { state: 'hostCountries', fill: 55, enforced: false, countries: option.facts.hostCountries } : base;

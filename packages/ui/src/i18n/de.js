@@ -188,7 +188,7 @@ export const de = {
     operations: { generate: 'erzeugen', edit: 'bearbeiten' },
     labels: { quality: 'KI-Qualität', speed: 'Tempo', cost: 'Kosten', privacy: 'Datenschutz', voice: 'Sprache', images: 'Bilder' },
     values: { rated: '{score} %', index: '{index}/5', unverified: 'Ungeprüft', qualified: 'Qualifiziert', none: 'k. A.', local: 'Lokal',
-      hostCountries: 'Anbietersitz', hostQualified: 'Qualifiziert', hostPriceReviewed: 'Geprüft', free: 'Keine', reviewed: 'Geprüft', off: 'Aus', device: 'Gerät', eu: 'EU', restricted: 'Eingeschränkt', declared: 'Angegeben' },
+      hostCountries: 'Anbieter', hostQualified: 'Qualifiziert', hostPriceReviewed: 'Geprüft', free: 'Keine', reviewed: 'Geprüft', off: 'Aus', device: 'Gerät', eu: 'EU', restricted: 'Eingeschränkt', declared: 'Angegeben' },
     short: {
       quality: { hostQualified: 'Vom Host geprüft', rated: '{source}', qualified: 'Ohne Bewertung', unverified: 'Manifest: ungeprüft', none: 'Kein Modell', local: 'Nicht bewertet' },
       speed: { index: 'Präferenz', local: 'Ihre Hardware', none: 'Kein Modell' },

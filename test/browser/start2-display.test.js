@@ -181,9 +181,11 @@ test('AIT-270: host-country wording and usable privacy-policy links, DE/EN', { t
     await page.focus('aithema-session >>> [data-gauge="privacy"]');
     const state = await shadow(page, c => {
       const root = c.shadowRoot, gauge = root.querySelector('[data-gauge="privacy"]'), help = root.querySelector('.context-message');
-      return { caption: gauge.querySelector('.gauge__detail').textContent, help: help.textContent, href: help.querySelector('a')?.getAttribute('href') ?? null };
+      const value = gauge.querySelector('.gauge__value');
+      return { caption: gauge.querySelector('.gauge__detail').textContent, help: help.textContent, href: help.querySelector('a')?.getAttribute('href') ?? null, valueFits: value.scrollWidth <= value.clientWidth };
     });
     assert.equal(state.caption, caption);
+    assert.ok(state.valueFits, `${locale}: provider heading fits the gauge`);
     assert.ok(state.help.endsWith(copy.gauges.details.privacy.hostCountries.replace('{countries}', names)));
     assert.equal(state.href, linked ? `${demo.url}/host-privacy` : null);
     assert.doesNotMatch(state.help, /beschränkt auf|restricted to|limited to|ohne Training|no training/iu);
