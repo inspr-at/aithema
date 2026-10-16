@@ -141,6 +141,10 @@ test('contract v1 (AEON-1441): reserving the omitted note cannot substitute for 
   assert.deepEqual(trimmed.transcript, [exact.transcript[1]], 'the oldest turn is actually omitted even if reserving the note reduces UTF-8 bytes');
   assert.equal(Array.from(trimmed.summary).length, 4000);
   assert.ok(bytes(trimmed) <= PAIMOS_PAYLOAD_MAX_BYTES);
+  session.transcript = [];
+  const metadataSpare = PAIMOS_PAYLOAD_MAX_BYTES - bytes(buildPaimosPayload(session, context));
+  assert.throws(() => buildPaimosPayload(session, { ...context, host: context.host + 'x'.repeat(metadataSpare + 1) }), RangeError,
+    'without transcript turns to omit, oversized metadata cannot be fitted by adding an omitted-turn note');
 });
 
 for (const locale of ['de', 'en', 'fr']) test(`contract v1 (AEON-1441): byte cap removes only the necessary oldest turns and localizes the note (${locale})`, () => {
