@@ -161,8 +161,10 @@ for (const format of ['pcm_s16le', 'pcm_f32le']) {
     assert.equal(h.silences.length, silent + 1, 'server silence flush is synchronous');
     assert.equal(h.silences.at(-1).reason, 'barge-in');
     assert.equal(h.coordinator.state.state, 'active');
-    await pending; await h.advance(250);
-    assert.ok(h.stopCount > before, 'silence reaches the player on the next poll');
+    // Eager synthesis can publish the admitted assistant final before playback
+    // drains. That event precedes silence; allow its poll plus the silence poll.
+    await pending; await h.advance(500);
+    assert.ok(h.stopCount > before, 'silence reaches the player within the two pending control polls');
     const played = h.audible.length, delivered = h.delivered.length;
     for (let i = 0; i < 10; i++) h.relay.audio({ playbackRevision: revision, format, sampleRateHz: 24_000, channels: 1, bytes: new Uint8Array(64_000) });
     await h.advance(10_000); await h.coordinator.idle();

@@ -45,8 +45,8 @@ reply is open at a time; queued fragments share the same ordered pacing cursor.
 There is no between-fragment playback wait. Further overlap must fit the same
 fixed bound or fail closed. Normal 64,000 B component chunks need 500 slots for
 two maximum responses; 1,024 also permits provider chunk boundaries without
-unlimited metadata. Either
-server ceiling fails closed with `limit`. With at most four default pending turns
+unlimited metadata. Either server ceiling fails closed with `limit`. With at most
+four default pending turns
 (the validated host maximum is sixteen), queue memory is bounded per call too.
 
 Silence first fences the revision and drops all playback queues synchronously,
