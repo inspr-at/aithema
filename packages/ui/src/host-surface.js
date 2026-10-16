@@ -101,8 +101,8 @@ export class HostSurface {
     if (this.#options.credits) {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
       this.#creditsPoll = setInterval(() => {
-        const rail = this.#root.querySelector('.audio-rail'), running = rail.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
-        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || rail.hasAttribute('data-call-reconciling') || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
+        const rail = this.#root.querySelector('.audio-rail'), running = rail?.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
+        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || rail?.hasAttribute('data-call-reconciling') || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
       }, 15_000);
       this.#creditsPoll.unref?.();
     }

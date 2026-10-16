@@ -54,13 +54,13 @@ export class EmailAsk {
   q(selector) { return this.gate.querySelector(selector); }
   get email() { return this.verification.email; }
   get desktop() { return this.mq.matches && this.workspace.dataset.understanding !== 'absent' && !this.workspace.hasAttribute('data-folded'); }
-  get callActive() { const rail = this.root.querySelector('.audio-rail'); return rail.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state); }
+  get callActive() { const rail = this.root.querySelector('.audio-rail'); return rail?.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state); }
   get typing() {
     const focus = this.root.activeElement;
     return focus === this.composer && (this.composer.value.trim() !== '' || !this.desktop) || this.now() - this.lastInput < EMAIL_ASK_IDLE_MS ||
       this.desktop && this.root.querySelector('.analysis-content').contains(focus) || Boolean(this.root.querySelector('dialog[open]'));
   }
-  get eligible() { return this.credits?.exhausted !== true && !this.root.querySelector('.audio-rail').hasAttribute('data-used-up') && this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
+  get eligible() { return this.credits?.exhausted !== true && !this.root.querySelector('.audio-rail')?.hasAttribute('data-used-up') && this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
   setCredits(credits) {
     this.credits = credits;
     this.awaitingCredits = false;

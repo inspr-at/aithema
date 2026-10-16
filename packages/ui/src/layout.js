@@ -264,7 +264,7 @@ export class PhoneComposerViewport {
         const changed = records.some(record => {
           // Transcript uploads and text paints do not own the action row.
           // Observe the list only to see that existing row move in or out.
-          const relevant = notices.contains(record.target) || actions?.contains(record.target) ||
+          const relevant = notices?.contains(record.target) || actions?.contains(record.target) ||
             record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].includes(actions);
           return relevant && (record.type !== 'attributes' ||
             record.oldValue !== record.target.getAttribute(record.attributeName));

@@ -742,7 +742,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one un
 });
 
 test('AIT-135 A2 B: used-up composer preserves the form, offers the actual delta and disables new work', async t => {
-  const { root } = a2Setup(t, { spent: 12_000_000 }); await tick(8);
+  const { root } = a2Setup(t, { spent: 12_000_000, voiceClient: {} }); await tick(8);
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
   assert.equal(root.querySelector('form.composer').inert, true);
   assert.match(root.querySelector('.composer-out__give').textContent, /600 more Credits/u);
@@ -840,7 +840,7 @@ test('AIT-135 A2 C: handover purpose and the short 90-day notice accompany the h
 
 
 test('AIT-135 A2 B: the supplied open question stays readable and its answers rest when credit runs out', async t => {
-  const { root } = a2Setup(t, { spent: 12_000_000, question: { question_short: 'What would help next?', options: [{ text: 'Discuss the goals', likely: true }, { text: 'Discuss resources' }] } }); await tick(8);
+  const { root } = a2Setup(t, { spent: 12_000_000, voiceClient: {}, question: { question_short: 'What would help next?', options: [{ text: 'Discuss the goals', likely: true }, { text: 'Discuss resources' }] } }); await tick(8);
   const card = root.querySelector('.question-card');
   assert.equal(card.hidden, false); assert.equal(card.inert, true);
   assert.equal(card.querySelector('.qtext').textContent, 'What would help next?');
@@ -1360,7 +1360,7 @@ for (const copy of [de, en]) for (const restart of [false, true]) test(`AIT-186 
 });
 
 for (const copy of [de, en]) for (const assessed of [false, true]) test(`AIT-186 F6: session pause appears once and preserves overview and connection (${copy === de ? 'de' : 'en'}, assessed ${assessed})`, async t => {
-  const { c, root } = setup(t, { copy, host: {} }); await tick(8); userTurn(c);
+  const { c, root } = setup(t, { copy, host: {}, voiceClient: {} }); await tick(8); userTurn(c);
   // Normal overview preservation includes a reply; missing reply + idle lanes is AIT-198's stuck state.
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'overview-reply', role: 'assistant', content: 'Which orders?', inputRevision: inputRevision(c.session) } });
   if (assessed) c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
@@ -1452,7 +1452,7 @@ for (const copy of [de, en]) test(`AIT-186 F6 r2: purpose pause before assessmen
 for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
   test(`AIT-261: ${reason} disables every conversation control and retains export (${copy === de ? 'de' : 'en'})`, async t => {
     t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
-    const { c, root } = setup(t, { copy, host: { credits: true } }); await tick(8); userTurn(c);
+    const { c, root } = setup(t, { copy, host: { credits: true }, voiceClient: {} }); await tick(8); userTurn(c);
     c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
     c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason, preserveTranscript: true, settleOutstanding: true } });
     await tick(8);
