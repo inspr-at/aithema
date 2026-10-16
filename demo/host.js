@@ -95,6 +95,7 @@ async function adopt(session) {
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
     component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, voicePresentation: binding.voicePresentation, copy: componentCopy(), session,
+      paimosImportUrl: binding.paimosImportUrl, paimosImportVersion: binding.paimosImportVersion,
       copyForLocale: locale => bundles[locale] && componentCopy(bundles[locale]),
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification

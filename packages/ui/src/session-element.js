@@ -33,6 +33,7 @@ import { createReveal } from './reveal.js';
 import { mountVersionDetails } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { emailAskStyles } from './email-ask-styles.js';
+import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -104,6 +105,7 @@ export class AithemaSession extends HTMLElement {
    * `voicePresentation` supplies the selected adapter label and localized presentation.
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
    * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
+   * `paimosImportUrl` and `paimosImportVersion: 1` enable creating a Paimos project via form POST.
    * `host` ({library, verification, handover, credits, locale, operator}) turns on the host surface (AIT-104 B2):
    * the conversation library, email verification, handover and credits; see the README.
    */
@@ -343,6 +345,13 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
     this.#renderMode();
+    if (paimosImportUrl(this.#options)) {
+      const create = node('button', 'create-project'); create.type = 'button';
+      create.innerHTML = `${icon('plus')}<span data-copy="createProject"></span>`;
+      create.querySelector('span').textContent = this.#copy.createProject;
+      create.addEventListener('click', () => this.#createProject());
+      root.querySelector('.understanding > .foot').append(create);
+    }
     root.querySelector('.export').addEventListener('click', e => {
       if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
       e.preventDefault(); void this.#export();
@@ -672,6 +681,18 @@ export class AithemaSession extends HTMLElement {
       const link = document.createElement('a'); link.href = url; link.download = 'aithema-session.zip'; link.click();
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
+  }
+  #createProject() {
+    const action = paimosImportUrl(this.#options); if (!action) return;
+    const document = this.ownerDocument, form = document.createElement('form');
+    try {
+      const payload = buildPaimosPayload(this.#session, { host: document.location.host, fallbackTitle: this.#copy.understanding });
+      form.method = 'post'; form.action = action; form.target = '_blank'; form.rel = 'noopener';
+      form.acceptCharset = 'UTF-8'; form.hidden = true;
+      const field = document.createElement('input'); field.type = 'hidden'; field.name = 'payload'; field.value = JSON.stringify(payload);
+      form.append(field); document.body.append(form); form.submit();
+    } catch { this.#status(this.#copy.controlFailed); }
+    finally { form.remove(); }
   }
   #creditsChanged({ allowanceChanged = false, settledCall } = {}) {
     if (!this.#host) return;
@@ -1815,7 +1836,7 @@ export class AithemaSession extends HTMLElement {
     try {
       await device.connect({ signal: controller.signal, deadlineAt });
       if (!current()) return;
-      this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
+      this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content, at: new Date().toISOString() } });
       if (clearInput && input.value === content) input.value = '';
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
       // The device has no assessment lane: retain its canonical-turns-only context contract.
@@ -1827,7 +1848,7 @@ export class AithemaSession extends HTMLElement {
         const text = reply.push(delta);
         if (text) this.receive({ type: 'turn.partial', data: { id, delta: text, ...origin, inputRevision: revision } });
       }
-      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', ...reply.finish(), ...origin, inputRevision: revision } });
+      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', ...reply.finish(), ...origin, at: new Date().toISOString(), inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }

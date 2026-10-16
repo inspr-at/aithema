@@ -276,7 +276,7 @@ export const de = {
   composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht\u00a0…', placeholderCompact: 'Ihre Nachricht …', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', placeholderFullHold: 'Sprechen Sie einfach weiter.', send: 'Senden',
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Zusammenfassung', signals: 'Was wir konkret gesehen haben', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
-  export: 'Gesprächsdaten herunterladen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
+  export: 'Gesprächsdaten herunterladen', createProject: 'Projekt erstellen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
   reconnecting: 'Verbindung wird wiederhergestellt …', sending: 'Wird gespeichert …', saved: 'Gespeichert', failed: 'Nicht gespeichert. Senden Sie die Nachricht erneut.',
   understandingFailed: 'Der Überblick konnte gerade nicht erstellt werden', understandingRetry: 'Erneut versuchen',
   reasoningFailed: 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.', empty: 'Nach dem ersten Satz entsteht hier Ihr Überblick.', noProjectDetails: 'Noch keine Angaben zu Ihrem Vorhaben.', overviewPendingReply: 'Der Überblick folgt, sobald die Antwort da ist.', preparingOverview: 'Ihr Überblick wird erstellt …',
