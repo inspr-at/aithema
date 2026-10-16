@@ -43,6 +43,8 @@ async function fixture(t, real = false, purpose = false) {
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
+    // Keep the intentionally held consent verdict coherent with its snapshot.
+    if (page.forceSnapshot && request.method() === 'GET' && path.endsWith('/features')) return json({ featureMatrix: page.forceSnapshot.featureMatrix });
     if (page.state && path.endsWith('/consent')) {
       if (request.method() === 'GET') return json(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
       const body = JSON.parse(request.postData()); page.posts.push(body);
