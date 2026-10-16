@@ -540,18 +540,19 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             }
             // At one fixed viewport a longer question can require chips. That
             // content decision must never resize or move the input underneath.
+            // Keep the reply body short and constant so only card text changes capacity.
             await shadow(page, () => {
               visualViewport.height = 728; visualViewport.dispatchEvent(new Event('resize'));
-              globalThis.showQuestion({ question_short: 'Choose?' });
+              globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?' });
             });
             await nextFrame(page); await nextFrame(page);
             const beforeModeChange = await boxes(page);
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, '390×728: a short question fits the full card');
-            await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
+            await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
             await nextFrame(page); await nextFrame(page);
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, '390×728: a longer question needs compact answers');
             still(beforeModeChange, await boxes(page), 'full-to-compact content change at the same viewport');
-            await page.evaluate(() => globalThis.showQuestion({ question_short: 'Choose?' }));
+            await page.evaluate(() => globalThis.showQuestion({ content: 'Choose?', question_short: 'Choose?' }));
             await nextFrame(page); await nextFrame(page);
             assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false);
             still(beforeModeChange, await boxes(page), 'compact-to-full content change at the same viewport');
