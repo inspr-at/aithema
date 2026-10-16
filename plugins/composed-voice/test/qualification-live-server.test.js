@@ -42,6 +42,19 @@ test('entity matching uses evaluateQualification NFC, de-AT case and whitespace 
   ]);
 });
 
+test('baseline requires an explicit HTTPS production origin; loopback and URL extras refuse', () => {
+  for (const baselineOrigin of [undefined, 'http://start2.example', 'https://localhost', 'https://127.0.0.1',
+    'https://127.1', 'https://[::1]', 'https://[::ffff:127.0.0.1]', 'https://start2.example/',
+    'https://user@start2.example', 'https://start2.example/path']) {
+    assert.throws(() => validateQualificationBinding({ ...liveBinding(), baselineOrigin }), /baselineOrigin|binding/i);
+  }
+  assert.equal(validateQualificationBinding({ ...liveBinding(), baselineOrigin: 'https://start2.example' }).baselineOrigin, 'https://start2.example');
+});
+
+test('qualification operation mapping preserves HTML generate/edit consent scopes', () => {
+  assert.deepEqual(qualificationProcessingOperations({ plugin: 'claude-html' }), ['generate', 'edit']);
+});
+
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { fixtureSocket } from '../../elevenlabs/test/component-fixtures.js';
 import { createNetworkRelayClient } from '../src/network-client.js';

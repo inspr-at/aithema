@@ -126,6 +126,31 @@ export function createQualificationServer(options) {
   assert.equal(await status('/composed/relay', 'POST', new Uint8Array(1280)), 403); // Relay refused the missing grant, rather than 415/404.
 });
 
+test('visitor erasure awaits qualification revocation for every owned session', async t => {
+  const keys = await keysFixture(t), { controlFile } = await controlFixture(t);
+  const module = join(keys.directory, 'revoke.mjs'), record = join(keys.directory, 'revoked.json');
+  await writeFile(module, `
+import { appendFile } from 'node:fs/promises';
+export function createQualificationServer({ storage }) {
+  return { networkRelay: { handle() {} }, createSample() {}, async revokeSession(id) {
+    if (storage.get(id).tombstone) throw new Error('Revoke must precede erase');
+    await appendFile(${JSON.stringify(record)}, id + '\\n');
+  } };
+}`);
+  const fixture = await startChild(new URL('../../../demo/server.js', import.meta.url), await temporaryDb(), {
+    ...keys.values, AITHEMA_COMPOSED_CONTROL_FILE: controlFile, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
+    AITHEMA_COMPOSED_QUALIFICATION_MODULE: module,
+  });
+  t.after(() => fixture.kill());
+  const headers = { 'content-type': 'application/json' };
+  const first = await fetch(fixture.url + '/api/sessions', { method: 'POST', headers, body: '{}' });
+  const one = await first.json(); headers.cookie = first.headers.get('set-cookie').split(';')[0];
+  const two = await (await fetch(fixture.url + '/api/sessions', { method: 'POST', headers, body: '{}' })).json();
+  const erased = await fetch(fixture.url + '/api/visitor/erase', { method: 'POST', headers, body: '{}' });
+  assert.equal(erased.status, 200);
+  assert.deepEqual(new Set((await readFile(record, 'utf8')).trim().split('\n')), new Set([one.id, two.id]));
+});
+
 test('remote sample cannot dispatch until persisted consume acknowledgement; refusal blocks work', async t => {
   let dispatched = 0;
   const { control, budget } = await controlFixture(t, 'denied-run');
