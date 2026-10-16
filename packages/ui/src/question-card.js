@@ -172,15 +172,16 @@ export class QuestionCard {
     // the concept bar measurable outside the grid; changing the live scrollport
     // just to measure it would clamp the reader's scroll position.
     const conversation = this.root.querySelector('.conversation');
+    // The compact grid has no gap; the turn list retains the expanded 8px
+    // gap, including while the concept bar is measured outside that grid.
     const expandedGap = phone && workspace
-      ? workspace.hasAttribute('data-phone-keyboard') ? 4 : parseFloat(this.view.getComputedStyle(conversation).columnGap)
-      : 0;
+      ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) : 0;
     const available = phone && workspace
       ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
         - this.root.querySelector('.band').getBoundingClientRect().height
         - this.root.querySelector('.display-foot').getBoundingClientRect().height
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
-        - this.root.querySelector('.concept-bar').getBoundingClientRect().height - expandedGap - 36
+        - this.root.querySelector('.concept-bar').getBoundingClientRect().height - expandedGap - 32
       : shell.getBoundingClientRect().height + (this.height ?? 0);
     // Give a fitting latest reply its full height, including the top fade.
     // Very long replies retain a bounded reading pane and open in the full-text dialog.
