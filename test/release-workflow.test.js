@@ -18,7 +18,7 @@ test('workflow parses, only a matching pushed tag admits release packing, and PR
   assert.deepEqual([...text.matchAll(/secrets\.([A-Z_]+)/gu)].map(match => match[1]), ['GITHUB_TOKEN']);
   assert.doesNotMatch(text, /secrets\[|secrets\s*\}\}|github\.token/u);
   const ci = yaml.parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
-  assert.equal(ci.on.pull_request, null); assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6]);
+  assert.equal(ci.on.pull_request, null); assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
   assert.ok(ci.jobs.test.steps.some(step => step.run?.includes('release/dry-run.mjs')));
   assert.equal(ci.jobs.browser['timeout-minutes'], 10); // 480 s is the measured budget, with runner headroom.
   assert.equal(ci.jobs.test['timeout-minutes'], 10);

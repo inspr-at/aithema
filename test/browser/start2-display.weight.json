@@ -1,4 +1,4 @@
 {
-  "seconds": 140,
-  "evidence": "AIT-246 mbp2606 78b25f02be-5727: added full evidence matrix 31.136s plus AIT-199 historical file maximum 97.777s = 128.913s, rounded up to 130s + 10s margin"
+  "seconds": 200,
+  "evidence": "AIT-246 round 4: CI 38889278135/job116934613384 successful top-level tests total 176.723s (the failed narrow alignment test excluded), plus successful mbp2606 722b2432e3-41399 narrow geometry/evidence 4.239s = 180.962s; rounded up to 190s + 10s margin. Previous 140s floor from 78b25f02be-5727 retained."
 }
