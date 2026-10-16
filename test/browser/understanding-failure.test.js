@@ -445,7 +445,8 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       c.configure({ session, copy, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 });
-      window.twoFailureCopy = `${copy.reasoningFailed} · ${copy.retry}`;
+      window.twoFailureCopy = `${copy.reasoningFailed}\u00a0· ${copy.retry}`;
+      window.reasoningFailedCopy = copy.reasoningFailed;
     }, locale, theme);
     await settle(page);
     const state = await shadow(page, c => ({
@@ -467,9 +468,18 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     const before = await boxes(page, targets);
     const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
     await capture(locale, width, theme, 'two-failures');
-    // Exercise placement changes in the same page without another provider run.
+    // Exercise hidden Retry and placement changes without another provider run.
     await shadow(page, c => {
       window.bothFailures = structuredClone(c.session.operations);
+      c.receive({ type: 'lane.status', data: { ...window.bothFailures, running: ['reaction'] } });
+    });
+    assert.deepEqual(await shadow(page, c => ({ hidden: c.shadowRoot.querySelector('.retry').hidden,
+      text: c.shadowRoot.querySelector('.reaction-failure-text').textContent,
+      expected: window.reasoningFailedCopy })), { hidden: true, text: await page.evaluate(() => window.reasoningFailedCopy),
+      expected: await page.evaluate(() => window.reasoningFailedCopy) }, 'hidden Retry leaves the failure sentence without a trailing separator');
+    if ((locale === 'de' && theme === 'light') || (locale === 'en' && theme === 'dark')) await capture(locale, width, theme, 'two-failures-retry-hidden');
+    await shadow(page, c => {
+      c.receive({ type: 'lane.status', data: window.bothFailures });
       const failures = c.session.operations.failures.filter(f => f.lane === 'understanding');
       c.receive({ type: 'lane.status', data: { ...c.session.operations, failures, lastFailure: failures[0] } });
     });
@@ -483,6 +493,8 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
       projectVisible: Boolean(c.shadowRoot.querySelector('.create-project').getClientRects().length),
     }));
     assert.deepEqual(overviewOnly, { inline: true, footerHidden: true, inFooter: true, replyHidden: true, retries: 1, projectVisible: true }, 'overview-only keeps AIT-198 inline Retry and releases the project row');
+    assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelector('.understanding > .foot').children].map(n => n.className)),
+      ['export', 'retry', 'export-reason', 'create-project'], 'returning Retry restores DOM index 1 and the original footer tab order');
     assert.deepEqual(await boxes(page, targets), before, 'overview-only transition shifts exactly 0 px');
     await capture(locale, width, theme, 'overview-only');
     await shadow(page, c => c.receive({ type: 'lane.status', data: window.bothFailures }));
