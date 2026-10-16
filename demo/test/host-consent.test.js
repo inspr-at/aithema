@@ -238,6 +238,10 @@ test('blocked localStorage property reads preserve defaults, prepaint, theme con
   window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
   const init = await readFile(new URL('../theme-init.js', import.meta.url), 'utf8');
   assert.doesNotThrow(() => runInNewContext(init, { document: window.document, get localStorage() { throw new DOMException('Sandboxed document', 'SecurityError'); } }));
+  const failedHost = window.document.createElement('script');
+  failedHost.setAttribute('src', '/demo/host.js'); window.document.body.append(failedHost);
+  failedHost.dispatchEvent(new window.Event('error'));
+  assert.equal(window.document.documentElement.dataset.hostUnavailable, '', 'resource error restores native utility fallback without a window global');
   const returns = [];
   await mountConsentPage({ document: window.document, location: window.location, navigate: path => returns.push(path) });
   const theme = window.document.querySelector('#theme'); theme.value = 'dark'; theme.dispatchEvent(new window.Event('change'));

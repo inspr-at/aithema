@@ -21,7 +21,7 @@ export function applyTheme(choice, document = globalThis.document) {
   document.querySelector('aithema-session')?.setAttribute('theme', choice);
   const select = document.querySelector('#theme'); if (select) select.value = choice;
   const sign = document.querySelector('#theme-icon'); if (sign) sign.innerHTML = icon({ light: 'sun', dark: 'moon', system: 'system' }[choice] ?? 'system');
-  const themeValue = document.querySelector('#theme-value'); if (themeValue) themeValue.textContent = select?.selectedOptions[0]?.textContent ?? '';
+  const themeValue = document.querySelector('#theme-value'); if (themeValue) themeValue.textContent = select?.dataset.label ? select.selectedOptions[0]?.textContent ?? '' : '';
   if (select?.dataset.label) select.title = `${select.dataset.label}: ${select.selectedOptions[0]?.textContent ?? ''}`;
 }
 export function mountTheme(document = globalThis.document, storage) {

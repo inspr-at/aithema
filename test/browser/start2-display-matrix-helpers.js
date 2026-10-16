@@ -238,14 +238,15 @@ export async function displayMatrix(t, section) {
           return [{ host: button, glyph: button.firstElementChild, label: button.querySelector('span'), chevron: button.lastElementChild },
             ...[...document.querySelectorAll('.utility')].map(host => ({ host, glyph: host.querySelector('.utility-icon svg'), label: host.querySelector('.utility-value'), chevron: host.querySelector('.utility-chevron svg') }))]
             .map(({ host, glyph, label, chevron }) => ({ glyph: rect(glyph), label: rect(label), chevron: chevron ? rect(chevron) : null,
-              path: chevron?.querySelector('path')?.getAttribute('d'), gap: getComputedStyle(host).gap, bounds: rect(host) }));
+              path: chevron?.querySelector('path')?.getAttribute('d'), gap: getComputedStyle(host).columnGap, theme: host.classList.contains('utility-theme'), bounds: rect(host) }));
         });
         assert.ok(menus.every(n => n.bounds.left >= 0 && n.bounds.right <= width + .5), `${width}/${theme}/${locale}: menus fit`);
         assert.ok(menus.every(n => n.chevron), 'language and appearance use the shared SVG chevron');
         for (const menu of menus.filter(menu => menu.label.width > 0)) {
           assert.equal(menu.chevron.width, 10); assert.equal(menu.chevron.height, 10);
           assert.ok(Math.abs(menu.chevron.cy - menu.label.cy) <= .5, 'chevron is centred on its label');
-          assert.equal(menu.path, menus[1].path); assert.equal(menu.gap, menus[1].gap);
+          assert.equal(menu.path, menus[1].path);
+          assert.equal(menu.gap, menu.theme ? '4px' : menus[1].gap, 'AIT-206 theme chevron uses Tick’s 4px gap; other menus keep their shared spacing');
           assert.equal(menu.glyph.width, 16); assert.equal(menu.glyph.height, 16);
         }
         assert.equal(menus[0].glyph.width, 16, 'the conversations icon is visible even at 320');
@@ -310,7 +311,7 @@ export async function displayMatrix(t, section) {
       }
     });
     await t.test('r2 menu: icon-only below 448px, whole localized labels from 448px, no ellipsis', async () => {
-      for (locale of ['de', 'en']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 1440]) {
+      for (locale of ['de', 'en']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 479, 480, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const menu = await shadow(page, c => {
           const n = c.shadowRoot.querySelector('.conversations-toggle'), label = n.querySelector('span'), style = getComputedStyle(label);
