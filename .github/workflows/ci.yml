@@ -80,12 +80,6 @@ jobs:
         run: npm test
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/release-evidence
-      - name: AIT-222 temporary Linux crash diagnostics
-        if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-        run: node --test scripts/extractor-crash-stress.js
-        env:
-          AITHEMA_EXTRACTOR_STRESS_REPEATS: '500'
-          AITHEMA_EXTRACTOR_STRESS_PATTERN: '^(?!child heap)'
       - name: Retain candidate archives and consumer evidence
         if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -95,6 +89,18 @@ jobs:
           if-no-files-found: ignore
           compression-level: 0
           retention-days: 90
+
+  extractor-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - run: npm ci
+      - name: AIT-222 temporary isolated Linux crash reproduction
+        run: node scripts/extractor-crash-stress.js
 
   browser:
     needs: changes
