@@ -116,7 +116,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const wallet = ownerWallet?.(session);
     if (!wallet) return budget.admit(request);
     const verdict = await admitCredits(budget, request, wallet, { beforeReserve: () => conversationLimits.assertOpen(session.id) });
-    if (!verdict.ok) throw new PluginError('not-admitted', verdict.reason);
+    if (!verdict.ok) {
+      conversationLimits.assertOpen(session.id);
+      throw new PluginError('not-admitted', verdict.reason);
+    }
     return verdict.admission;
   };
   // Invalid host choices fail at startup instead of at a visitor's first request.
@@ -869,7 +872,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           assertOpen();
           if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           claim.consume(); dispatched = true;
-        } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
+        } catch { assertOpen(); zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };
       return { plugin, binding, options: { ...options, attempt, report }, finish() {
         if (!reported) {
@@ -952,6 +955,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         return settlement;
       };
       const refuse = reason => {
+        assertDispatchOpen();
         report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
         refused = true;
         throw new PluginError('not-admitted', reason);
