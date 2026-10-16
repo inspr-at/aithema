@@ -79,7 +79,7 @@ for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-215 ${locale}
   const h = await opened(fixture(t, { copy }));
   const row = h.q('.preset-option[data-preset="custom"]');
   const expected = locale === 'de'
-    ? 'Nachrichten brauchen Ihre Einwilligung · Sie können diese Option wählen. Sie verarbeitet nichts, bevor der Host Ihre Einwilligung dafür hat.'
+    ? 'Nachrichten brauchen Ihre Einwilligung · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.'
     : 'Messages need your consent · You can choose this option. It processes nothing until the host has your consent for it.';
   row.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
   assert.equal(h.q('.context-message').textContent, expected, 'hover');

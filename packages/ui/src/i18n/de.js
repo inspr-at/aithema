@@ -144,7 +144,7 @@ export const de = {
     visuals: 'Visuelle Entwürfe · Ergänzt den schriftlichen Entwurf um generierte Oberflächenskizzen.',
     visualsOff: 'Visuelle Entwürfe aus · Es werden keine Bilder erzeugt.',
     unavailable: 'Nicht verfügbar · {reason}',
-    consentNeeded: '{reason} · Sie können diese Option wählen. Sie verarbeitet nichts, bevor der Host Ihre Einwilligung dafür hat.',
+    consentNeeded: '{reason} · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.',
     limited: 'Derzeit nicht verfügbar · {reason}. Sie können sie trotzdem wählen; sie startet, sobald das behoben ist.',
     consent: 'Einwilligung · Die Wahl eines Modells erteilt nie eine Einwilligung. Der Host fragt gesondert danach.',
     providers: 'Anbieter und Datenverarbeitung · Details zu Ihrer Auswahl und dazu, wie die Anzeigen berechnet werden.',
