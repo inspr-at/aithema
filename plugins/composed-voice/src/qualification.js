@@ -2,7 +2,9 @@ import { PluginError } from '../../../packages/core/src/invocation.js';
 import { createComposedVoiceCoordinator } from '../../../packages/server/src/composed-voice.js';
 
 export const QUALIFICATION_THRESHOLDS = Object.freeze({ wer: 0.08, entityAccuracy: 0.95,
-  firstAudioP95Ms: 1500, bargeInStopMs: 300, capMicro: 25_000_000 });
+  firstAudioP95Ms: 1500, bargeInStopMs: 300, capMicro: 25_000_000,
+  // coordinator decision for AIT-160, 2026-10-16: corpus validity and refusal limits.
+  minValidFraction: 0.75, minValidSamples: 6, maxConsecutiveRefusals: 2 });
 const words = text => text.normalize('NFC').toLocaleLowerCase('de-AT').match(/[\p{L}\p{N}]+/gu) ?? [];
 export const normalizeQualificationEntity = text => text.normalize('NFC').trim().toLocaleLowerCase('de-AT').replace(/\s+/gu, ' ');
 function distance(reference, hypothesis) {
@@ -15,8 +17,11 @@ function distance(reference, hypothesis) {
   return row.at(-1);
 }
 const percentile = (sorted, p) => sorted[Math.max(0, Math.ceil(sorted.length * p) - 1)];
-export function evaluateQualification(samples, { blindPreference = 'pending' } = {}) {
+export function evaluateQualification(samples, { blindPreference = 'pending', corpusSamples = samples?.length } = {}) {
   if (!Array.isArray(samples) || !samples.length || !['pending', 'at-par', 'preferred', 'worse'].includes(blindPreference)) throw new TypeError('Qualification requires observations');
+  if (!Number.isSafeInteger(corpusSamples) || corpusSamples < samples.length) throw new TypeError('Invalid qualification corpus size');
+  const sufficientSamples = samples.length >= QUALIFICATION_THRESHOLDS.minValidSamples &&
+    samples.length >= corpusSamples * QUALIFICATION_THRESHOLDS.minValidFraction;
   let errors = 0, references = 0, entities = 0, correct = 0;
   const latency = [], stops = [];
   for (const sample of samples) {
@@ -36,9 +41,11 @@ export function evaluateQualification(samples, { blindPreference = 'pending' } =
   latency.sort((a, b) => a - b);
   const wer = errors / references, entityAccuracy = correct / entities, bargeInStopMs = Math.max(...stops),
     firstAudioMs = { p50: percentile(latency, 0.5), p95: percentile(latency, 0.95) };
-  const automatedPass = wer <= QUALIFICATION_THRESHOLDS.wer && entityAccuracy >= QUALIFICATION_THRESHOLDS.entityAccuracy &&
+  const automatedPass = sufficientSamples && wer <= QUALIFICATION_THRESHOLDS.wer && entityAccuracy >= QUALIFICATION_THRESHOLDS.entityAccuracy &&
     firstAudioMs.p95 <= QUALIFICATION_THRESHOLDS.firstAudioP95Ms && bargeInStopMs <= QUALIFICATION_THRESHOLDS.bargeInStopMs;
   return { wer, entityAccuracy, firstAudioMs, bargeInStopMs, automatedPass, blindPreference,
+    ...(!sufficientSamples ? { reason: 'insufficient-valid-samples' } : {}),
+    validSamples: samples.length, refusedSamples: corpusSamples - samples.length, corpusSamples,
     qualified: automatedPass && ['at-par', 'preferred'].includes(blindPreference), samples: samples.length,
     thresholds: QUALIFICATION_THRESHOLDS };
 }

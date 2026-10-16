@@ -906,6 +906,35 @@ export function createQualificationHost(cli) {
    A failure retains reservations; confirm the old dispatcher stopped before
    explicit orphan settlement/reconciliation. Never silently rerun the same ID.
 
+   After an abort, look in `--out` for `failure.json` (0600, exclusive creation;
+   `failure-<uuid>.json` if a prior record exists or this run has not claimed its
+   ID). Pre-claim errors retain their phase (`validate`, `budget`, `verifyPricing`
+   or `claim`) and preserve earlier run files, including `budget-final.json`.
+   The diagnostic records the failing phase,
+   1-based sample index and lane (`null` outside a sample/lane), a redacted error,
+   and only event kinds, numeric device timings, voiced flags and counts. Known
+   harness messages use a fixed allowlist; all other errors become their class
+   plus a SHA-256 hash. It contains no audio, text, URLs, paths or credentials;
+   the original exception is rethrown. If evidence storage itself is unavailable,
+   the durable ledger is still authoritative.
+
+   Incomplete media (missing first audio, pre-reply voiced capture, voiced
+   barge-in capture, or playback-stop at/after barge-in) refuses that lane's sample
+   without retrying. The run aborts immediately with phase `refusal-limit` when
+   one lane has two consecutive refusals for the same reason, or its refusals
+   exceed 25% of the full corpus. A valid sample or a different refusal reason
+   resets that lane's same-reason streak; the other lane does not affect it.
+   `refusals.json` is written once on completion or abort (0600, exclusive creation),
+   with each refusal's sample, lane, fixed reason and value-free trace. Refused
+   samples skip the blind pair. `report.json` includes the refusals and, alongside
+   each lane's metrics, `samples`/`validSamples`, `corpusSamples`, `attemptedSamples`,
+   `refusedSamples` and `refusalsByReason`. Automated passage requires at least 75%
+   of the corpus valid and at least six valid samples, as well as passing metrics;
+   otherwise `automatedPass` is false with reason `insufficient-valid-samples`.
+   These limits are the coordinator decision for AIT-160, 2026-10-16.
+   Refusal never zeroes or releases an attempt;
+   dispatched attempts retain uncertainty until authenticated reconciliation.
+
 Round 4 builder evidence (mbp2606, **mba over SSH**, Chrome headless shell
 155.0.8059.39, commit `66c2af53cc`, 2026-10-16 07:27:59–07:28:03 UTC):
 
