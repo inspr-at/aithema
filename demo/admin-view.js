@@ -18,6 +18,7 @@ export function adminModel(state, audit) {
   const auditRow = r => {
     const old = r.oldValues, next = r.newValues;
     const who = r.actor.startsWith('operator:') ? ['op', r.actor.slice(9, r.actor.lastIndexOf('#'))] : r.actor.startsWith('ops-cli:') ? ['cli', r.actor.slice(8)] : ['sys'];
+    if (next.event === 'session.erase') return { at: r.at, who, ev: ['erase', next.sessionId, next.visitor, next.result] };
     if (next.event === 'mail-cap') return { at: r.at, who, ev: [next.window === 'hour' ? 'capHour' : 'capDay', next.count] };
     const ch = [];
     for (const t of TIERS) if (old?.allowancesMicro && old.allowancesMicro[t] !== next.allowancesMicro?.[t]) ch.push([t, wholeCredits(old.allowancesMicro[t]), wholeCredits(next.allowancesMicro[t])]);
@@ -121,6 +122,7 @@ function changeText(c) {
 }
 function eventText(e) {
   const LG = C.log, [k, ...x] = e
+  if (k === 'erase') return `<span>${esc(fill(LG.erase, { id: x[0] ?? '—', scope: x[1] === null ? '—' : x[1] ? LG.visitor : LG.session, result: x[2] }))}</span>`
   if (k === 'capHour' || k === 'capDay') return `<span>${esc(fill(LG[k], { n: nf(x[0]) }))}</span>`
   if (k === 'initAll') return `<span>${esc(fill(LG.initAll, { a: nf(x[0]), b: nf(x[1]), c: nf(x[2]) }))}</span>`
   return `<span>${esc(fill(LG[k], { h: nf(x[0]), d: nf(x[1]) }))}</span>`

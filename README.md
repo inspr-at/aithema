@@ -2434,6 +2434,9 @@ OPS's actual container name). The image's service account is `node`:
 
 ```sh
 docker exec --user node start2 node /app/demo/admin-cli.js settings
+# Erase one session without its visitor cookie; --visitor erases all its visitor conversations and identity.
+docker exec --user node start2 node /app/demo/admin-cli.js erase-session SESSION_ID
+docker exec --user node start2 node /app/demo/admin-cli.js erase-session SESSION_ID --visitor
 docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
 docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
@@ -2448,6 +2451,14 @@ docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain -
 # Run after checking the preview. Repeated apply makes no duplicate corrections.
 docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain --apply --limit 100
 ```
+
+`erase-session <sessionId> [--visitor]` runs the shared application erasure inside the
+running server. It refuses active voice (`voice-call-active`) or pending dispatch
+(`pending-dispatch`) with 409 before changing any session in scope. Unknown IDs
+return `not-found`; tombstones return `already-erased`. Every socket call records
+the service-account actor, time, session ID, visitor flag and result in `audit`,
+without content. Financial history and owner attribution remain intact. See
+[the admin runbook](RUNBOOK.md) for retry and scope guidance.
 
 Use the revision returned by `settings`; the example's `1` applies only before
 the first OPS save. Local usage is `node demo/admin-cli.js --socket /absolute/path

@@ -129,3 +129,18 @@ test('AIT-169 real host mounts admin and serves its CSP-clean script; feature of
   assert.equal((await fetch(running.url + '/admin')).status, 404);
   const r = await fetch(running.url + '/demo/admin-page.js'); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /javascript/u);
 });
+
+
+for (const locale of ['de', 'en']) test(`AIT-247 admin page renders erasure audit entries (${locale})`, async t => {
+  const f = await adminFixture(); t.after(f.close);
+  for (const [visitor, result] of [[false, 'erased'], [true, 'already-erased'], [null, 'invalid-admin-command']]) {
+    f.host.visitorCredits.auditErasure({ sessionId: visitor === null ? null : 'erased-fixture', visitor, result }, { actor: 'ops-cli:fixture' });
+  }
+  const response = await f.call('/admin?lang=' + locale);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /erased-fixture/u);
+  assert.match(html, /already-erased/u);
+  assert.match(html, /invalid-admin-command/u);
+  assert.ok(html.includes(locale === 'en' ? 'Erasure:' : 'Löschung:'));
+});

@@ -694,6 +694,43 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       storage.checkpointErasure();
       return { retired, failed, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 };
     },
+    /** Privileged in-process operator port. The public HTTP erase keeps its cancellation semantics. */
+    async eraseSession({ sessionId, visitor = false }) {
+      if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(sessionId) || typeof visitor !== 'boolean') throw new TypeError('Invalid erase request');
+      let session;
+      try { session = storage.get(sessionId); }
+      catch (error) { if (error instanceof NotFoundError) error.status = 404; throw error; }
+      if (visitor && !host?.eraseVisitorForOwnerHash) throw Object.assign(new Error('visitor-unavailable'), { status: 503 });
+      const scope = visitor ? storage.ownedIdsForHash(session.ownerHash, { includeErased: true }) : [sessionId];
+      const ids = scope.filter(id => !storage.get(id).tombstone);
+      // Preflight the entire visitor before changing anything. There is no await
+      // between these checks and every storage.erase, so new dispatch cannot race in.
+      for (const id of ids) {
+        const current = storage.get(id);
+        if (voiceHandlers?.retentionActive(id) || storage.voiceCalls(id).some(call => !call.terminal)) {
+          throw Object.assign(new Error('voice-call-active'), { status: 409 });
+        }
+        if ([...jobs.values()].some(job => job.id === id) || pluginRuntime.budget.hasPendingDispatch(id) ||
+          hostHandlers.retentionActive(id) || host?.pendingDispatchForSession?.(id) || current.conceptIntent?.pending || current.uploads.some(upload => upload.state === 'pending')) {
+          throw Object.assign(new Error('pending-dispatch'), { status: 409 });
+        }
+      }
+      // Retry host cleanup for tombstones too: a previous call may have failed
+      // after the durable erase but before the host acknowledged its cleanup.
+      const live = new Set(ids);
+      await Promise.all(scope.map(async id => {
+        if (live.has(id)) return eraseConversation(id, {});
+        // storage.erase commits before truncating the WAL. If that checkpoint
+        // failed, retry it and the event/cancellation cascade before acknowledging.
+        storage.checkpointErasure();
+        const event = storage.read(id).findLast(event => event.type === 'session.erased');
+        await invalidate(id, event, 'session-erased');
+        await host?.erased?.({ sessionId: id });
+      }));
+      if (visitor) host.eraseVisitorForOwnerHash(session.ownerHash);
+      return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
+        erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
+    },
     async reconcileUncertain({ apply = false, limit = 10 } = {}) {
       if (typeof apply !== 'boolean' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair request');
       const options = { dryRun: !apply, limit, signal: stop.signal, deadlineAt: Date.now() + 60_000 };
