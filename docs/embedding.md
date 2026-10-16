@@ -238,6 +238,54 @@ not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
 
+### Mail copy and privacy links
+
+The SMTP plugin accepts `copy: { en: { ... }, de: { ... } }`. Each supplied
+field overrides `mailCopy`; missing fields and locales retain the demo defaults.
+The subject, plain text and HTML use the same merged copy. Unknown locales or
+fields and non-string values fail at construction. `brand` defaults to
+`Aithema`; the `host` signature supports `{brand}` and `{host}`. Override both
+`explanation` (with an allowance) and `explanationFallback` (without one) when
+the host uses a sign-in flow rather than the demo's credits.
+
+```js
+import { createSmtpMail, smtpConfig } from '@inspr/aithema-plugin-mail-smtp';
+
+const mail = createSmtpMail({
+  config: smtpConfig(hostSmtpSettings),
+  publicOrigin: 'https://start.example.test',
+  privacyUrl: locale => `https://start.example.test/privacy?lang=${locale}`,
+  copy: {
+    en: {
+      brand: 'Augmentoring Start',
+      explanation: 'Confirm your address to sign in.',
+      explanationFallback: 'Confirm your address to sign in.',
+      host: 'Sent by {brand} at {host} because you requested a sign-in link.',
+      privacy: 'We use your address to sign you in and delete it after 24 hours.',
+      retention: 'Please delete this sign-in message within 24 hours.',
+    },
+    de: {
+      brand: 'Augmentoring Start',
+      explanation: 'Bestätigen Sie Ihre Adresse, um sich anzumelden.',
+      explanationFallback: 'Bestätigen Sie Ihre Adresse, um sich anzumelden.',
+      host: 'Gesendet von {brand} auf {host}, weil Sie einen Anmeldelink angefordert haben.',
+      privacy: 'Wir nutzen Ihre Adresse zur Anmeldung und löschen sie nach 24 Stunden.',
+      retention: 'Bitte löschen Sie diese Anmeldenachricht innerhalb von 24 Stunden.',
+    },
+  },
+});
+```
+
+`privacyUrl` can also be an absolute HTTP(S) URL string. A function must return
+a string synchronously; it is called and validated once for each supported
+locale (`de`, `en`) at construction. The validated URL appears in both parts.
+Without this option, `/privacy?locale=<locale>` appears only when
+`privacyDocumentConfigured` is true, preserving the demo's behavior. Copy
+changes wording, not the host's storage/deletion policy. HTML escapes copy and
+URLs; custom `htmlTemplate` functions receive the same merged `copy` and should
+render its wording. See the [plugin README](../plugins/mail-smtp/README.md) for
+the full field list and fallback behavior.
+
 ## Version source, release mapping and rollback
 
 `release/version.json` is the sole authority. The owner-authorized candidate reserves
