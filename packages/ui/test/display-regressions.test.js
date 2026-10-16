@@ -365,5 +365,7 @@ test('AIT-228: fractional quotes gate Retry and Regenerate exactly like missing 
       assert.equal(request.disabled, false, `${phase}: a valid quote restores the action`);
       assert.equal(regenerate.disabled, false);
     }
+    root.querySelector('.concept-close').click(); await tick();
+    root.activeElement?.blur();
   }
 });
