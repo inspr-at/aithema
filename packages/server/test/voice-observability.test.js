@@ -162,10 +162,10 @@ test('AIT-139: delayed closure correlates after executor restart and never downg
   restarted.observeClosure(record, { closureConfirmed: true, usage: { costEstimated: true } });
   restarted.observeClosure(record, { closureConfirmed: false });
   const closed = h.logs.filter(row => row.event === 'voice.turn.closure');
-  assert.deepEqual(closed.map(row => row.closureConfirmed), [false, true]);
-  assert.equal(closed[1].reconciliationAgeMs, 400);
-  assert.equal(closed[1].turnHash, h.logs[0].turnHash);
-  assert.equal(closed[1].generationHash, h.logs[0].generationHash);
+  assert.deepEqual(closed.map(row => row.closureConfirmed), [true], 'One closure record only after confirmation');
+  assert.equal(closed[0].reconciliationAgeMs, 400);
+  assert.equal(closed[0].turnHash, h.logs[0].turnHash);
+  assert.equal(closed[0].generationHash, h.logs[0].generationHash);
   assertSafe(h.logs);
 });
 
@@ -194,3 +194,66 @@ test('AIT-139: startup records orphan completion without implicitly retrying pai
   assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'failed');
   assertSafe(h.logs);
 });
+
+
+test('AIT-139: a regressing wall clock cannot make stage durations decrease or disappear', async t => {
+  const h = fixture(t);
+  const result = await h.turns.run(h.context, worker => {
+    h.tick(1040); worker.admitted('attempt');
+    return { replyId: 'reply', created: 1, events: (async function* () {
+      h.tick(900); yield { type: 'delta', text: 'Reply' };
+      h.tick(1010); yield { type: 'completion', text: 'Reply' };
+    })() };
+  });
+  await collect(result.events); await h.turns.idle();
+  assert.deepEqual(h.logs.map(row => row.admissionMs ?? row.firstTokenMs ?? row.totalMs), [40, 40, 40]);
+  assertSafe(h.logs);
+});
+
+// Exercise every relative ordering without timers or scheduler-dependent sleeps.
+for (const order of ['abc', 'acb', 'bac', 'bca', 'cab', 'cba']) {
+  test(`AIT-139: closure confirmation and two concurrent writers settle once in order ${order}`, async t => {
+    const h = fixture(t), gates = [Promise.withResolvers(), Promise.withResolvers()];
+    h.unblock.push(() => gates.forEach(gate => gate.resolve()));
+    let executions = 0;
+    const execute = worker => {
+      const index = executions++; h.tick(1010 + index * 10); worker.admitted(`attempt-${index}`);
+      return { replyId: `reply-${index}`, created: 1, events: (async function* () {
+        await gates[index].promise;
+        yield { type: 'delta', text: 'Private reply' }; yield { type: 'completion', text: 'Private reply' };
+      })() };
+    };
+    const a = await h.turns.run(h.context, execute);
+    const b = await h.turns.run({ ...h.context, callbackBody: { messages: [...h.context.callbackBody.messages,
+      { role: 'assistant', content: 'Private reply' }, { role: 'user', content: 'Private next' }] } }, execute);
+    const duplicate = await h.turns.run(h.context, execute); await duplicate.events.cancel();
+    const closure = { ...h.context, endedAt: 1000 };
+    // An unconfirmed provider lookup is not a closure confirmation.
+    h.turns.observeClosure(closure, { closureConfirmed: false });
+    assert.equal(h.logs.filter(row => row.event === 'voice.turn.closure').length, 0);
+    for (const step of order) {
+      h.tick(1100);
+      if (step === 'c') {
+        h.turns.observeClosure(closure, { closureConfirmed: true });
+        h.turns.observeClosure(closure, { closureConfirmed: true });
+        h.turns.observeClosure(closure, { closureConfirmed: false });
+      } else {
+        const index = step === 'a' ? 0 : 1;
+        gates[index].resolve(); await collect((index === 0 ? a : b).events);
+      }
+    }
+    await h.turns.idle();
+    h.turns.observeClosure(closure, { closureConfirmed: true, usage: { costEstimated: false } });
+    assert.equal(executions, 2, 'Duplicate readers do not admit paid work');
+    assert.equal(h.logs.filter(row => row.event === 'voice.turn.closure').length, 2);
+    for (const completion of h.logs.filter(row => row.event === 'voice.turn.completion')) {
+      const rows = h.logs.filter(row => row.attemptHash === completion.attemptHash && row.event !== 'voice.turn.retry');
+      assert.deepEqual(rows.map(row => row.event), ['voice.turn.admission', 'voice.turn.first-token', 'voice.turn.completion', 'voice.turn.closure']);
+      assert.equal(new Set(rows.map(row => row.turnHash)).size, 1);
+      assert.equal(new Set(rows.map(row => row.generationHash)).size, 1);
+      assert.ok(rows[0].admissionMs <= rows[1].firstTokenMs && rows[1].firstTokenMs <= rows[2].totalMs);
+      assert.equal(rows[3].closureConfirmed, true);
+    }
+    assertSafe(h.logs);
+  });
+}
