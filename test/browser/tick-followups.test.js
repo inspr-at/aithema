@@ -52,19 +52,20 @@ test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 1
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark', 'system']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 460, 479, 480, 500, 550, 1024, 1440]) {
     await scene(page, locale, theme, width);
-    const selectors = ['.band', '.conversations-toggle', '.band-utilities', '.settings-open'];
+    const selectors = ['.band', '.conversations-toggle', '.host-account', '.settings-open'];
     const before = await boxes(page, selectors);
     const metrics = await shadow(page, c => {
-      const r = c.shadowRoot, button = r.querySelector('.conversations-toggle'), label = button.querySelector('span');
-      const b = button.getBoundingClientRect(), u = r.querySelector('.band-utilities').getBoundingClientRect();
-      const range = document.createRange(); range.selectNodeContents(label);
-      const text = range.getBoundingClientRect(), chevron = button.lastElementChild.getBoundingClientRect();
-      const labelShown = getComputedStyle(label).display !== 'none';
-      return { overlapPx: Math.max(0, b.right - u.left, labelShown ? text.right - u.left : 0, labelShown ? chevron.right - u.left : 0),
-        labelShown, labelWidth: text.width, availableWidth: b.width, requiredWidth: 16 + 10 + text.width + 6 + 6 };
+      const r = c.shadowRoot, button = r.querySelector('.conversations-toggle');
+      const b = button.getBoundingClientRect(), settings = r.querySelector('.settings-open').getBoundingClientRect();
+      return { overlapPx: Math.max(0, b.right - settings.left), width: b.width, height: b.height,
+        name: button.getAttribute('aria-label'), icons: button.querySelectorAll('svg').length,
+        preferencesInSettings: r.querySelector('slot[name="utilities"]').closest('dialog')?.classList.contains('settings') };
     });
     const label = `${locale}-${theme}-${width}`;
     assert.equal(metrics.overlapPx, 0, `${label}: header overlap ${JSON.stringify(metrics)}`);
+    assert.equal(metrics.width, 44); assert.equal(metrics.height, 44); assert.equal(metrics.icons, 1);
+    assert.equal(metrics.name, locale === 'de' ? 'Gespräche' : 'Conversations');
+    assert.equal(metrics.preferencesInSettings, true);
     await page.hover('aithema-session >>> .conversations-toggle');
     assert.deepEqual(await boxes(page, selectors), before, `${label}: hover shift 0 px`);
     const values = { ...metrics, shiftPx: 0 };

@@ -102,7 +102,7 @@ export class SettingsDialog {
       <div class="select__menu" role="listbox" id="settings-options-${name}" hidden></div></div>`;
     // Static trusted markup only. Host, model and plugin text is assigned through textContent.
     this.#dialog.innerHTML = `<div class="settings__frame">
-      <header class="settings__header"><h2 class="settings__title" id="settings-title"></h2>
+      <header class="settings__header"><slot class="settings-utilities" name="utilities"></slot><h2 class="settings__title" id="settings-title"></h2>
         <div class="settings__tabs" role="tablist">${['general', 'model', 'local'].map(tab => `<button type="button" role="tab" id="settings-tab-${tab}"
           aria-controls="settings-panel-${tab}" data-tab="${tab}" data-help="${tab === 'model' ? 'processing' : tab}"><span class="tab-icon">${ICONS[tab]}</span><span class="tab-label"></span><span class="tab-check" aria-hidden="true">${ICONS.check}</span></button>`).join('')}</div></header>
       <div class="settings__body">

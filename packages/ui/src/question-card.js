@@ -183,7 +183,7 @@ export class QuestionCard {
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
         - this.root.querySelector('.concept-bar').getBoundingClientRect().height - expandedGap - 32
       : shell.getBoundingClientRect().height + (this.height ?? 0);
-    // Include the 26px fade and 2px for fractional scrollport rounding above the reply.
+    // Include the 12px fade within the 28px clearance above the reply.
     // Very long replies retain a bounded reading pane and open in the full-text dialog.
     const latest = shell.querySelector('.turn:last-child');
     const replyRoom = Math.max(128, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - 150));

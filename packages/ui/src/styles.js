@@ -204,8 +204,9 @@ svg { display:block; flex:none; }
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
 .transcript-shell { position:relative; min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
-  mask-image:linear-gradient(to bottom,transparent 0,#000 26px);
-  padding:calc(26px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
+  /* Fade only the real top edge; retain just enough inset for the first row. */
+  mask-image:linear-gradient(to bottom,transparent 0,#000 8px);
+  padding:calc(8px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
@@ -309,10 +310,6 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   background:var(--aithema-accent-bright); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent-bright) 42%,var(--aithema-line)); }
 .scale::after { content:''; left:calc(100% - .4rem); background:var(--aithema-amber); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-amber) 50%,var(--aithema-line)); }
 .scale-labels { display:flex; justify-content:space-between; height:1.4rem; font-size:.72rem; color:var(--aithema-muted); }
-.readiness p { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-ink); } .readiness p:empty { display:none; }
-/* Keep the build row before the first result so retry recovery cannot move the pane. */
-.readiness .build-progress { min-height:1.35em; }
-.readiness .build-progress:empty { display:block; }
 .analysis-content { min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable; overflow-wrap:anywhere;
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;

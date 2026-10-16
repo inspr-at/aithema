@@ -511,13 +511,13 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));
   let lineWidths = [280], waveWidth = 500, inline = false;
   t.mock.method(label, 'getBoundingClientRect', () => ({ width: 440 }));
-  t.mock.method(wave, 'getBoundingClientRect', () => ({ width: waveWidth }));
+  t.mock.method(wave, 'getBoundingClientRect', () => ({ left: 0, right: waveWidth, width: waveWidth }));
   t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 96 }));
   t.mock.method(document, 'createRange', () => {
     let selected;
     return { selectNodeContents(node) { selected = node; },
       getClientRects: () => selected !== caption && inline ? [{ left: 80, right: 240, width: 160 }, { left: 240, right: 320, width: 80 }]
-        : (selected === caption ? [80] : lineWidths).map(width => ({ width, left: 220 - width / 2, right: 220 + width / 2 })) };
+        : (selected === caption ? [80] : lineWidths).map(width => ({ width, left: waveWidth / 2 - width / 2, right: waveWidth / 2 + width / 2 })) };
   });
   const buttons = [...root.querySelectorAll('button')];
   observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
@@ -526,6 +526,7 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
   lineWidths = [140, 200]; rail.render(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '100px', 'a text repaint also updates the hole when the capped box stays the same size');
   inline = true; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '120px', 'the adjacent consent sentence and action share one clear mask');
+  assert.equal(wave.style.getPropertyValue('--voice-label-center'), '-100px', 'an off-centre sentence and action move the clear gap with their actual ink');
   caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
   assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
   rail.disconnect(); assert.equal(observer.targets.size, 0);
