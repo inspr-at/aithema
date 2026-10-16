@@ -38,11 +38,12 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs, log,
         ...(staticSecretRef ? { methodNotAllowedStatus: 404 } : {}) },
       ...(staticSecretRef ? [{ method: 'POST', path: staticPath, handle: facade }] : []),
     ]),
-    prepareCallback({ callId, binding, locale, continuation }) {
+    prepareCallback({ callId, binding, locale, continuation, explicitResume = false, hasPriorTurns = false }) {
       const facadeSecretRef = staticSecretRef ?? 'voice-' + randomUUID();
       const facadeCallId = staticSecretRef ? randomUUID() : undefined;
-      // Trusted presentation includes the host's locale-specific AI notice.
-      const overrides = continuation ? { agent: { language: locale, firstMessage: '' } } : presentation?.(locale);
+      // Automatic transport repair stays silent; a visitor's Resume uses host copy.
+      const overrides = continuation && !explicitResume ? { agent: { language: locale, firstMessage: '' } }
+        : presentation?.(locale, { hasPriorTurns });
       return { identity: facadeCallId,
         details: { facadeSecretRef, facadeCallId },
         request: { facadeSecretRef,
