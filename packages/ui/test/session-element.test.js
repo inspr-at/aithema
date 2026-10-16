@@ -700,10 +700,11 @@ const paimosOptions = { paimosImportUrl: 'https://paimos.example.test/import/pro
 
 test('AIT-242 device mode hides the project action and the handler refuses a forced invocation', t => {
   const c = setup(), submitted = [], createdForms = [];
+  assert.equal(c.shadowRoot.querySelector('.create-project'), null, 'the host must configure the handoff');
   c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), ...paimosOptions });
   const create = c.shadowRoot.querySelector('.create-project');
   assert.ok(create);
-  assert.equal(window.getComputedStyle(create).visibility, 'hidden');
+  assert.equal(create.style.visibility, 'hidden');
   assert.equal(create.inert, true);
   const nativeCreate = document.createElement.bind(document);
   t.mock.method(document, 'createElement', function (name, ...args) {
@@ -730,9 +731,10 @@ test('AIT-242 switching device to server and back updates the same project actio
       settings: { ...c.session.settings, revision: c.session.settings.revision + 1 } } });
     const device = processingPreset === 'device';
     assert.equal(root.querySelector('.create-project'), create, 'the control survives in-place changes');
-    assert.equal(window.getComputedStyle(create).visibility, device ? 'hidden' : 'visible');
+    assert.equal(create.style.visibility, device ? 'hidden' : '');
     assert.equal(create.inert, device);
-    assert.notEqual(window.getComputedStyle(create).display, 'none', 'visibility preserves the footer space');
+    assert.equal(create.hidden, false, 'the action keeps its layout slot');
+    assert.notEqual(create.style.display, 'none', 'visibility preserves the footer space');
     assert.deepEqual([...footer.children], children);
   }
 });
@@ -749,7 +751,7 @@ for (const processingPreset of ['best', 'eu', 'custom']) test(`AIT-242 ${process
   ];
   c.configure({ copy: en, session, sessionToken: 'must-not-be-posted', ...paimosOptions });
   const create = c.shadowRoot.querySelector('.create-project'), submitted = [];
-  assert.equal(window.getComputedStyle(create).visibility, 'visible');
+  assert.equal(create.style.visibility, '');
   assert.equal(create.inert, false);
   t.mock.method(window.HTMLFormElement.prototype, 'submit', function () {
     assert.equal(this.isConnected, true);
