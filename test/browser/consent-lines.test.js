@@ -49,6 +49,7 @@ async function fixture(t, real = false, purpose = false) {
       const body = JSON.parse(request.postData()); page.posts.push(body);
       assert.equal(body.processing.contract, 'fixture-contract');
       page.state.selected = body.processing.items;
+      if (page.state.document) page.state.document = { ...page.state.document, selected: page.state.selected };
       for (const [feature, ids] of Object.entries(page.state.document?.features ?? features)) if (ids.every(id => page.state.selected.includes(id))) page.state.matrix.best[feature] = { available: true, reason: null };
       return json({ granted: true, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: 2, conversationUnchanged: true } } });
     }
