@@ -45,11 +45,11 @@ async function fixture(t, real = false, purpose = false) {
     if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     if (page.state && path.endsWith('/consent')) {
-      if (request.method() === 'GET') return json({ contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
+      if (request.method() === 'GET') return json(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
       const body = JSON.parse(request.postData()); page.posts.push(body);
       assert.equal(body.processing.contract, 'fixture-contract');
       page.state.selected = body.processing.items;
-      for (const [feature, ids] of Object.entries(features)) if (ids.every(id => page.state.selected.includes(id))) page.state.matrix.best[feature] = { available: true, reason: null };
+      for (const [feature, ids] of Object.entries(page.state.document?.features ?? features)) if (ids.every(id => page.state.selected.includes(id))) page.state.matrix.best[feature] = { available: true, reason: null };
       return json({ granted: true, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: 2, conversationUnchanged: true } } });
     }
     if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, featureMatrix: page.state.matrix });
@@ -189,6 +189,81 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.retry').hidden), true, 'running analysis has no bare retry');
     await record(t, page, label + '-saved', { ...saved, shiftPx: 0 });
   }
+});
+
+for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settings editors, 1440/1024/390 light/dark`, { timeout: 120_000 }, async t => {
+  const page = await fixture(t), passes = [];
+  for (const mock of [false, true]) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await scene(page, locale, theme, width, ['analysis']);
+    const selected = mock ? [] : ['voice-elevenlabs', 'drafts-anthropic'];
+    const mapping = mock ? Object.fromEntries(Object.keys(features).map(feature => [feature, ['mock-processing']])) : features;
+    page.state.selected = selected;
+    page.state.document = { contract: 'fixture-contract', ...(mock ? { mock: true } : { items: CONSENT_ITEMS }), features: mapping, selected };
+    await shadow(page, c => c.shadowRoot.querySelector('.notice button').focus());
+    await page.keyboard.press('Enter');
+    const target = mock ? 'mock-processing' : 'models-international';
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
+    const state = await shadow(page, async (c, { target }) => {
+      const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+      const r = c.shadowRoot, editor = r.querySelector('.consent-editor');
+      globalThis.ait231Focus = r.activeElement;
+      return { target: r.activeElement?.value, checked: [...editor.querySelectorAll('input')].filter(n => n.checked).map(n => n.value),
+        rows: editor.querySelectorAll('input').length, status: editor.querySelector('.consent-status').textContent,
+        enabled: !r.querySelector('.consent-save').disabled,
+        mockLabel: editor.textContent.includes(copy.host.consentTitle),
+        font: getComputedStyle(c).getPropertyValue('--aithema-font').trim(),
+        horizontalOverflow: editor.scrollWidth > editor.clientWidth, expectedTarget: target };
+    }, { target, mock });
+    assert.equal(state.target, target); assert.equal(state.rows, mock ? 1 : CONSENT_ITEMS.length);
+    assert.deepEqual(state.checked, selected); assert.equal(state.status, ''); assert.equal(state.enabled, true);
+    assert.equal(state.horizontalOverflow, false); assert.equal(state.mockLabel, mock);
+    const before = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    await page.mouse.move(-10, -10); await frame(page);
+    await shadow(page, async c => {
+      await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+    });
+    const ready = await shadow(page, c => ({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      blurred: !c.shadowRoot.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]') }));
+    assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true);
+    const label = `${locale}-${theme}-${width}-${mock ? 'mock' : 'real'}`;
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-231'); await mkdir(dir, { recursive: true });
+      await page.screenshot({ path: join(dir, label + '.png'), fullPage: false, captureBeyondViewport: false });
+    }
+    // Save the focused node, blur for evidence, then restore it mid-sequence.
+    await shadow(page, () => globalThis.ait231Focus.focus({ preventScroll: true }));
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement === globalThis.ait231Focus), true);
+    await page.keyboard.press('Space'); await frame(page);
+    assert.deepEqual(await boxes(page, ['.done', '.settings__footer', '.settings__body']), before, 'selection shifts 0 px');
+    await page.locator('aithema-session >>> .consent-save').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    assert.deepEqual(page.posts[0].processing.items, mock ? ['mock-processing'] : CONSENT_ITEMS.map(item => item.id));
+    const pass = { head: evidenceCommit, label, locale, theme, width, mock, ...state, ...ready,
+      focusRestored: true, saved: true, layoutShiftPx: 0, viewportOnly: true, baselineFonts: true, pass: true };
+    passes.push(pass); t.diagnostic(`PASS AIT-231 ${JSON.stringify(pass)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-231');
+      await writeFile(join(dir, label + '.json'), JSON.stringify(pass, null, 2));
+      await writeFile(join(dir, `pass-lines-${locale}.json`), JSON.stringify(passes, null, 2));
+      await writeFile(join(dir, `index-${locale}.json`), JSON.stringify({ head: evidenceCommit, shots: passes.map(p => `${p.label}.png`) }, null, 2));
+    }
+  }
+});
+
+test('AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings', async t => {
+  const page = await fixture(t); await scene(page, 'en', 'light', 1024, ['analysis']);
+  page.state.document = { mock: true, contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: [] };
+  await page.locator('aithema-session >>> .notice button').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
+  assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.consent-editor input')].map(n => n.value)), CONSENT_ITEMS.map(i => i.id));
+  assert.match(await shadow(page, c => c.shadowRoot.querySelector('.consent-intro').textContent), /^This is mock processing\./u);
+  await page.keyboard.press('Escape');
+  page.state.document = { contract: 'fixture-contract', items: [{ ...CONSENT_ITEMS[0], text: '' }], features, selected: [] };
+  await page.locator('aithema-session >>> .notice button').click();
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-status').textContent === 'Could not save consent. Try again.');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.consent-save').disabled), true);
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.consent-editor input').length), 0);
 });
 test('AIT-197 C1: all three refusals have one action each; stage survives a paused reload', async t => {
   const page = await fixture(t); await scene(page, 'de', 'light', 390, ['html', 'voice', 'analysis']);

@@ -1,4 +1,5 @@
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
+import { validateConsentDocument } from '../../core/src/consent-document.js';
 import { setText } from './dom.js';
 
 /** The host's current, versioned consent document, edited inside Settings. */
@@ -31,16 +32,20 @@ export class ConsentSettings {
     this.#root.hidden = false; this.#button.classList.add('consent-save'); this.#root.querySelector('.consent-items').replaceChildren();
     this.#status(this.#copy.host.consentPage.loading); this.#paintBusy();
     try {
-      const doc = await this.#ports.load();
+      const described = await this.#ports.load();
       if (epoch !== this.#epoch) return;
+      validateConsentDocument(described);
+      const shorthand = described.mock === true && described.items === undefined;
+      const doc = { ...described };
       const ids = doc.features?.[feature];
-      if (doc.mock === true) doc.items = [{ id: 'mock-processing', version: 1, title: this.#copy.host.consentTitle,
+      if (shorthand) doc.items = [{ id: 'mock-processing', version: 1, title: this.#copy.host.consentTitle,
         recipients: this.#copy.host.consentPage.mockRecipients, text: `${this.#copy.host.consentUse.off} ${this.#copy.host.consentPage.mockConsequence}` }];
       if (!Array.isArray(doc.items) || !Array.isArray(doc.selected) || !ids?.length || !ids.every(id => doc.items.some(item => item.id === id))) throw new Error('Consent document unavailable');
       this.#document = doc;
       const fieldset = this.#root.querySelector('.consent-items');
-      setText(this.#root.querySelector('.consent-intro'), doc.mock ? this.#copy.host.consentPage.intro : this.#copy.processingConsent.intro);
-      setText(this.#root.querySelector('.consent-withdrawal'), doc.mock ? this.#copy.host.consentPage.mockTerms : this.#copy.processingConsent.withdrawal);
+      const intro = doc.intro ?? (doc.mock ? this.#copy.host.consentPage.intro : this.#copy.processingConsent.intro);
+      setText(this.#root.querySelector('.consent-intro'), doc.mock && !shorthand ? `${this.#copy.host.consentPage.mockNotice} ${intro}` : intro);
+      setText(this.#root.querySelector('.consent-withdrawal'), doc.withdrawal ?? (doc.mock ? this.#copy.host.consentPage.mockTerms : this.#copy.processingConsent.withdrawal));
       for (const item of doc.items) {
         const supplied = this.#ports.presentation?.translations?.find(entry => entry.locale === this.#copy.display.locale)?.consentItem;
         const translated = supplied?.id === item.id ? supplied : this.#copy.processingConsent.items[item.id];
@@ -62,6 +67,7 @@ export class ConsentSettings {
       target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'center' });
     } catch {
       if (epoch !== this.#epoch) return;
+      this.#document = null; this.#root.querySelector('.consent-items').replaceChildren();
       this.#busy = false; this.#status(this.#copy.host.consentFailed); this.#paintBusy();
     }
   }

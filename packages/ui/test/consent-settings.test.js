@@ -61,13 +61,13 @@ test('AIT-197: missing mapping fails closed and a closed editor ignores a late d
 
 test('AIT-197 R2 High: an empty first save closes without sending a withdrawal', async t => {
   const h = fixture(t, en, { document: { contract: 'v1', selected: [], features: { voice: ['speech'] },
-    items: [{ id: 'speech', version: 1, title: 'Speech' }] } });
+    items: [{ id: 'speech', version: 1, title: 'Speech', recipients: 'Processor', text: 'Speech purpose' }] } });
   await h.editor.open('voice'); h.root.querySelector('.consent-save').click(); await h.done.promise;
   assert.deepEqual(h.saves, [], 'no prior grant and no choice sends nothing');
 });
 for (const copy of [de, en]) for (const removal of ['model', 'voice', 'drafts', 'all']) test(`AIT-197 R2 High ${copy.display.locale}: removing ${removal} uses the server ending predicate`, async t => {
   const doc = { contract: 'v1', selected: ['model', 'voice', 'drafts'], features: { text: ['model'], analysis: ['model'], voice: ['voice', 'model'], html: ['drafts'] },
-    items: ['model', 'voice', 'drafts'].map(id => ({ id, title: id, version: 1 })) };
+    items: ['model', 'voice', 'drafts'].map(id => ({ id, title: id, version: 1, recipients: 'Processor', text: 'Purpose' })) };
   const h = fixture(t, copy, { document: doc }); await h.editor.open('voice');
   for (const box of h.root.querySelectorAll('input')) if (removal === 'all' || box.value === removal) box.click();
   const ending = ['model', 'all'].includes(removal);

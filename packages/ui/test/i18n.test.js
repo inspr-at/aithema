@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { withDemoConsentCopy } from '../../../demo/consent-copy.js';
 import { reasonText, catalogLabel } from '../src/settings-dialog.js';
 import { demoPresets } from '../../../demo/choices.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
@@ -70,7 +71,7 @@ test('the demo header and mock consent name each visual kind in both languages; 
   const labels = { html: createLocalHTML().label, images: createLocalImages().label };
   assert.deepEqual([en.host.labels[labels.html], en.host.labels[labels.images], en.host.visualsOff], ['Test drafts (local click-dummy)', 'Test images (local PNG)', 'No visual concepts']);
   assert.deepEqual([de.host.labels[labels.html], de.host.labels[labels.images], de.host.visualsOff], ['Testentwürfe (lokaler Klick-Entwurf)', 'Testbilder (lokales PNG)', 'Keine visuellen Entwürfe']);
-  for (const copy of [en, de]) {
+  for (const copy of [en, de].map(withDemoConsentCopy)) {
     assert.deepEqual(Object.keys(copy.host.consentUse).sort(), ['html', 'images', 'off']);
     assert.match(copy.host.consentUse.html, /test drafts \(local click-dummy\)|Testentwürfe \(lokaler Klick-Entwurf\)/u);
     assert.match(copy.host.consentUse.images, /test images \(local PNG\)|Testbilder \(lokales PNG\)/u);

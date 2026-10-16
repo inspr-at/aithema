@@ -1,5 +1,6 @@
 import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
+import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
 import { localeKey, sessionKey, preferredLocale, remember, mountTheme, paintUtilities } from './page-preferences.js';
 
@@ -26,7 +27,8 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   const returnTo = consentReturnPath(query.get('return'), location.origin);
   const fieldset = document.querySelector('#processing-items'), status = document.querySelector('#consent-status');
   const text = (selector, value) => { document.querySelector(selector).textContent = value; };
-  let copy = { de, en }[preferredLocale(storage)], binding, session, rendered, selected = [], hasGrant = false, busy = true, usable = false, retryAction;
+  const bundles = { de: withDemoConsentCopy(de), en: withDemoConsentCopy(en) };
+  let copy = bundles[preferredLocale(storage)], binding, session, rendered, selected = [], hasGrant = false, busy = true, usable = false, retryAction;
   mountTheme(document, storage);
   for (const back of document.querySelectorAll('[data-back]')) back.href = returnTo;
   function paint() {
@@ -93,7 +95,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
       binding = await get('/demo/config');
       session = await get(`/api/sessions/${id}`);
       if (session.tombstone) throw Object.assign(new Error('No conversation'), { status: 404 });
-      copy = { de, en }[session.locale] ?? copy;
+      copy = bundles[session.locale] ?? copy;
       rendered = binding.processingConsent ?? {};
       // Paint the server's document before the grant request finishes. If the
       // verdict cannot be read the controls remain closed and no boxes are ticked;
