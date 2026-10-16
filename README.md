@@ -471,6 +471,7 @@ interface answers it outside the modal dialog.
 | `POST /api/sessions/:id/turns` | Durable turn; identical client id and request bytes replay the receipt, differing bytes conflict |
 | `GET /api/sessions/:id/events` | SSE; resume using `Last-Event-ID` or `?after=<seq>` |
 | `POST /api/sessions/:id/retry` | Retry unfinished reasoning for the current revision |
+| `POST /api/sessions/:id/focus-question` | `{questionId, inputRevision}`; explicitly clarify a current open point through the reaction lane (see embedding contract) |
 | `GET /api/sessions/:id/export` | Transcript JSON/Markdown and understanding JSON in a ZIP |
 | `POST /api/sessions/:id/pause` | `{paused: true/false}`; acknowledged durable state and event |
 | `POST /api/sessions/:id/withdraw` | `{turnId}`; erase a person statement and invalidate dependent understanding/replies atomically |

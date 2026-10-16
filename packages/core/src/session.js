@@ -80,7 +80,11 @@ export function applyEvent(session, event) {
   } else if (event.type === 'question.focused') {
     // Focus is derived from understanding, so it does not invalidate that input.
     next.focusedQuestion = event.data.erased ? null : event.data.question;
+    next.questionFocus = !event.data.erased && event.data.chosenBy === 'user'
+      ? { questionId: event.data.questionId, requestId: event.data.requestId,
+        inputRevision: event.data.inputRevision, chosenBy: 'user' } : null;
   } else if (event.type === 'understanding.updated') {
+    next.questionRevision = event.seq;
     next.understanding = event.data.erased ? emptyUnderstanding(next) : withAITextOrigin(event.data);
     next.actor = event.data.erased ? null : event.data.actor;
   } else if (event.type === 'session.locale-changed') {
@@ -151,6 +155,7 @@ export function applyEvent(session, event) {
   } else if (event.type === 'concept.archived') {
     next.concepts = (next.concepts ?? []).map(c => c.id === event.data.artifactId ? { ...c, archived: true } : c);
   } else if (event.type !== 'session.created') throw new TypeError('Unknown durable event');
+  if (next.focusedQuestion === null) next.questionFocus = null;
   if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
     const all = event.type === 'session.erased' || event.type === 'consent.revised' && !event.data.granted;
     next.concepts = (next.concepts ?? []).filter(c => !all && !c.turnIds.includes(event.data.turnId));

@@ -7,12 +7,12 @@ import { normalizeUploadLimits } from './upload-limits.js';
 import { createVoiceOperationStore } from './voice-operation-storage.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
   defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin,
-  voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle, parseReply } from '@inspr/aithema-core';
+  voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle, parseReply, focusQuestion } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId'];
 
 // Only core-owned session rows belong here. Host extensions are cleaned by retired.
 export const CORE_RETIREMENT_TABLES = Object.freeze([
@@ -248,6 +248,7 @@ export class SQLiteStorage {
     if (session.focusedQuestionRef) {
       const record = this.getRecord(id, session.focusedQuestionRef.contentRef);
       session.focusedQuestion = record.erased ? null : record.data.question;
+      if (record.erased) session.questionFocus = null;
     }
     session.concepts = (session.concepts ?? []).filter(c => this.db.prepare('SELECT 1 FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(id, c.id))
       .map(c => ({ ...c, feedback: c.feedback?.contentRef ? this.#hydrateData(id, c.feedback) : c.feedback }));
@@ -477,7 +478,9 @@ export class SQLiteStorage {
       if (data.question === null) return { question: null };
       if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
       if (typeof data.question !== 'string' || data.question.length > 8000) throw new TypeError('Invalid focused question');
-      const bytes = JSON.stringify({ question: data.question }), contentRef = `${id}:${seq}`, at = new Date().toISOString();
+      const bytes = JSON.stringify({ question: data.question, ...(data.chosenBy === 'user' ? {
+        questionId: data.questionId, requestId: data.requestId, chosenBy: 'user', inputRevision: data.inputRevision,
+      } : {}) }), contentRef = `${id}:${seq}`, at = new Date().toISOString();
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'understanding', bytes, hash(bytes), at);
       return { contentRef, hash: hash(bytes) };
     }
@@ -504,7 +507,7 @@ export class SQLiteStorage {
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId', 'focusRequestId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -558,6 +561,14 @@ export class SQLiteStorage {
       if (session.tombstone) return null;
       if (expectedRevision !== undefined && inputRevision(session) !== expectedRevision) return null;
       return this.#append(session, type, data);
+    });
+  }
+  focusQuestion(id, command, guard = {}) {
+    return this.transaction(() => {
+      const session = this.authorize(id, guard.ownerToken);
+      const decision = focusQuestion(session, command, guard);
+      if (decision.error) return decision;
+      return { event: this.#append(session, decision.type, { ...decision.data, requestId: randomUUID() }) };
     });
   }
   postTurn(id, clientId, bytes, content, guard = {}) {

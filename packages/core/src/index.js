@@ -1,4 +1,5 @@
 export * from './session.js';
+export * from './question-focus.js';
 export * from './text-origin.js';
 export * from './understanding.js';
 export * from './readiness.js';

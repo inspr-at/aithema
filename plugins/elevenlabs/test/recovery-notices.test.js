@@ -256,3 +256,17 @@ for (const stop of ['settle', 'Stop', 'barge-in', 'hangup']) test(`AIT-154 round
   if (stop === 'hangup') await f.session.close();
   await flush(); assert.equal(f.releases.length, 1); assert.equal(f.releases[0].replayId, requests[0].replayId);
 });
+
+test('AIT-263: a selected server reply is spoken through call replay without a fabricated turn', async t => {
+  const requests = [], played = [];
+  const f = await fixture(t, { speakText: async value => { requests.push(value); return { kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } }; },
+    playAudio: async audio => { played.push(audio); return { stop() {}, finished: new Promise(() => {}) }; } });
+  const { deliverFocusedReply } = await import('../../../packages/ui/src/focused-reply.js');
+  const result = await deliverFocusedReply({ session: f.session, output: true, paused: false },
+    { id: 'selected-reply', role: 'assistant', content: 'When should it launch?', focusRequestId: 'selected' });
+  assert.equal(result.kind, 'audio'); assert.equal(played.length, 1);
+  assert.equal(requests[0].turnId, 'selected-reply'); assert.equal(requests[0].callId, f.session.callId);
+  assert.equal(f.persisted.length, 0, 'the server already owns the assistant final; playback persists no user or assistant turn');
+  assert.equal(f.sdk.effects.some(([name]) => name === 'sendUserMessage'), false);
+  await f.session.pause(); assert.equal(f.session.replaying, false, 'ordinary pause holds stop focus playback');
+});

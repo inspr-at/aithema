@@ -3,6 +3,8 @@ import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
 import { ReplyStream } from '../../core/src/reply.js';
+import { openQuestionItems } from '../../core/src/question-focus.js';
+import { deliverFocusedReply } from './focused-reply.js';
 import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
@@ -177,6 +179,17 @@ export class AithemaSession extends HTMLElement {
   }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
   get session() { return structuredClone(this.#session); }
+  get openQuestionItems() { return openQuestionItems(this.#session); }
+  /** Backend command only; a host can design its own open-point controls. */
+  async focusQuestion(questionId) {
+    const sessionId = this.#session.id;
+    const response = await postJson(`${this.#base}/api/sessions/${sessionId}/focus-question`,
+      { questionId, inputRevision: inputRevision(this.#session) }, { sessionToken: this.#sessionToken });
+    const result = await response.json();
+    if (!response.ok) throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
+    if (sessionId === this.#session.id) this.receive(result.event);
+    return result;
+  }
   /** Change an unstarted conversation in place. Calls, turns and drafts keep their identity. */
   changeLocale(locale) {
     if (!this.#session) return Promise.resolve(false);
@@ -2019,6 +2032,7 @@ export class AithemaSession extends HTMLElement {
       if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#updateVoiceTranscript(event);
+        void deliverFocusedReply(this.#rail, event.data).catch(() => {});
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') {
           this.#partials.clear(); this.#failure = false;

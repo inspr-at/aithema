@@ -142,6 +142,62 @@ After upgrading to a release containing AIT-217, START can remove its
 the provenance-preserving ZIP. See the root README's route tables for commands,
 settings, uploads, withdrawal, concepts, and host routes.
 
+### Clarify now command (AIT-263)
+
+`GET /api/sessions/:id` includes `openQuestionItems: [{id, question}]` for the
+current final assessment. IDs belong to that assessment; replacements at the
+same input revision also invalidate them. `inputRevision(session)` from core is
+the client's revision token. SSE clients can derive items with core's
+`openQuestionItems(session)`. Existing `understanding.openQuestions` stays an
+array of strings.
+
+Authenticated `POST /api/sessions/:id/focus-question` accepts
+`{questionId, inputRevision}`. Success is HTTP 202
+`{accepted: true, event}`. The durable event is the existing `question.focused`,
+with `{question, questionId, requestId, chosenBy: 'user', inputRevision}`.
+Focus changes neither the input revision nor the person transcript. The chosen
+point is explicit host guidance for the next reaction prompt. Each attempt
+uses ordinary reaction admission, including current consent, budget and host
+conversation deadline checks. An already cached ordinary reply cannot suppress
+this request. Automatic focus remains derived; user choice is erasable content.
+
+Refusals are `{error: 'focus-refused', reason}`: `invalid-request` (400),
+`stale-revision`, `stale-question`, `paused`, `reply-in-flight` (409), or
+`consent-required`, `not-admitted` (403). Availability refusals also carry
+`admissionReason`. Wrong ownership uses the existing indistinguishable 404.
+`stale-question` includes removed, clarified, draft/stale assessment and
+withdrawn-source items. Only one reaction or focus availability request may be
+in flight per session. Availability is rechecked transactionally before focus
+publication; actual provider dispatch still belongs to reaction admission.
+
+Completion is the usual assistant `turn.final` with `focusRequestId` matching
+the focus event's `requestId`; normal `lane.status` / `lane.failed` describe
+work and failures. After a failed attempt, `POST /api/sessions/:id/retry {}`
+reuses the selected point with fresh admission. Reconnect retains recorded
+failures and never retries them implicitly. New input or withdrawn evidence
+invalidates the selection and prevents publication of its late reply.
+
+The element exposes `openQuestionItems` and `focusQuestion(questionId)` without
+adding controls, markup or CSS. This method resolves on 202, and throws the
+structured refusal on failure. Text replies follow normal SSE delivery. With
+an active, audible ElevenLabs call, focused assistant finals use the existing
+call replay/speech path and its TTS admission, output mute, pause and lifetime
+holds. No synthetic SDK user message or transcript turn triggers speech.
+
+Tick's future controls need these states:
+
+- **Requesting:** start `focusQuestion(id)`; use reaction in `lane.status.running`
+  to show the accepted request still working. Duplicate clicks get `reply-in-flight`.
+- **Selected / asked:** `question.focused.chosenBy === 'user'` records the
+  selection; matching `turn.final.focusRequestId` records the asked reply.
+- **Stale item:** keep an old item ID, then replace the assessment, answer a
+  question, or withdraw its input before submitting. Handle `stale-revision` or
+  `stale-question`, refresh the snapshot and discard the old ID.
+- **Retry:** fail or refuse reaction admission after focus was accepted; a
+  current reaction `lane.failed` leaves the selection pending. Existing `/retry`
+  attempts it again. A pre-acceptance consent or availability refusal needs that
+  condition resolved before resubmitting the current item.
+
 ## Host retention contract
 
 Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle

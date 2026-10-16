@@ -867,6 +867,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       }
       return receipt;
     },
+    // Availability only; the reaction lane still owns budget admission and dispatch.
+    async checkReply(session, options = {}) {
+      return (await boundedEvaluate(session, session.processingPreset ?? 'best', 'text', options)).reason ?? null;
+    },
     async admit({ session, lane, operation, request, options = {} }) {
       const purposeAssessment = lane === 'understanding' && options.purposeAssessment === true &&
         Boolean(storage.purposeAssessmentInput(session));

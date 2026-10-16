@@ -651,6 +651,16 @@ export function createElevenLabsClient(ports = {}) {
           },
           get replaying() { return replay.active; },
           stopReplay() { if (replay.active) silenceReply(); return replay.stop() ?? Promise.resolve(); },
+          // Server finals already exist in the transcript. Speak them through
+          // replay admission, without sendText or another provider conversation turn.
+          speakReply(reply, opts) {
+            return command('speakReply', bounded => {
+              if (!reply?.turnId || typeof reply.text !== 'string') throw new TypeError('Reply required');
+              lastReply = { turnId: reply.turnId, text: reply.text };
+              lastPlaybackTurnId = reply.turnId;
+              return replay.replay(lastReply, bounded);
+            })(opts);
+          },
           replayLastReply(opts) {
             const reply = lastReply && { ...lastReply }, revision = replay.revision;
             return command('replayLastReply', bounded => {

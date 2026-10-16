@@ -6,7 +6,7 @@ import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy, openQuestionItems, pendingQuestionFocus, focusQuestion } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -69,7 +69,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
     throw new TypeError('Admission and revocation require the same consent port');
   }
-  const listeners = new Map(), jobs = new Map(), stop = new AbortController();
+  const listeners = new Map(), jobs = new Map(), focusRequests = new Set(), stop = new AbortController();
   if (host?.walletForSession) pluginRuntime.setOwnerWallet?.(session => host.walletForSession(session));
   let recovery = null, costTimer, costRecovery;
   const reconcileCostsLater = () => {
@@ -105,7 +105,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
       if (current.seq === session.seq) return { ...publicSession, ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
-        operations: operations(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
+        operations: operations(current), openQuestionItems: openQuestionItems(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
         conceptCost: pluginRuntime.imageQuote(current), ...(pluginRuntime.describe ? { engine: pluginRuntime.describe(current) } : {}) };
     }
     throw new ConflictError('Session changed during snapshot');
@@ -113,7 +113,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
-  const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
+  const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}|${lane === 'reaction' ? session.questionFocus?.requestId ?? '' : ''}`;
   // New turns may obsolete a paid assessment but must let it collect its receipt.
   // Consent, locale, correction, upload and identity revisions remain strict.
   const keepUnderstanding = (source, current) => {
@@ -191,7 +191,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
         conceptHandlers.onUnderstanding(id);
-        const session = storage.get(id), question = session.understanding.openQuestions[0] ?? null;
+        const session = storage.get(id), question = pendingQuestionFocus(session) ? session.focusedQuestion : session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
           const focused = storage.append(id, 'question.focused', { question }, acceptedRevision);
           if (focused) broadcast(id, focused);
@@ -266,6 +266,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     } else requested = voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding'];
     // An explicit Retry can recover a recorded lane even when ordinary
     // scheduling currently requests only understanding (for example active voice).
+    if (pendingQuestionFocus(storage.get(id)) && !requested.includes('reaction')) requested.unshift('reaction');
     if (retry) requested = ['reaction', 'understanding'].filter(lane =>
       requested.includes(lane) || currentFailures(storage.get(id)).some(failure => failure.lane === lane));
     let previous;
@@ -349,7 +350,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   function unfinished(session) {
     const revision = inputRevision(session);
     const scoped = purposePolicy ? storage.safeguards(session.id, revision) : null;
-    const replyMissing = scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision);
+    const replyMissing = pendingQuestionFocus(session) || (scoped ? !scoped.assessed : !activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision));
     return !session.tombstone && hasConversationInput(session) &&
       (replyMissing || purposePolicy && storage.purposeAssessmentInput(session) || !scoped?.offTopic && !understandingDeferred(session) &&
         (session.understanding.inputRevision !== revision || session.understanding.draft));
@@ -433,7 +434,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         else response.headers.set('x-aithema-session-token', ownerToken);
         return response;
       }
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase|settings|locale))?$/u.exec(url.pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase|settings|locale|focus-question))?$/u.exec(url.pathname);
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
       const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
@@ -444,6 +445,27 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         return json(await snapshot(id));
       }
       if (action === 'events' && request.method === 'GET') return events(request, id);
+      if (action === 'focus-question' && request.method === 'POST') {
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        const refused = result => json(result, result.reason === 'invalid-request' ? 400 :
+          ['consent-required', 'not-admitted'].includes(result.reason) ? 403 : 409);
+        const inFlight = () => focusRequests.has(id) || jobs.has(`${id}:reaction`);
+        const decision = focusQuestion(storage.get(id), body, { inFlight: inFlight() });
+        if (decision.error) return refused(decision);
+        focusRequests.add(id);
+        try {
+          const reason = await pluginRuntime.checkReply(storage.get(id), { signal: request.signal,
+            deadlineAt: Date.now() + deadlineMs });
+          if (reason) return refused({ error: 'focus-refused', reason: isConsentReason(reason) ? 'consent-required' : 'not-admitted', admissionReason: reason });
+          // Recheck assessment, input and pause after asynchronous availability work.
+          const result = storage.focusQuestion(id, body, { ownerToken, inFlight: jobs.has(`${id}:reaction`) });
+          if (result.error) return refused(result);
+          storage.clearLaneFailures(id, 'reaction');
+          broadcast(id, result.event);
+          scheduleLane(id, 'reaction'); status(id);
+          return json({ accepted: true, event: result.event }, 202);
+        } finally { focusRequests.delete(id); }
+      }
       if (action === 'locale' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (!body || !['en', 'de'].includes(body.locale)) return json({ error: 'invalid-locale' }, 400);
