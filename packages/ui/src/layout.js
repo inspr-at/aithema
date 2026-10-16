@@ -134,7 +134,7 @@ export class FooterPopups {
 /** Keep the phone dock in the visual viewport, including keyboards that resize
  * only that viewport. Geometry comes from the existing band, footer and dock. */
 export class PhoneComposerViewport {
-  constructor(root, { onNoticesChange = () => {}, followsTranscript = () => true } = {}) {
+  constructor(root, { onNoticesChange = () => {}, onCompactChange = () => {}, followsTranscript = () => true } = {}) {
     this.onNoticesChange = onNoticesChange; this.followsTranscript = followsTranscript;
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.paint = () => {
@@ -146,6 +146,11 @@ export class PhoneComposerViewport {
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;
+      // Size the input before measuring the dock/footer, independent of cards.
+      // Updating both in this paint avoids a second resize losing bottom-follow.
+      const short = Boolean(phone && height <= 620), compactChanged = workspace.hasAttribute('data-phone-short') !== short;
+      workspace.toggleAttribute('data-phone-short', short);
+      workspace.toggleAttribute('data-phone-overlay', Boolean(phone && (view?.innerHeight ?? height) - height - (viewport?.offsetTop ?? 0) >= 150));
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
       const movedNotices = notices.parentNode !== parent;
@@ -179,6 +184,7 @@ export class PhoneComposerViewport {
       // A breakpoint changes the notice reservation without changing its
       // children. The next transcript event must not reuse the desktop height
       // and scroll past a pointer anchor established in the phone viewport.
+      if (compactChanged) onCompactChange();
       if (movedNotices && this.endHeight) {
         this.noticeHeight = this.endHeight();
         this.noticeScrollTop = root.querySelector('.transcript-shell').scrollTop;

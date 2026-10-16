@@ -1137,3 +1137,14 @@ test('AIT-186 F2: ledger and voice settlement paint exactly once, stale ledger i
   assert.equal(render.mock.callCount(), paints, 'old ledger result cannot resurrect an ended rail');
   assert.equal(root.dataset.call, 'active');
 });
+
+
+test('AIT-215: retained voice consent refusals use C1 after a locale repaint', t => {
+  const { rail, root } = fixture(t);
+  for (const reason of ['current processing consent required', 'delegated reasoning: current processing consent required']) {
+    for (const copy of [de, en]) {
+      rail.copy = copy; rail.failure({ code: 'not-admitted', reason });
+      assert.equal(root.querySelector('.voice-state').textContent, copy.featureConsent.voice);
+    }
+  }
+});

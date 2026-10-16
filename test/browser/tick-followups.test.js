@@ -50,7 +50,7 @@ async function evidence(finding, page, label, values) {
 
 test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 120_000 }, async t => {
   const page = await fixture(t);
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 460, 480, 500, 550, 1024, 1440]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark', 'system']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 460, 479, 480, 500, 550, 1024, 1440]) {
     await scene(page, locale, theme, width);
     const selectors = ['.band', '.conversations-toggle', '.band-utilities', '.settings-open'];
     const before = await boxes(page, selectors);

@@ -112,6 +112,131 @@ ownership. `POST /api/sessions` takes JSON and returns the public session.
 the provenance-preserving ZIP. See the root README's route tables for commands,
 settings, uploads, withdrawal, concepts, and host routes.
 
+## Host retention contract
+
+Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
+sessions**, without possessing visitor tokens. `before` is a nonnegative Unix
+millisecond timestamp; eligibility is strictly `lastActivity < before`. `limit`
+is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
+`retired` counts completed core erasures; `failed` counts sessions that failed
+this call; `more` means another eligible or due retry batch exists. Repeated and overlapping calls are safe. An interrupted
+retirement is durably queued and retried, including the host cleanup hook.
+Hooks must therefore be idempotent. A failing session stays tombstoned and
+pending with a durable attempt count and exponential backoff (1 second up to
+1 hour); the batch continues. Deferred retries do not set `more`: call again
+on the maintenance schedule even when `more` is false. Monitor `failed`;
+host failures can delay deletion beyond the intended retention window.
+
+Last activity is the latest **server timestamp** of person- or host-initiated
+activity: session creation, turns and other committed session changes, authorized
+session and individual library requests (including reads and export), and the
+completion of protected requests, streams and work the person started. Client
+turn timestamps cannot backdate it. The rule lives in `SQLiteStorage.countsAsActivity`:
+direct storage calls are host activity; `storage.systemWork(fn)` marks system work
+and its asynchronous descendants as maintenance. System events, including
+`expire` withdrawal events and the rebuild jobs they schedule, never renew the
+idle clock. Hosts must wrap other system-originated work in `systemWork` too.
+Failed ownership checks and read-only maintenance scans do not renew activity.
+Expire and retire can use the same cutoff in either order without adding an
+extra retention window. In-flight authorized requests, open SSE streams and running
+text reasoning jobs exclude the session from retirement; active voice calls
+and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
+and the final idle check run under the exclusive SQLite writer, before any
+asynchronous cancellation or hook, so newly active sessions cannot be erased
+from a stale candidate list. On migration, the latest stored event timestamp
+initializes activity (unknown timestamps conservatively start at migration).
+
+Retirement uses the erase route's `session.erased` invalidation: it broadcasts
+and closes live streams and cancels lanes, concepts, uploads and voice. It then
+withdraws consent, awaits `host.retired({ sessionId, ownerHash })`, and physically
+deletes core rows in child-before-parent FK order, then the session. The owner
+hash is captured inside the tombstone transaction. No owner token is invented;
+the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
+The host hook runs after the tombstone commits and before the separate core
+purge transaction; it may open its own transaction. The hook has a per-session deadline of 30 seconds (configure the positive integer
+`retiredHookTimeoutMs` in `createHandlers`). A timeout or failure keeps core rows
+pending for retry, counts as failed, and lets the batch continue. The timeout
+cannot cancel host code; hooks must tolerate a late completion overlapping a retry.
+Failures log only session ID and error class, never error content. Core purge and the final batch checkpoint truncate the WAL
+for sessions already purged even if another session's hook fails.
+
+| Data | After successful retirement |
+| --- | --- |
+| Session, settings, consent revision, owner hash | Deleted |
+| Value-free event journal, receipts and content hashes | Deleted |
+| Text, understanding, actor, focused question, identity and library projections | Deleted |
+| Upload bytes, extracted text, concept blobs and feedback | Deleted |
+| Host state, safeguards, voice calls, lifecycle and operation records | Deleted |
+| Processing consent grants and history in the composed demo | Deleted |
+| Per-session budget attempts, corrections, render claims, duration reservations | Deleted |
+| Deployment spend, render and voice totals | Only value-free totals per account or UTC day remain; no session, owner, attempt or provider generation identifiers |
+| Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
+
+SQLite uses `secure_delete` and truncates its WAL before acknowledging the
+full erase. Unreconciled deployment holds remain conservatively charged in
+aggregate; their deleted receipts can no longer be reconciled. Retained totals
+are deployment spend/reserved/uncertain amounts and breach flags per account,
+render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
+On low-volume days, a daily total may reveal one session's usage. Daily buckets
+remain necessary for daily cap enforcement; hosts should aggregate reports by
+week and restrict access to raw daily accounting. This does not erase independent backups or remote provider copies.
+Core removes only its own explicit table list. Hosts must clean their own SQLite
+and external session rows in the idempotent `retired` hook, including in-memory
+projections. Index host `session_id` columns to avoid a full scan per session.
+Host FKs to `sessions(id)` or core child tables such as `content`, `uploads`
+and `concept_artifacts` must be removed or detached before the hook returns;
+a remaining FK blocks core purge and causes a retry. Host tables are never
+automatically deleted merely because they have a `session_id` column. Hosts may
+retain legally required records such as consent proof: that is their decision,
+to document under their own policy, with a schema independent of the deleted
+session (or a detached nullable FK). For example:
+
+```js
+const host = {
+  async retired({ sessionId, ownerHash }) {
+    storage.transaction(() => {
+      storage.db.prepare('DELETE FROM host_consent_events WHERE session_id=?').run(sessionId);
+      storage.db.prepare('DELETE FROM host_consent_grants WHERE session_id=?').run(sessionId);
+    });
+    await removeExternalSessionData({ sessionId, ownerHash }); // idempotent
+  },
+};
+```
+
+The demo deletes its own consent history, session mail outbox and wallet holds. Visitor identity, visitor credit
+accounts and deployment abuse controls are separate host records, governed by
+the host's visitor-retention policy. Shared owner credit guards are removed
+when they refer to the retired session. Do not promise provider-side deletion
+from this API.
+
+For a 24-hour idle policy, run at startup and on the host's existing maintenance
+schedule. Drain batches with a short yield between calls; serialize the loop:
+
+```js
+let retaining = false;
+async function retainIdleSessions() {
+  if (retaining) return;
+  retaining = true;
+  const before = Date.now() - 24 * 60 * 60 * 1000;
+  try {
+    while ((await handlers.retire({ before, limit: 100 })).more) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  } finally { retaining = false; }
+}
+await retainIdleSessions();
+const retentionTimer = setInterval(() => void retainIdleSessions().catch(reportRetentionFailure), 15 * 60_000);
+// Shutdown: clearInterval(retentionTimer), await any running maintenance, then close handlers/storage.
+```
+
+A 15-minute schedule normally deletes after 24 hours of inactivity **plus up to
+15 minutes and backlog/maintenance delays**. Privacy copy must reflect that
+window and distinguish idle retention from a fixed lifetime. The demo keeps its
+existing one-minute schedule and 365-day cutoff, retiring at most 100 sessions
+per tick. The older `expire(before)` only withdraws old turns/uploads; it is not
+a full-erasure contract. Both sweeps query an indexed live-session set, excluding
+tombstones and retired sessions without scanning historical session rows.
+
 ## Web components
 
 A browser build needs an import map or bundler resolving workspace package
@@ -158,6 +283,19 @@ version in a reserved slot for 1.2 seconds. Unknown schemes hide only the
 version row and log once, leaving the session usable. Auto colors use the host branding;
 `host.version.display: "semver"` selects the full reduced coordinate in that same
 popup, with the same canonical-copy interaction. Legacy details remain plain.
+
+The UI's optional `host.operator` configuration supplies `provider`,
+`url: '/api/operator/login/'`, `logoutUrl: '/api/operator/logout/'`, and the
+authenticated operator's `name`. Set `operator.adminUrl` only when the host
+provides an admin destination, for example
+`host: { operator: { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', name: 'Ada', adminUrl: '/admin' } }`.
+`adminUrl` accepts same-origin relative paths (such as `/admin` or `./admin`)
+or absolute HTTP(S) URLs. Other schemes, protocol-relative URLs, backslashes,
+whitespace and malformed URLs fail closed. Omit it when no admin page exists:
+the name has no admin anchor, dot separators or reserved admin space; native
+sign-out remains available. The complete operator line is built synchronously
+before attachment. The demo host explicitly supplies `/admin`; admin pages
+remain host-owned.
 
 ## Host ports and presets
 
@@ -237,6 +375,54 @@ run bounded offline workers. SMTP and Zitadel implement host integration,
 not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
+
+### Mail copy and privacy links
+
+The SMTP plugin accepts `copy: { en: { ... }, de: { ... } }`. Each supplied
+field overrides `mailCopy`; missing fields and locales retain the demo defaults.
+The subject, plain text and HTML use the same merged copy. Unknown locales or
+fields and non-string values fail at construction. `brand` defaults to
+`Aithema`; the `host` signature supports `{brand}` and `{host}`. Override both
+`explanation` (with an allowance) and `explanationFallback` (without one) when
+the host uses a sign-in flow rather than the demo's credits.
+
+```js
+import { createSmtpMail, smtpConfig } from '@inspr/aithema-plugin-mail-smtp';
+
+const mail = createSmtpMail({
+  config: smtpConfig(hostSmtpSettings),
+  publicOrigin: 'https://start.example.test',
+  privacyUrl: locale => `https://start.example.test/privacy?lang=${locale}`,
+  copy: {
+    en: {
+      brand: 'Augmentoring Start',
+      explanation: 'Confirm your address to sign in.',
+      explanationFallback: 'Confirm your address to sign in.',
+      host: 'Sent by {brand} at {host} because you requested a sign-in link.',
+      privacy: 'We use your address to sign you in and delete it after 24 hours.',
+      retention: 'Please delete this sign-in message within 24 hours.',
+    },
+    de: {
+      brand: 'Augmentoring Start',
+      explanation: 'Bestätigen Sie Ihre Adresse, um sich anzumelden.',
+      explanationFallback: 'Bestätigen Sie Ihre Adresse, um sich anzumelden.',
+      host: 'Gesendet von {brand} auf {host}, weil Sie einen Anmeldelink angefordert haben.',
+      privacy: 'Wir nutzen Ihre Adresse zur Anmeldung und löschen sie nach 24 Stunden.',
+      retention: 'Bitte löschen Sie diese Anmeldenachricht innerhalb von 24 Stunden.',
+    },
+  },
+});
+```
+
+`privacyUrl` can also be an absolute HTTP(S) URL string. A function must return
+a string synchronously; it is called and validated once for each supported
+locale (`de`, `en`) at construction. The validated URL appears in both parts.
+Without this option, `/privacy?locale=<locale>` appears only when
+`privacyDocumentConfigured` is true, preserving the demo's behavior. Copy
+changes wording, not the host's storage/deletion policy. HTML escapes copy and
+URLs; custom `htmlTemplate` functions receive the same merged `copy` and should
+render its wording. See the [plugin README](../plugins/mail-smtp/README.md) for
+the full field list and fallback behavior.
 
 ## Document extraction limits
 
@@ -394,6 +580,42 @@ binding in the callback, then normalize it before creating a duration binding.
 `agentName` and `facadeSecretName` must be explicit host-specific identifiers;
 `costConfig` and `qualifyBinding` are required. Missing or invalid arguments reject
 before any provider access; there is no fallback to Aithema's agent.
+
+At startup, `ensureAgent` GETs the receipt-owned agent and compares only the
+configuration it manages. An unchanged agent receives exactly one agent GET and
+no agent PATCH; a missing agent is created and its ownership receipt stored.
+START's template is always GET-only. Every create or PATCH is followed by a GET
+and verification before voice becomes available. Secret reconciliation (including
+the facade-secret PATCH on restart) remains unchanged.
+
+Managed fields are `name`; `conversation_config`'s `tts` (template voice/model,
+stability, similarity boost, style, speaker boost, speed, streaming latency,
+output format and nested voice settings when supplied), `asr` (template quality,
+provider, input format and host keywords), `turn` (template mode and host turn
+policy), `conversation` (duration and client events), `language_presets` (empty),
+and `agent` (language, AI first message, empty prompt/tools/knowledge base,
+custom LLM/model/callback/secret reference); and `platform_settings`'s template
+privacy flags/retention, host auth/allowlist and override policy. Other provider
+fields, including timestamps and version IDs, are ignored.
+
+Object key order is irrelevant. Arrays retain order, empty maps are intentional
+clears, and strings compare exactly: whitespace in prompts or first messages
+counts as drift. Only omitted TTS `stability=0.5`, `speed=1` and
+`similarity_boost=0.8` normalize to those defaults. Nulls and type differences
+remain drift, as do missing identity/security fields and non-default values.
+Extra explicitly false conversation-override flags equal disabled defaults;
+unknown enabled flags or malformed leaves require repair.
+
+The [agent PATCH API](https://elevenlabs.io/docs/api-reference/agents/update)
+accepts optional top-level `name`, `conversation_config` and `platform_settings`.
+Only changed top-level fields are sent; a changed configuration object contains
+its full managed set because nested replacement/merge semantics are not
+guaranteed. OPS receives a structured log with the existing `name`/`id` and
+`message`: `elevenlabs agent ensured: unchanged`,
+`elevenlabs agent ensured: patched (fields: a, b)` (dotted managed field names),
+or `elevenlabs agent ensured: created`. Logs never include configuration values,
+prompts or secret references.
+
 The demo's thin wrapper supplies its own START qualification, costs and openers;
 undefined options preserve those defaults.
 

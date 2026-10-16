@@ -22,7 +22,7 @@ export function conceptStateText({ copy, status = { phase: 'idle' }, feature, it
   const drafts = items.filter(c => conceptKind(c) === 'html').length;
   if (status.phase === 'pending') return kind === 'html' ? drafts ? copy.conceptDraftUpdating : copy.conceptDraftRendering : copy.conceptRendering;
   if (requestError) return requestError;
-  if (status.phase === 'failed') return status.reason ? sentence(reasonText(copy, status.reason))
+  if (status.phase === 'failed') return status.reason ? sentence(reasonText(copy, status.reason, kind === 'html' ? 'html' : 'images'))
     : status.error === 'restart' ? copy.conceptRestarted : status.error === 'source-removed' ? copy.conceptSourceRemoved : copy.conceptFailed;
   if (status.phase === 'waiting') return copy.conceptWaiting;
   if (!items.length || !feature.available) {
@@ -376,7 +376,7 @@ export class ConceptView {
       const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
     } catch (error) {
       // A refusal with a known reason (a limit, the spending cap) says so in plain words.
-      if (sessionId === this.#session.id) { this.#requestError = typeof error.reason === 'string' ? sentence(reasonText(this.copy, error.reason)) : this.copy.conceptFailed; this.progress(); }
+      if (sessionId === this.#session.id) { this.#requestError = typeof error.reason === 'string' ? sentence(reasonText(this.copy, error.reason, this.visualKind() === 'html' ? 'html' : 'images')) : this.copy.conceptFailed; this.progress(); }
     }
     finally { this.#busy = false; this.gates(); this.refocus(focused); }
   }

@@ -427,6 +427,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   return {
     active: id => sessions.has(id),
+    retentionActive: id => [...calls.values()].some(entry => entry.sessionId === id),
     delegatesReply: id => Boolean(sessions.get(id)?.callbackContext?.request),
     snapshot(id) {
       const logical = storage.voiceLifecycle(id);

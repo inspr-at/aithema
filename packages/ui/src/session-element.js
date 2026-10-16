@@ -9,7 +9,7 @@ import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { FEATURES, deviceFeatures } from '../../core/src/presets.js';
-import { SETTINGS_OFF, isDynamicReason, isConsentReason } from '../../core/src/settings.js';
+import { SETTINGS_OFF, isDynamicReason, isConsentReason, CONSENT_REASON } from '../../core/src/settings.js';
 import { aiNotice } from '../../core/src/ai-notice.js';
 import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
@@ -76,7 +76,7 @@ function textKeys(values) {
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
+  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #postCallMatrix = null;
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
   #deferredAnalysis = null; #analysisRecovery = null; #laneStatusPending = null;
@@ -290,7 +290,8 @@ export class AithemaSession extends HTMLElement {
           <span class="status" role="status"><span class="status__sizer" aria-hidden="true"></span><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
-      onResize: () => { if (this.#follow && !this.#onTranscript) this.#scrollToLatest(); } });
+      followsTranscript: () => this.#follow && !this.#onTranscript,
+      onResize: ({ following }) => { if (following && !this.#onTranscript) this.#scrollToLatest(); } });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
     for (const [index, line] of (this.#copy.entrance?.promise ?? []).entries()) { if (index) promise.append(' '); promise.append(node('span', '', line)); }
@@ -434,12 +435,14 @@ export class AithemaSession extends HTMLElement {
     // composer/export targets stable; #anchored keeps the element under the pointer in place.
     const shell = root.querySelector('.transcript-shell');
     shell.addEventListener('scroll', () => {
-      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8;
+      this.#follow = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 8 || this.#latestScrollTop !== null && Math.abs(shell.scrollTop - this.#latestScrollTop) <= 1;
+      this.#questionCard.scheduleReserve();
       if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => {
       this.#onTranscript = false;
+      this.#questionCard.reserve();
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
@@ -458,7 +461,7 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { followsTranscript: () => this.#follow, onNoticesChange: () => {
+    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
       // A last-item notice follows like a message; reading older turns never moves.
       if (this.#follow && !this.#fold.folded) this.#scrollToLatest();
     } });
@@ -570,7 +573,48 @@ export class AithemaSession extends HTMLElement {
   #scrollToLatest() {
     if (this.#fold?.folded) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
-    shell.scrollTop = shell.scrollHeight; this.#follow = true;
+    // Measure the visible card before finding the latest reply.
+    this.#follow = true; this.#questionCard?.reserve();
+    shell.scrollTop = shell.scrollHeight;
+    const latest = shell.querySelector('.turn:last-child');
+    for (const row of shell.querySelectorAll('[data-start-only]')) row.removeAttribute('data-start-only');
+    const readFull = latest?.querySelector('.turn-read-full'), signal = this.shadowRoot.querySelector('.voice-signal');
+    let mini = signal?.querySelector('.voice-read-full-mini');
+    if (readFull) readFull.hidden = true;
+    if (mini) mini.hidden = true;
+    signal?.removeAttribute('data-read-full');
+    if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
+      const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
+      const room = shell.getBoundingClientRect().bottom - top;
+      if (latest.getBoundingClientRect().height > room) {
+        latest.toggleAttribute('data-start-only', room < 88);
+        const openFullReply = row => {
+          this.shadowRoot.querySelector('.voice-reply-text').textContent = row.querySelector('.turn-text').textContent;
+          const dialog = this.shadowRoot.querySelector('.voice-reply-dialog');
+          if (!dialog.open) dialog.showModal();
+        };
+        if (room < 88 && signal) {
+          // The band already has a 44px status slot; use it when the keyboard
+          // leaves only a line of transcript. Neither dock nor card changes size.
+          if (!mini) {
+            mini = node('button', 'voice-read-full-mini'); mini.type = 'button'; mini.setAttribute('aria-haspopup', 'dialog');
+            mini.addEventListener('click', () => openFullReply(shell.querySelector('.turn:last-child')));
+            signal.append(mini);
+          }
+          mini.hidden = false; setText(mini, this.#copy.voiceReadFullReply); signal.setAttribute('data-read-full', '');
+        } else {
+          let button = readFull;
+          if (!button) {
+            button = node('button', 'turn-read-full'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
+            button.addEventListener('click', () => openFullReply(latest));
+            latest.append(button);
+          }
+          button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
+        }
+        shell.scrollTop += latest.getBoundingClientRect().top - top;
+      }
+    }
+    this.#latestScrollTop = shell.scrollTop;
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';
   }
   #hovered() {
@@ -659,7 +703,8 @@ export class AithemaSession extends HTMLElement {
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
     if (!ignorePause && this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
     if (!ignorePause && this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
-    if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
+    if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false,
+      reason: visitor ? reasonText(this.#copy, CONSENT_REASON, feature) : this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
     let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
     if (ignorePause && value.reason === 'session paused' && value.unpaused) value = value.unpaused;
@@ -667,7 +712,7 @@ export class AithemaSession extends HTMLElement {
       value = { ...value, reason: 'budget reconciling' };
     }
     // Shown verdicts speak the page language; decisions keep the server's machine reasons.
-    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason);
+    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason, feature);
     return visitor ? { ...value, rawReason: value.reason, reason } : value;
   }
   // The visitor's consent position for the acknowledged choice, from the server verdicts.
@@ -873,7 +918,9 @@ export class AithemaSession extends HTMLElement {
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
-      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      const placeholder = root.querySelector('.workspace').hasAttribute('data-phone-short') ? copy.placeholderCompact ?? copy.placeholder
+        : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -904,7 +951,11 @@ export class AithemaSession extends HTMLElement {
         setText(reason.querySelector('span'), `${facts}${reasonSeparator}`);
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
-      } else setText(reason, words);
+      } else {
+        paintConsentLine(reason, { copy, feature: 'text', text: words,
+          verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
+          open: opener => this.#dialog.openConsent('text', opener) });
+      }
       reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
@@ -1311,7 +1362,7 @@ export class AithemaSession extends HTMLElement {
     card.addEventListener('click', () => {
       if (this.#chooser.busy) return;
       const refusal = this.#presetRefusal(preset);
-      this.#chooser.error = refusal ? `${this.#copy.presets[preset]}: ${reasonText(this.#copy, refusal)}` : '';
+      this.#chooser.error = refusal ? `${this.#copy.presets[preset]}: ${reasonText(this.#copy, refusal, 'text')}` : '';
       if (!refusal) this.#chooser.choice = preset;
       this.#render('transcript');
     });
@@ -1330,7 +1381,7 @@ export class AithemaSession extends HTMLElement {
       setText(details[0], c.lead[preset]); setText(details[1], c.detail[preset]);
       const refusal = this.#presetRefusal(preset);
       card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(refusal)));
-      if (refusal) card.title = reasonText(copy, refusal); else card.removeAttribute('title');
+      if (refusal) card.title = reasonText(copy, refusal, 'text'); else card.removeAttribute('title');
       setText(card.querySelector('.chooser-option__note'), refusal ? c.unavailable : '');
     });
     setText(section.querySelector('.chooser__summary [role=status]'), this.#chooser.busy ? c.saving : c.summary[choice] ?? c.choose);
@@ -1358,7 +1409,7 @@ export class AithemaSession extends HTMLElement {
     if (sessionId !== this.#session.id) return;
     this.#chooser.busy = false;
     if (!result.ok) {
-      this.#chooser.error = result.error === 'setting-not-allowed' ? copy.settings.notAllowed.replace('{reason}', reasonText(copy, result.body.reason))
+      this.#chooser.error = result.error === 'setting-not-allowed' ? copy.settings.notAllowed.replace('{reason}', reasonText(copy, result.body.reason, 'text'))
         : result.error === 'settings-conflict' ? copy.settings.conflict : copy.chooser.failed;
     }
     this.#render('transcript');
@@ -1719,7 +1770,7 @@ export class AithemaSession extends HTMLElement {
     if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;
     if (response.status === 429) return 'upload-rate-limit';
-    if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason));
+    if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason, 'uploads'));
     return copy.uploads.failed;
   }
   #expandLabel() {

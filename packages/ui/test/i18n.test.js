@@ -100,3 +100,20 @@ test('AIT-173 round 4: reconciling denial copy is exact and remains a temporary 
   assert.equal(reasonText(en, 'budget reconciling'), "One moment, the call's costs are still being reconciled.");
   assert.equal(isDynamicReason('budget reconciling'), true);
 });
+
+
+test('AIT-215: each C1 feature uses one consent sentence in both locales', async () => {
+  const { featureConsentText } = await import('../src/consent-line.js');
+  assert.deepEqual([de.featureConsent.text, en.featureConsent.text], ['Nachrichten brauchen Ihre Einwilligung', 'Messages need your consent']);
+  assert.deepEqual([de.featureConsent.uploads, en.featureConsent.uploads], ['Dateien brauchen Ihre Einwilligung', 'Files need your consent']);
+  for (const copy of [de, en]) for (const feature of ['text', 'analysis', 'voice', 'transcription', 'images', 'html', 'uploads']) {
+    const expected = copy.featureConsent[feature === 'transcription' ? 'voice' : feature];
+    assert.equal(typeof expected, 'string');
+    assert.ok(expected.length > 0);
+    assert.equal(featureConsentText(copy, feature), expected);
+    for (const reason of ['current processing consent required', 'delegated reasoning: current processing consent required']) {
+      assert.equal(reasonText(copy, reason, feature), featureConsentText(copy, feature));
+    }
+    assert.equal(reasonText(copy, 'not configured', feature), copy.reasons['not configured']);
+  }
+});

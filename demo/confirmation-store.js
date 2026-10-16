@@ -85,6 +85,7 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
       CREATE TABLE IF NOT EXISTS visitor_mail_deliveries (
         request_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
         created_at INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed')), locale TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS visitor_mail_token ON visitor_mail_deliveries(token_hash);
       CREATE INDEX IF NOT EXISTS visitor_mail_visitor_limit ON visitor_mail_deliveries(visitor_ref,created_at);
       CREATE INDEX IF NOT EXISTS visitor_mail_retention ON visitor_mail_deliveries(created_at);`);
     // Upgrade draft C1 records once, preserving consumed slots and the secret.

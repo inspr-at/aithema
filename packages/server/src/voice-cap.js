@@ -36,7 +36,7 @@ export function createVoiceCap({ storage, capMilliseconds, perDayMilliseconds, n
   const day = () => new Date(now()).toISOString().slice(0, 10);
   const totals = date => db.prepare(`SELECT COALESCE(SUM(actual_ms),0) AS spentMilliseconds,
     COALESCE(SUM(CASE WHEN actual_ms IS NULL THEN reserved_ms ELSE 0 END),0) AS reservedMilliseconds
-    FROM voice_cap_reservations WHERE (? IS NULL OR day=?)`).get(date ?? null, date ?? null);
+    FROM (SELECT day,actual_ms,reserved_ms FROM voice_cap_reservations UNION ALL SELECT day,spent_ms,0 FROM retired_voice_usage UNION ALL SELECT day,NULL,reserved_ms FROM retired_voice_usage) WHERE (? IS NULL OR day=?)`).get(date ?? null, date ?? null);
   const snapshot = (date = day()) => ({ ...totals(), capMilliseconds, day: date,
     perDay: { ...totals(date), capMilliseconds: perDayMilliseconds } });
   const reason = (maxMilliseconds, date = day()) => {

@@ -2,7 +2,7 @@ import { createTransport as nodemailerTransport } from 'nodemailer';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import { formatCredits } from '@inspr/aithema-ui/display';
-import { confirmationMessage } from './templates.js';
+import { confirmationMessage, mergeMailCopy } from './templates.js';
 export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js';
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
 const address = value => clean(value) && /^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/u.test(value);
@@ -41,12 +41,26 @@ export function smtpConfig(values = process.env, { production = false } = {}) {
 
 /** Implements the existing requestVerification delivery port. Redemption remains host-owned. */
 export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => process.env[ref],
-  createTransport = nodemailerTransport, lookup = dnsLookup, getSocket, htmlTemplate } = {}) {
+  createTransport = nodemailerTransport, lookup = dnsLookup, getSocket, htmlTemplate, copy, privacyUrl } = {}) {
   if (!config) return null;
   let origin;
   try { origin = new URL(publicOrigin); } catch { throw new TypeError('SMTP requires AITHEMA_PUBLIC_ORIGIN'); }
   if (origin.origin !== publicOrigin || origin.username || origin.password || origin.protocol !== 'https:' &&
     !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new TypeError('Invalid mail public origin');
+  const copies = mergeMailCopy(copy);
+  const resolvePrivacyUrl = locale => {
+    if (privacyUrl === undefined) return new URL('/privacy?locale=' + locale, origin).href;
+    let url;
+    try {
+      const value = typeof privacyUrl === 'function' ? privacyUrl(locale) : privacyUrl;
+      if (typeof value === 'string' && !/[\u0000-\u001f\u007f\s]/u.test(value)) url = new URL(value);
+    } catch { /* Report the option and locale without retaining host values. */ }
+    if (!url || !['http:', 'https:'].includes(url.protocol)) {
+      throw new TypeError('Invalid SMTP privacyUrl for ' + locale + ': expected an absolute http(s) URL string without control characters or whitespace');
+    }
+    return url.href;
+  };
+  const privacyUrls = Object.fromEntries(Object.keys(copies).map(locale => [locale, resolvePrivacyUrl(locale)]));
   let transport, connecting;
   async function connection() {
     if (connecting) return connecting;
@@ -80,8 +94,10 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
       locale = locale === 'de' ? 'de' : 'en';
       const tierAfter = Number.isSafeInteger(confirmedAllowanceMicro) && confirmedAllowanceMicro >= 0
         ? formatCredits(confirmedAllowanceMicro, locale) : undefined;
-      const privacyUrl = privacyDocumentConfigured ? new URL('/privacy?locale=' + locale, origin).href : undefined;
-      const message = confirmationMessage({ locale, link: link.href, expiresAt, host: origin.host, privacyUrl, tierAfter, htmlTemplate });
+      const message = confirmationMessage({ locale, link: link.href, expiresAt, host: origin.host,
+        privacyUrl: privacyUrl !== undefined || privacyDocumentConfigured
+          ? (typeof privacyUrl === 'function' ? resolvePrivacyUrl(locale) : privacyUrls[locale]) : undefined,
+        tierAfter, copy: copies[locale], htmlTemplate });
       try {
         await (await connection()).sendMail({ from: config.fromName ? { name: config.fromName, address: config.from } : config.from,
           ...(config.replyTo ? { replyTo: config.replyTo } : {}), to, ...message });

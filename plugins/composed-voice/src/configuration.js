@@ -24,7 +24,7 @@ export function configureComposedComponents({ enabled, config, componentOptions 
   if (reasoningBinding?.plugin !== 'openrouter' || reasoningBinding.legal?.purpose !== 'models-international' ||
     reasoningBinding.legal.consentVersion !== 1) throw new TypeError('Existing OpenRouter reasoning processing binding required');
   scopes.push(processingScope(reasoningBinding, 'stream'));
-  return { ...ports, outputFormat: config.tts === 'voxtral' ? VOXTRAL_OUTPUT.encoding : ports.tts.format.encoding,
+  return { ...ports, outputAudioFormat: config.tts === 'voxtral' ? VOXTRAL_OUTPUT : ports.tts.format, outputFormat: config.tts === 'voxtral' ? VOXTRAL_OUTPUT.encoding : ports.tts.format.encoding,
     async authorize(request, options) {
       if (!consent?.session) throw new PluginError('not-admitted');
       for (const scope of scopes) {

@@ -226,3 +226,6 @@ async function close() {
   server.close(); await handlers.close(); server.closeAllConnections(); storage.close();
 }
 process.once('SIGTERM', () => void close()); process.once('SIGINT', () => void close());
+
+// Embedding and lifecycle fixtures use the same composed host without test HTTP routes.
+export { handlers, storage, url, close };

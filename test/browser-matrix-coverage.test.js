@@ -56,7 +56,7 @@ test('executed case guard rejects a dropped state or width in CI and full eviden
 
 test('Tick width-specific DOM pass lines retain every original width in PR CI', () => {
   for (const [file, widths] of [
-    ['tick-followups.test.js', '[390, 393, 400, 412, 430, 440, 447, 448, 460, 480, 500, 550, 1024, 1440]'],
+    ['tick-followups.test.js', '[390, 393, 400, 412, 430, 440, 447, 448, 460, 479, 480, 500, 550, 1024, 1440]'],
     ['pause-phone.test.js', '[390, 393]'],
   ]) {
     const source = readFileSync(new URL(`./browser/${file}`, import.meta.url), 'utf8');
