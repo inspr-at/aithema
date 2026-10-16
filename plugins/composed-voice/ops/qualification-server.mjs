@@ -86,7 +86,8 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       const result = await row.sample.result;
       await Promise.all(reports);
       if (!(result.ttsPCM instanceof Uint8Array) || result.ttsPCM.length > 16_000_000) throw new Error('Bounded server PCM required');
-      publish(row, { type: 'result', result: { ...result, ttsPCM: Buffer.from(result.ttsPCM).toString('base64') } });
+      publish(row, { type: 'result', result: { hypothesis: result.hypothesis, entities: result.entities,
+        ttsFormat: result.ttsFormat, ttsPCM: Buffer.from(result.ttsPCM).toString('base64') } });
     } catch { if (!row.closed) publish(row, { type: 'failure', error: 'OPS sample failed; retain reservations and inspect server evidence' }); }
   }
   return {
@@ -98,17 +99,19 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       if (request.headers.get('host') !== new URL(relayOrigin).host ||
         request.headers.get('origin') && request.headers.get('origin') !== relayOrigin ||
         request.headers.get('sec-fetch-site') === 'cross-site') return new Response(null, { status: 403 });
+      // Worklet fetches do not inherit Puppeteer's page-only authentication
+      // headers. These exact key-free assets need only the flagged origin guard.
+      if (request.method === 'GET' && (asset.test(path) || path === '/composed/qualification-page.js')) {
+        const file = path === '/composed/qualification-page.js' ? new URL('./qualification-page.js', import.meta.url) : new URL('../../..' + path, import.meta.url);
+        try { return new Response(await readFile(file), { headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } }); }
+        catch { return new Response(null, { status: 404 }); }
+      }
       const owner = await authenticateRelay(request);
       if (typeof owner !== 'string' || !owner) return new Response(null, { status: 401 });
       if (path === '/composed/relay') return networkRelay.handle(request);
       if (path === '/composed/qualification' && request.method === 'GET') return new Response(
         '<!doctype html><meta charset="utf-8"><title>Composed qualification</title><link rel="icon" href="data:,"><p>OPS loopback qualification</p><script type="module" src="/composed/qualification-page.js"></script>',
         { headers: { 'content-type': 'text/html', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self'; connect-src 'self'; img-src data:; object-src 'none'; frame-ancestors 'none'" } });
-      if (request.method === 'GET' && (asset.test(path) || path === '/composed/qualification-page.js')) {
-        const file = path === '/composed/qualification-page.js' ? new URL('./qualification-page.js', import.meta.url) : new URL('../../..' + path, import.meta.url);
-        try { return new Response(await readFile(file), { headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } }); }
-        catch { return new Response(null, { status: 404 }); }
-      }
       if (path !== '/composed/qualification/control' || request.method !== 'POST') return new Response(null, { status: 404 });
       try {
         const input = await body(request);
@@ -153,5 +156,6 @@ export async function startLocalQualificationHost(options) {
   const mount = createQualificationMount(options);
   const { server, url } = await listen(async request => await mount.handle(request) ?? new Response(null, { status: 404 }),
     { hostname: options.hostname ?? '127.0.0.1', port: options.port ?? 0 });
-  return { url, async close() { await mount.close(); server.close(); server.closeAllConnections(); } };
+  return { url: options.hostname === '::1' ? `http://[::1]:${server.address().port}` : url,
+    async close() { await mount.close(); server.close(); server.closeAllConnections(); } };
 }
