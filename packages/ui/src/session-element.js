@@ -461,9 +461,9 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
-    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
-      // A last-item notice follows like a message; reading older turns never moves.
-      if (this.#follow && !this.#fold.folded) this.#scrollToLatest();
+    this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow && !this.#onTranscript, onNoticesChange: () => {
+      // Notice observers run after pointer anchoring; preserve the resting row then too.
+      if (this.#follow && !this.#onTranscript && !this.#fold.folded) this.#scrollToLatest();
     } });
     this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
