@@ -4,6 +4,8 @@ import { voiceOperation, assertComponentUsage } from './live-voice.js';
 
 /** Generated PCM ceiling per TTS speak, shared by providers and playback. */
 export const TTS_SPEAK_BYTES = 16_000_000;
+// Keep wire limits available to public transports without exposing source-only helpers.
+export { TTS_MESSAGE_BYTES, TTS_WIRE_CHARACTERS } from './live-voice.js';
 
 /** Component accounting has its own admission, independent of the call claim. */
 export async function componentInvocation(options, { role, unit, model }) {

@@ -85,22 +85,30 @@ Transport inventory (all repo TTS transport implementations and injections):
 
 | TTS host / injection | Per-message bound | Unread backlog bound | Eager reader behavior |
 | --- | --- | --- | --- |
-| ElevenLabs `ops/qualification-live-transport.mjs:connectQualificationSocket` | `ws maxPayload` 256,000 B wire | 256,000 B wire, then `provider`; outbound bufferedAmount also 256,000 B | Every arriving wire message is consumed without playback waits; independently arriving 136,748 B test messages leave zero backlog between arrivals. Already-coalesced bursts exceeding the transport limit still fail closed. |
-| ElevenLabs server/demo qualification host (`ops/qualification-live-server.mjs`, loaded by `demo/server.js`) | Same 256,000 B | Same 256,000 B | Authorization wrapper delegates to the same socket; no separate server/demo WebSocket implementation. |
+| ElevenLabs `ops/qualification-live-transport.mjs:connectQualificationSocket` | `ws maxPayload` = `TTS_WIRE_CHARACTERS + 16,384` = 1,430,872 B wire | `2 × maxPayload` = 2,861,744 B wire, then `provider`; outbound bufferedAmount stays 256,000 B | Every arriving wire message is consumed without playback waits; backlog normally stays near one message, with room for one coalesced arrival. Bursts exceeding the backlog limit still fail closed. |
+| ElevenLabs server/demo qualification host (`ops/qualification-live-server.mjs`, loaded by `demo/server.js`) | Same 1,430,872 B | Same 2,861,744 B | Authorization wrapper delegates to the same socket; no separate server/demo WebSocket implementation. |
 | Generic ElevenLabs host (`src/configuration.js` → injected `componentOptions.elevenlabs.tts.connect`) | Host-defined; component additionally caps 1 MiB decoded / 1,414,488 wire characters | Host-defined; no default connect installed | Every yielded PCM piece is enqueued without awaiting relay or pacing. Queue overflow aborts instead of leaving a reader stalled. |
 | ElevenLabs `test/component-fixtures.js:fixtureSocket`, used by `components-wire.test.js`, `live-protocol.test.js`, composed `configuration.test.js` and `qualification-live-server.test.js` | No transport cap; synthetic fixed messages, component limits apply | Pull iterator, no independently arriving backlog | Eager iterator reads through `isFinal` before playback drains. Stall/error/late-connect overrides intentionally exercise cancellation. |
 | ElevenLabs composed `test/egress.test.js` and `components-wire.test.js:burstTTS` | No transport cap; includes up to 1 MiB decoded fixtures | Pull iterator, no independently arriving backlog | Same eager drain; these support the generic connect contract rather than simulate the qualification socket. |
-| ElevenLabs composed `test/provider-pacing.test.js:boundedSocket` | 256,000 B wire | 256,000 B wire, then `provider` | Independently delivered ~137 KB messages, including final, drain while the pacer waits; a negative control proves two unread messages fail. |
+| ElevenLabs composed `test/provider-pacing.test.js:boundedSocket` | Deliberately tighter synthetic cap: 256,000 B wire | 256,000 B wire, then `provider` | Independently delivered ~137 KB messages, including final, drain while the pacer waits; a negative control proves two unread messages fail. |
 | Voxtral generic host (`src/configuration.js` → injected `fetchImpl`); qualification transport bundle offers `globalThis.fetch` but its candidate currently instantiates ElevenLabs | HTTP/SSE, **no TTS connect**; component caps 1 MiB decoded / 1,414,488 SSE-message characters | Fetch implementation controls network buffering; component SSE pending text capped at 1,414,488 characters; no repo fetch backlog ceiling | Reads and parses HTTP chunks/events without playback waits, including coalesced events, until done or server limit/abort. Voxtral `connect` is STT only. |
 | Voxtral `test/wire.test.js` and composed `test/egress.test.js` injected Response/ReadableStream | No transport cap; component limits apply | Finite synthetic pre-enqueued SSE; no configured byte cap | Eagerly drains the response body through `speech.audio.done`, independently of playback. |
 
-The 1 MiB decoded component allowance is a ceiling for generic injected connect
-and HTTP/SSE transports, not a claim about the qualification WebSocket. That
-socket's 256,000 B wire limit fits **less than 192,000 B decoded**, or roughly
-191 KB after JSON metadata (base64 uses 4 wire characters per 3 PCM bytes).
-Its tighter limit applies first. The 102,540 B observed chunk fits both. Keeping
-the larger component ceiling preserves the round-1 generic-transport fixtures;
-it cannot raise the qualification socket's payload or backlog allowance.
+The qualification WebSocket now carries the full **1 MiB decoded TTS message**.
+Core exports `TTS_MESSAGE_BYTES` and `TTS_WIRE_CHARACTERS` beside `TTS_SPEAK_BYTES`
+in `voice-components.js`; both providers import these shared limits. The wire
+constants live in the public `@inspr/aithema-core/live-voice` entry point so the
+qualification transport can import them without depending on plugin internals
+or publishing the source-only component helpers. Voxtral uses the same metadata
+margin for SSE. The shared component bound is `4 × ceil(1,048,576 / 3) + 16,384 = 1,414,488`
+wire characters (base64 plus bounded JSON metadata); the transport adds another
+16 KiB of envelope headroom. Its two-message backlog allows an additional
+maximum arrival while the coordinator drains eagerly. Neither bound changes the
+256,000 B relay/player queues: the component splits PCM into ≤64,000 B chunks,
+and the coordinator paces ≤48,000 B frames at 24 kHz mono PCM16.
+`test/qualification-live-transport.test.js` uses a local WebSocket server to
+deliver 720,000 B and 1 MiB decoded envelopes intact, accept the exact receive
+bound, and reject oversized messages and unread backlog overflow as `provider`.
 
 `test/provider-pacing.test.js` covers bounded arrival, ordering and L, eager final
 accounting, dispatch before the preceding fragment's last paced frame, byte/chunk
@@ -328,6 +336,8 @@ and the dispatched state commit before `attempt.consume()` resolves, so a
 provider transport cannot start first. Process death releases SQLite locks and
 restores the full outstanding reservation. Attempt IDs cannot be reused, and a
 persisted run identity rejects a silent re-run (AIT-212).
+
+OPS note (b): `ops/qualification-host-template.mjs:193` does not fence `consume` after measurement; the window is milliseconds, stays within that attempt's reservation, and is reported uncertain.
 
 `openPersistedQualificationBudget({ path, verifyCeiling, verifyReceipt })` exposes
 `admit(spec) -> { attempt, report, dispatch }`. Use `attempt` and `report` as the

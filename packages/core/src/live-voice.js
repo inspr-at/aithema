@@ -1,6 +1,11 @@
 import { PluginError } from './invocation.js';
 import { operationScope } from './reasoning.js';
 
+/** Decoded PCM ceiling per TTS message, independent of the per-speak total. */
+export const TTS_MESSAGE_BYTES = 1_048_576;
+/** Base64 expansion plus bounded JSON/SSE metadata. */
+export const TTS_WIRE_CHARACTERS = 4 * Math.ceil(TTS_MESSAGE_BYTES / 3) + 16_384;
+
 export const LIVE_VOICE_COMMANDS = Object.freeze(['close', 'pause', 'resume', 'setInput', 'setOutput', 'sendText', 'updateContext', 'interrupt']);
 export const LIVE_VOICE_EVENTS = Object.freeze(['listening', 'speaking', 'partial', 'final', 'heard', 'recovering', 'recovered', 'waiting', 'ended']);
 export const LIVE_VOICE_CAPABILITIES = Object.freeze([...LIVE_VOICE_COMMANDS.filter(command => command !== 'close'), 'heard']);
