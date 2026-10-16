@@ -100,6 +100,52 @@ export default {
           args: [...(options.args ?? []), ...crashReportingArgs, ...(process.platform === 'darwin' ? ['--enable-gpu'] : [])],
         });
         launcher.started = true;
+        // AIT-231-b3 diagnostic only: impose the same response ordering on both baselines.
+        const newPage = browser.newPage.bind(browser), pages = [];
+        browser.newPage = async (...args) => {
+          const page = await newPage(...args); pages.push(page);
+          await page.evaluateOnNewDocument(() => {
+            const original = window.fetch.bind(window), gate = Promise.withResolvers();
+            const trace = globalThis.ait231Trace = [];
+            document.addEventListener('click', event => {
+              if (event.composedPath().some(node => node.matches?.('.preset-option[data-preset="custom"]'))) {
+                trace.push({ action: 'custom-click', at: performance.now() }); gate.resolve();
+              }
+            }, true);
+            window.fetch = async (input, init = {}) => {
+              const path = new URL(input, location.href).pathname;
+              const entry = { path, method: init.method ?? 'GET', at: performance.now() };
+              if (path.endsWith('/events') || path.endsWith('/settings')) {
+                if (init.body) entry.body = JSON.parse(init.body);
+                trace.push(entry);
+              }
+              const response = await original(input, init);
+              entry.responseAt = performance.now(); entry.status = response.status;
+              if (path.endsWith('/events')) await new Promise(resolve => setTimeout(resolve, 250));
+              // The existing smoke test waits for a fallback model row, not the catalog.
+              // Release the catalog after the Custom click reaches its handler.
+              if (path.endsWith('/settings') && entry.method === 'GET') await gate.promise;
+              entry.returnedAt = performance.now();
+              return response;
+            };
+          });
+          return page;
+        };
+        const close = browser.close.bind(browser);
+        browser.close = async () => {
+          for (const page of pages) {
+            try {
+              const before = await page.evaluate(() => ({ status: document.querySelector('aithema-session')?.shadowRoot.querySelector('.status')?.textContent,
+                connected: document.querySelector('aithema-session')?.shadowRoot.querySelector('.status')?.hasAttribute('data-connected') }));
+              await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 350)));
+              const after = await page.evaluate(() => ({ status: document.querySelector('aithema-session')?.shadowRoot.querySelector('.status')?.textContent,
+                connected: document.querySelector('aithema-session')?.shadowRoot.querySelector('.status')?.hasAttribute('data-connected'),
+                trace: globalThis.ait231Trace }));
+              console.log('AIT-231 timing probe', JSON.stringify({ before, after }));
+            } catch (error) { console.log('AIT-231 timing probe unavailable', error.message); }
+          }
+          return close();
+        };
         browser.once('disconnected', () => options.signal?.removeEventListener('abort', abort));
         if (run && !browser.process().spawnargs.some(arg => arg.startsWith('--user-data-dir=') && arg.includes(`/ci.noindex/${run}/`))) {
           await browser.close();
