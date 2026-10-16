@@ -587,7 +587,10 @@ test('an old snapshot cannot undo acknowledged pause during recovery', async () 
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
     release(Response.json(beforePause)); await new Promise(resolve => setImmediate(resolve));
     assert.equal(c.session.paused, true);
-    assert.equal(c.shadowRoot.querySelector('.send').disabled, true);
+    assert.equal(c.shadowRoot.querySelector('textarea').disabled, true);
+    assert.equal(c.shadowRoot.querySelector('.send').disabled, false);
+    assert.equal(c.shadowRoot.querySelector('.send').getAttribute('aria-label'), en.resume);
+    assert.equal(c.shadowRoot.querySelector('.composer-paused').hidden, false);
   } finally { globalThis.fetch = original; }
 });
 

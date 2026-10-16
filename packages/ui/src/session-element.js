@@ -1343,7 +1343,7 @@ export class AithemaSession extends HTMLElement {
     setText(root.querySelector('#ai-notice'), this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text);
     setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
     setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
-    root.querySelector('.ai-notice').setAttribute('aria-label', `Aithema 2026.10 · ${this.#copy.layout.aiShort}`);
+    root.querySelector('.ai-notice').setAttribute('aria-label', `Aithema 2026.10${reasonSeparator}${this.#copy.layout.aiShort}`);
     if (this.#voiceBound) setText(root.querySelector('.ai-notice__voice'), this.#copy.layout.syntheticVoice);
     setText(root.querySelector('.phone-status__label'), this.#connection || this.#copy.connecting);
   }
@@ -1409,9 +1409,11 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, band = root.querySelector('.band');
     if (!band?.querySelector('.audio-rail')) return;
     const style = this.ownerDocument.defaultView.getComputedStyle(band);
-    const available = band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
+    const railTrack = tracks.length === 3 ? tracks[1] : 0;
+    const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       - root.querySelector('.band-identity').getBoundingClientRect().width
-      - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap);
+      - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
     band.toggleAttribute('data-rail-row', available < 208);
   }
   #observePanes() {

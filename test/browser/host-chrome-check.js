@@ -15,6 +15,7 @@ export async function hostChromeCheck(t) {
   });
   const browser = await browserForFile(fullMatrix ? { args: evidenceBrowserArgs } : {}), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
+  const accessibility = await page.createCDPSession();
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
@@ -116,8 +117,20 @@ export async function hostChromeCheck(t) {
       assert.deepEqual(await composerBoxes(), baseline, `${label}: resumed composer/field/Send 0 px`);
       checks.push({ pass: true, label, composerShiftPx: 0, sendShiftPx: 0, acknowledgedResume: true, fieldFocused: true });
     }
-    // The phone's pre-live status remains in the accessibility tree, including notices.
+    // Pre-live status is outside the popup and remains an exposed live region.
     await scene({ locale });
+    await shadow(page, async c => {
+      const session = c.session; session.transcript = []; session.settings.origin = null;
+      const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ copy, session, host: { library: true } });
+    });
+    await settle();
+    const { result } = await accessibility.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".status")' });
+    const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+    const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+    await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+    const liveRegion = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
+    assert.equal(liveRegion?.ignored, false); assert.equal(liveRegion?.role?.value, 'status');
     const a11y = await shadow(page, c => {
       const r = c.shadowRoot, status = r.querySelector('.status');
       return { display: getComputedStyle(status).display, visibility: getComputedStyle(status).visibility,
@@ -125,7 +138,7 @@ export async function hostChromeCheck(t) {
     });
     assert.notEqual(a11y.display, 'none'); assert.equal(a11y.visibility, 'visible'); assert.equal(a11y.role, 'status');
     assert.ok(a11y.name.includes(locale === 'de' ? 'KI' : 'AI'));
-    checks.push({ pass: true, label: `${locale}-${theme}-${width}-a11y`, ...a11y });
+    checks.push({ pass: true, label: `${locale}-${theme}-${width}-a11y`, liveRegionExposed: !liveRegion.ignored, ...a11y });
   }
   for (const brandMode of ['start', 'long']) {
     await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', 'light');
@@ -254,5 +267,5 @@ export async function hostChromeCheck(t) {
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, checks }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
 }
