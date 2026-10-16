@@ -176,7 +176,7 @@ export class QuestionCard {
     // gap, including while the concept bar is measured outside that grid.
     const expandedGap = phone && workspace
       ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) : 0;
-    const conceptHeight = this.root.querySelector('.concept-bar').getBoundingClientRect().height;
+    const conceptHeight = phone && workspace ? this.root.querySelector('.concept-bar').getBoundingClientRect().height : 0;
     const available = phone && workspace
       ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
         - this.root.querySelector('.band').getBoundingClientRect().height
