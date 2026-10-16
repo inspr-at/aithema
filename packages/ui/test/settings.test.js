@@ -35,11 +35,11 @@ function catalogFor(session) {
     custom: preset({ status: 'consent', reason: 'current processing consent required', defaults: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' },
       models: models.slice(0, 2), voices, visuals }) } };
 }
-function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity, loadCatalog } = {}) {
+function fixture(t, { origin = 'default', model = 'mock', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity, loadCatalog } = {}) {
   let session = createSession({ demo: true });
   if (identity !== undefined) session.identity = identity;
   for (let i = 0; i < turns; i++) session = applyEvent(session, { seq: session.seq + 1, type: 'turn.final', data: { id: `t${i}`, role: 'user', content: 'Hello' } });
-  session.settings = { revision: 0, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off', origin, at: null };
+  session.settings = { revision: 0, model, effort: 'none', voice: 'fake-voice', visuals: 'off', origin, at: null };
   session.engine = engineFor('best', session.settings);
   session.featureMatrix = { best: { text: available, analysis: available, voice: available, transcription: refused('not configured'), images: refused('visuals off') },
     eu: { text: refused('not configured'), analysis: refused('not configured') }, custom: { text: refused('current processing consent required') }, ...matrix };
@@ -600,14 +600,11 @@ for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-267 ${locale}
   const loads = [Promise.withResolvers(), Promise.withResolvers()];
   t.after(() => loads.forEach(load => load.resolve()));
   let reads = 0;
-  const h = fixture(t, { copy, origin: 'chosen', loadCatalog: async catalog => {
+  const h = fixture(t, { copy, origin: 'chosen', model: 'default', loadCatalog: async catalog => {
     await loads[reads++].promise;
     catalog.presets.best.models = [{ ...models[0], id: 'default', label: 'Anthropic via OpenRouter' }];
     return catalog;
   } });
-  h.server.session.settings.model = 'default';
-  h.server.session.engine.model = { id: 'default', label: 'Anthropic via OpenRouter' };
-  h.c.configure({ copy, session: structuredClone(h.server.session) });
   h.c.openSettings();
   const value = () => h.q('[data-select="model"] .select__value').textContent;
   assert.equal(value(), copy.settings.loadingOption, 'the first render must not claim a fallback model label');
