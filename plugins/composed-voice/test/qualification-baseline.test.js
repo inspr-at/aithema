@@ -194,6 +194,25 @@ test('baseline proceeds with a permanently open event request', async t => {
   assert.equal(h.order.includes('admit'), false);
 });
 
+test('baseline drains the visitor response before chooser navigation can destroy its document', async t => {
+  const h = await productionFixture(t, { setupOnly: true });
+  h.page.goto = async () => {
+    h.page.emit('response', { url: () => binding.baselineOrigin + '/api/sessions', ok: () => true,
+      request: () => ({ method: () => 'POST' }), async json() {
+        await new Promise(resolve => setTimeout(resolve, 25));
+        return { id: 'production-visitor' };
+      } });
+    return { ok: () => true };
+  };
+  const click = h.page.click.bind(h.page);
+  h.page.click = async selector => {
+    if (selector.endsWith('.chooser__continue')) assert.ok(h.identities.some(identity => identity.visitorSessionId === 'production-visitor'), 'identity body must be recorded before leaving its document');
+    return click(selector);
+  };
+  assert.equal((await h.run()).ok, true);
+  assert.equal(h.order.includes('admit'), false);
+});
+
 test('baseline setup-only reaches session-id without admission, voice start or ledger rows', async t => {
   const { dir } = await fixture(t), path = join(dir, 'free-budget.sqlite');
   initializeQualificationBudget({ path });
