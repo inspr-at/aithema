@@ -229,8 +229,8 @@ ${headerGeometry('.band')}
 .band-identity { display:flex; align-items:center; gap:8px; min-width:0; }
 .band .wordmark { margin:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .wordmark::slotted(*) { margin:0; font:inherit; color:inherit; letter-spacing:inherit; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.display-foot__row { grid-template-columns:minmax(max-content,1fr) auto minmax(0,1fr); }
-.footer-right { min-width:0; }
+.display-foot:has(.host-legal:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
+.footer-right { grid-column:3; min-width:0; }
 .host-legal { display:flex; align-items:center; min-width:0; font:inherit; color:inherit; }
 .host-legal::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
 .host-version { white-space:normal; }
