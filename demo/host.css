@@ -403,3 +403,10 @@ body.admin-page :focus-visible { outline:2px solid var(--accent); outline-offset
 .conversation-page .host-actions[slot="utilities"] .utility-theme .utility-chevron { margin-inline-start:0; }
 
 .conversation-page .theme-current { display:inline-flex; align-items:center; gap:4px; justify-self:start; }
+
+/* Startup recovery lives outside the component, including a partial shadow tree. */
+:root[data-host-unavailable] .aithema-shell > aithema-session { display:none; }
+:root[data-host-unavailable] .aithema-shell > .wordmark { padding:24px clamp(16px,4vw,56px) 12px; }
+:root[data-host-unavailable] .aithema-shell > .host-actions { padding-inline:clamp(16px,4vw,56px); }
+:root[data-host-unavailable] #error { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; font-size:14px; }
+:root[data-host-unavailable] #error button { min-height:44px; padding:8px 16px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); }

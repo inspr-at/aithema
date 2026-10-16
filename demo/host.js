@@ -12,7 +12,9 @@ import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
 // Startup owns its failures, including rejection values without a stack or message.
 function signalStartupFailure() {
+  if (document.documentElement.hasAttribute('data-host-ready')) return false;
   document.dispatchEvent(new document.defaultView.Event('aithema-host-failed'));
+  return true;
 }
 async function startup() {
   document.documentElement.dataset.hostStarted = '';
@@ -48,6 +50,8 @@ function paintPage() {
   // A startup failure may have exposed native controls while this paint awaited.
   const actions = document.querySelector('.host-actions');
   if (actions && actions.parentElement !== component) component.append(actions);
+  const title = document.querySelector('h1[slot="brand"]');
+  if (title && title.parentElement !== component) component.prepend(title);
   delete document.documentElement.dataset.hostUnavailable;
   document.documentElement.dataset.hostReady = '';
 }
@@ -73,7 +77,7 @@ async function open(fresh = false, request = {}) {
     if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: localeChoice });
     if (!response.ok) throw new Error();
     await adopt(await response.json());
-  } catch { signalStartupFailure(); document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
+  } catch { if (!signalStartupFailure()) document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 // The demo handover reaches a local fake recipient, so its success line says nobody calls back.
 const componentCopy = (bundle = copy) => binding.demoHost !== true ? bundle
@@ -107,7 +111,7 @@ async function adopt(session) {
     await component.changeLocale(localeChoice);
     paintPage();
     document.querySelector('#error').textContent = '';
-  } catch { signalStartupFailure(); document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
+  } catch { if (!signalStartupFailure()) document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 const binding = await fetch('/demo/config').then(r => r.json());
 // Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.

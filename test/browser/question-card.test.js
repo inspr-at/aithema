@@ -103,7 +103,9 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         } };
         const rest = () => shadow(page, c => {
           const r = c.shadowRoot, shell = r.querySelector('.transcript-shell'), bubble = r.querySelector('.turn:last-child').getBoundingClientRect();
-          return { box: [bubble.x, bubble.y, bubble.width, bubble.height], gap: r.querySelector('.qcard').getBoundingClientRect().top - bubble.bottom,
+          return { pageScroll: scrollY, band: r.querySelector('.band').getBoundingClientRect().toJSON(),
+            workspace: r.querySelector('.workspace').getBoundingClientRect().toJSON(),
+            box: [bubble.x, bubble.y, bubble.width, bubble.height], gap: r.querySelector('.qcard').getBoundingClientRect().top - bubble.bottom,
             turnGap: parseFloat(getComputedStyle(shell.querySelector('ol')).rowGap),
             shell: [shell.getBoundingClientRect().top, shell.getBoundingClientRect().bottom, shell.clientHeight, shell.scrollHeight, shell.scrollTop],
             reserve: r.querySelector('.conversation').style.getPropertyValue('--question-card-height'),

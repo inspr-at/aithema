@@ -1,3 +1,4 @@
+import { headerGeometry } from './first-paint.js';
 import { FOOTER_WIDTHS } from './layout.js';
 import { palette } from './styles.js';
 
@@ -176,7 +177,6 @@ export const bandStyles = `
   .band { grid-template-columns:44px minmax(0,1fr); gap:8px 16px; }
   .band .audio-rail { grid-column:1/-1; grid-row:2; width:min(100%,720px); }
   .header-actions { grid-column:2; grid-row:1; }
-  .edge-column { --band-height:142px; }
 }
 @media(900px <= width < 1024px) {
   .ai-notice { font-size:11.5px; } .host-credits__track { width:44px; }
@@ -221,6 +221,7 @@ export const bandStyles = `
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }
 }
+${headerGeometry('.band')}
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }

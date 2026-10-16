@@ -4,3 +4,7 @@ import { displayMatrix } from './start2-display-matrix-helpers.js';
 
 test('AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages',
   { timeout: 180_000 }, t => displayMatrix(t, 'geometry'));
+
+import { firstPaintCheck } from './first-paint-check.js';
+test('AIT-210: header and rail reserve first-paint geometry before upgrade and fonts settle',
+  { timeout: 90_000 }, firstPaintCheck);
