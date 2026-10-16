@@ -348,7 +348,8 @@ test('missing/empty, duplicate and unknown keys refuse startup; stdout/stderr ne
   assert.ok(!(child.stdout.toString() + child.stderr.toString()).includes(sentinel));
 });
 
-function inertBrowser(evidence, { args = ['/fixture/chrome', '--enable-automation'], commandLineUnavailable = false } = {}) {
+function inertBrowser(evidence, { args = [process.execPath, '--enable-automation'], commandLineUnavailable = false,
+  processInfo = [{ type: 'browser', id: process.pid }] } = {}) {
   return { process: () => null, target: () => ({ async createCDPSession() { return {
     async send(method) {
       if (method === 'Browser.getBrowserCommandLine') {
@@ -356,7 +357,7 @@ function inertBrowser(evidence, { args = ['/fixture/chrome', '--enable-automatio
         return { arguments: args };
       }
       assert.equal(method, 'SystemInfo.getProcessInfo');
-      return { processInfo: [{ type: 'browser', id: process.pid }] };
+      return { processInfo };
     }, async detach() {},
   }; } }), defaultBrowserContext: () => ({ async overridePermissions() {} }), async close() {},
     async newPage() { return { async setExtraHTTPHeaders(headers) {
@@ -451,18 +452,38 @@ test('unavailable actual command line refuses even with clean requested and loca
   });
 });
 
-test('actual Chrome evidence uses CDP arguments and resolves local/connected PID to the probe UID', async () => {
+test('actual Chrome evidence binds local/connected CDP PID and executable before the probe UID', async () => {
   for (const local of [false, true]) {
     const browser = inertBrowser({});
     if (local) browser.process = () => ({ pid: process.pid, spawnargs: ['ignored', '--mute-audio'] });
     const evidence = await readBrowserEvidence(browser);
     assert.equal(evidence.commandLine.verified, true);
-    assert.deepEqual(evidence.commandLine.arguments, ['/fixture/chrome', '--enable-automation']);
+    assert.deepEqual(evidence.commandLine.arguments, [process.execPath, '--enable-automation']);
     assert.equal(evidence.browserUser.verified, true);
     assert.equal(evidence.browserUser.uid, process.getuid());
-    assert.equal(evidence.browserUser.pidSource, local ? 'browser.process().pid' : 'CDP SystemInfo.getProcessInfo');
+    assert.equal(evidence.browserUser.pidSource, 'CDP SystemInfo.getProcessInfo');
+    assert.equal(evidence.browserUser.pid, process.pid);
+    assert.equal(evidence.browserUser.executable, process.execPath);
+    if (local) assert.equal(evidence.browserUser.localPid, process.pid);
     assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: process.getuid() }, evidence).verified, true);
   }
+});
+
+test('Chrome process binding refuses mismatched local PID, absent local process and different executable', async t => {
+  for (const [name, browser] of [
+    ['mismatched local PID', { ...inertBrowser({}), process: () => ({ pid: process.pid + 1 }) }],
+    ['no local process for CDP PID', inertBrowser({}, { processInfo: [{ type: 'browser', id: 2_147_483_647 }] })],
+    ['local executable differs from CDP', inertBrowser({}, { args: ['/other/chrome', '--enable-automation'] })],
+    ['missing local launcher PID', { ...inertBrowser({}), process: () => ({}) }],
+    ['CDP PID unavailable despite local launcher', { ...inertBrowser({}, { processInfo: [] }), process: () => ({ pid: process.pid }) }],
+  ]) await t.test(name, async () => {
+    let uidReads = 0;
+    const evidence = await readBrowserEvidence(browser, async () => { uidReads++; return process.getuid(); });
+    assert.equal(evidence.commandLine.verified, true);
+    assert.equal(evidence.browserUser.verified, false);
+    assert.equal(uidReads, 0, 'Refuse process binding before checking UID');
+    assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: process.getuid() }, evidence).verified, false);
+  });
 });
 
 test('Chrome UID mismatch, unknown UID/PID and unavailable or malformed command line all fail closed', async () => {
@@ -471,7 +492,7 @@ test('Chrome UID mismatch, unknown UID/PID and unavailable or malformed command 
     assert.equal(evidence.browserUser.verified, false);
     assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: process.getuid() }, evidence).verified, false);
   }
-  for (const processInfo of [[], [{ type: 'browser', id: 0 }], [{ type: 'browser', id: 1 }, { type: 'browser', id: 2 }]]) {
+  for (const processInfo of [undefined, null, [], [{ type: 'browser', id: 0 }], [{ type: 'browser', id: 1 }, { type: 'browser', id: 2 }]]) {
     const browser = inertBrowser({});
     browser.target = () => ({ async createCDPSession() { return {
       async send(method) { return method === 'Browser.getBrowserCommandLine' ? { arguments: ['/fixture/chrome'] } : { processInfo }; }, async detach() {},
@@ -485,6 +506,7 @@ test('Chrome UID mismatch, unknown UID/PID and unavailable or malformed command 
       async send() { return { arguments: args, processInfo: [{ type: 'browser', id: process.pid }] }; }, async detach() {},
     }; } });
     assert.equal((await readBrowserEvidence(browser)).commandLine.verified, false);
+    assert.equal((await readBrowserEvidence(browser)).browserUser.verified, false);
   }
   assert.equal((await readBrowserEvidence(inertBrowser({}, { commandLineUnavailable: true }))).commandLine.verified, false);
   assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true }).verified, false);
