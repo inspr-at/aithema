@@ -128,7 +128,7 @@ export const bandStyles = `
 .concept-bar:has(.concept-preview:disabled) { grid-template-columns:minmax(0,1fr); }
 /* AIT-246: status and preview get independent, permanently reserved rows on phones. */
 @media(width < 600px) {
-  .concept-bar, .concept-bar:has(.concept-preview:disabled) { padding-left:0; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(44px,auto) 44px; row-gap:0; }
+  .concept-bar, .concept-bar:has(.concept-preview:disabled) { padding-left:max(0px,calc(58px - var(--aithema-gutter))); grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(44px,auto) 44px; row-gap:0; }
   .concept-rail { grid-area:1/1; }
   .concept-bar .concept-preview-slot { grid-area:2/1; display:grid; justify-items:start; }
   .concept-activity[hidden] { display:grid !important; visibility:hidden; }

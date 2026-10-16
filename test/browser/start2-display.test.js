@@ -14,6 +14,10 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 import { pixels, samePaint } from './png-pixels.js';
 import { mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
 
+// CI keeps every assertion, including paint samples. Evidence-only captures run
+// separately on the remote runner (or nightly) without spending PR runner time.
+const evidenceDirectory = process.env.CI ? undefined : process.env.AITHEMA_EVIDENCE_DIR;
+
 test('AIT-192: closing a fixture preserves Chrome and isolates cookies and page storage', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-reuse-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -56,7 +60,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), passLines = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await mockIdentityReads(page);
@@ -242,7 +246,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
   t.after(() => demo.kill());
   const browser = await browserForFile();
   t.after(() => browser.close());
-  const page = await browser.newPage(), evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), files = [], checks = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
@@ -324,7 +328,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), files = [], checks = [];
+  const page = await browser.newPage(), evidence = evidenceDirectory, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
@@ -384,7 +388,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(); page.setDefaultTimeout(15_000);
-  const evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), files = [], checks = [];
+  const evidence = evidenceDirectory, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const draft = copy => `<!doctype html><html lang="${copy.display.locale}"><head><meta charset="utf-8"><title>${copy.layout.canvas}</title>
     <style>body{margin:0;padding:32px;background:#f7f5ef;color:#243b40;font:16px system-ui}h1{font:32px Georgia}input,button{font:inherit;padding:12px;border:1px solid #b4c9c1;border-radius:6px}button{background:#1d6e6a;color:white}p{line-height:1.5}</style></head>
@@ -545,7 +549,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR);
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = evidenceDirectory;
   page.on('pageerror', error => errors.push(error.message));
   await page.setRequestInterception(true);
   page.on('request', async request => {
@@ -666,7 +670,7 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR);
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = evidenceDirectory;
   page.on('pageerror', error => errors.push(error.message));
   await page.setRequestInterception(true);
   page.on('request', async request => {
@@ -942,7 +946,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   });
   const browser = await browserForFile();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), passLines = [];
+  const page = await browser.newPage(), errors = [], evidence = evidenceDirectory, passLines = [];
   page.on('pageerror', error => errors.push(error.message));
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -1206,7 +1210,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
   const browser = await browserForFile(), page = await browser.newPage();
   const emulation = await page.createCDPSession();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), checks = [];
+  const evidence = evidenceDirectory, checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await mockIdentityReads(page);
@@ -1226,7 +1230,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
     };
   });
   const stable = ['.band', '.audio-rail', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
-  const capture = async (label, state, detail = {}) => {
+  const record = (label, state, detail = {}) => {
     checks.push({ head: evidenceCommit, label, state, ...detail });
   };
   const states = [
@@ -1281,7 +1285,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
         assert.deepEqual(await boxes(page, stable), current, `${label}/${state}: 0 px hover shift`);
         assert.deepEqual(await boxes(page, ['.drafts-settings-action']), actionBox, `${label}/${state}: action stays under pointer`);
       }
-      await capture(label, state, { text, displacementPx: 0 });
+      record(label, state, { text, displacementPx: 0 });
       if (action === 'draftsChoose' && width === 1440) {
         await page.click(actionNode);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true);
@@ -1294,7 +1298,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
             return field.top >= body.top && field.bottom <= body.bottom;
           });
           assert.equal(presetView, true, `${label}: processing heading and all preset choices are in view`);
-          await capture(label, 'device-preset-settings');
+          record(label, 'device-preset-settings');
         }
         await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
       } else if (action === 'draftsRetry' && width === 1440) {
@@ -1332,27 +1336,27 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
           assert.equal(footer.reason, copy.deviceExportUnavailable); assert.equal(footer.reasonVisible, true);
           assert.equal(footer.described, true); assert.equal(footer.tabIndex, 0); assert.equal(footer.role, 'link'); }
         else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); assert.equal(footer.reasonVisible, false); }
-        await capture(label, `${state}-footer`, footer);
+        record(label, `${state}-footer`, footer);
       }
     }
     await configure('draft-ready-quote-missing', null); await finishWorkspaceEntry(page);
     const ready = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.concept-activity-text').textContent,
       recovery: Boolean(c.shadowRoot.querySelector('.concept-activity-text .drafts-settings-action')) }));
     assert.deepEqual(ready, { text: copy.conceptDraftReady.replace('{number}', '1'), recovery: false });
-    await capture(label, 'draft-ready-quote-missing', ready);
+    record(label, 'draft-ready-quote-missing', ready);
     await configure('option-unoffered', 'visuals not offered'); await finishWorkspaceEntry(page);
     for (const [platform, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
       await page.evaluate(platform => Object.defineProperty(navigator, 'platform', { configurable: true, value: platform }), platform);
       await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.shortcut.replace('{key}', key));
-      await capture(label, `fine-${platform}`);
+      record(label, `fine-${platform}`);
     }
     const fineBoxes = await boxes(page, stable.concat('.send', '.attach'));
     await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     assert.equal(await page.evaluate(() => matchMedia('(pointer:coarse)').matches), true);
     assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-reason')).visibility), 'hidden');
     assert.deepEqual(await boxes(page, stable.concat('.send', '.attach')), fineBoxes, `${label}: touch hint hides with 0 px shift`);
-    await capture(label, 'coarse');
+    record(label, 'coarse');
     await emulation.send('Emulation.setTouchEmulationEnabled', { enabled: false });
     await shadow(page, c => c.openSettings());
     let utilityBaseline;
@@ -1367,7 +1371,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       assert.equal(metrics.gap, 4, `${label}/${choice}: appearance chevron hugs actual text`);
       if (utilityBaseline) assert.deepEqual(metrics.boxes, utilityBaseline, `${label}/${choice}: 0 px preference and Done shift`);
       else utilityBaseline = metrics.boxes;
-      await capture(label, `appearance-${choice}`, metrics);
+      record(label, `appearance-${choice}`, metrics);
     }
     await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
   }
@@ -1428,7 +1432,7 @@ test('AIT-246 round 3: person-facing visual options and provider description, DE
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_COMMIT: evidenceCommit });
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), checks = [];
+  const evidence = evidenceDirectory, checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await mockIdentityReads(page);
@@ -1492,7 +1496,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
   });
   const browser = await browserForFile(), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const evidence = (!process.env.CI && process.env.AITHEMA_EVIDENCE_DIR), checks = [];
+  const evidence = evidenceDirectory, checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await mockIdentityReads(page);
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -1503,7 +1507,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
     ['option-unoffered', 'visuals not offered'], ['preset-unconfigured', 'preset not configured'],
     ['device', 'unavailable on device'], ['quote-missing', null], ['admission-timeout', 'admission deadline'],
     ['not-configured', 'not configured'], ['off', 'visuals off'], ['low', 'budget'],
-    ['unavailable', 'unavailable'], ['request', null], ['draft-ready-quote-missing', null],
+    ['unavailable', 'unavailable'], ['request', null], ['draft-ready', null], ['draft-ready-quote-missing', null],
   ];
   const capture = async file => {
     if (!evidence) return;
@@ -1537,7 +1541,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
         s.featureMatrix = { [s.processingPreset]: Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'html', 'images'].map(key => [key,
           ['html', 'images'].includes(key) ? { available: !reason, reason } : { available: true, reason: null }])) };
         s.conceptVisualKind = 'html'; s.conceptCost = state.includes('quote-missing') ? null : { maxMicro: 400_000 };
-        s.concepts = state === 'draft-ready-quote-missing' ? [{ id: 'narrow-ready', mediaType: 'text/html', turnIds: ['narrow-user'], referenceIds: [], archived: false }] : [];
+        s.concepts = state.startsWith('draft-ready') ? [{ id: 'narrow-ready', mediaType: 'text/html', turnIds: ['narrow-user'], referenceIds: [], archived: false }] : [];
         s.conceptStatus = { phase: 'idle' };
         c.setAttribute('motion', 'off');
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
@@ -1594,7 +1598,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
       checks.push({ head: evidenceCommit, width, locale, theme, state, displacementPx: 0, ...geometry });
     }
   }
-  assert.equal(checks.length, 44);
+  assert.equal(checks.length, 48);
   // Show the actual demo header's copy, in a settled desktop viewport.
   await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', 'light');
   await page.evaluate(() => localStorage.setItem('aithema-demo-locale', 'de'));
