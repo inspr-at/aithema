@@ -366,6 +366,11 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         document.querySelector('aithema-session').configure({ copy, session: { ...before, id: globalThis.tickSeed.id } });
       }, { before: scenario.before, locale }); await frame(page);
+      // configure() opens the stream asynchronously. Establish readiness before
+      // the settlement replay so the assertion below still checks it stays open.
+      await page.waitForFunction(() => document.querySelector('aithema-session')?.shadowRoot
+        .querySelector('.status')?.hasAttribute('data-connected'), { polling: 50, timeout: 5_000 })
+        .catch(cause => { throw new Error('AIT-188 V1: paused overview event stream did not connect within 5 s', { cause }); });
       const baseline = (await metrics(page)).composer;
       await shadow(page, (c, events) => { for (const event of events) c.receive({ ...event, sessionId: c.session.id }); }, scenario.events);
       await frame(page);
