@@ -175,3 +175,18 @@ test('a fully rendered silent block before teardown remains valid evidence', asy
   assert.equal(result.refusal, undefined);
   assert.equal(result.trace.find(row => row.kind === 'playback-stop').stoppedAt, 820);
 });
+
+for (const gap of [120, 250]) test(`candidate sustained output stop refuses a ${gap} ms word gap before resumed speech`, async () => {
+  const h = await pageFixture('closed', { type: 'ended', firstAudio: true, bargeIn: true, productStop: true,
+    outputTrace: [{ at: 10, durationMs: 800, rms: .2, voiced: true },
+      { at: 910, durationMs: gap, rms: 0, voiced: false },
+      { at: 910 + gap, durationMs: 20, rms: .2, voiced: true }] });
+  const run = h.run();
+  // The sample deadline has arrived with no sustained quiet run. No sleep and
+  // no explicit stop request can manufacture the missing rendered evidence.
+  await Promise.resolve(); await Promise.resolve();
+  h.timers[0].fn();
+  const result = await run;
+  assert.equal(result.refusal, 'missing-playback-stop');
+  assert.equal(result.trace.some(row => row.kind === 'playback-stop'), false);
+});
