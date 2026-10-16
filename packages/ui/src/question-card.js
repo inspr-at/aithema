@@ -155,7 +155,9 @@ export class QuestionCard {
     // the concept bar measurable outside the grid; changing the live scrollport
     // just to measure it would clamp the reader's scroll position.
     const conversation = this.root.querySelector('.conversation');
-    const expandedGap = workspace?.hasAttribute('data-phone-keyboard') ? 4 : parseFloat(this.view.getComputedStyle(conversation).columnGap);
+    const expandedGap = phone && workspace
+      ? workspace.hasAttribute('data-phone-keyboard') ? 4 : parseFloat(this.view.getComputedStyle(conversation).columnGap)
+      : 0;
     const available = phone && workspace
       ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
         - this.root.querySelector('.band').getBoundingClientRect().height

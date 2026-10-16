@@ -241,3 +241,14 @@ test('AIT-225: returning to the bottom releases a reading hold without waiting f
   shell.dispatchEvent(new view.Event('scroll'));
   assert.equal(frames.length, 1, 'disconnect removes the end-scroll listener');
 });
+
+test('AIT-225: desktop reservations do not inspect phone layout styles', t => {
+  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="workspace"><div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}</div>`;
+  t.mock.method(view, 'getComputedStyle', () => { throw new Error('phone-only style read on desktop'); });
+  const card = new QuestionCard({ root, send() {} });
+  card.card.getBoundingClientRect = () => ({ height: 290 });
+  card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
+  assert.equal(root.querySelector('.conversation').style.getPropertyValue('--question-card-height'), '290px');
+  card.destroy();
+});
