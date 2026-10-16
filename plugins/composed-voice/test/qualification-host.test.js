@@ -376,8 +376,9 @@ test('null-device refusal persists physicalBrowserMedia before control/admission
     assert.match(error.message, /null or unverified audio output/);
     refused = error.physicalBrowserMedia;
     assert.equal(refused.verified, false);
-    const { osDefaultOutput, verified, ...rendering } = refused;
+    const { osDefaultOutput, refusedOutputFlags, verified, ...rendering } = refused;
     assert.equal(osDefaultOutput.source, 'system_profiler SPAudioDataType -json');
+    assert.deepEqual(refusedOutputFlags, []);
     assert.deepEqual(rendering, evidence); return true;
   });
   const run = createHash('sha256').update('probe-refusal').digest('hex').slice(0, 24);
@@ -468,6 +469,11 @@ test('physical output requires both rendering proof and the OS default output ev
     assert.equal(evidence.verified, renderingVerified && verified);
     assert.equal(evidence.fakeAudioOutputs, 3);
     assert.deepEqual(evidence.osDefaultOutput, osDefaultOutput);
+  }
+  for (const flag of ['--disable-audio-output', '--mute-audio', '--fail-audio-stream-creation', '--alsa-output-device=null']) {
+    const evidence = combineOutputEvidence({ renderingVerified: true }, { verified: true }, [flag]);
+    assert.equal(evidence.verified, false);
+    assert.deepEqual(evidence.refusedOutputFlags, [flag.split('=')[0]]);
   }
 });
 

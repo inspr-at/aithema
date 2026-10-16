@@ -89,6 +89,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
       ['with-fake-capture', ['--fake-capture-wav', wavPath]],
       ['without-fake-capture', []],
       ['forced-fake-output', ['--fake-capture-wav', wavPath, '--force-fake-output']],
+      ['forced-missing-output', ['--fake-capture-wav', wavPath, '--force-missing-output']],
     ]) {
       const reportPath = join(directory, `${name}.json`);
       const probeChild = spawn(process.execPath, [fileURLToPath(new URL('../../plugins/composed-voice/ops/qualification-output-probe.mjs', import.meta.url)),
@@ -99,17 +100,21 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
       let probeError = ''; probeChild.stdout.resume(); probeChild.stderr.on('data', bytes => { probeError += bytes; });
       const [probeCode] = await once(probeChild, 'exit');
       const standalone = JSON.parse(await readFile(reportPath)), media = standalone.physicalBrowserMedia;
-      assert.equal(probeCode, media.verified ? 0 : 1, probeError);
-      assert.equal(media.verified, media.renderingVerified && media.osDefaultOutput.verified);
-      if (name === 'forced-fake-output') {
-        assert.equal(media.verified, false, 'Chrome fake output must refuse even when the OS has speakers');
-        assert.ok(media.outputLatency === 0 || ['contextTime', 'performanceTime'].some(key =>
-          media.after?.[key] <= media.before?.[key]), 'Measure zero latency or stalled output timestamps on Chrome fake output');
-      }
       console.log(`AIT-160 standalone probe (${name}): ${JSON.stringify(standalone)}`);
       if (process.env.AITHEMA_EVIDENCE_DIR) {
         await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
         await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-160-output-${name}.json`), JSON.stringify(standalone, null, 2));
+      }
+      assert.equal(probeCode, media.verified ? 0 : 1, probeError);
+      assert.equal(media.verified, media.renderingVerified && media.osDefaultOutput.verified && media.refusedOutputFlags.length === 0);
+      if (name.startsWith('forced-')) {
+        assert.equal(media.verified, false, 'Chrome fake/missing output must refuse even when the OS has speakers');
+        assert.deepEqual(media.refusedOutputFlags, [name === 'forced-fake-output' ? '--disable-audio-output' : '--fail-audio-stream-creation']);
+      }
+      if (name === 'forced-missing-output') {
+        assert.equal(media.renderingVerified, false);
+        assert.ok(media.outputLatency === 0 || ['contextTime', 'performanceTime'].some(key =>
+          media.after?.[key] <= media.before?.[key]), 'Measure zero latency or stalled timestamps with output stream creation refused');
       }
     }
   }

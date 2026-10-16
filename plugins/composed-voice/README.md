@@ -493,8 +493,14 @@ labelled/real/fake counts and separate label lists for diagnosis; device IDs are
 not retained. **These labels/counts do not decide**: Chrome's
 `--use-fake-device-for-media-stream` replaces enumerated outputs as well as
 inputs, including default-output aliases, even when Web Audio renders to real
-hardware. Zero latency or either stalled clock refuses Chrome's null/fake
-output path. The plan's existing checklist cannot bypass this probe.
+hardware. Zero latency or either stalled clock refuses a null output path.
+**Positive latency and advancing clocks alone cannot exclude forced fake
+streams**: Chrome's `--disable-audio-output` can synthesize both (its
+[fake stream supplies synthetic delay](https://github.com/chromium/chromium/blob/main/media/audio/fake_audio_output_stream.cc)).
+The gate also refuses explicit muted/fake/missing/ALSA-output overrides in the
+actual Chrome launch arguments, independently of the measurements. The normal
+runner forbids those overrides before launch. The plan's existing checklist
+cannot bypass this probe.
 
 Example browser module (account ports and any server launcher remain OPS-owned):
 
@@ -534,10 +540,14 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
    probe. Keep host and Chrome under the selected user. Record the full 2×2
    results and final choice; OPS supplies the ci rows without builder writes
    into `/Users/ci`.
-3. Prove refusal using the same first command plus `--force-fake-output` and a
-   fresh report path. This adds Chrome's `--disable-audio-output` fake-stream
-   flag. Record exit 1 plus measured zero latency or stalled output timestamps,
-   even with an OS default output present. Rerun the normal probe before dispatch.
+3. Prove refusal using the same first command plus `--force-missing-output` and
+   a fresh report path. This adds Chrome's `--fail-audio-stream-creation` to
+   deliberately prevent an output stream. Record exit 1 plus measured zero
+   latency or stalled timestamps, even with an OS default output present.
+   Separately repeat with `--force-fake-output` (`--disable-audio-output`): retain
+   its actual latency/clocks and exit 1 from the explicit fake-output guard;
+   do not assume this fake stream has zero latency. Rerun the normal probe
+   before dispatch.
 4. **The CLI, host and budget DB must belong to the same user**: the server accepts only a control file owned by its own user and must read the budget DB.
    OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host under the selected host user using the supplied `controlFile`. This command names paths only; no key values
    belong on the command line. OPS supplies its reviewed module and bindings:

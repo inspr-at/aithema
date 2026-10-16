@@ -34,14 +34,18 @@ export async function readDefaultOutputDevice() {
   return record;
 }
 
-export function combineOutputEvidence(rendering, osDefaultOutput) {
-  return { ...rendering, osDefaultOutput,
-    verified: rendering.renderingVerified === true && osDefaultOutput.verified === true };
+export function combineOutputEvidence(rendering, osDefaultOutput, launchArgs = []) {
+  // Chrome's forced fake streams can synthesize positive delay and advancing
+  // timestamps. Refuse those explicit overrides independently of the clocks.
+  const refusedOutputFlags = launchArgs.filter(arg => /^--(?:mute-audio|disable-audio-output|fail-audio-stream-creation|alsa-output-device)(?:=|$)/u.test(arg))
+    .map(arg => arg.split('=')[0]);
+  return { ...rendering, osDefaultOutput, refusedOutputFlags,
+    verified: rendering.renderingVerified === true && osDefaultOutput.verified === true && refusedOutputFlags.length === 0 };
 }
 
-export async function probePhysicalOutput(page) {
+export async function probePhysicalOutput(page, launchArgs = []) {
   const rendering = await page.evaluate(probeOutputDevice);
-  return combineOutputEvidence(rendering, await readDefaultOutputDevice());
+  return combineOutputEvidence(rendering, await readDefaultOutputDevice(), launchArgs);
 }
 
 /** Self-contained so Puppeteer can evaluate this exact function in Chrome. */
@@ -90,7 +94,7 @@ export async function probeOutputDevice() {
 }
 
 // Standalone hardware preflight. Optional fake-file capture matches the runner;
-// --force-fake-output measures Chrome's fake output as a refusal control.
+// --force-fake-output and --force-missing-output measure refusal controls.
 // No host/account module, keys file or provider is involved.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { parseArgs } = await import('node:util');
@@ -101,7 +105,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const { createServer } = await import('node:http');
   const { launchLocalBrowser } = await import('./qualification-browser.mjs');
   const { values } = parseArgs({ options: { report: { type: 'string' }, 'executable-path': { type: 'string' },
-    'fake-capture-wav': { type: 'string' }, 'force-fake-output': { type: 'boolean', default: false } } });
+    'fake-capture-wav': { type: 'string' }, 'force-fake-output': { type: 'boolean', default: false },
+    'force-missing-output': { type: 'boolean', default: false } } });
   const executablePath = values['executable-path'] ?? process.env.CHROME_PATH;
   if (!isAbsolute(values.report ?? '') || !isAbsolute(executablePath ?? '')) throw new Error('Absolute --report and --executable-path (or CHROME_PATH) required');
   const wavPath = values['fake-capture-wav'];
@@ -111,7 +116,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   const args = ['--disable-features=AudioServiceSandbox', '--autoplay-policy=no-user-gesture-required',
     ...(wavPath ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wavPath}`, '--use-fake-ui-for-media-stream'] : []),
-    ...(values['force-fake-output'] ? ['--disable-audio-output'] : [])];
+    ...(values['force-fake-output'] ? ['--disable-audio-output'] : []),
+    ...(values['force-missing-output'] ? ['--fail-audio-stream-creation'] : [])];
   const startedAt = new Date().toISOString();
   const directory = await mkdtemp(join(tmpdir(), 'qualification-output-probe-')), groups = new Set(), controller = new AbortController();
   const timer = setTimeout(() => { for (const group of groups) group.kill(); controller.abort(); }, 30_000);
@@ -123,16 +129,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     browser = await launchLocalBrowser({ executablePath, headless: true, userDataDir: join(directory, 'chrome'),
       ignoreDefaultArgs: ['--mute-audio'], signal: controller.signal, timeout: 25_000,
       env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR },
-      args },
+      args: [...args] },
     { deadlineAt: Date.now() + 30_000, controllerPid: process.pid, registerProcessGroup(group) { groups.add(group); } });
     await browser.defaultBrowserContext().overridePermissions(origin, ['microphone']);
     const page = await browser.newPage();
     await page.goto(origin);
-    const physicalBrowserMedia = await probePhysicalOutput(page);
+    const physicalBrowserMedia = await probePhysicalOutput(page, browser.process().spawnargs);
     const report = { host: hostname(), user: userInfo().username, startedAt, finishedAt: new Date().toISOString(),
       browserVersion: await browser.version(), captureMode: wavPath ? 'fake-file' : 'system',
       captureWavSha256: wavPath ? createHash('sha256').update(await readFile(wavPath)).digest('hex') : null,
-      forcedFakeOutput: values['force-fake-output'], launchArgs: args, physicalBrowserMedia };
+      forcedFakeOutput: values['force-fake-output'], forcedMissingOutput: values['force-missing-output'],
+      launchArgs: args, physicalBrowserMedia };
     await mkdir(dirname(values.report), { recursive: true });
     await writeFile(values.report, JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     console.log(JSON.stringify(report));
