@@ -146,6 +146,9 @@ export class PhoneComposerViewport {
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;
+      // Size the input before measuring the dock/footer, independent of cards.
+      // Updating both in this paint avoids a second resize losing bottom-follow.
+      workspace.toggleAttribute('data-phone-short', Boolean(phone && height <= 620));
       const notices = root.querySelector('.voice-notices');
       const parent = root.querySelector(phone ? '.transcript-shell' : '.concept-bar');
       const movedNotices = notices.parentNode !== parent;

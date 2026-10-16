@@ -151,7 +151,6 @@ export class QuestionCard {
     // 620px covers the keyboard-height range. Keep the input's box independent
     // of card state, including after its question has been answered.
     const short = phone && viewport <= 620;
-    workspace?.toggleAttribute('data-phone-short', short);
     // Compute expanded capacity from fixed parts in either state. Compact keeps
     // the concept bar measurable outside the grid; changing the live scrollport
     // just to measure it would clamp the reader's scroll position.
