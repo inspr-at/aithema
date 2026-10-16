@@ -12,8 +12,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -26,7 +26,7 @@ export class AudioRail {
     const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
       : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
     root.innerHTML = `<div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
-      <div class="voice-signal" data-reveal><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
+      <div class="voice-signal" data-reveal><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption" aria-hidden="true"></span></div>
       <div class="voice-cell voice-cell--pause">${button('pause')}</div>
       <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
@@ -447,8 +447,11 @@ export class AudioRail {
         if (!this.current(session, generation) || event.callId !== session.callId) return;
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
         if (event.replay && event.type === 'listening') this.notices.playbackEnded(event.completed);
-        if (event.type === 'partial') { this.root.querySelector('.voice-caption').textContent = event.text; this.onPartial?.(event); }
-        if (event.type === 'final') this.root.querySelector('.voice-caption').textContent = '';
+        if (event.type === 'partial' && !this.paused) {
+          this.root.querySelector('.voice-caption').textContent = this.onPartial ? '' : event.text;
+          this.onPartial?.(event);
+        }
+        if (event.type === 'final') { this.root.querySelector('.voice-caption').textContent = ''; this.onFinal?.(event); }
         if (['partial', 'final'].includes(event.type)) this.notices.clear();
         if (event.type === 'recovering') this.state = 'recovering';
         if (event.type === 'recovered') {
