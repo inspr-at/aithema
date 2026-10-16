@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
  * OPS's ci launcher runs this helper as ci, passing the mba CLI controllerPid. */
 export function guardBrowserProcessGroup(pid, { deadlineAt, controllerPid = process.pid } = {}) {
   if (![pid, controllerPid].every(value => Number.isSafeInteger(value) && value > 1) ||
-    !Number.isSafeInteger(deadlineAt) || deadlineAt <= Date.now()) throw new Error('Browser process group and future deadline required');
+    !Number.isSafeInteger(deadlineAt)) throw new Error('Browser process group and deadline required');
   const watchdog = spawn(process.execPath, [fileURLToPath(import.meta.url), String(pid), String(controllerPid), String(deadlineAt)],
     { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH } });
   let failed = false;

@@ -64,8 +64,8 @@ export function createQualificationHost(options = {}) {
       try {
         await bounded(access(item.wavPath));
         const run = join(runDirectory, createHash('sha256').update(runId).digest('hex').slice(0, 24));
-        await mkdir(run, { recursive: true });
-        const profile = await mkdtemp(join(run, `${lane}-chrome-`));
+        await bounded(mkdir(run, { recursive: true }));
+        const profile = await bounded(mkdtemp(join(run, `${lane}-chrome-`)));
         const launch = options.launchBrowser ?? launchLocalBrowser;
         browser = await bounded(Promise.resolve().then(() => launch({ executablePath: options.executablePath ?? process.env.CHROME_PATH, headless: true,
           userDataDir: profile, ignoreDefaultArgs: ['--mute-audio'],

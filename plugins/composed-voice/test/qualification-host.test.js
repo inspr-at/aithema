@@ -10,7 +10,7 @@ import { probeOutputDevice } from '../ops/qualification-output-probe.mjs';
 import { guardBrowserProcessGroup } from '../ops/qualification-browser-watchdog.mjs';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -85,9 +85,16 @@ test('enabled mount enforces tunnel Host, owner authentication and cross-origin 
 
 test('flagged demo serves the authenticated hook and mounts binary relay before JSON guards', async t => {
   const keys = await keysFixture(t);
+  const module = join(keys.directory, 'server.mjs');
+  await writeFile(module, `
+import { createQualificationServer as fixture } from ${JSON.stringify(new URL('../../../test/fixtures/composed-qualification-provider.mjs', import.meta.url).href)};
+export function createQualificationServer(options) {
+  if (options.keys?.ELEVENLABS_API_KEY !== ${JSON.stringify(sentinel)} || options.keys?.OPENROUTER_API_KEY !== ${JSON.stringify(`${sentinel}=suffix`)}) throw new Error('Server did not receive file-only keys');
+  return fixture(options);
+}`);
   const fixture = await startChild(new URL('../../../demo/server.js', import.meta.url), await temporaryDb(), {
     ...keys.values, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
-    AITHEMA_COMPOSED_QUALIFICATION_MODULE: fileURLToPath(new URL('../../../test/fixtures/composed-qualification-provider.mjs', import.meta.url)),
+    AITHEMA_COMPOSED_QUALIFICATION_MODULE: module, ELEVENLABS_API_KEY: 'ambient-poison', OPENROUTER_API_KEY: 'ambient-poison',
   });
   t.after(() => fixture.kill());
   const headers = { host: '127.0.0.1:4567', cookie: 'aithema-visitor=fixture-owner', origin: 'http://127.0.0.1:4567' };
