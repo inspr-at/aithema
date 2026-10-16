@@ -81,7 +81,7 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
   await writeFile(wavPath, wav);
   const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), budget = join(directory, 'qualification.sqlite'), output = join(directory, 'evidence');
   initializeQualificationBudget({ path: budget });
-  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', wavPath, reference: 'Wien' }],
+  const plan = { runId: 'tunnel-fake-proof', corpus: [{ id: 'one', wavPath, reference: 'Wien', expected: 'Wien' }],
     ceilingChecks: [{ provider: 'fixture', model: 'fixture', operation: 'stream', accountRef: 'offline-fixture',
       endpoint: 'https://fixture.invalid/stream', maxMicro: 100, request: { fixture: true } }],
     checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'FAKE ONLY; no live qualification',
@@ -235,7 +235,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         // Test-only fake renderer makes this hermetic on CI hosts with no audio
         // hardware. The real launcher refuses this flag before admission.
-        '--disable-audio-output', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wavPath}`,
+        '--disable-audio-output', '--disable-features=AudioServiceSandbox', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${wavPath}`,
         '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
     const page = await browser.newPage(), logs = [], reports = [], identities = [], probe = createQualificationMediaProbe();
     page.on('console', message => logs.push(message.text())); page.on('pageerror', error => logs.push(error.message));

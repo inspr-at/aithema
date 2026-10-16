@@ -26,7 +26,8 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
     if (req.headers.authorization !== expectedAuth) { res.writeHead(401, { 'www-authenticate': 'Basic realm="fake-start2"' }); res.end(); return; }
     let text = ''; for await (const bytes of req) text += bytes;
     const json = body => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
-    if (url.pathname === '/api/sessions') { json({ id: 'production-visitor' }); return; }
+    if (url.pathname === '/api/sessions') { res.setHeader('set-cookie', 'aithema-visitor=production-browser-owner; Secure; HttpOnly; SameSite=Strict; Path=/'); json({ id: 'production-visitor' }); return; }
+    if (url.pathname.startsWith('/api/') && req.headers.cookie !== 'aithema-visitor=production-browser-owner') { res.writeHead(403); res.end(); return; }
     if (url.pathname.endsWith('/voice')) { dispatches.push('production-conversation'); json({ callId: 'fake-call', providerSessionId: 'conv_production', epoch: 0, controllingTabId: 'fake-tab' }); return; }
     if (url.pathname.endsWith('/close')) { stopped++; json({ closureConfirmed: false }); return; }
     if (url.pathname.startsWith('/api/')) { json({ granted: true }); return; }

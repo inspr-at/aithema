@@ -12,40 +12,49 @@ export function installBaselineProbe() {
   const nativeConnect = AudioNode.prototype.connect;
   const nativeDisconnect = AudioNode.prototype.disconnect;
   const sinks = new WeakMap(), tapped = new WeakSet();
-  const clockAt = (context, time) => {
-    const stamp = context.getOutputTimestamp();
-    return stamp.performanceTime > 0 ? stamp.performanceTime + (time - stamp.contextTime) * 1000 : NaN;
-  };
   function output(source, volume = () => 1) {
     const context = source.context;
     let sink = sinks.get(context);
     if (!sink) {
       sink = context.createScriptProcessor(1024, 1, 1);
-      sink.onaudioprocess = event => {
+      const pending = []; let observer;
+      const observe = () => {
+        clearTimeout(observer);
         if (!armed || failure) return;
-        const samples = Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume());
-        // Input has already traversed the production gain graph. ScriptProcessor
-        // observes the previous input block; map that frame to the device clock.
-        const time = event.playbackTime - event.inputBuffer.duration;
-        const at = clockAt(context, time), voiced = rms(samples) >= 0.015;
-        if (!hypothesis || !responseReady || !Number.isFinite(at)) return; // Exclude the production opener.
+        const timestamp = context.getOutputTimestamp();
+        while (pending.length && timestamp.performanceTime > 0 && timestamp.contextTime >= pending[0].time) {
+          const { samples, time } = pending.shift();
+          rendered(samples, timestamp.performanceTime + (time - timestamp.contextTime) * 1000, timestamp);
+        }
+        // Same 10 ms rendered-clock observation interval as browser-audio.js.
+        if (pending.length) observer = setTimeout(observe, 10);
+      };
+      const rendered = (samples, at, timestamp) => {
+        const voiced = rms(samples) >= 0.015;
         if (voiced) {
           if (firstAudioAt === undefined) {
             firstAudioAt = at;
-            emit({ kind: 'playback-start', firstAudioAt, outputTimestamp: context.getOutputTimestamp() });
+            emit({ kind: 'playback-start', firstAudioAt, outputTimestamp: timestamp });
           }
           if (format && format.sampleRateHz !== context.sampleRate) { failure = true; return; }
           format = { encoding: 'pcm_f32le', sampleRateHz: context.sampleRate, channels: 1 };
 
         } else if (firstAudioAt !== undefined && bargeInAt !== undefined && at >= bargeInAt && stoppedAt === undefined) {
           stoppedAt = at;
-          emit({ kind: 'playback-stop', stoppedAt, outputTimestamp: context.getOutputTimestamp() });
+          emit({ kind: 'playback-stop', stoppedAt, outputTimestamp: timestamp });
         }
         if (firstAudioAt !== undefined && stoppedAt === undefined) {
           bytes += samples.byteLength;
           if (bytes > 16_000_000) { failure = true; return; }
           pcm.push(Float32Array.from(samples));
         }
+      };
+      sink.onaudioprocess = event => {
+        if (!armed || failure || !hypothesis || !responseReady) return; // Exclude the production opener.
+        if (pending.length >= 128) { failure = true; return; } // <= one 8 s candidate playback queue at 16 kHz.
+        pending.push({ samples: Float32Array.from(event.inputBuffer.getChannelData(0), value => value * volume()),
+          time: event.playbackTime - event.inputBuffer.duration });
+        observe();
       };
       const silence = context.createGain(); silence.gain.value = 0;
       nativeConnect.call(sink, silence); nativeConnect.call(silence, context.destination);

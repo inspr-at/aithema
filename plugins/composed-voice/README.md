@@ -570,7 +570,7 @@ That facade requires `elevenlabs_extra_body.aithema_call`
 (`plugins/elevenlabs/src/facade.js:86`–87), supplied by production's normal client
 (`plugins/elevenlabs/src/client.js:468`). The removed loopback bridge omitted that
 identity. The isolated loopback host runs voice off and serves no facade
-(`plugins/composed-voice/ops/qualification-live-host.mjs:51`), and ElevenLabs cloud
+(`plugins/composed-voice/ops/qualification-live-host.mjs:47`), and ElevenLabs cloud
 cannot reach loopback without a tunnel. Markus's topology has no tunnel. The old
 `ops/qualification-live-baseline.mjs` now hard-refuses all calls; it never mints a
 credential or opens a paid conversation.

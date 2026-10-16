@@ -23,7 +23,7 @@ export function createQualificationHost(options = {}) {
   if (!options.ownerHeaders || !Object.keys(options.ownerHeaders).length) throw new TypeError('Existing owner authentication headers required');
   if (!/^[a-f0-9]{64}$/u.test(options.controlCapability ?? '')) throw new TypeError('CLI controlCapability required');
   if (Object.keys(options.ownerHeaders).some(name => name.toLowerCase() === 'x-aithema-qualification-control')) throw new TypeError('Control capability must stay out of browser ownerHeaders');
-  const baselineSessions = new Map();
+  const baselineSessions = new Map(); let identityWrites = Promise.resolve();
   const lifetimes = new Set(); let closed = false, running = false;
   const headers = { ...options.ownerHeaders };
   const post = async (input, signal) => {
@@ -113,7 +113,8 @@ export function createQualificationHost(options = {}) {
               baselineSessions.set(key, identity);
               // Persist identities even when media fails, for OPS's receipt GET.
               const file = createHash('sha256').update(key).digest('hex').slice(0, 24);
-              await writeFile(join(run, `baseline-session-${file}.json`), JSON.stringify(identity, null, 2), { mode: 0o600 });
+              identityWrites = identityWrites.then(() => writeFile(join(run, `baseline-session-${file}.json`), JSON.stringify(identity, null, 2), { mode: 0o600 }));
+              await identityWrites;
             } });
           return { ...answer, entities: matchQualificationEntities(answer.hypothesis,
             item.expected === undefined ? [] : Array.isArray(item.expected) ? item.expected : [item.expected]) };
