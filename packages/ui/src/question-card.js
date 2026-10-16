@@ -60,9 +60,11 @@ export const questionCardStyles = `
   .workspace[data-phone-short] .composer-actions { gap:6px; }
   .workspace[data-phone-short] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
   .workspace[data-phone-short] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-  .workspace[data-question-compact] .concept-bar { display:none; }
+  /* Keep its expanded height measurable without giving it a grid row or a
+     focus/accessibility target while the compact transcript uses that space. */
+  .workspace[data-question-compact] .concept-bar { position:absolute; inset:0 0 auto; visibility:hidden; pointer-events:none; }
   .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-dock,58px) - 28px); }
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 28px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
   .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
   .workspace[data-question-compact] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
@@ -150,12 +152,19 @@ export class QuestionCard {
     // of card state, including after its question has been answered.
     const short = phone && viewport <= 620;
     workspace?.toggleAttribute('data-phone-short', short);
-    // Always measure the expanded transcript, never the extra room obtained by
-    // hiding the concept bar in compact mode. Restore the chosen state before paint.
-    workspace?.removeAttribute('data-question-compact');
-    // Add back the existing reservation to measure the unobstructed scrollport.
+    // Compute expanded capacity from fixed parts in either state. Compact keeps
+    // the concept bar measurable outside the grid; changing the live scrollport
+    // just to measure it would clamp the reader's scroll position.
+    const conversation = this.root.querySelector('.conversation');
+    const expandedGap = workspace?.hasAttribute('data-phone-keyboard') ? 4 : parseFloat(this.view.getComputedStyle(conversation).columnGap);
+    const available = phone && workspace
+      ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
+        - this.root.querySelector('.band').getBoundingClientRect().height
+        - this.root.querySelector('.display-foot').getBoundingClientRect().height
+        - this.root.querySelector('.composer-dock').getBoundingClientRect().height
+        - this.root.querySelector('.concept-bar').getBoundingClientRect().height - expandedGap - 36
+      : shell.getBoundingClientRect().height + (this.height ?? 0);
     // Preserve 128px for the latest reply, its fade and the Latest control.
-    const available = shell.getBoundingClientRect().height + (this.height ?? 0);
     const limit = Math.max(0, available - 128);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
     this.card.removeAttribute('data-compact');

@@ -366,7 +366,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               assert.deepEqual(samples, Array(24).fill(height <= 620), `${locale}/${theme}/390×${height}: explicit compact state stays stable across 12 frames after each of two equal-size resizes`);
               stabilityChecks.push({ locale, theme, height, compact: height <= 620, frames: 24, resizes: 2 });
             }
-            for (const height of [420, 320]) {
+            for (const height of [508, 420, 320]) {
               await shadow(page, (c, height) => {
                 c.shadowRoot.querySelector('textarea').focus({ preventScroll: true });
                 visualViewport.height = height; visualViewport.dispatchEvent(new Event('resize'));
@@ -423,6 +423,23 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               await nextFrame(page); await nextFrame(page);
               still(beforeClose, await boxes(page), `390×${height}: close in ${height === 320 ? 'compact' : 'full'} mode`);
             }
+            // At one fixed viewport a longer question can require chips. That
+            // content decision must never resize or move the input underneath.
+            await shadow(page, () => {
+              visualViewport.height = 740; visualViewport.dispatchEvent(new Event('resize'));
+              globalThis.showQuestion({ question_short: 'Choose?' });
+            });
+            await nextFrame(page); await nextFrame(page);
+            const beforeModeChange = await boxes(page);
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, '390×740: a short question fits the full card');
+            await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
+            await nextFrame(page); await nextFrame(page);
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, '390×740: a longer question needs compact answers');
+            still(beforeModeChange, await boxes(page), 'full-to-compact content change at the same viewport');
+            await page.evaluate(() => globalThis.showQuestion({ question_short: 'Choose?' }));
+            await nextFrame(page); await nextFrame(page);
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false);
+            still(beforeModeChange, await boxes(page), 'compact-to-full content change at the same viewport');
           } finally {
             await page.evaluate(() => {
               const c = document.querySelector('aithema-session'), parent = c.parentNode; c.remove();
@@ -437,10 +454,11 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
     if (evidence) {
-      assert.equal(files.length, 16, 'eight baseline and eight keyboard viewport captures are required');
+      assert.equal(files.length, 20, 'eight baseline and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
       await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
+        stabilityPassLines: stabilityChecks.map(check => ({ ...check, viewport: `390×${check.height}`, pass: true })),
         keyboardPassLines: keyboardChecks.map(({ locale, theme, height, rowHeight, cardTop, bubbleBottom, shellBottom }) => ({
           locale, theme, viewport: `390×${height}`, pass: true, answerHeightPx: rowHeight, reachableByTab: true,
           latestReplyClearancePx: cardTop - bubbleBottom, transcriptClearancePx: cardTop - shellBottom })),
