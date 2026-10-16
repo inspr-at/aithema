@@ -92,7 +92,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       };
       for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
         await page.goto(configured.url, { waitUntil: 'domcontentloaded' }); await openGeneral(page);
         const before = await geometry(page), beforeEmail = await emailLayout(page);
         const info = await shadow(page, c => {
