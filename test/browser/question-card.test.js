@@ -71,7 +71,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     await shadow(page, c => { globalThis.qcardSeed = c.session; });
 
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 800, 390, 393]) {
-      await t.test(`${locale}/${theme}/${width}`, async () => {
+      await t.test(`${locale}/${theme}/${width}`, async scene => {
         const label = `${locale}-${theme}-${width}`;
         const shot = async (state, height) => { if (evidence) {
           if (!height && (!['card', 'bounded-options'].includes(state) || ![390, 1440].includes(width))) return;
@@ -518,7 +518,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               }
               await shot(`keyboard-${height}`, height);
               assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
-              if (height === 508 && theme === 'light') await t.test(`AIT-225: ${locale} chip accessibility snapshot announces suggestion; Tab to chip 2 survives re-render fully visible`, async () => {
+              if (height === 508 && theme === 'light') await scene.test(`AIT-225: ${locale} chip accessibility snapshot announces suggestion; Tab to chip 2 survives re-render fully visible`, async () => {
                 const names = geometry.texts.map((text, index) => text + (index === 0 ? `, ${locale === 'de' ? 'Vorschlag' : 'Suggestion'}` : ''));
                 assert.deepEqual(fullCardNames, names, 'the full card uses the same suggestion naming mechanism');
                 assert.deepEqual(await optionSnapshot(geometry.heading), names, 'the shadow-root chip snapshot has full names and only the suggestion suffix');
