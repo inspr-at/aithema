@@ -88,6 +88,7 @@ export class AithemaSession extends HTMLElement {
   #paneObserver; #scrollTimers = new Map();
   #questionCard; #disposeVersion;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
+  #uploadController; #uploadRetryTimer = null;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -109,6 +110,7 @@ export class AithemaSession extends HTMLElement {
   configure(options) {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
+    this.#cancelUploads();
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#laneStatusPending = null;
@@ -155,8 +157,10 @@ export class AithemaSession extends HTMLElement {
     this.#rail?.connect(); this.#reveal?.connect();
     this.#questionCard?.connect();
     this.#observePanes(); this.#syncReconciling();
+    this.#render('composer');
   }
   disconnectedCallback() {
+    this.#cancelUploads();
     this.#stopReconciling();
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
@@ -1580,20 +1584,22 @@ export class AithemaSession extends HTMLElement {
         const response = await fetch(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error();
         const body = await response.json();
-        if (sessionId === this.#session.id) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
+        if (sessionId === this.#session.id && this.isConnected) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
       } catch { if (this.#limitsLoad === load) this.#limitsLoad = null; }
     });
     this.#limitsLoad = load;
     return load;
   }
   async #attach(files) {
-    if (!files.length) return;
+    if (!files.length || !this.isConnected) return;
     const copy = this.#copy, sessionId = this.#session.id, refusal = this.#attachRefusal();
     if (refusal) { this.#uploadRefusal(refusal); return; }
+    const controller = new AbortController(); this.#uploadController = controller;
+    const current = () => !controller.signal.aborted && sessionId === this.#session.id && this.isConnected;
     this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
     try {
       await this.#loadLimits();
-      if (sessionId !== this.#session.id) return;
+      if (!current()) return;
       // The host's limits may have arrived just now and leave no room: nothing is sent.
       if (!uploadsPossible(this.#limits)) { this.#uploadNotice = copy.uploads.impossible; return; }
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
@@ -1602,8 +1608,8 @@ export class AithemaSession extends HTMLElement {
         this.#status(plural(copy.uploads.uploading, count));
         let sent = 0;
         for (const batch of plan.batches) {
-          const failure = await this.#postUploads(batch);
-          if (sessionId !== this.#session.id) return;
+          const failure = await this.#postUploads(batch, controller.signal);
+          if (!current()) return;
           if (failure) { notices.push(failure); break; }
           sent += batch.length;
         }
@@ -1612,12 +1618,31 @@ export class AithemaSession extends HTMLElement {
       }
       this.#uploadNotice = notices.filter(Boolean).join(' ');
     } finally {
-      if (sessionId === this.#session.id) { this.#uploading = false; this.#render('composer'); }
+      if (this.#uploadController === controller) {
+        this.#uploadController = null; this.#uploading = false;
+        if (this.isConnected) this.#render('composer');
+      }
     }
   }
+  #cancelUploads() {
+    clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
+    this.#uploadController?.abort();
+  }
+  #waitForUploadRetry(delay, signal) {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise(resolve => {
+      const finish = () => {
+        clearTimeout(timer); this.#uploadRetryTimer = null;
+        signal.removeEventListener('abort', finish); resolve();
+      };
+      const timer = setTimeout(finish, delay); this.#uploadRetryTimer = timer;
+      signal.addEventListener('abort', finish, { once: true });
+    });
+  }
   /** One multipart request, with at most three attempts for busy; keep the same receipt ID on retries. */
-  async #postUploads(files) {
+  async #postUploads(files, signal) {
     const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
+    const current = () => !signal.aborted && sessionId === this.#session.id && this.isConnected;
     form.append('clientEventId', crypto.randomUUID());
     for (const file of files) form.append('files', file, file.name);
     let response, body = null;
@@ -1626,14 +1651,15 @@ export class AithemaSession extends HTMLElement {
       // A 202 retains its reservation through extraction, so even sequential batches can be busy.
       // Keep the uploading state and notice unchanged until a retry succeeds or all attempts fail.
       for (let attempt = 0; attempt < 3; attempt++) {
-        if (sessionId !== this.#session.id) return '';
-        response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken });
+        if (!current()) return '';
+        response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken, signal });
         body = await response.json().catch(() => null);
+        if (!current()) return '';
         if (response.status !== 429 || body?.error !== 'upload-rate-limit' || attempt === 2) break;
-        await new Promise(resolve => setTimeout(resolve, uploadRetryDelay(response, attempt)));
+        await this.#waitForUploadRetry(uploadRetryDelay(response, attempt), signal);
       }
-    } catch { return copy.uploads.failed; }
-    if (sessionId !== this.#session.id) return '';
+    } catch { return current() ? copy.uploads.failed : ''; }
+    if (!current()) return '';
     if (response.ok && body) {
       if (body.limits) this.#limits = uploadLimits(body.limits);
       for (const event of body.events ?? []) this.receive(event);

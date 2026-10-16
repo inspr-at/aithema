@@ -33,11 +33,11 @@ export function uploadLimits(value) {
     [key, Number.isSafeInteger(value?.[key]) && value[key] > 0 ? value[key] : fallback])));
 }
 
-/** Back off for 5 then 10 seconds; a server Retry-After can require a longer wait. */
+/** Back off for 5 then 10 seconds; honor a longer Retry-After up to 30 seconds. */
 export function uploadRetryDelay(response, attempt, now = Date.now()) {
   const header = response.headers.get('retry-after'), seconds = /^\d+$/u.test(header ?? '') ? Number(header) : NaN;
-  const retryAfter = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header ?? '') - now;
-  return Math.max(5000 * 2 ** attempt, Number.isFinite(retryAfter) ? retryAfter : 0);
+  const retryAfter = Number(header) < 0 ? 0 : Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header ?? '') - now;
+  return Math.min(30000, Math.max(5000 * 2 ** attempt, Number.isFinite(retryAfter) ? retryAfter : 0));
 }
 // The largest file one request can carry: its own framing for a given file, the shortest framing
 // (no name, no type) for the limits shown before a file is chosen. Never negative; below one byte
