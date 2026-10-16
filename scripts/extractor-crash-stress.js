@@ -22,9 +22,14 @@ test('extractor process file survives 50 repetitions under CPU pressure', { time
     return file;
   }));
   console.log(`AIT-222 stress: ${process.version}, ${process.platform}, 50 files, concurrency 4, CPU workers 2`);
-  const child = spawn(process.execPath, ['--test', '--test-concurrency=4', '--test-timeout=90000', ...files],
-    { stdio: ['ignore', 'inherit', 'inherit'] });
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT; // This is an independent runner, not its parent's test worker.
+  const child = spawn(process.execPath, ['--test', '--test-reporter=spec', '--test-concurrency=4', '--test-timeout=90000', ...files],
+    { env, stdio: ['ignore', 'pipe', 'inherit'] });
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk; process.stdout.write(chunk); });
   t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
   assert.equal(code, 0);
+  assert.match(output, /ℹ tests 700\b/u, 'all 50 copies must actually execute their 14 tests');
 });
