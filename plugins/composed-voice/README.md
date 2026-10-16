@@ -451,7 +451,8 @@ export function createQualificationHost() {
    `--autoplay-policy=no-user-gesture-required`. It removes Puppeteer's default
    `--mute-audio`: output uses mbp2606's real output device. Select/verify that
    device before running. It records actual capture frames and output device
-   timestamps. The next voiced corpus segment triggers synchronous barge-in
+   timestamps. The qualification hook disables echo cancellation and noise
+   suppression so those processors do not alter the corpus WAV. The next voiced corpus segment triggers synchronous barge-in
    stop and ends sample capture; include utterance, endpoint silence and a
    later voiced segment in each WAV. No timing event is synthesized or shifted.
 

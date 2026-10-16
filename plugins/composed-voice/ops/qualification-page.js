@@ -21,7 +21,7 @@ window.composedQualification = {
       if (stopping && event.kind === 'playback-stop' && event.stoppedAt >= bargeInAt) done.resolve();
     };
     const player = createPCMPlayer({ onTiming });
-    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ onTiming, onFault: done.reject }),
+    const media = createComposedBrowserMedia({ player, capture: createPCMCapture({ audioProcessing: false, onTiming, onFault: done.reject }),
       openRelay: createNetworkRelayClient({ headers }) });
     const timer = setTimeout(() => done.reject(new Error('Physical capture/output/barge-in evidence timed out')), 50_000);
     let failure;
