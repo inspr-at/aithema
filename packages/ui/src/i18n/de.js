@@ -513,12 +513,12 @@ export const de = {
     'agent-create-invalid': 'Sprachagent konnte nicht eingerichtet werden',
     'agent-readback-mismatch': 'Sprachanbieter hat die Einrichtung nicht bestätigt',
   },
-  // Legal copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
+  // Item copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
   featureConsent: { text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
-    // START src/lib/i18n.ts:2739 (consentCopy.de.intro).
-    intro: 'Legen Sie einmal fest, welche Verarbeitung Sie freigeben. Ihre Auswahl gilt in diesem Browser, bis Sie sie ändern oder widerrufen, höchstens zwölf Monate. Solange die gewählte Verarbeitung hier freigegeben ist, können Sie Einstellungen ändern, ohne erneut zuzustimmen. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
+    // Host-neutral defaults; embedding hosts supply their actual consent terms.
+    intro: 'Wählen Sie, welche Verarbeitung Sie freigeben. Punkte mit unterschiedlichen Empfängern oder Zwecken sind getrennt aufgeführt. Nicht ausgewählte Punkte sind nicht freigegeben.',
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
@@ -545,10 +545,10 @@ export const de = {
     mockHint: 'Mit der Mock-Auswertung zum Beispiel: Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international',
     settingsHint: 'Die Einstellungen (im Verarbeitungsbereich unten) wählen Verarbeitung, Modell, Antwortstil, Stimme und visuelle Entwürfe. Der Reiter „Erweitert“ verbindet ein OpenAI-kompatibles Modell, das auf diesem Gerät läuft.',
     language: 'Sprache', languages: { en: 'Englisch', de: 'Deutsch' }, languageNext: 'Neue Gespräche beginnen auf {language}. Dieses Gespräch bleibt auf Deutsch.',
-    consentTitle: 'Einwilligung für das Mock-Gespräch',
-    consentUse: { html: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testentwürfe (lokaler Klick-Entwurf) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und klickbare Entwürfe zu erstellen.',
-      images: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testbilder (lokales PNG) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und Entwürfe zu zeichnen.',
-      off: 'Die lokalen Demo-Modelle und die Test-Sprache verwenden Ihr Gespräch, um zu antworten und ein Verständnis aufzubauen.' },
+    consentTitle: 'Einwilligung zur Mock-Verarbeitung',
+    consentUse: { html: 'Dieser Mock verwendet Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und klickbare Entwürfe zu erstellen.',
+      images: 'Dieser Mock verwendet Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und Entwürfe zu zeichnen.',
+      off: 'Dieser Mock verwendet Ihr Gespräch, um zu antworten und ein Verständnis aufzubauen.' },
     grant: 'Mock-Verarbeitung erlauben', revoke: 'Einwilligung widerrufen', consentWaiting: 'Die Verarbeitung wartet auf Ihre Einwilligung.',
     consentRequired: 'Erteilen Sie die Einwilligung, bevor der Mock verarbeitet.', consentAllowed: 'Mock-Verarbeitung erlaubt.',
     consentWithdrawn: 'Einwilligung widerrufen.', consentStopped: 'Einwilligung widerrufen. Laufende Arbeit wurde gestoppt.',
@@ -573,6 +573,7 @@ export const de = {
     theme: 'Darstellung', themes: { light: 'Hell', dark: 'Dunkel', system: 'System' },
     conversationFailed: 'Das Gespräch konnte nicht geöffnet werden. Laden Sie die Seite neu.',
     consentPage: {
+      mockNotice: 'Dies ist eine Mock-Verarbeitung.',
       intro: 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.',
       selectAll: 'Alle auswählen', one: 'Eine Einwilligung erteilen', count: '{count} Einwilligungen erteilen', all: 'Alle Einwilligungen erteilen',
       none: 'Ohne Einwilligung weiter', back: 'Zurück', legend: 'Verarbeitung auswählen',
@@ -580,9 +581,9 @@ export const de = {
       stale: 'Die Bedingungen der Verarbeitung haben sich geändert. Laden Sie die aktuellen Bedingungen und prüfen Sie Ihre Auswahl.',
       missing: 'Es ist kein Gespräch verfügbar. Gehen Sie zurück, um ein Gespräch zu öffnen.',
       required: 'Für diese Auswahl erforderlich', optional: 'Für diese Auswahl optional',
-      mockRecipients: 'Empfänger: der lokale Mock; keine weiteren Auftragsverarbeiter.',
+      mockRecipients: 'Der Host legt die Empfänger und Auftragsverarbeiter für diesen Mock fest.',
       mockConsequence: 'Ohne Einwilligung bleibt die Mock-Verarbeitung nicht verfügbar.',
-      mockTerms: 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.',
+      mockTerms: 'Sie können Ihre Auswahl hier jederzeit ändern oder widerrufen. Ein Widerruf macht eine bereits erfolgte Verarbeitung nicht rückgängig.',
     },
   },
 };

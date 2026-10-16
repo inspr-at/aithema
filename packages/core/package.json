@@ -19,6 +19,7 @@
     "./text-origin": "./src/text-origin.js",
     "./presets": "./src/presets.js",
     "./settings": "./src/settings.js",
+    "./consent-document": "./src/consent-document.js",
     "./ai-notice": "./src/ai-notice.js",
     "./voice-lifecycle": "./src/voice-lifecycle.js",
     "./reply-replay": "./src/reply-replay.js",

@@ -7,8 +7,10 @@ import { mountConsentPage, consentReturnPath, translatedItem } from '../consent-
 import { preferredLocale, preferredTheme, remember, mountTheme, themeKey, localeKey } from '../page-preferences.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../processing-consent.js';
 import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
-import { en } from '../../packages/ui/src/i18n/en.js';
-import { de } from '../../packages/ui/src/i18n/de.js';
+import { en as defaultEn } from '../../packages/ui/src/i18n/en.js';
+import { de as defaultDe } from '../../packages/ui/src/i18n/de.js';
+import { withDemoConsentCopy } from '../consent-copy.js';
+const en = withDemoConsentCopy(defaultEn), de = withDemoConsentCopy(defaultDe);
 
 const html = await readFile(new URL('../consent.html', import.meta.url), 'utf8');
 const tick = async predicate => {

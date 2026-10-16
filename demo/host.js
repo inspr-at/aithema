@@ -5,6 +5,7 @@ import { createElevenLabsClient } from '../plugins/elevenlabs/src/client.js';
 import { createFakeVoice } from './fake-voice.js';
 import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
+import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
@@ -16,7 +17,7 @@ function signalStartupFailure() {
 async function startup() {
   document.documentElement.dataset.hostStarted = '';
   try {
-const component = document.querySelector('aithema-session'), bundles = { en, de };
+const component = document.querySelector('aithema-session'), bundles = { en: withDemoConsentCopy(en), de: withDemoConsentCopy(de) };
 mountTheme();
 let fakeVoice, liveVoiceClient, localeChoice = preferredLocale(), copy = bundles[localeChoice];
 function paintPrivacyLink(link, legal, locale) {

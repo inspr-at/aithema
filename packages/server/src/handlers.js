@@ -1,4 +1,5 @@
 import { consentSaveEndsConversation } from '../../core/src/settings.js';
+import { validateConsentDocument, ConsentDocumentError } from '../../core/src/consent-document.js';
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
@@ -242,10 +243,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     return event;
   }
   async function consentDocument(session) {
-    const document = await consent.describe(session.id);
+    const document = validateConsentDocument(await consent.describe(session.id));
+    const ids = new Set(document.items?.map(item => item.id) ?? ['mock-processing']);
     const features = Object.fromEntries(FEATURES.map(feature => [feature, [...new Set(
-      pluginRuntime.scopes(session, { feature }).map(scope => document.mock && scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose)
-        .filter(purpose => document.mock ? purpose === 'mock-processing' : document.items?.some(item => item.id === purpose)))]]));
+      pluginRuntime.scopes(session, { feature }).map(scope => ids.has(scope.purpose) ? scope.purpose
+        : scope.purpose === 'mock-conversation' ? 'mock-processing' : scope.purpose).filter(id => ids.has(id)))]]));
     return { ...document, features };
   }
   async function invalidate(id, event, reason) {
@@ -595,6 +597,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       return json({ error: 'method-not-allowed' }, 405);
     } catch (error) {
+      if (error instanceof ConsentDocumentError) {
+        try { await log({ event: 'consent.document.invalid', reason: error.message }); } catch { /* Host logging cannot expose the diagnostic to visitors. */ }
+        return json({ error: 'consent-document-unavailable' }, 500);
+      }
       if (error instanceof PrivacyDocumentRequiredError) return json({ error: error.code }, 403);
       if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);

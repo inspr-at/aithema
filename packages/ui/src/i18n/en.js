@@ -523,11 +523,11 @@ export const en = {
     'agent-readback-mismatch': 'Voice provider did not confirm the setup',
   },
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
-  // Kept identical to the server's English legal fallback.
+  // Item copy matches the demo server; introductory terms belong to each host.
   featureConsent: { text: 'Messages need your consent', uploads: 'Files need your consent', images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
     action: 'Give consent…', save: 'Save consent', withdraw: 'Withdraw and end conversation' },
   processingConsent: {
-    intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
+    intro: 'Choose which processing you allow. Items with different recipients or purposes are listed separately. Items you don\'t select are not allowed.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',
     items: {
       'drafts-anthropic': {
@@ -551,11 +551,11 @@ export const en = {
     mockHint: 'With mock reasoning, try: operations: hosted; data: public; systems: API; reach: international',
     settingsHint: 'Settings (in the processing panel below) chooses the preset, model, response style, voice and visual concepts. Its Advanced tab connects an OpenAI-compatible model running on this device.',
     language: 'Language', languages: { en: 'English', de: 'German' }, languageNext: 'New conversations will be in {language}. This conversation stays in English.',
-    consentTitle: 'Mock conversation consent',
+    consentTitle: 'Mock processing consent',
     // The mock consent names the visual kind the conversation uses (AIT-118); the terms are shared.
-    consentUse: { html: 'The local demo models, fake voice and test drafts (local click-dummy) use your conversation to reply, build understanding and draft clickable concepts.',
-      images: 'The local demo models, fake voice and test images (local PNG) use your conversation to reply, build understanding and draw concepts.',
-      off: 'The local demo models and fake voice use your conversation to reply and build understanding.' },
+    consentUse: { html: 'This mock uses your conversation to reply, build understanding and draft clickable concepts.',
+      images: 'This mock uses your conversation to reply, build understanding and draw concepts.',
+      off: 'This mock uses your conversation to reply and build understanding.' },
     grant: 'Allow mock processing', revoke: 'Withdraw consent', consentWaiting: 'Processing waits for consent.',
     consentRequired: 'Grant consent before mock processing.', consentAllowed: 'Mock processing allowed.',
     consentWithdrawn: 'Consent withdrawn.', consentStopped: 'Consent withdrawn. Running work stopped.',
@@ -581,6 +581,7 @@ export const en = {
     theme: 'Appearance', themes: { light: 'Light', dark: 'Dark', system: 'System' },
     conversationFailed: 'Could not open the conversation. Reload to retry.',
     consentPage: {
+      mockNotice: 'This is mock processing.',
       intro: 'Choose which processing you allow for this conversation. Unselected items are not granted.',
       selectAll: 'Select all', one: 'Grant one permission', count: 'Grant {count} permissions', all: 'Grant all permissions',
       none: 'Continue without consent', back: 'Back', legend: 'Choose processing permissions',
@@ -588,9 +589,9 @@ export const en = {
       stale: 'The processing terms have changed. Reload the current terms and review your selection.',
       missing: 'No conversation is available. Go back to open a conversation.',
       required: 'Required for this choice', optional: 'Optional for this choice',
-      mockRecipients: 'Recipient: the local mock; no upstream processors.',
+      mockRecipients: 'The host specifies the recipients and processors for this mock.',
       mockConsequence: 'Without consent, mock processing remains unavailable.',
-      mockTerms: 'This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.',
+      mockTerms: 'You can change or withdraw your choice here at any time. Withdrawal does not undo processing that has already taken place.',
     },
   },
 };

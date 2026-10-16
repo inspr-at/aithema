@@ -313,6 +313,77 @@ and actual verification methods. Host collection requires a configured privacy
 document. Pass the same consent port to handlers and plugin runtime. Consent,
 budgets, ownership and pause are checked before every dispatch.
 
+### Consent documents in Settings
+
+To let visitors edit consent in Settings, the same authoritative consent port
+also implements `describe(sessionId)`. It returns the following JSON object,
+either synchronously or through a promise. This is a current description of the
+ledger, never a grant from the browser.
+
+| Field | Type and requirement |
+| --- | --- |
+| `contract` | Required non-empty string identifying the exact current terms. Change it when those terms change; validate it again in `grant({ decision })`. |
+| `items` | Required array of item objects, possibly empty if no processing is offered. Each has a unique non-empty string `id`, a `version` that is a positive safe integer or non-empty string, and non-empty strings `title`, `recipients` and `text` (purpose and data use). Strings render as text, never HTML. |
+| `selected` | Required array of unique item IDs from `items`, including only currently valid grants for this session and contract. An empty array grants nothing. |
+| `mock` | Optional boolean; absent and `false` mean a real document. `true` adds mock labelling. It never removes or replaces described items or changes their feature mapping. |
+| `intro`, `withdrawal` | Optional non-empty strings for a host consent page's introduction and withdrawal terms. Settings uses the configured, localized `copy.processingConsent.intro`/`withdrawal`, or the mock host copy described below. |
+| `optional` | Optional array of unique known item IDs, for host consent-page presentations. Settings displays all items. |
+| `features` | Optional object (not null or an array). Every value must be an array of unique known item IDs; empty arrays are valid. The validator does not restrict its keys. Invalid supplied values fail closed, even though the server replaces a valid supplied map with its own derived map. |
+
+For example, a host using the local processing scope can return:
+
+```js
+const currentConsentDocument = {
+  contract: 'host-processing-v1',
+  items: [{ id: 'mock-processing', version: 1, title: 'Conversation processing',
+    recipients: 'Your host processor', text: 'Your messages are processed to answer and build understanding.' }],
+  selected: [],
+};
+```
+
+For provider bindings, an item's `id` matches the binding's processing-scope
+`purpose`. The local `mock-conversation` scope also accepts the established
+`mock-processing` item ID, for both real and mock documents. The server derives
+`features` from the session's actual processing scopes and known item IDs;
+a supplied `features` map must pass the validation above, then the server replaces
+it with the derived map. Hosts cannot override this mapping. The
+consent GET response adds `features: { [feature]: string[] }` for `text`,
+`analysis`, `voice`, `transcription`, `images`, `html` and `uploads`. Empty arrays
+mean no matching described processing. Settings requires a non-empty mapping
+for the requested feature, focuses its first missing item and preserves the
+other selections. Saving sends `{ granted, processing: { contract, items } }`;
+the ledger must validate the contract, IDs and current revision authoritatively.
+
+The existing one-item mock shorthand `{ mock: true, selected: [] }` remains
+supported: `selected` may contain only `mock-processing`, and `contract` is
+optional. Its item version is 1 and its visible item comes from the host copy.
+For real documents, hosts **must** override the localized
+`copy.processingConsent.intro` and `copy.processingConsent.withdrawal` with their
+actual consent and withdrawal terms, including where consent is stored and how
+long it applies. Settings reads these copy keys, not the optional `intro` and
+`withdrawal` fields in `describe()`. The default intro describes the selection,
+recipients and purposes; the default withdrawal explains how to withdraw and
+that past transfers cannot be undone. Neither states where consent is stored
+or how long it applies.
+
+A mock consent document uses `copy.host.*`; override it to match your ledger.
+In particular, override `consentTitle`, `consentUse` (`off`, `html`, `images`)
+and `consentPage.mockRecipients`, `mockConsequence`, `mockTerms`;
+`consentPage.mockNotice` labels a full mock document. Defaults promise no ledger
+duration or persistence. The demo overlays its existing twelve-month real
+processing intro and memory-only/restart mock wording in `demo/consent-copy.js`,
+used by both its host and consent page.
+
+Invalid shapes fail closed before any editable items are exposed. The server
+and UI share `validateConsentDocument` from
+`@inspr/aithema-core/consent-document`. The host's log callback passed to
+`createHandlers({ log })` receives `event: 'consent.document.invalid'` and a
+field-specific `reason` beginning `Invalid consent.describe():`, without
+document values. The HTTP response is a generic 500
+`{ error: 'consent-document-unavailable' }`; visitors see the existing localized
+consent failure state with saving disabled. Contract diagnostics stay in the
+host log.
+
 ```js
 import { PluginRegistry, createMockReasoning, PROCESSING_PRESETS, createBinding,
   createMemoryLibrary, assertLibraryPort, libraryConformance,
