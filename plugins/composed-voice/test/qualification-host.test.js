@@ -266,6 +266,29 @@ test('control authority is flag-only, private-file-only, and never accepted as b
   assert.throws(() => createQualificationHost({ ...hostOptions('/unused'), ownerHeaders: { 'X-Aithema-Qualification-Control': control.capability } }), /browser ownerHeaders/);
 });
 
+test('a valid identity for another run, lane, request or pricing identity cannot acknowledge this admission', async t => {
+  for (const change of [{ runId: 'other-run' }, { lane: 'baseline' }, { request: { different: true } }, { maxMicro: 99 }]) {
+    await t.test(Object.keys(change)[0], async t => {
+      const { control, budget } = await controlFixture(t), spec = attemptSpec('same-identity');
+      budget.claimRun('other-run');
+      const admission = await budget.admit({ ...spec, runId: control.runId, ...change });
+      const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567', control,
+        authenticateRelay: () => 'owner', networkRelay: { handle() {} }, async createSample({ admit }) {
+          await admit(spec); assert.fail('Mismatched ledger entry admitted');
+        } });
+      t.after(() => mount.close());
+      const post = input => mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+        headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': control.capability }, body: JSON.stringify(input) }));
+      const { sampleId } = await (await post({ action: 'start', lane: 'candidate', runId: control.runId, item: {} })).json();
+      const { event } = await (await post({ action: 'poll', sampleId })).json();
+      const { attemptId, claimId, maxMicro } = admission.attempt;
+      assert.equal((await post({ action: 'ack', sampleId, id: event.id, value: { attemptId, claimId, maxMicro } })).status, 403);
+      assert.equal(budget.snapshot().records[0].state, 'reserved');
+      assert.equal((await post({ action: 'close', sampleId })).status, 200);
+    });
+  }
+});
+
 
 test('keys are flag-only, file-only and parse comments/blanks without environment fallback', async t => {
   const fixture = await keysFixture(t);
@@ -327,7 +350,9 @@ test('missing/empty, duplicate and unknown keys refuse startup; stdout/stderr ne
 
 function inertBrowser(evidence) {
   return { defaultBrowserContext: () => ({ async overridePermissions() {} }), async close() {},
-    async newPage() { return { async setExtraHTTPHeaders() {}, async setRequestInterception() {}, on() {},
+    async newPage() { return { async setExtraHTTPHeaders(headers) {
+      assert.equal(Object.keys(headers).some(name => name.toLowerCase() === 'x-aithema-qualification-control'), false);
+    }, async setRequestInterception() {}, on() {},
       async goto() { return { status: () => 200 }; }, async waitForFunction() {}, async evaluate() { return evidence; } }; } };
 }
 const hostOptions = directory => ({ hostOrigin: 'http://127.0.0.1:4567', runDirectory: directory,

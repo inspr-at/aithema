@@ -108,3 +108,28 @@ test('OPS CLI still refuses absent accounting ports and checklist before sample 
     assert.doesNotMatch(child.stderr.toString(), /SAMPLE_SHOULD_NOT_RUN/);
   }
 });
+
+test('CLI creates private per-run control authority and removes it after factory failure', async t => {
+  const { spawnSync } = await import('node:child_process'), { fileURLToPath } = await import('node:url');
+  const directory = await mkdtemp(join(tmpdir(), 'ops-cli-control-')), budgetPath = join(directory, 'budget.sqlite');
+  t.after(() => rm(directory, { recursive: true, force: true })); initializeQualificationBudget({ path: budgetPath });
+  const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), handoff = join(directory, 'handoff.json');
+  const input = plan(); await writeFile(planPath, JSON.stringify(input));
+  await writeFile(hostPath, `
+import { readFile, stat, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+export async function createQualificationHost({ controlFile, controlCapability }) {
+  const authority = JSON.parse(await readFile(controlFile));
+  const valid = /^[a-f0-9]{64}$/.test(controlCapability) && authority.capability === controlCapability &&
+    authority.runId === ${JSON.stringify(input.runId)} && authority.budgetPath === ${JSON.stringify(budgetPath)} &&
+    ((await stat(controlFile)).mode & 0o777) === 0o600 && ((await stat(dirname(controlFile))).mode & 0o777) === 0o700;
+  await writeFile(${JSON.stringify(handoff)}, JSON.stringify({ controlFile, valid }));
+  throw new Error('FAKE_FACTORY_REFUSAL');
+}`);
+  const child = spawnSync(process.execPath, [fileURLToPath(new URL('../../../scripts/composed-qualification.js', import.meta.url)),
+    '--operator-approved', '--budget', budgetPath, '--plan', planPath, '--host', hostPath, '--out', directory,
+    '--keys-file', join(directory, 'unread-fake.keys')], { env: { PATH: process.env.PATH }, timeout: 15_000 });
+  assert.notEqual(child.status, 0); assert.match(child.stderr.toString(), /FAKE_FACTORY_REFUSAL/);
+  const result = JSON.parse(await readFile(handoff)); assert.equal(result.valid, true);
+  await assert.rejects(readFile(result.controlFile), { code: 'ENOENT' });
+});
