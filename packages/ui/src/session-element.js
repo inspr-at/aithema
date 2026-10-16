@@ -34,6 +34,7 @@ import { createReveal } from './reveal.js';
 import { mountVersionDetails } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { emailAskStyles } from './email-ask-styles.js';
+import { buildPaimosPayload, paimosImportUrl } from './paimos-import.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -106,6 +107,7 @@ export class AithemaSession extends HTMLElement {
    * `voicePresentation` supplies the selected adapter label and localized presentation.
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
    * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
+   * `paimosImportUrl` and `paimosImportVersion: 1` enable creating a Paimos project via form POST.
    * `host` ({library, verification, handover, credits, locale, operator}) turns on the host surface (AIT-104 B2):
    * the conversation library, email verification, handover and credits; see the README.
    */
@@ -344,6 +346,13 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.transcript-latest').addEventListener('click', () => this.#scrollToLatest());
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
+    if (paimosImportUrl(this.#options)) {
+      const create = node('button', 'create-project'); create.type = 'button';
+      create.innerHTML = `${icon('plus')}<span data-copy="createProject"></span>`;
+      create.querySelector('span').textContent = this.#copy.createProject;
+      create.addEventListener('click', () => this.#createProject());
+      root.querySelector('.understanding > .foot').append(create);
+    }
     this.#renderMode();
     root.querySelector('.export').addEventListener('click', e => {
       if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
@@ -694,6 +703,19 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
   }
+  #createProject() {
+    if (this.#session.processingPreset === 'device') return;
+    const action = paimosImportUrl(this.#options); if (!action) return;
+    const document = this.ownerDocument, form = document.createElement('form');
+    try {
+      const payload = buildPaimosPayload(this.#session, { host: document.location.host, fallbackTitle: this.#copy.understanding });
+      form.method = 'post'; form.action = action; form.target = '_blank'; form.rel = 'noopener';
+      form.acceptCharset = 'UTF-8'; form.hidden = true;
+      const field = document.createElement('input'); field.type = 'hidden'; field.name = 'payload'; field.value = JSON.stringify(payload);
+      form.append(field); document.body.append(form); form.submit();
+    } catch { this.#status(this.#copy.controlFailed); }
+    finally { form.remove(); }
+  }
   #creditsChanged({ allowanceChanged = false, settledCall } = {}) {
     if (!this.#host) return;
     if (settledCall) this.#rail?.settleLedger(settledCall);
@@ -747,6 +769,9 @@ export class AithemaSession extends HTMLElement {
   // Mode-dependent controls; a choice made at conversation start can switch the mode in place.
   #renderMode() {
     const exported = this.shadowRoot.querySelector('.export'), device = this.#session.processingPreset === 'device';
+    const create = this.shadowRoot.querySelector('.create-project');
+    // Keep the footer's space while removing the device handoff from sight and interaction.
+    if (create) { create.style.visibility = device ? 'hidden' : ''; create.inert = device; }
     if (device) { exported.removeAttribute('href'); exported.setAttribute('aria-disabled', 'true'); exported.title = this.#copy.deviceExportUnavailable; }
     else { exported.href = `${this.#base}/api/sessions/${this.#session.id}/export`; exported.removeAttribute('aria-disabled'); exported.title = ''; }
     if (this.#rail) { const client = this.#voiceClientFor(); if (!this.#rail.session && this.#rail.client !== client) { this.#rail.client = client; this.#renderVoice(); } }

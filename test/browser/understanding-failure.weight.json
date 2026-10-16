@@ -1,4 +1,4 @@
 {
-  "seconds": 60,
-  "evidence": "AIT-212/213 expanded matrix: mbp2606 7ca3832ca3-18003, 44.890s rounded up + 10s"
+  "seconds": 70,
+  "evidence": "AIT-242 expanded footer matrix with viewport evidence: mbp2606 08976fcf79-54592, 51.511s including payload boundary tests, rounded up + 10s"
 }

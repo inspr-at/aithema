@@ -290,6 +290,46 @@ version row and log once, leaving the session usable. Auto colors use the host b
 `host.version.display: "semver"` selects the full reduced coordinate in that same
 popup, with the same canonical-copy interaction. Legacy details remain plain.
 
+To enable **Projekt erstellen / Create project** beside the conversation download
+at the bottom right of the overview, pass both top-level component options:
+
+```js
+element.configure({ copy: en, session, sessionToken: token,
+  paimosImportUrl: 'https://pm.augmentoring.com/import/project-draft',
+  paimosImportVersion: 1 });
+```
+
+`paimosImportUrl` must be a full HTTP(S) URL without embedded credentials;
+`paimosImportVersion` must be the number `1`. Missing, invalid or unsupported
+configuration omits the action without reserving space. **START points at
+pm.augmentoring.com**; the destination belongs to the host and is never hard-wired
+in Aithema. The demo optionally reads `AITHEMA_PAIMOS_IMPORT_URL` and supplies
+version `1`; it is unset by default.
+
+Clicking submits a generated `<form method="post" target="_blank">` to that URL,
+with exactly one hidden field, `payload`, containing JSON. This is top-level
+navigation in a new tab, with no fetch/CORS exchange or Aithema credentials.
+The v1 payload contains `version: 1`, `source: { product: "aithema", host,
+session_id }` (the embedding page's host, including any port), `language`,
+`title`, `summary`, `facts`, `open_points` and `transcript: [{ role, text, at }]`.
+It uses the same current understanding and active, unerased/unwithdrawn turns
+as the conversation ZIP: summary is the current assessment, facts are the
+observed signals and open points are the open questions. The title uses the
+first summary line (up to 200 code points), falling back to the overview heading;
+turn timestamps retain their RFC3339 values. Artifacts and uploads are not part
+of this contract.
+
+Contract v1 (AEON-1441) limits the summary to **4,000 code points**, facts and open
+points to **50 items each**, each item to **500 code points**, and the transcript
+to **2,000 turns**. Overlong summary and item text ends with a counted `…`;
+later items beyond the cap are dropped. The serialized JSON is capped at
+**512 KiB in UTF-8**. Both transcript caps keep the newest whole turns, dropping
+the oldest first. A localized omitted-turn note stays complete inside the summary
+limit by shortening the summary body. Oversized metadata fails without submitting.
+Paimos stores a single-use draft for 30 minutes,
+then redirects to `/new-project?draft=<id>`; the person signs in normally to claim
+it (AEON-1441 / r136).
+
 The UI's optional `host.operator` configuration supplies `provider`,
 `url: '/api/operator/login/'`, `logoutUrl: '/api/operator/logout/'`, and the
 authenticated operator's `name`. Set `operator.adminUrl` only when the host
