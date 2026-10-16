@@ -722,6 +722,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
         const label = `${locale}/${theme}/${width}`;
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+        await settle(page);
         const selectors = ['.band', '.audio-rail', '.band-orb', '.header-actions', '.conversations-toggle', '.settings-open'];
         const before = await boxes(page, selectors);
         await page.click('aithema-session >>> .conversations-toggle');

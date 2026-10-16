@@ -1086,7 +1086,7 @@ export class AithemaSession extends HTMLElement {
       newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
       root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
       this.#paintAttach();
-      const out = root.querySelector('.composer-out'), usedUp = !this.#creditEnding && purposePause.hidden &&
+      const out = root.querySelector('.composer-out'), usedUp = !paused && !this.#creditEnding && purposePause.hidden &&
         (Boolean(this.#host?.usedUp) || !this.#hasLiveCall() && text.rawReason === 'budget denied');
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
