@@ -5,7 +5,7 @@ import { EventEmitter, once } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import { promisify } from 'node:util';
 import { createTextExtractor } from '../../../plugins/extract-text/src/index.js';
-import { activeExtractorProcessCount, queuedExtractorProcessCount } from '../src/extractor-process.js';
+import { activeExtractorProcessCount, queuedExtractorProcessCount, EXTRACTOR_EXEC_ARGV } from '../src/extractor-process.js';
 import { EXTRACTOR_LIMITS, normalizeExtractorLimits } from '../src/extractor.js';
 import { bytes } from '../../../test/extractor-fixtures.js';
 const workerURL = new URL('../../../test/fixtures/extractor-failure-child.js', import.meta.url);
@@ -27,6 +27,19 @@ function controlledChildren(t) {
   });
   return { children, spawned: () => waitFor(once(events, 'spawned').then(([child]) => child), 'controlled child spawn') };
 }
+
+test('production fork disables concurrent Sparkplug while retaining the heap cap and permissions', async t => {
+  const observed = controlledChildren(t), spawned = observed.spawned();
+  const result = createTextExtractor({ limits: { maxHeapMb: 16 } }).extract(bytes('Flags'));
+  const child = await spawned;
+  const { execArgv } = childProcess.fork.mock.calls[0].arguments[2];
+  // Assert the literal too: removing it from the shared constant must fail.
+  assert.ok(execArgv.includes('--no-concurrent-sparkplug'));
+  assert.ok(execArgv.includes('--max-old-space-size=16'));
+  assert.ok(execArgv.includes('--permission'));
+  child.emit('close', 0, null);
+  await waitFor(result, 'production flags child cleanup');
+});
 
 test('exit and result do not release a slot before close, and duplicate close cannot release the next slot', async t => {
   const observed = controlledChildren(t), plugin = createTextExtractor();
@@ -226,6 +239,7 @@ test('RSS limits default to 384 MiB and hosts can only lower them', () => {
 });
 for (const mode of ['crash', 'signal', 'heap']) {
   test(`child ${mode} without a result is unreadable limit and releases the slot`, async t => {
+    // Exercise the production flags with real 16 MiB abnormal exits and reaping.
     const observed = observeParsers(t);
     const warnings = t.mock.method(console, 'warn', () => {});
     // This checks crash classification/reaping, not deadline speed. Freeze both
@@ -237,11 +251,15 @@ for (const mode of ['crash', 'signal', 'heap']) {
     assert.equal(result.status, 'unreadable'); assert.equal(result.reason, 'limit');
     const { code, signal } = await waitFor(observed.children[0].closed, `${mode} close event`);
     assert.ok(code !== 0 || signal);
+    assert.equal(await observed.children[0].started, true, 'fixture reached the requested failure mode');
+    if (mode === 'crash') assert.equal(code, 1);
+    if (mode === 'signal') assert.equal(signal, 'SIGTERM');
     if (mode === 'heap') assert.ok(signal === 'SIGABRT' || code === 134, 'actual V8 heap OOM');
     assert.deepEqual(warnings.mock.calls.map(call => call.arguments), [
       ['Extractor child exited without a result; treating as limit', { code, signal }],
     ]);
     assert.equal(activeExtractorProcessCount(), 0);
+    assert.equal(queuedExtractorProcessCount(), 0);
     assert.equal((await waitFor(createTextExtractor().extract(bytes('Next request')), 'request after crashed child')).text, 'Next request');
     assert.equal(warnings.mock.callCount(), 1, 'normal result cleanup does not log a crash');
   });
@@ -271,7 +289,7 @@ test('spawn error with no pid settles without close and releases the global slot
   }
 });
 test('async child exits when its parent IPC disconnects', async t => {
-  const child = childProcess.fork(workerURL, [], { env: { NODE_NO_WARNINGS: '1' }, execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  const child = childProcess.fork(workerURL, [], { env: { NODE_NO_WARNINGS: '1' }, execArgv: [...EXTRACTOR_EXEC_ARGV], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
   const started = once(child, 'message'), exited = once(child, 'exit');
   t.after(async () => {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
