@@ -564,7 +564,7 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     shell.scrollTop = shell.scrollHeight;
     const latest = shell.querySelector('.turn:last-child');
-    if (latest) {
+    if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       if (latest.getBoundingClientRect().top < top) shell.scrollTop += latest.getBoundingClientRect().top - top;
     }

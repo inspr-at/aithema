@@ -44,7 +44,9 @@ export const questionCardStyles = `
 .qopts[data-more-start] { --qfade-start:24px; }
 .qopts[data-more-end] { --qfade-end:24px; }
 .workspace[data-stage="live"] .conversation { row-gap:.5rem; }
-.conversation:has(.qcard:not([hidden])) .transcript-shell { padding-bottom:0; }
+.conversation:has(.qcard:not([hidden])) .transcript-shell { display:flex; flex-direction:column; padding-bottom:0; }
+.conversation:has(.qcard:not([hidden])) .transcript-shell > ol { flex:none; margin-top:auto; }
+.conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { flex:none; }
 .conversation:has(.qcard:not([hidden])) .transcript-shell > .voice-notices { margin-top:0; }
 /* Latest is a floating action, never an invisible row below the last turn. */
 .transcript-shell .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
@@ -120,7 +122,10 @@ export class QuestionCard {
     this.view = root.ownerDocument.defaultView;
     this.scheduleReserve = () => {
       if (this.frame != null) return;
-      this.frame = this.view.requestAnimationFrame(() => { this.frame = null; this.reserve(); });
+      this.frame = this.view.requestAnimationFrame(() => {
+        this.frame = null; this.reserve();
+        if (this.followsTranscript()) this.onResize?.({ following: true });
+      });
     };
     this.viewportResize = () => {
       if ((this.view.visualViewport?.scale ?? 1) !== 1) return;
@@ -137,6 +142,8 @@ export class QuestionCard {
       this.observer ??= new Resize(this.scheduleReserve);
       this.observer.observe(this.card); this.observer.observe(this.card.querySelector('.qopts'));
       this.observer.observe(this.root.querySelector('.transcript-shell'));
+      const list = this.root.querySelector('.transcript-shell ol');
+      if (list) this.observer.observe(list);
     }
     this.view?.addEventListener('resize', this.viewportResize);
     this.view?.visualViewport?.addEventListener('resize', this.viewportResize);

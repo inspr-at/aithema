@@ -425,7 +425,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 const band = r.querySelector('.band').getBoundingClientRect();
                 return { layoutHeight: innerHeight, viewport: visualViewport.height, compact: r.querySelector('.qcard').hasAttribute('data-compact'),
                   rowHeight: row.height, rowTop: row.top, rowBottom: row.bottom, optionsTop: opts.top, optionsBottom: opts.bottom,
-                  cardTop: card.top, bubbleBottom: bubble.bottom, shellTop: shell.getBoundingClientRect().top, shellBottom: shell.getBoundingClientRect().bottom,
+                  cardTop: card.top, bubbleTop: bubble.top, bubbleHeight: bubble.height, bubbleBottom: Math.min(bubble.bottom, shell.getBoundingClientRect().bottom), shellTop: shell.getBoundingClientRect().top, shellBottom: shell.getBoundingClientRect().bottom,
                   composerBottom: composer.bottom, bandBottom: band.bottom };
               });
               assert.equal(keyboard.layoutHeight, 844, 'only the visual viewport shrinks');
@@ -436,6 +436,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 `390×${height}: the answer is on screen below the band: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.bubbleBottom <= keyboard.cardTop && keyboard.shellBottom <= keyboard.cardTop,
                 `390×${height}: the latest reply ends above the card: ${JSON.stringify(keyboard)}`);
+              if (keyboard.bubbleHeight > keyboard.shellBottom - keyboard.shellTop) assert.ok(keyboard.bubbleTop >= keyboard.shellTop - 1, 'an oversized latest reply shows its start at the top of the compact pane');
               assert.ok(keyboard.bubbleBottom >= keyboard.shellTop + 20, `390×${height}: the latest reply remains visible: ${JSON.stringify(keyboard)}`);
               assert.ok(keyboard.composerBottom <= height && height - keyboard.composerBottom <= 14, 'the composer stays docked to the visible viewport');
               const chips = await shadow(page, c => {
