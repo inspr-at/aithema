@@ -1195,9 +1195,16 @@ export class AithemaSession extends HTMLElement {
     let replyNotice = root.querySelector('.reaction-failure');
     if (!replyNotice) {
       replyNotice = node('p', 'reaction-failure'); replyNotice.setAttribute('role', 'status');
+      replyNotice.append(node('span', 'reaction-failure-text'));
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
-    replyNotice.hidden = !replyFailed; setText(replyNotice, replyFailed ? copy.reasoningFailed : '');
+    const replyRetry = replyFailed && overviewFailed;
+    replyNotice.hidden = !replyFailed;
+    setText(replyNotice.querySelector('.reaction-failure-text'), replyFailed ? `${copy.reasoningFailed}${replyRetry ? ' · ' : ''}` : '');
+    // Several failed lanes share one action at the first failure in reading
+    // order. Keep its handler and node; the footer row is free for the host action.
+    const retry = root.querySelector('.retry'), retrySlot = replyRetry ? replyNotice : root.querySelector('.understanding > .foot');
+    if (retry.parentNode !== retrySlot) retrySlot.append(retry);
     const failedOverview = hasPersonTurn && !consentMissing && !preparing &&
       (this.#failure && (overviewFailed || this.#failureLane === 'understanding') || stuck) &&
       !locked && !reconciling && !this.#host?.usedUp;
