@@ -44,3 +44,8 @@ for (const bundle of [de, en]) test(`AIT-231 ${bundle.display.locale}: demo cons
     consequence: bundle.host.consentPage.mockConsequence, terms: bundle.host.consentPage.mockTerms });
   assert.doesNotMatch(defaults, /twelve|zwölf|Monat|month|year|Jahr|browser|stored|gespeichert|persist|Speicher|until|bis|memory|restart|Arbeitsspeicher|Serverneustart|local demo|lokalen Demo|simulated voice|Test-Sprache/iu);
 });
+
+test('AIT-228: mock consent intro uses Tick-approved EN wording and its existing DE mirror', () => {
+  assert.equal(withDemoConsentCopy(en).host.consentPage.intro, "Choose which processing you allow for this conversation. Items you don't select are not allowed.");
+  assert.equal(withDemoConsentCopy(de).host.consentPage.intro, 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.');
+});

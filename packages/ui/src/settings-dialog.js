@@ -1,4 +1,4 @@
-import { featureConsentText } from './consent-line.js';
+import { featureConsentText, reasonSeparator } from './consent-line.js';
 import { ConsentSettings } from './consent-settings.js';
 // START AiSettings.astro, ai-settings.ts and settings-controls.ts behaviour, ported
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
@@ -585,7 +585,7 @@ export class SettingsDialog {
     const detail = fill(g.details[kind]?.[gauge.state] ?? '', details);
     node.querySelector('.gauge__value').textContent = value;
     node.querySelector('.gauge__detail').textContent = fill(g.short?.[kind]?.[gauge.state] ?? detail, details);
-    node.dataset.help = 'gauge'; node.dataset.helpText = `${g.labels[kind]} · ${value}${detail ? `: ${detail}` : ''}`;
+    node.dataset.help = 'gauge'; node.dataset.helpText = `${g.labels[kind]}${reasonSeparator}${value}${detail ? `: ${detail}` : ''}`;
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
     const key = String(gauge.fill), changed = level.dataset.fill !== undefined && level.dataset.fill !== key;

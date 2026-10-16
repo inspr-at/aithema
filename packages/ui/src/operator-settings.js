@@ -1,3 +1,4 @@
+import { reasonSeparator } from './consent-line.js';
 // The final General section: native navigation and a same-origin POST form.
 // Auth state comes from the host, never from visitor identity or a local role.
 function adminHref(value) {
@@ -19,7 +20,7 @@ export class OperatorSettings {
       <a class="operator-view operator-login" href="/api/operator/login/">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M14 4h6v16h-6M3 12h12m-4-4 4 4-4 4"/></svg><span></span></a>
       <form class="operator-view operator-signed-in" method="post" action="/api/operator/logout/">
-        <span class="operator-name"></span><span class="operator-separator" aria-hidden="true"> · </span><button type="submit" class="operator-logout"></button></form>
+        <span class="operator-name"></span><span class="operator-separator" aria-hidden="true">${reasonSeparator}</span><button type="submit" class="operator-logout"></button></form>
       </div><div class="operator-notice"><p class="m-notice operator-error" role="status" aria-live="polite"></p>
         <p class="m-notice operator-error-measure" aria-hidden="true"></p></div>`;
     this.element = section; this.paint(); parent.append(section);
@@ -42,7 +43,7 @@ export class OperatorSettings {
       if (!admin) {
         admin = s.ownerDocument.createElement('a'); admin.className = 'operator-admin';
         const separator = s.ownerDocument.createElement('span'); separator.className = 'operator-separator operator-admin-separator';
-        separator.setAttribute('aria-hidden', 'true'); separator.textContent = ' · ';
+        separator.setAttribute('aria-hidden', 'true'); separator.textContent = reasonSeparator;
         s.querySelector('.operator-name').after(separator, admin);
       }
       admin.setAttribute('href', href); admin.textContent = c.operatorAdmin;

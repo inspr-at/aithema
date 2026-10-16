@@ -56,7 +56,7 @@ test('viewer opens cached bytes without spending and has accessible title, count
 });
 test('thumbs and guidance toggles persist on their artifact; regenerate shows cost and records explicit intent', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();
-  assert.match(root.querySelector('.concept-regenerate').textContent, /~1 credits/);
+  assert.match(root.querySelector('.concept-regenerate').textContent, /< 1 credit/);
   root.querySelector('.concept-up').click(); await tick(); assert.equal(c.session.concepts[0].feedback.vote, 'up');
   assert.equal(root.querySelector('.concept-up').getAttribute('aria-pressed'), 'true');
   const toggle = root.querySelector('.concept-guidance-options button'); assert.equal(toggle.getAttribute('aria-pressed'), 'false');

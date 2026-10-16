@@ -1,3 +1,4 @@
+import { reasonSeparator } from './consent-line.js';
 import { renderVersion, disposeVersion, parts, utcLabel } from './versioning/version.js';
 import { attachVersionInteraction, confirmation } from './versioning/version-interaction.js';
 import config from './versioning/display.json' with { type: 'json' };
@@ -10,7 +11,7 @@ const popupConfig = { ...config, weights: { ...config.weights, hh: 1, mi: 1 }, p
   separators: { ...Object.fromEntries(Object.entries(config.pretty.separators).map(([key, value]) => [key, { ...value, color: palette.dark.ink }])),
   yy: { ...config.pretty.separators.yy, text: '.', color: palette.dark.ink },
   mm: { ...config.pretty.separators.mm, text: '.', color: palette.dark.ink },
-  dd: { ...config.pretty.separators.dd, text: ' · ', paddingLeft: 0, color: palette.dark.ink },
+  dd: { ...config.pretty.separators.dd, text: reasonSeparator, paddingLeft: 0, color: palette.dark.ink },
 } } };
 function warnOnce(reason) {
   if (warned.has(reason)) return;
@@ -26,7 +27,7 @@ export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
     const label = document.createElement('span'); label.className = 'build-label';
     const date = version.date && new Date(version.date);
     const utc = date && Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 19).replace('T', ' ') + ' UTC' : null;
-    label.textContent = 'Build ' + [version.commit?.slice(0, 7), utc].filter(Boolean).join(' · ');
+    label.textContent = 'Build ' + [version.commit?.slice(0, 7), utc].filter(Boolean).join(reasonSeparator);
     element.append(label);
   };
   if (!version.version) { build(); return; }
@@ -43,7 +44,7 @@ export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
   renderVersion(coordinate, version.version, version.version_scheme, {
     config: popupConfig, mode: version.display === 'semver' ? 'reduced' : 'pretty', brand, interactive: false,
   });
-  element.title = [version.version, parsed && utcLabel(parsed)].filter(Boolean).join(' · ');
+  element.title = [version.version, parsed && utcLabel(parsed)].filter(Boolean).join(reasonSeparator);
   coordinate.setAttribute('aria-label', element.title); coordinate.title = element.title;
   value.append(label, coordinate); row.append(value); element.append(row); build();
   // The shared controller retains canonical clipboard/fallback and keyboard/touch behavior.

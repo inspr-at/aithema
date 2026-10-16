@@ -250,7 +250,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         assert.equal(await page.evaluate(() => globalThis.qcardRequests[1].content), geometry.texts[0]);
         await page.evaluate(() => globalThis.showQuestion());
         await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await nextFrame(page); await shot('fold');
-        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.fold-question').textContent), locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.fold-question').textContent), locale === 'de' ? 'Offene Frage\u00a0· Ausklappen' : 'Open question\u00a0· Unfold');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.fold-question').hidden), false);
         await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click()); await nextFrame(page);
         still(baseline, await boxes(page), 'unfold');
@@ -659,7 +659,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
       assert.equal(checks.length, 20, 'every matrix scene must complete before writing evidence');
       assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
-      await writeFile(join(evidence, 'index.md'), `# AIT-225 round 5 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json) · metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
+      await writeFile(join(evidence, 'index.md'), `# AIT-225 round 5 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json)\u00a0· metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
       await writeFile(join(evidence, 'ait-225-evidence.json'), JSON.stringify({ ticket: 'AIT-225', commit, files, checks, keyboardChecks, stabilityChecks, accessibilityChecks }, null, 2));
       await writeFile(join(evidence, 'ait-225-pass-lines.json'), JSON.stringify({ ticket: 'AIT-225', commit,
         accessibilityPassLines: accessibilityChecks,
@@ -669,7 +669,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           latestReplyClearancePx: cardTop - bubbleBottom, transcriptClearancePx: cardTop - shellBottom })),
         passLines: checks.map(({ locale, theme, width, controlShiftPx, bounded, cardRest, boundedRest }) => ({ locale, theme, width, pass: true,
           states: ['card-with-likely-and-others', 'hover', 'keyboard-focus', 'fold', 'question-without-options-no-card'],
-          foldStrip: locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold',
+          foldStrip: locale === 'de' ? 'Offene Frage\u00a0· Ausklappen' : 'Open question\u00a0· Unfold',
           composerControlShiftPx: controlShiftPx, cardAndComposerShiftPx: 0, dockGapPx: 0, pendingAnswerOptionShiftPx: 0,
           readingAnchorShiftPx: 0, readingAnchorReleaseShiftPx: 0, cardRest, boundedRest, releaseShiftPx: 0, cardVh: 100 * bounded.height / bounded.viewport,
           latestReplyClearancePx: bounded.top - bounded.bubbleBottom, transcriptClearancePx: bounded.top - bounded.shellBottom })) }, null, 2));

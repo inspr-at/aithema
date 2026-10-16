@@ -79,8 +79,8 @@ for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-215 ${locale}
   const h = await opened(fixture(t, { copy }));
   const row = h.q('.preset-option[data-preset="custom"]');
   const expected = locale === 'de'
-    ? 'Nachrichten brauchen Ihre Einwilligung · Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.'
-    : 'Messages need your consent · You can choose this option. It processes nothing until the host has your consent for it.';
+    ? 'Nachrichten brauchen Ihre Einwilligung\u00a0· Sie können diese Option wählen. Sie verarbeitet nichts, bis der Host Ihre Einwilligung dafür hat.'
+    : 'Messages need your consent\u00a0· You can choose this option. It processes nothing until the host has your consent for it.';
   row.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
   assert.equal(h.q('.context-message').textContent, expected, 'hover');
   row.dispatchEvent(new window.Event('pointerout', { bubbles: true }));
@@ -91,12 +91,12 @@ for (const [locale, copy] of Object.entries({ de, en })) test(`AIT-215 ${locale}
 
 const guestIdentity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true, pollVerification: false };
 const emailHelp = {
-  de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
-  en: 'General · Start a new conversation, review consent and your defaults, and confirm your email address.',
+  de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+  en: 'General\u00a0· Start a new conversation, review consent and your defaults, and confirm your email address.',
 };
 const generalHelp = {
-  de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
-  en: 'General · Start a new conversation, review consent and your defaults.',
+  de: 'Allgemein\u00a0· Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
+  en: 'General\u00a0· Start a new conversation, review consent and your defaults.',
 };
 for (const [locale, copy] of Object.entries({ de, en })) for (const state of ['off', 'guest', 'verification-pending', 'verified']) {
   test(`AIT-147 footer: ${locale}, verification ${state}`, async t => {
@@ -232,7 +232,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   assert.equal(declared.getAttribute('aria-disabled'), 'true'); assert.equal(declared.querySelector('.option-status').textContent, en.settings.unavailable);
   declared.click(); await tick();
   assert.equal(h.posts.length, 0, 'an unavailable option is never sent');
-  assert.equal(h.q('.context-message').textContent, `Unavailable · ${en.reasons['not configured']}`);
+  assert.equal(h.q('.context-message').textContent, `Unavailable\u00a0· ${en.reasons['not configured']}`);
   button.click(); h.option('model', 'Demo only: thorough replies').click(); await tick();
   assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0, confirm: true }]);
   assert.match(h.root.querySelector('.engine__detail').textContent, /Replies: Demo only: sample replies/, 'the panel still shows the acknowledged choice');
@@ -336,7 +336,7 @@ test('gauges are computed from the catalog facts of the draft and explain themse
   assert.equal(value('voice'), 'Off');
   const quality = h.q('[data-gauge="quality"]');
   quality.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
-  assert.equal(h.q('.context-message').textContent, 'AI quality · Unverified: The plugin manifest marks this model unverified');
+  assert.equal(h.q('.context-message').textContent, 'AI quality\u00a0· Unverified: The plugin manifest marks this model unverified');
   assert.match(quality.getAttribute('aria-label'), /^AI quality: Unverified, /);
 });
 
@@ -452,7 +452,7 @@ test('AIT-237: Settings Done explicitly confirms unchanged defaults', async t =>
 for (const copy of [de, en]) test(`AIT-237 ${copy.display.locale}: drafts off action opens Settings at visuals without saving`, async t => {
   const h = fixture(t, { copy });
   const line = h.root.querySelector('.concept-activity-text');
-  assert.equal(line.textContent.replaceAll('\u00a0', ' '), `${copy.display.draftsDisabled} · ${copy.display.draftsEnable}`);
+  assert.equal(line.textContent.replaceAll('\u00a0', ' '), `${copy.display.draftsDisabled}\u00a0· ${copy.display.draftsEnable}`);
   const action = line.querySelector('.consent-action'); action.click(); await tick();
   assert.equal(h.dialog.open, true);
   assert.equal(h.q('[data-tab="model"]').getAttribute('aria-selected'), 'true');
