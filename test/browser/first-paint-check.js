@@ -9,7 +9,8 @@ export async function firstPaintCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-first-paint-'));
   const demo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'sessions.sqlite'));
   const browser = await browserForFile();
-  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  let textDemo;
+  t.after(async () => { await browser.close(); await demo.kill(); await textDemo?.kill(); await rm(directory, { recursive: true, force: true }); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, results = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   let failureMode = null;
@@ -105,6 +106,24 @@ export async function firstPaintCheck(t) {
     await settle();
     assert.deepEqual(await page.evaluate(() => window.paintGeometry()), loaded.boxes, `${name}: reattachment never restores the loading shell`);
     console.log(`AIT-210 ${name}: header, rail and controls 0 px; no unstyled title; reattachment stable`);
+  }
+  // AIT-260: a voice-off host must not paint voice placeholders or shrink a
+  // phone header on upgrade. Reuse this page/browser for the binding check.
+  textDemo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'text-sessions.sqlite'), { AITHEMA_VOICE_MODE: 'off' });
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(`${textDemo.url}?theme=light&locale=de`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.paintFrames?.length >= 2);
+    const initial = await page.evaluate(() => window.paintGeometry());
+    assert.equal(initial[0][3], width < 600 ? 68 : 90);
+    assert.ok(initial.slice(1).every(box => box === null), 'no voice placeholders before upgrade');
+    await page.evaluate(() => { void window.releaseAithema(); });
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
+    await settle();
+    const loaded = await page.evaluate(() => { cancelAnimationFrame(window.paintRequest); return { boxes: window.paintGeometry(), frames: window.paintFrames }; });
+    assert.deepEqual(loaded.boxes, initial, `${width}/voice-off: first paint → mounted moves 0 px`);
+    for (const frame of loaded.frames) assert.deepEqual(frame, initial, `${width}/voice-off: every startup frame moves 0 px`);
+    console.log(`AIT-260 ${width}/voice-off: no placeholders; header upgrade 0 px`);
   }
   // Reuse this page and browser; failures add no browser process or test file.
   for (const failure of ['mount', 'undefined']) for (const locale of ['de', 'en']) {

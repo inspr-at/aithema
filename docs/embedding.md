@@ -414,6 +414,10 @@ A catalog voice option without its browser client also mounts no voice chrome;
 Settings continues to describe the server catalog. The demo maps an unbound
 ElevenLabs runtime to `voiceMode: off`, so a setup `voiceDisabledReason` cannot
 accidentally mount its browser adapter.
+Hosts using the exported loading header can call
+`firstPaintMarkupFor({ voice: false })` before serving an unbound host; the original
+`firstPaintMarkup` export remains the bound-voice default. This keeps the phone
+loading header at 68 px without painting voice placeholders.
 The desktop header stays 90 px high through voice and conversation states;
 the phone frame follows the approved voice-specific rows.
 

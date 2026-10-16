@@ -45,7 +45,12 @@ export const firstPaintStyles = `${headerGeometry('.aithema-first-paint')}
 `;
 
 // Decorative, static boxes: no duplicate buttons, focus targets or live text.
-export const firstPaintMarkup = `<div class="aithema-first-paint" aria-hidden="true" inert>
-  <div class="band-identity"><div class="band-orb"></div><span class="wordmark">Aithema</span></div><div class="audio-rail"><span data-placeholder="output"></span><span></span><span data-placeholder="pause"></span><span data-placeholder="input"></span><span data-placeholder="close"></span></div>
+// Hosts know their binding before serving HTML; omit voice placeholders as well
+// as the mounted rail when it is off. Keep the original export for bound hosts.
+export function firstPaintMarkupFor({ voice = true } = {}) {
+  return `<div class="aithema-first-paint" aria-hidden="true" inert>
+  <div class="band-identity"><div class="band-orb"></div><span class="wordmark">Aithema</span></div>${voice ? '<div class="audio-rail"><span data-placeholder="output"></span><span></span><span data-placeholder="pause"></span><span data-placeholder="input"></span><span data-placeholder="close"></span></div>' : ''}
   <div class="header-actions"><span></span><span></span></div>
 </div>`;
+}
+export const firstPaintMarkup = firstPaintMarkupFor();

@@ -1,4 +1,4 @@
-import { firstPaintMarkup, firstPaintStyles } from '@inspr/aithema-ui/first-paint';
+import { firstPaintMarkupFor, firstPaintStyles } from '@inspr/aithema-ui/first-paint';
 import { start2PurposePolicy } from './safeguards.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
 import { createOperatorSessions, createSQLiteOperatorStore } from '@inspr/aithema-server';
@@ -235,7 +235,7 @@ async function handle(request, context) {
   try {
     const source = await readFile(file);
     const bytes = path === '/demo/host.css' ? source.toString() + firstPaintStyles
-      : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkup) : source;
+      : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkupFor({ voice: voiceMode === 'fake' || Boolean(readVoiceState().binding) })) : source;
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
       'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
