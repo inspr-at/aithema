@@ -13,7 +13,7 @@
         "observedAt": "2026-10-16T13:57:42.008Z",
         "tests": [
           {
-            "name": "AIT-131 integrated geometry: B1\u2013B8, r2 menu and r3 status, both themes and languages",
+            "name": "AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages",
             "seconds": 37.162466794
           }
         ]
@@ -25,7 +25,7 @@
         "observedAt": "2026-10-16T14:09:36.430Z",
         "tests": [
           {
-            "name": "AIT-131 integrated geometry: B1\u2013B8, r2 menu and r3 status, both themes and languages",
+            "name": "AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages",
             "seconds": 47.256411357
           }
         ]

@@ -174,7 +174,7 @@ if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') 
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
-else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema') {
+else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && JSON.stringify(args.filter((arg, i) => args[i - 1] === '--name')) === JSON.stringify(artifacts.map(a => a.name))) {
   const dir = args[args.indexOf('--dir') + 1]; mkdirSync(dir, { recursive: true });
   writeFileSync(dir + '/batch.jsonl', ${JSON.stringify(changes.payload ?? payload)});
 } else throw new Error('Unexpected gh command: ' + JSON.stringify(args));

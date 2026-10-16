@@ -13,7 +13,7 @@
         "observedAt": "2026-10-16T13:57:42.008Z",
         "tests": [
           {
-            "name": "AIT-164: footer width sweep 600\u20131100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
             "seconds": 9.093761234
           }
         ]
@@ -25,7 +25,7 @@
         "observedAt": "2026-10-16T14:09:37.823Z",
         "tests": [
           {
-            "name": "AIT-164: footer width sweep 600\u20131100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
             "seconds": 9.702587831999999
           }
         ]

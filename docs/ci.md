@@ -227,3 +227,8 @@ After the margin, `npm run test:browser-shards` reports **2265.000s** total,
 with bins `378.124 / 375.219 / 376.201 / 377.131 / 380.676 / 377.649` seconds.
 The largest bin is **380.676s**, leaving **39.324s** under the unchanged 420s
 ceiling. The six shards and all check names remain unchanged.
+
+The remote targeted timing, shard and server upload suite passed **78/78** on
+mbp2606. Coverage includes canonical push selection, explicit PR/fork rejection,
+main ancestry, artifact/header mismatches, atomic rejection, local-import
+rejection, 1/4/5+ sample margins, workload reset and the extraction overlap.

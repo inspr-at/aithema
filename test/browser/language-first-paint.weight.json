@@ -13,7 +13,7 @@
         "observedAt": "2026-10-16T13:57:43.317Z",
         "tests": [
           {
-            "name": "AIT-206: fresh en-US \u2192 DE, fresh de-AT \u2192 DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
+            "name": "AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
             "seconds": 109.562887208
           }
         ]
@@ -25,7 +25,7 @@
         "observedAt": "2026-10-16T14:09:57.305Z",
         "tests": [
           {
-            "name": "AIT-206: fresh en-US \u2192 DE, fresh de-AT \u2192 DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
+            "name": "AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
             "seconds": 105.514987789
           }
         ]

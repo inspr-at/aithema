@@ -41,7 +41,8 @@ try {
     if (artifacts.length !== 6 || new Set(artifacts.map(artifact => artifact.name)).size !== 6) throw new Error(`CI ${runId}: incomplete six-shard timing artifacts`);
     for (const artifact of artifacts) assertTimingArtifactRun(artifact, run);
     const directory = join(temporary, runId);
-    gh('run', 'download', runId, '--repo', timingRepository, '--pattern', 'browser-timings-*-of-6', '--dir', directory);
+    gh('run', 'download', runId, '--repo', timingRepository,
+      ...artifacts.flatMap(artifact => ['--name', artifact.name]), '--dir', directory);
     readDirectory(directory, run);
   }
   if (!observations.size) throw new Error('No complete CI timing observations found');
