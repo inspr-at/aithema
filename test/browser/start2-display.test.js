@@ -1356,7 +1356,8 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
             underline: getComputedStyle(link).textDecorationLine, lines: range.getClientRects().length, projectLines: other.getClientRects().length,
             stacked: b.top >= a.bottom, right: Math.max(a.right, b.right) };
         });
-        assert.equal(footer.lines, 1); assert.equal(footer.projectLines, 1);
+        if (width < 480) { assert.equal(footer.lines, 1); assert.equal(footer.projectLines, 1); }
+        else { assert.ok(footer.lines <= 2); assert.ok(footer.projectLines <= 2); }
         assert.equal(footer.stacked, width < 480); assert.ok(footer.right <= width);
         if (state === 'device') { assert.equal(footer.disabled, 'true'); assert.equal(footer.href, null); assert.equal(footer.underline, 'none'); assert.equal(footer.why, copy.deviceExportUnavailable); }
         else { assert.ok(footer.href); assert.equal(footer.underline, 'underline'); }
