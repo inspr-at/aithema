@@ -17,7 +17,7 @@ import { connect as connectBrowser } from 'puppeteer-core';
 import { readBrowserEvidence, combineOutputEvidence } from '../../plugins/composed-voice/ops/qualification-output-probe.mjs';
 
 test('AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes', { timeout: 90_000 }, async () => {
-  for (const flag of ['--disable-audio-output', '-disable-audio-output', 'unavailable', 'clean']) {
+  for (const flag of ['--disable-audio-output', '-disable-audio-output', 'unavailable', 'clean', 'connected-clean']) {
     const browser = await puppeteer.launch({ headless: true,
       ignoreDefaultArgs: ['--mute-audio', ...(flag === 'unavailable' ? ['--enable-automation'] : [])],
       args: [...(flag.startsWith('-') ? [flag] : []), ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])] });
@@ -26,13 +26,23 @@ test('AIT-160 actual Chrome command line: connected output switches and unavaila
       if (flag !== 'clean') connected = await connectBrowser({ browserWSEndpoint: browser.wsEndpoint() });
       if (connected) assert.equal(connected.process(), null);
       const evidence = await readBrowserEvidence(connected ?? browser);
-      assert.equal(evidence.browserUser.verified, true);
-      assert.equal(evidence.browserUser.uid, process.getuid());
-      assert.equal(evidence.browserUser.pidSource, connected ? 'CDP SystemInfo.getProcessInfo' : 'browser.process().pid');
+      assert.equal(evidence.browserUser.verified, flag !== 'unavailable');
+      assert.equal(evidence.browserUser.pidSource, 'CDP SystemInfo.getProcessInfo');
+      assert.equal(evidence.browserUser.pid, browser.process().pid);
+      if (flag !== 'unavailable') {
+        assert.equal(evidence.browserUser.uid, process.getuid());
+        assert.equal(evidence.browserUser.executable, evidence.commandLine.arguments[0]);
+      }
       assert.equal(evidence.commandLine.verified, flag !== 'unavailable');
       const output = combineOutputEvidence({ renderingVerified: true, outputLatency: 0.016 }, { verified: true, uid: process.getuid() }, evidence);
-      assert.equal(output.verified, flag === 'clean');
+      assert.equal(output.verified, ['clean', 'connected-clean'].includes(flag));
       assert.deepEqual(output.refusedOutputFlags, flag.startsWith('-') ? [flag] : []);
+      if (flag === 'clean') {
+        const mismatched = await readBrowserEvidence({ target: () => browser.target(),
+          process: () => ({ pid: browser.process().pid + 1 }) });
+        assert.equal(mismatched.browserUser.verified, false, 'Real CDP PID must match local launcher PID');
+        assert.equal(combineOutputEvidence({ renderingVerified: true }, { verified: true, uid: process.getuid() }, mismatched).verified, false);
+      }
     } finally { await connected?.disconnect(); await browser.close(); }
   }
 });

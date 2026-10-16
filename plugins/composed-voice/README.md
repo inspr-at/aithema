@@ -465,10 +465,14 @@ independent watchdog which kills the group at the deadline or when the CLI PID
 vanishes, including SIGKILL/SSH loss. The default launcher registers this before
 CDP setup. A same-user connected Browser's `process()` may be null; OPS retains
 its original Chrome group ID for supervision. The output gate obtains that
-Browser's PID from CDP `SystemInfo.getProcessInfo` and reads its UID with local
-`ps`; for a local launch it uses `browser.process().pid`. The UID must equal the
+Browser's PID **always** from CDP `SystemInfo.getProcessInfo`. If a local launcher
+process exists, its `browser.process().pid` must equal that CDP PID. The process
+must exist on this host and its full executable path from `ps -ww -o comm=`
+(Linux: `/proc/<pid>/exe`) must exactly match CDP `Browser.getBrowserCommandLine`
+`arguments[0]`. Only then does local `ps` read its UID, which must equal the
 probe's own UID (`process.getuid()`), or the sample is refused. Missing/ambiguous
-PIDs and unavailable UIDs also refuse. Runner SIGINT/SIGTERM,
+PIDs, executable mismatches and unknown process identity or UIDs also refuse.
+Runner SIGINT/SIGTERM,
 normal exit, host `close()` and sample cleanup also invoke the kill port. The
 per-sample wall-clock abort races launch/page/control/media waits; the independent
 watchdog is the final process-group deadline even if a port hangs.

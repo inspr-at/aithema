@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir, userInfo } from 'node:os';
+import { readlink } from 'node:fs/promises';
 
 // Output substitutions / alternate service launch paths are forbidden. Sources:
 // https://github.com/chromium/chromium/blob/main/media/base/media_switches.cc
@@ -42,12 +43,24 @@ export async function readProcessUid(pid) {
   return uid;
 }
 
+async function readProcessExecutable(pid) {
+  // Linux ps comm is only a basename; /proc supplies the full executable path.
+  if (process.platform === 'linux') return readlink(`/proc/${pid}/exe`);
+  if (process.platform !== 'darwin') throw new Error('Local executable unavailable');
+  const { stdout } = await promisify(execFile)('/bin/ps', ['-ww', '-o', 'comm=', '-p', String(pid)], {
+    timeout: 5000, maxBuffer: 16_384, env: { PATH: process.env.PATH },
+  });
+  return stdout.trim();
+}
+
 /** Read Chrome itself, never requested launch extras or a launcher's spawnargs.
  * Browser.getBrowserCommandLine requires --enable-automation; no fallback.
  * Connected launchers must target this host, under this process's OS user. */
 export async function readBrowserEvidence(browser, readUid = readProcessUid) {
   const commandLine = { verified: false, source: 'CDP Browser.getBrowserCommandLine' };
-  const browserUser = { verified: false, source: 'ps -o uid= -p <Chrome PID>', probeUid: process.getuid?.() };
+  const browserUser = { verified: false, source: 'ps -o uid= -p <Chrome PID>', probeUid: process.getuid?.(),
+    pidSource: 'CDP SystemInfo.getProcessInfo',
+    executableSource: process.platform === 'linux' ? '/proc/<Chrome PID>/exe' : 'ps -ww -o comm= -p <Chrome PID>' };
   let session;
   try {
     session = await browser.target().createCDPSession();
@@ -56,22 +69,27 @@ export async function readBrowserEvidence(browser, readUid = readProcessUid) {
     Object.assign(commandLine, { verified: true, arguments: args });
   } catch { commandLine.failure = 'Actual Chrome command line unavailable or refused'; }
   try {
-    let pid = browser.process?.()?.pid;
-    browserUser.pidSource = 'browser.process().pid';
-    if (pid === undefined) {
-      const { processInfo } = await session.send('SystemInfo.getProcessInfo');
-      const browsers = processInfo.filter(info => info.type === 'browser');
-      if (browsers.length !== 1) throw new Error('Unique browser PID required');
-      pid = browsers[0].id;
-      browserUser.pidSource = 'CDP SystemInfo.getProcessInfo';
-    }
+    const { processInfo } = await session.send('SystemInfo.getProcessInfo');
+    if (!Array.isArray(processInfo)) throw new Error('Browser processes unavailable');
+    const browsers = processInfo.filter(info => info.type === 'browser');
+    if (browsers.length !== 1) throw new Error('Unique browser PID required');
+    const pid = browsers[0].id;
     if (!Number.isSafeInteger(pid) || pid < 1) throw new Error('Chrome PID unavailable');
     browserUser.pid = pid;
+    const localProcess = browser.process?.();
+    if (localProcess != null) {
+      browserUser.localPid = localProcess.pid;
+      if (localProcess.pid !== pid) throw new Error('Local launcher PID differs from CDP');
+    }
+    if (!commandLine.verified) throw new Error('Chrome command line required for process binding');
+    const executable = await readProcessExecutable(pid);
+    browserUser.executable = executable;
+    if (!isAbsolute(executable) || executable !== commandLine.arguments[0]) throw new Error('Local executable differs from CDP');
     const uid = await readUid(pid);
     browserUser.uid = uid;
     if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(browserUser.probeUid) || uid !== browserUser.probeUid) throw new Error('Chrome user mismatch');
     browserUser.verified = true;
-  } catch { browserUser.failure = 'Chrome must run locally as the probe user; UID unavailable or mismatched'; }
+  } catch { browserUser.failure = 'Chrome must match CDP PID and executable locally as the probe user; process identity or UID unavailable or mismatched'; }
   finally { await session?.detach().catch(() => {}); }
   return { commandLine, browserUser };
 }
