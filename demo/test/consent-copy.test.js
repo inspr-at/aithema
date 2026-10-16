@@ -42,5 +42,5 @@ for (const bundle of [de, en]) test(`AIT-231 ${bundle.display.locale}: demo cons
   const defaults = JSON.stringify({ intro: bundle.processingConsent.intro, withdrawal: bundle.processingConsent.withdrawal, title: bundle.host.consentTitle, use: bundle.host.consentUse,
     mockIntro: bundle.host.consentPage.intro, recipients: bundle.host.consentPage.mockRecipients,
     consequence: bundle.host.consentPage.mockConsequence, terms: bundle.host.consentPage.mockTerms });
-  assert.doesNotMatch(defaults, /twelve|zwölf|Monat|month|browser|stored|gespeichert|until|bis|memory|restart|Arbeitsspeicher|Serverneustart|local demo|lokalen Demo|fake voice|Test-Sprache/iu);
+  assert.doesNotMatch(defaults, /twelve|zwölf|Monat|month|year|Jahr|browser|stored|gespeichert|persist|Speicher|until|bis|memory|restart|Arbeitsspeicher|Serverneustart|local demo|lokalen Demo|fake voice|Test-Sprache/iu);
 });

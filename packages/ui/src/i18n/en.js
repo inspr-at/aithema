@@ -524,7 +524,7 @@ export const en = {
   featureConsent: { text: 'Messages need your consent', uploads: 'Files need your consent', images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
     action: 'Give consent…', save: 'Save consent', withdraw: 'Withdraw and end conversation' },
   processingConsent: {
-    intro: 'Choose which processing you allow. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
+    intro: 'Choose which processing you allow. Items with different recipients or purposes are listed separately. Items you don\'t select are not allowed.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',
     items: {
       'drafts-anthropic': {
