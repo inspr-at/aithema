@@ -201,7 +201,10 @@ export class AithemaSession extends HTMLElement {
     const previous = this.#copy, root = this.shadowRoot;
     this.#copy = copy; this.#options.copy = copy; this.#fold?.setCopy(copy); this.#paintMotion(); this.#paintNotice();
     for (const key of ['connecting', 'connected', 'reconnecting']) if (this.#connection === previous[key]) { this.#connection = copy[key]; break; }
-    this.#notice = ''; this.#uploadNotice = ''; this.#chooser.error = '';
+    this.#notice = ''; this.#chooser.error = '';
+    // Rebuild retained-file copy from the current refusal and count in the new locale.
+    this.#uploadNotice = this.#retryFiles.length && this.#retryRefused ? this.#attachRefusal() : '';
+    this.#retryRefused = Boolean(this.#uploadNotice);
     this.#anchored(() => {
       for (const n of root.querySelectorAll('[data-copy]')) setText(n, copy[n.dataset.copy]);
       const promise = root.querySelector('.promise');

@@ -1569,6 +1569,90 @@ for (const [width, locale, theme] of [[400, 'de', 'light'], [1440, 'de', 'light'
     t.diagnostic(`PASS ${width} ${locale.toUpperCase()} ${theme}: four real 11 MiB files accepted; exhaustion after failure 3; Try again sent the same 2 files (names/sizes/count), succeeded; 0 px movement; paused Try again shows its refusal with Discard; toast gap 8 px above dock and question card, no card/composer/button intersection; one DOM row per turn.`);
   });
 
+for (const [width, source, target, theme] of [[1440, 'de', 'en', 'light'], [390, 'en', 'de', 'dark']])
+  test(`AIT-219 round 7: ${width} ${source} to ${target} ${theme} keeps the complete retained-file line`,
+  { timeout: 120_000 }, async t => {
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-retry-locale-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    const paths = [join(directory, 'brief.txt'), join(directory, 'notes.txt')];
+    for (const path of paths) await writeFile(path, 'Retained locale-switch fixture.');
+    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+      env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(); await preparePage(page, source === 'de' ? ['de-DE', 'de'] : ['en-US', 'en']);
+    await page.setViewport({ width, height: 900 });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+    const problems = []; page.on('pageerror', error => problems.push(error.message));
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+    await mockConsent(page); await startTyping(page);
+    await page.evaluate(() => {
+      const original = window.fetch.bind(window); window.retryAttempts = [];
+      window.fetch = async (url, options = {}) => {
+        if (/\/uploads$/u.test(String(url)) && options.method === 'POST') {
+          window.retryAttempts.push(options.body.getAll('files').map(f => ({ name: f.name, size: f.size })));
+          return Response.json({ error: 'upload-rate-limit' }, { status: 429 });
+        }
+        return original(url, options);
+      };
+      const c = document.querySelector('aithema-session');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+    });
+    const settle = () => inShadow(page, async c => {
+      await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => {})));
+    });
+    const controls = ['.composer', 'textarea', '.attach', '.send'];
+    const geometry = () => Promise.all(controls.map(selector => box(page, selector)));
+    const line = () => inShadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
+    const records = [];
+    for (const count of [1, 2]) {
+      assert.equal(await inShadow(page, (c, locale) => c.changeLocale(locale), source), true);
+      const shortcut = await line();
+      await settle(); const baseline = await geometry();
+      const attempts = await page.evaluate(() => window.retryAttempts.length);
+      const chooser = await uploadChooser(page); await chooser.accept(paths.slice(0, count));
+      await waitForShadow(page, '.upload-retry');
+      assert.equal(await page.evaluate(() => window.retryAttempts.length) - attempts, 3, 'exhaust exactly three attempts');
+      const busy = locale => locale === 'de'
+        ? `${count} ${count === 1 ? 'Datei' : 'Dateien'} nicht hochgeladen: Der Server ist gerade ausgelastet · Erneut versuchen · Verwerfen`
+        : `${count} ${count === 1 ? 'file' : 'files'} not uploaded: the server is busy right now · Try again · Discard`;
+      assert.equal(await line(), busy(source));
+      // A refused retry must not leave a stale flag after resume and a locale change.
+      await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
+      await until(page, () => document.querySelector('aithema-session').session.paused);
+      await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry').click());
+      await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
+      await until(page, () => !document.querySelector('aithema-session').session.paused);
+      for (const locale of [target, source, target]) {
+        assert.equal(await inShadow(page, (c, locale) => c.changeLocale(locale), locale), true);
+        assert.equal(await line(), busy(locale));
+        await settle(); const after = await geometry();
+        controls.forEach((selector, i) => assert.deepEqual(after[i], baseline[i], `${count} file(s), ${locale}, ${selector}: 0 px movement`));
+      }
+      assert.equal(await page.evaluate(() => window.retryAttempts.length) - attempts, 3, 'locale changes never resend files');
+      const shot = `ait-219-r7-${width}-${source}-to-${target}-${theme}-${count}-file.png`;
+      if (process.env.AITHEMA_EVIDENCE_DIR) {
+        await inShadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle();
+        await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, shot), fullPage: false });
+      }
+      records.push({ count, line: await line(), baseline, after: await geometry(), shot });
+      await inShadow(page, c => c.shadowRoot.querySelector('.upload-discard').click());
+      assert.equal(await inShadow(page, (c, locale) => c.changeLocale(locale), source), true);
+      assert.equal(await line(), shortcut, 'discard leaves no retry fragment after a locale change');
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload-retry') === null && c.shadowRoot.querySelector('.upload-discard') === null), true);
+      t.diagnostic(`PASS ${width} ${source.toUpperCase()}→${target.toUpperCase()} ${theme}, ${count} file(s): exact full retry line; 0 px movement; three attempts, no resend; discard removes the line.`);
+    }
+    if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `ait-219-r7-${width}-${source}-to-${target}-${theme}-assertions.json`), JSON.stringify({ width, source, target, theme, records }, null, 2));
+    assert.deepEqual(problems, []);
+  });
+
 test('document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)',
   { timeout: 240_000 }, async t => {
     const executablePath = await browserPath(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
