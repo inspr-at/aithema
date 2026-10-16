@@ -3145,3 +3145,27 @@ test('AIT-198 voice Resume wakes understanding that could not dispatch during th
   assert.ok(h.storage.get(h.session.id).understanding.constraints.systems);
   assert.equal(h.storage.get(h.session.id).understanding.inputRevision, inputRevision(h.storage.get(h.session.id)));
 });
+
+
+test('AIT-247 operator socket refuses an actual active voice call without revoking it', async t => {
+  const { listenAdmin, adminRequest } = await import('../../../demo/admin-socket.js');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const h = voiceFixture(t, { host: createDemoHost });
+  const socketPath = join(await mkdtemp(join(tmpdir(), 'ait-247-voice-')), 'admin.sock');
+  const admin = await listenAdmin({ host: h.host, socketPath, eraseSession: options => h.handlers.eraseSession(options) });
+  t.after(() => admin.close());
+  const call = await h.start('operator-call');
+  const before = h.storage.get(h.session.id).seq;
+  const result = await adminRequest(socketPath, 'erase-session', { sessionId: h.session.id, visitor: true });
+  assert.deepEqual(result, { status: 409, body: { error: 'voice-call-active' } });
+  assert.equal(h.storage.get(h.session.id).seq, before);
+  assert.equal(h.storage.voiceCalls(h.session.id).find(row => row.callId === 'operator-call').terminal, undefined);
+  assert.deepEqual(h.closeRequests, []);
+  assert.equal((await adminRequest(socketPath, 'audit')).body.items.at(-1).newValues.result, 'voice-call-active');
+  h.endClient(call.providerSessionId);
+  assert.equal((await h.route('/voice/operator-call/close', { providerSessionId: call.providerSessionId })).status, 200);
+  await h.handlers.idle();
+  assert.equal((await adminRequest(socketPath, 'erase-session', { sessionId: h.session.id })).body.result, 'erased');
+});

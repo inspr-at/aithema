@@ -53,6 +53,11 @@ test('AIT-247 live erase closes SSE, preserves events and financial attribution 
   const claim = ledger.claim(admitted.attemptId); claim.consume();
   ledger.settle(claim.claimId, { attemptId: admitted.attemptId, outcome: 'completed', chargedMicro: 17, usage: { inputTokens: 1, outputTokens: 1 } });
   const hold = cap.reserve(50); cap.settle(hold, 17);
+  const uncertain = ledger.admit({ sessionId: a.id, lane: 'reaction', maxMicro: 30, requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const uncertainClaim = ledger.claim(uncertain.attemptId); uncertainClaim.consume();
+  ledger.settle(uncertainClaim.claimId, { attemptId: uncertain.attemptId, outcome: 'uncertain' });
+  const accountUncertain = cap.reserve(30); cap.dispatch(accountUncertain); cap.uncertain(accountUncertain);
+  const uncertainBefore = ledger.get(uncertain.attemptId);
   const before = ledger.get(admitted.attemptId), accountBefore = cap.snapshot(), totalsBefore = ledger.breakdown(undefined, { ownerHash: before.owner_hash });
   const stream = await sessionFetch(h.url + `/api/sessions/${a.id}/events`);
   const consumed = stream.text();
@@ -64,6 +69,9 @@ test('AIT-247 live erase closes SSE, preserves events and financial attribution 
   assert.equal(h.storage.read(a.id).filter(e => e.type === 'session.erased').length, 1);
   assert.ok(!JSON.stringify(h.storage.read(a.id)).includes('erase-this-content'));
   assert.deepEqual(ledger.get(admitted.attemptId), before);
+  assert.deepEqual(ledger.get(uncertain.attemptId), uncertainBefore);
+  assert.equal(totalsBefore.confirmedSpendMicro, 17);
+  assert.equal(totalsBefore.uncertainSpendMicro, 30);
   assert.deepEqual(ledger.breakdown(undefined, { ownerHash: before.owner_hash }), totalsBefore);
   assert.deepEqual(cap.snapshot(), accountBefore);
   assert.equal(h.storage.get(a.id).ownerHash, before.owner_hash);
@@ -107,9 +115,21 @@ test('AIT-247 rejects forged scope and audits invalid requests and handler failu
   const h = await fixture(t), a = await h.create();
   assert.equal((await adminRequest(h.socketPath, 'erase-session', { sessionId: a.id, visitor: 'yes', content: 'do-not-log' })).status, 400);
   assert.equal((await adminRequest(h.socketPath, 'erase-session', { sessionId: a.id, actor: 'forged' })).status, 400);
-  t.mock.method(h.host, 'erased', async () => { throw new Error('do-not-log'); });
+  const erased = t.mock.method(h.host, 'erased', async () => { throw new Error('do-not-log'); });
   assert.equal((await h.erase(a.id)).body.error, 'erasure-failed');
   const audit = (await adminRequest(h.socketPath, 'audit')).body.items.filter(e => e.newValues.event === 'session.erase');
   assert.deepEqual(audit.map(e => e.newValues.result), ['invalid-admin-command', 'invalid-admin-command', 'erasure-failed']);
   assert.ok(!JSON.stringify(audit).includes('do-not-log'));
+  erased.mock.restore();
+  const cleanup = t.mock.method(h.host, 'erased');
+  assert.equal((await h.erase(a.id)).body.result, 'already-erased');
+  assert.equal(cleanup.mock.callCount(), 1, 'a tombstone retry finishes host cleanup');
+});
+
+test('AIT-247 audit failure cannot acknowledge a successful erase', async t => {
+  const h = await fixture(t), a = await h.create();
+  const audit = t.mock.method(h.host.visitorCredits, 'auditErasure', () => { throw new Error('audit unavailable'); });
+  assert.equal((await h.erase(a.id)).status, 503);
+  audit.mock.restore();
+  assert.equal((await h.erase(a.id)).body.result, 'already-erased');
 });

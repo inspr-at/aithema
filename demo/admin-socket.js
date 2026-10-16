@@ -3,7 +3,6 @@ import { createConnection } from 'node:net';
 import { mkdir, chmod, lstat, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import { userInfo } from 'node:os';
-import { NotFoundError } from '@inspr/aithema-server';
 
 import { readAdminSettings, readAdminMailCap, readProviderCap } from './admin-read.js';
 export { CAP_RECOVERY } from './admin-read.js';
@@ -53,12 +52,12 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
         return send({ items, nextAfter: items.at(-1)?.id ?? after });
       }
       if (url.pathname === '/erase-session' && req.method === 'POST') {
-        let sessionId = null, visitor = null, result = 'erasure-failed';
+        let sessionId = null, visitor = null, result = 'erasure-failed', body, status = 200;
         try {
           let size = 0; const chunks = [];
           for await (const chunk of req) {
             size += chunk.length;
-            if (size > 16_384) { result = 'invalid-admin-command'; send({ error: result }, 413); req.destroy(); return; }
+            if (size > 16_384) throw new RangeError('Erase request too large');
             chunks.push(chunk);
           }
           const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -66,18 +65,21 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
           if (input?.visitor === undefined || typeof input.visitor === 'boolean') visitor = input?.visitor ?? false;
           if (!input || typeof input !== 'object' || Array.isArray(input) || sessionId === null || visitor === null ||
             Object.keys(input).some(key => !['sessionId', 'visitor'].includes(key)) || url.search) throw new TypeError('Invalid erase request');
-          if (!eraseSession) { result = 'erasure-unavailable'; return send({ error: result }, 503); }
-          const receipt = await eraseSession({ sessionId, visitor });
-          result = receipt.result;
-          return send(receipt);
+          if (!eraseSession) { result = 'erasure-unavailable'; status = 503; body = { error: result }; }
+          else { body = await eraseSession({ sessionId, visitor }); result = body.result; }
         } catch (error) {
-          if (error instanceof TypeError || error instanceof SyntaxError) { result = 'invalid-admin-command'; return send({ error: result }, 400); }
-          if (error instanceof NotFoundError) { result = 'not-found'; return send({ error: result, message: 'Session not found' }, 404); }
-          if (error.status === 409 && ['voice-call-active', 'pending-dispatch'].includes(error.message)) {
-            result = error.message; return send({ error: result }, 409);
+          status = 503;
+          if (error instanceof TypeError || error instanceof SyntaxError || error instanceof RangeError) {
+            result = 'invalid-admin-command'; status = error instanceof RangeError ? 413 : 400;
+          } else if (error.status === 404) { result = 'not-found'; status = 404; }
+          else if (error.status === 409 && ['voice-call-active', 'pending-dispatch'].includes(error.message)) {
+            result = error.message; status = 409;
           }
-          result = 'erasure-failed'; return send({ error: result }, 503);
-        } finally { host.visitorCredits.auditErasure({ sessionId, visitor, result }, { actor }); }
+          body = { error: result, ...(result === 'not-found' ? { message: 'Session not found' } : {}) };
+        }
+        // Never acknowledge success before its content-free audit entry commits.
+        host.visitorCredits.auditErasure({ sessionId, visitor, result }, { actor });
+        return send(body, status);
       }
       if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/set-provider-cap', '/reset-provider-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];

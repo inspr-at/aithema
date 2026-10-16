@@ -697,9 +697,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     /** Privileged in-process operator port. The public HTTP erase keeps its cancellation semantics. */
     async eraseSession({ sessionId, visitor = false }) {
       if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(sessionId) || typeof visitor !== 'boolean') throw new TypeError('Invalid erase request');
-      const session = storage.get(sessionId);
+      let session;
+      try { session = storage.get(sessionId); }
+      catch (error) { if (error instanceof NotFoundError) error.status = 404; throw error; }
       if (visitor && !host?.eraseVisitorForOwnerHash) throw Object.assign(new Error('visitor-unavailable'), { status: 503 });
-      const ids = visitor ? storage.ownedIdsForHash(session.ownerHash) : session.tombstone ? [] : [sessionId];
+      const scope = visitor ? storage.ownedIdsForHash(session.ownerHash, { includeErased: true }) : [sessionId];
+      const ids = scope.filter(id => !storage.get(id).tombstone);
       // Preflight the entire visitor before changing anything. There is no await
       // between these checks and every storage.erase, so new dispatch cannot race in.
       for (const id of ids) {
@@ -712,7 +715,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           throw Object.assign(new Error('pending-dispatch'), { status: 409 });
         }
       }
-      await Promise.all(ids.map(id => eraseConversation(id, {})));
+      // Retry host cleanup for tombstones too: a previous call may have failed
+      // after the durable erase but before the host acknowledged its cleanup.
+      const live = new Set(ids);
+      await Promise.all(scope.map(id => live.has(id) ? eraseConversation(id, {}) : host?.erased?.({ sessionId: id })));
       if (visitor) host.eraseVisitorForOwnerHash(session.ownerHash);
       return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
         erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
