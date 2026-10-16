@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PluginError } from '../../../packages/core/src/invocation.js';
 import { createComposedVoiceCoordinator } from '../../../packages/server/src/composed-voice.js';
+import { createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
 import { createElevenLabsTTS } from '../../elevenlabs/src/components.js';
 import { fixtureBinding, fixtureConsent, fixtureConfig } from '../../elevenlabs/test/component-fixtures.js';
 
@@ -43,7 +44,7 @@ function boundedSocket(signal) {
 }
 
 async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), leaseMs = 600_000, spendMs = 600_000,
-  fragmentCharacters = 240, format = 'pcm_s16le', onAudio, retainAudio = true } = {}) {
+  fragmentCharacters = 240, format = 'pcm_s16le', onAudio, retainAudio = true, replyExecutor } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const published = [], events = [], silences = [], reports = [], sockets = [];
   const release = Promise.withResolvers();
@@ -55,7 +56,7 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
     spendDeadlineAt: Date.now() + spendMs, browserLivenessDeadlineAt: Date.now() + leaseMs, maxDurationSeconds: 3600, fragmentCharacters,
     outputFormat: format, outputAudioFormat: { encoding: format, sampleRateHz: 24_000, channels: 1 },
     stt: { async *stream({ audio }) { for await (const _ of audio) { /* drain ingress */ } yield { text: ++turns === 1 ? 'Ja' : '', final: true }; } },
-    replyExecutor: { async *execute() {
+    replyExecutor: replyExecutor ?? { async *execute() {
       yield { type: 'operation', replyId: 'reply' }; yield { type: 'delta', text };
       yield { type: 'completion', replyId: 'reply', text };
     } }, authorize: async () => true, commitUtterance: async () => {},
@@ -70,6 +71,101 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
 
 const wire = bytes => JSON.stringify({ audio: bytes.toString('base64'), isFinal: false });
 const final = JSON.stringify({ audio: null, isFinal: true });
+
+// Exercise the production reader cancellation path while completion is held.
+// Releasing it after recovery also checks that late text cannot dispatch TTS.
+function deferredReply(t, text) {
+  const release = Promise.withResolvers();
+  let finished = false, cancelled = false, pendingRead = false, signal;
+  t.after(() => release.resolve());
+  const executor = createVoiceReplyExecutor({ execute(_envelope, options) {
+    signal = options.signal;
+    const parts = [{ type: 'operation', replyId: 'reply' }, { type: 'delta', text }];
+    return { operation: { key: 'reply-operation', callId: 'provider-pacing', providerSessionId: 'segment', ordinal: 1 },
+      events: new ReadableStream({
+        async pull(controller) {
+          if (parts.length) { controller.enqueue(parts.shift()); return; }
+          pendingRead = true;
+          await release.promise;
+          if (cancelled) return;
+          finished = true;
+          controller.enqueue({ type: 'delta', text: 'Late. ' });
+          controller.enqueue({ type: 'completion', replyId: 'reply', text: text + 'Late. ' });
+          controller.close();
+        },
+        cancel() { cancelled = true; },
+      }, { highWaterMark: 0 }) };
+  } });
+  return { executor, release: release.resolve, get finished() { return finished; }, get cancelled() { return cancelled; },
+    get pendingRead() { return pendingRead; }, get signal() { return signal; } };
+}
+
+for (const failureAt of ['first frame', 'third frame of fragment 2']) {
+  test(`AIT-258: relay failure on ${failureAt} cancels reasoning and recovers before text completion`, async t => {
+    const reasoning = deferredReply(t, 'First. Second. ');
+    const failure = new PluginError('unavailable', 'Relay failed');
+    let secondFrames = 0, attempted = 0;
+    const h = await setup(t, { replyExecutor: reasoning.executor,
+      onAudio({ bytes }) {
+        attempted++;
+        if (failureAt === 'first frame' || bytes[0] === 2 && ++secondFrames === 3) throw failure;
+      } });
+    const first = h.sockets[0];
+    if (failureAt === 'first frame') {
+      first.deliver(wire(Buffer.alloc(48_000, 1))); await tick();
+      assert.equal(first.aborted, true, 'the in-flight TTS is cancelled');
+    } else {
+      for (let i = 0; i < 3; i++) { first.deliver(wire(Buffer.alloc(48_000, 1))); await tick(); }
+      first.deliver(final); await tick();
+      const second = h.sockets[1];
+      for (let i = 0; i < 3; i++) { second.deliver(wire(Buffer.alloc(48_000, 2))); await tick(); }
+      second.deliver(final); await tick();
+      assert.equal(reasoning.pendingRead, true, 'the reply is awaiting more LLM text when playback fails');
+      await h.advance(5000);
+      assert.equal(secondFrames, 3);
+    }
+    assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === failure.code), 'recovery preserves the relay failure code');
+    assert.equal(reasoning.finished, false, 'recovery precedes text completion');
+    assert.equal(reasoning.signal.aborted, true, 'the reply reasoning signal is cancelled');
+    assert.equal(reasoning.cancelled, true, 'the production executor cancels its text reader');
+    assert.equal(h.coordinator.state.state, 'waiting');
+    assert.equal(h.silences.at(-1).reason, 'component-failed');
+    assert.ok(!h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'no assistant final before reasoning completes, as on main');
+    const dispatched = h.sockets.length, frames = attempted;
+    reasoning.release(); await tick(); await h.coordinator.idle(); await h.advance(10_000);
+    assert.equal(h.sockets.length, dispatched, 'no further TTS after the relay failure');
+    assert.equal(attempted, frames, 'no further relay frames');
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, dispatched, 'accounting settles once per dispatched speak');
+    assert.equal(h.events.filter(event => event.type === 'waiting').length, 1);
+    assert.ok(!h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'late completion cannot publish a final');
+  });
+}
+
+test('AIT-258: rejected relay acknowledgement releases a waiting third speak through recovery', async t => {
+  const acknowledgement = Promise.withResolvers(), reasoning = deferredReply(t, 'First. Second. Third. ');
+  t.after(() => acknowledgement.resolve());
+  const h = await setup(t, { replyExecutor: reasoning.executor, onAudio: () => acknowledgement.promise });
+  for (const index of [0, 1]) {
+    const socket = h.sockets[index];
+    socket.deliver(wire(Buffer.alloc(48_000, index + 1))); socket.deliver(final); await tick();
+  }
+  assert.equal(h.sockets.length, 2, 'third speak is waiting for the first relay acknowledgement');
+  acknowledgement.reject(new PluginError('provider')); await tick();
+  assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'provider'));
+  assert.equal(reasoning.cancelled, true);
+  assert.equal(reasoning.finished, false);
+  assert.equal(h.sockets.length, 2, 'the waiting third speak is never dispatched');
+  await h.coordinator.idle();
+});
+
+test('AIT-258: a relay failure during tail speech retains the already published assistant final as on main', async t => {
+  const h = await setup(t, { text: 'Tail', onAudio() { throw new Error('Relay failed'); } });
+  assert.equal(h.events.filter(event => event.type === 'final' && event.role === 'assistant').length, 1);
+  h.sockets[0].deliver(wire(Buffer.alloc(48_000))); await tick();
+  assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'provider'));
+  await h.coordinator.idle();
+  assert.equal(h.events.filter(event => event.type === 'final' && event.role === 'assistant').length, 1);
+});
 
 test('AIT-258: next speak opens after provider final and before the previous fragment drains', async t => {
   const h = await setup(t, { text: 'First. Second. ' }), first = h.sockets[0];
@@ -324,6 +420,8 @@ for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', '
     assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2, 'each invocation finishes exactly once');
     if (['barge-in', 'interrupt', 'output-off'].includes(action)) {
       assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'admitted reasoning still completes');
+      assert.equal(h.coordinator.state.state, 'active', 'deliberate silence stays non-fatal');
+      assert.ok(!h.events.some(event => event.type === 'waiting'), 'deliberate silence does not trigger recovery');
     }
     await h.coordinator.close(); t.mock.timers.tick(1_000_000); await tick();
     assert.equal(h.published.length, count, 'terminal cleanup leaves no playback timer');
