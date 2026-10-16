@@ -404,7 +404,7 @@ locale and operator UI slots. It supplies presentation only; the server ports
 still authorize every action. `voiceClients` maps allowed option IDs to browser
 adapter clients; `voicePresentation` supplies that adapter's label and copy.
 A host has bound voice when `voiceClient` is truthy or `voiceClients` contains
-at least one truthy client. These clients represent the allowed catalog voice
+at least one truthy client under an option ID other than `off`. These clients represent the allowed catalog voice
 options. An off-only/unconfigured host supplies neither (including an empty
 `voiceClients` map); no rail, pause, microphone, synthetic-voice footer claim or
 reply replay/text-reading action is mounted. This condition deliberately ignores

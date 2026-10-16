@@ -248,7 +248,7 @@ export class AithemaSession extends HTMLElement {
   }
   // Host binding, independent of the selected preset, consent, pause or transient provider verdict.
   // voiceClients contains allowed catalog option IDs; an off-only/unconfigured host supplies none.
-  get #voiceBound() { return Boolean(this.#voiceClient || Object.values(this.#voiceClients ?? {}).some(Boolean)); }
+  get #voiceBound() { return Boolean(this.#voiceClient || Object.entries(this.#voiceClients ?? {}).some(([id, client]) => id !== SETTINGS_OFF && client)); }
   /** Opens the settings dialog; `preset` preselects a preset (the chooser's Custom path). */
   openSettings(opener = this.shadowRoot.querySelector('.settings-open'), { tab = 'model', continueLabel = false, preset, anchor } = {}) {
     if (anchor) { this.#dialog.openAt(tab, anchor, opener); if (anchor === '#email') this.#host?.verification?.focusEntry(); }
@@ -2016,7 +2016,7 @@ export class AithemaSession extends HTMLElement {
         this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort();
-        void this.#rail.close(event.type === 'turn.withdrawn' ? 'turn-withdrawn' : event.type === 'session.erased' ? 'session-erased'
+        void this.#rail?.close(event.type === 'turn.withdrawn' ? 'turn-withdrawn' : event.type === 'session.erased' ? 'session-erased'
           : consentRevised ? 'consent-revised' : 'upload-withdrawn');
         this.#partials.clear(); this.#failure = false;
         // Redact sensitive content immediately, holding row heights while the pointer rests there.

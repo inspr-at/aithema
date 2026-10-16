@@ -17,7 +17,7 @@ function configure(locale, options = {}) {
 }
 for (const locale of ['de', 'en']) {
   test(`AIT-260: no bound voice mounts no voice UI through entrance, readiness, replies and pause, ${locale}`, () => {
-    for (const voiceClients of [undefined, {}, { off: null }]) {
+    for (const voiceClients of [undefined, {}, { off: null }, { off: {} }]) {
       const c = configure(locale, { voiceClients }), root = c.shadowRoot;
       const check = () => {
         assert.equal(root.querySelector(absent), null);

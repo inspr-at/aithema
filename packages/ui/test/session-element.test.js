@@ -12,11 +12,11 @@ import { contrast, glassCard, mix, textPairs } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
-function setup() {
+function setup(options = {}) {
   const component = document.createElement('aithema-session');
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
-  component.configure({ copy: structuredClone(en), session });
+  component.configure({ copy: structuredClone(en), session, ...options });
   return component;
 }
 function turn(component, id, content) { component.receive({ seq: component.session.seq + 1, type: 'turn.final',
@@ -321,7 +321,7 @@ test('AIT-109 L5: dropped SSE resumes its cursor, ignores replay, and restores a
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
 });
 test('pause state changes only after server acknowledgement; a failed resume preserves pause', async () => {
-  const c = setup(), original = globalThis.fetch; let release;
+  const c = setup({ voiceClient: {} }), original = globalThis.fetch; let release;
   globalThis.fetch = () => new Promise(r => { release = r; });
   try {
     const button = c.shadowRoot.querySelector('.pause'); assert.ok(button);
@@ -554,7 +554,7 @@ test('device sends text in this tab only; browser configure/disconnect aborts lo
 });
 
 test('pause and consent gate sends and preset rows immediately while cached understanding stays visible', async () => {
-  const c = setup(), root = c.shadowRoot;
+  const c = setup({ voiceClient: {} }), root = c.shadowRoot;
   turn(c, 'input', 'systems: SAP');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const send = root.querySelector('.send'), pause = root.querySelector('.pause'), preset = root.querySelector('.preset-panel');
@@ -635,7 +635,7 @@ test('device withdrawal aborts the local stream, redacts without moving hovered 
 });
 
 test('configure sends session ownership on SSE, recovery, feature refresh and every control POST', async () => {
-  const c = setup(), originalFetch = globalThis.fetch, calls = [];
+  const c = setup({ voiceClient: {} }), originalFetch = globalThis.fetch, calls = [];
   const session = c.session, sessionToken = 'header-owner-fixture';
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url, headers: new Headers(options.headers) });
@@ -652,7 +652,7 @@ test('configure sends session ownership on SSE, recovery, feature refresh and ev
   };
   const tick = () => new Promise(resolve => setImmediate(resolve));
   try {
-    c.configure({ copy: en, session, sessionToken }); document.body.append(c); await tick();
+    c.configure({ copy: en, voiceClient: {}, session, sessionToken }); document.body.append(c); await tick();
     const root = c.shadowRoot;
     root.querySelector('textarea').value = 'Header owned statement';
     root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
@@ -1037,7 +1037,7 @@ test('screen readers get the AI notice once, as the last description of every co
 
 for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpose pause only presents in composer and preserves overview`, () => {
   const c = setup(), session = c.session; session.locale = copy.display.locale;
-  c.configure({ copy, session });
+  c.configure({ copy, session, voiceClient: {} });
   turn(c, 'purpose-project', 'systems: SAP'); reply(c, 'purpose-reply');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const root = c.shadowRoot, notice = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
@@ -1136,7 +1136,7 @@ test('AIT-198 typed turn waits for current lane.status without flashing a stuck 
 for (const source of ['live call', 'facade pending', 'spoken facade pending']) test(`AIT-198 ${source}: no failed overview from person final through assistant final`, () => {
   const c = setup(), session = c.session;
   if (source === 'live call') session.voiceLifecycle = { callId: 'voice-call', providerSessionId: 'voice-provider', epoch: 1, state: 'active' };
-  c.configure({ copy: en, session });
+  c.configure({ copy: en, session, voiceClient: {} });
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Voice detail',
     ...(source === 'facade pending' ? { voiceCallId: 'voice-call', voiceProviderId: 'voice-provider' } :
       source === 'spoken facade pending' ? { callId: 'voice-call', providerSessionId: 'voice-provider' } : {}) } });
@@ -1176,7 +1176,7 @@ for (const recovering of [false, true]) test(`AIT-198 ${recovering ? 'recovering
 
 
 test('AIT-198 an ended facade call can expose a genuinely stuck missing reply', () => {
-  const c = setup();
+  const c = setup({ voiceClient: {} });
   c.receive({ seq: 1, type: 'turn.final', data: { id: 'voice-person', role: 'user', content: 'Detail', voiceCallId: 'call' } });
   c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: [], lastFailure: null } });
   assertNoFailedOverview(c, 'accepted facade input is still pending');
