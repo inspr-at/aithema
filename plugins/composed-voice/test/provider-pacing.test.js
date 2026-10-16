@@ -20,7 +20,7 @@ function boundedSocket(signal) {
   return {
     send() {}, close,
     get backlog() { return bytes; }, get peak() { return peak; }, get consumed() { return consumed; },
-    get failure() { return failure; }, get aborted() { return aborted; },
+    get failure() { return failure; }, get aborted() { return aborted; }, get closed() { return ended; },
     deliver(wire) {
       if (ended || failure) return;
       const size = Buffer.byteLength(wire);
@@ -47,7 +47,7 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
   const release = Promise.withResolvers();
   tts ??= createElevenLabsTTS({ enabled: true, config: fixtureConfig,
     consent: fixtureConsent(fixtureBinding('tts')), resolveSecret: () => 'synthetic-auth',
-    connect: ({ signal }) => { const socket = boundedSocket(signal); sockets.push(socket); return socket; } });
+    connect: ({ signal }) => { const socket = boundedSocket(signal); socket.openedAt = Date.now(); sockets.push(socket); return socket; } });
   let turns = 0;
   const coordinator = createComposedVoiceCoordinator({ sessionId: 'provider-pacing', callId: 'provider-pacing', tts,
     spendDeadlineAt: Date.now() + spendMs, browserLivenessDeadlineAt: Date.now() + leaseMs,
@@ -68,6 +68,25 @@ async function setup(t, { tts, blockRelay = false, text = 'a'.repeat(240), lease
 
 const wire = bytes => JSON.stringify({ audio: bytes.toString('base64'), isFinal: false });
 const final = JSON.stringify({ audio: null, isFinal: true });
+
+test('AIT-258: next speak opens after provider final and before the previous fragment drains', async t => {
+  const h = await setup(t, { text: 'First. Second. ' }), first = h.sockets[0];
+  for (let i = 0; i < 4; i++) { first.deliver(wire(Buffer.alloc(64_000, 1))); await tick(); }
+  assert.equal(h.sockets.length, 1, 'only one provider stream can open before its terminal');
+  const terminalAt = Date.now(); first.deliver(final); await tick();
+  assert.equal(first.closed, true, 'the previous provider closes before the next opens');
+  assert.equal(h.sockets.length, 2, 'next speak dispatch must not wait for playback');
+  const second = h.sockets[1];
+  assert.equal(second.openedAt, terminalAt, 'no playback-clock advance between provider final and next dispatch');
+  for (let i = 0; i < 4; i++) { second.deliver(wire(Buffer.alloc(64_000, 2))); await tick(); }
+  second.deliver(final); await tick();
+  await h.advance(12_000); await h.coordinator.idle();
+  const lastFirstFrame = h.published.filter(frame => frame.bytes[0] === 1).at(-1);
+  assert.ok(second.openedAt < lastFirstFrame.at, 'next speak dispatch precedes the pacer last-frame time');
+  assert.deepEqual(Buffer.concat(h.published.map(frame => frame.bytes)),
+    Buffer.concat([Buffer.alloc(256_000, 1), Buffer.alloc(256_000, 2)]));
+  assert.equal(h.reports.filter(report => report.attemptId === 'tts' && report.outcome === 'completed').length, 2);
+});
 
 test('AIT-258: bounded fake socket rejects two unread 137 KB messages', () => {
   const socket = boundedSocket(new AbortController().signal), message = wire(Buffer.alloc(102_540));
@@ -117,13 +136,15 @@ test('AIT-258: bounded provider cancellation closes the socket and finishes one 
   assert.equal(h.published.length, count, 'late provider audio cannot refill a dropped queue');
 });
 
-test('AIT-258: server reply queue fails closed at its 16 MB byte bound', async t => {
-  let aborted = false;
-  const h = await setup(t, { blockRelay: true, tts: { async *speak(_, { signal }) {
+test('AIT-258: overlap queue accepts two 16 MB speaks then fails closed with limit', async t => {
+  let aborted = false, speaks = 0;
+  const h = await setup(t, { blockRelay: true, text: 'First. Second. Third. ', tts: { async *speak(_, { signal }) {
+    const index = ++speaks;
     signal.addEventListener('abort', () => { aborted = true; }, { once: true });
-    for (let i = 0; i < 251; i++) yield Buffer.alloc(64_000);
+    for (let i = 0; i < (index <= 2 ? 250 : 1); i++) yield Buffer.alloc(64_000);
   } } });
   await tick();
+  assert.equal(speaks, 3, 'both full per-speak ceilings fit, including the chunk held by the blocked pacer');
   assert.ok(h.events.some(event => event.type === 'waiting' && event.reason === 'limit'));
   assert.equal(h.published.length, 1); assert.equal(aborted, true);
 });
@@ -135,17 +156,20 @@ test('AIT-258: server reply queue also bounds tiny-chunk metadata', async t => {
 });
 
 for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', 'lease-expired', 'spend-deadline']) {
-  test(`AIT-258: ${action} drops a full reply queue, aborts TTS and settles without playback time`, async t => {
-    const filled = Promise.withResolvers(); let aborted = false, finished = false;
-    const h = await setup(t, { blockRelay: true, leaseMs: action === 'spend-deadline' ? 900_000 : 600_000,
+  test(`AIT-258: ${action} drops two queued fragments, aborts TTS and settles without playback time`, async t => {
+    const filled = Promise.withResolvers(); let aborted = false, finished = false, speaks = 0;
+    const h = await setup(t, { blockRelay: true, text: 'First. Second. ', leaseMs: action === 'spend-deadline' ? 900_000 : 600_000,
       spendMs: action === 'lease-expired' ? 900_000 : 600_000, tts: { async *speak(_, { signal }) {
+      const index = ++speaks;
       signal.addEventListener('abort', () => { aborted = true; }, { once: true });
       try {
         for (let i = 0; i < 250; i++) yield Buffer.alloc(64_000);
+        if (index === 1) return;
         filled.resolve(); await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
-      } finally { finished = true; }
+      } finally { if (index === 2) finished = true; }
     } } });
     await filled.promise; const count = h.published.length, silent = h.silences.length;
+    assert.equal(speaks, 2, 'both fragments are queued while the second provider remains open');
     let pending;
     if (action === 'barge-in') pending = h.coordinator.receiveAudio(speech());
     else if (action === 'output-off') pending = h.coordinator.setOutput(false);
@@ -158,7 +182,7 @@ for (const action of ['barge-in', 'interrupt', 'pause', 'output-off', 'close', '
     if (action === 'barge-in') await h.coordinator.receiveAudio(Buffer.alloc(16_000));
     await h.coordinator.idle(); assert.equal(finished, true);
     assert.equal(h.published.length, count, 'no frame after the revision fence');
-    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 1, 'interrupted invocation finishes exactly once');
+    assert.equal(h.reports.filter(report => report.attemptId === 'tts').length, 2, 'each invocation finishes exactly once');
     if (['barge-in', 'interrupt', 'output-off'].includes(action)) {
       assert.ok(h.events.some(event => event.type === 'final' && event.role === 'assistant'), 'admitted reasoning still completes');
     }

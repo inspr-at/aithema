@@ -19,10 +19,14 @@ const input = voiced => {
   return bytes;
 };
 
-async function fixture(t, { format, text, pollDelay = 250, providerGap = false } = {}) {
+async function fixture(t, { format, text, pollDelay = 250, providerGap = false, providerLatency = 0 } = {}) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
   const at = Date.now(), sampleBytes = format === 'pcm_s16le' ? 2 : 4, bytesPerSecond = 24_000 * sampleBytes;
-  const expected = [], delivered = [], scheduled = [], audible = [], events = [], failures = [], providerTimes = [];
+  const expected = [], delivered = [], scheduled = [], audible = [], events = [], failures = [], providerTimes = [], dispatches = [];
+  const synthesis = async () => {
+    dispatches.push(Date.now());
+    if (providerLatency) await new Promise(resolve => setTimeout(resolve, providerLatency));
+  };
   let fragment = 0, utterances = 0, stopCount = 0, coordinator, pollingBlocked = false;
   const relay = createComposedRelay({ callId: 'egress-call', providerSessionId: 'egress-segment',
     expiresAt: at + 60_000, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 60_000 });
@@ -38,19 +42,19 @@ async function fixture(t, { format, text, pollDelay = 250, providerGap = false }
   }
   const tts = sampleBytes === 2 ? createElevenLabsTTS({ enabled: true, config: fixtureConfig,
     consent: fixtureConsent(fixtureBinding('tts')), resolveSecret: () => 'synthetic-auth',
-    connect: () => ({ send() {}, close() {}, events: (async function* () {
+    connect: async () => { await synthesis(); return { send() {}, close() {}, events: (async function* () {
       for (const bytes of audioChunks()) {
         if (providerGap && expected.length === 2) await new Promise(resolve => setTimeout(resolve, 4000));
         yield JSON.stringify({ audio: bytes.toString('base64'), isFinal: false });
       }
       yield JSON.stringify({ audio: null, isFinal: true });
-    })() }) }) : createVoxtralTTS({ enabled: true,
+    })() }; } }) : createVoxtralTTS({ enabled: true,
     config: { secretRef: 'synthetic-only', voiceId: 'fixture-voice' }, resolveSecret: () => 'synthetic-auth',
-    fetchImpl: async () => new Response(new ReadableStream({ start(controller) {
+    fetchImpl: async () => { await synthesis(); return new Response(new ReadableStream({ start(controller) {
       for (const bytes of audioChunks()) controller.enqueue(new TextEncoder().encode(
         'data: ' + JSON.stringify({ type: 'speech.audio.delta', audio_data: bytes.toString('base64') }) + '\n\n'));
       controller.enqueue(new TextEncoder().encode('data: {"type":"speech.audio.done","usage":{}}\n\n')); controller.close();
-    } }), { headers: { 'content-type': 'text/event-stream' } }) });
+    } }), { headers: { 'content-type': 'text/event-stream' } }); } });
   const published = [], silences = [];
   coordinator = createComposedVoiceCoordinator({ sessionId: 'egress-session', callId: relay.grant.callId,
     providerSessionId: relay.grant.providerSessionId, spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 60_000,
@@ -103,12 +107,29 @@ async function fixture(t, { format, text, pollDelay = 250, providerGap = false }
   t.after(async () => { await session.close(); route.close(); await coordinator.idle(); await pcmPlayer.close(); });
   await tick(); pollingBlocked = true;
   await coordinator.receiveAudio(input(true)); await coordinator.receiveAudio(input(false)); await tick();
-  return { coordinator, relay, session, expected, delivered, published, silences, scheduled, audible, events, failures, providerTimes,
+  return { coordinator, relay, session, expected, delivered, published, silences, scheduled, audible, events, failures, providerTimes, dispatches,
     get fragments() { return fragment; }, get stopCount() { return stopCount; },
     async advance(ms) { for (let elapsed = 0; elapsed < ms; elapsed += 25) { t.mock.timers.tick(25); await tick(); } } };
 }
 
 for (const format of ['pcm_s16le', 'pcm_f32le']) {
+  test(`AIT-258: ${format} three fragments hide subsequent synthesis latency without sentence gaps`, async t => {
+    const started = 1_800_000_000_000, providerLatency = 1500;
+    const h = await fixture(t, { format, text: sentence.repeat(3), providerLatency });
+    assert.equal(h.published.length, 0, 'the first fragment still pays provider latency');
+    await h.advance(23_000); await h.coordinator.idle();
+    assert.equal(h.fragments, 3); assert.equal(h.failures.length, 0);
+    assert.equal(h.published[0].at, started + providerLatency, 'pacing adds no first-audio delay');
+    assert.deepEqual(h.dispatches, [started, started + providerLatency, started + 2 * providerLatency]);
+    assert.deepEqual(Buffer.concat(h.delivered.map(frame => frame.bytes)), Buffer.concat(h.expected));
+    assert.ok(h.scheduled.length > 3);
+    for (let i = 1; i < h.scheduled.length; i++) {
+      const previousEnd = h.scheduled[i - 1].start + h.scheduled[i - 1].duration;
+      assert.ok(Math.abs(h.scheduled[i].start - previousEnd) < 0.000001, 'no gap or overlap in the player timeline, including sentence boundaries');
+    }
+    assert.ok(!h.events.some(event => event.type === 'waiting'));
+  });
+
   for (const text of ['a'.repeat(240), sentence.repeat(3)]) {
     test(`AIT-258: ${format} ${text.length === 240 ? '240-character fragment' : 'three sentences'} traverses paced egress in order`, async t => {
       const h = await fixture(t, { format, text });
