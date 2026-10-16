@@ -23,6 +23,18 @@ function terminalEvidence(terminal) {
     evidence.identity = Object.keys(identity).length ? identity : null;
     if (evidence.identity === null) evidence.identityReason = 'provider-identity-not-observed';
   }
+  const key = terminal.matchingKey;
+  // Keep only bounded, text-free history lookup metadata. It is not provider ID
+  // or receipt evidence and never reduces the reserved exposure.
+  if (key && typeof key === 'object' &&
+    [key.voiceId, key.modelId].every(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(value)) &&
+    Number.isSafeInteger(key.characterCount) && key.characterCount > 0 && key.characterCount <= 242 &&
+    typeof key.textSha256 === 'string' && /^[a-f0-9]{64}$/u.test(key.textSha256) &&
+    [key.startedAt, key.endedAt].every(value => typeof value === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) && Number.isFinite(Date.parse(value))) &&
+    Date.parse(key.endedAt) >= Date.parse(key.startedAt)) {
+    evidence.matchingKey = Object.fromEntries(['voiceId', 'modelId', 'characterCount', 'textSha256', 'startedAt', 'endedAt'].map(field => [field, key[field]]));
+  }
   return evidence;
 }
 

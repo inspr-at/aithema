@@ -1,4 +1,4 @@
-// Synthetic wire fixtures, never recorded provider traffic. Checked 2026-10-15.
+// Synthetic wire fixtures, never recorded provider traffic. Checked against OPS live probes 2026-10-16 (code 7613fb5, mbp2606).
 // STT source: https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime
 // Sections: Handshake (xi-api-key, model_id, audio_format, commit_strategy);
 // AsyncAPI Specification / components/schemas:
@@ -10,16 +10,16 @@
 // Sections: Handshake (xi-api-key, voice_id, model_id, output_format);
 // Send / InitializeConnection -> initialize; SendText -> text(); CloseConnection -> end;
 // Receive / AudioOutput -> audio; FinalOutput -> done.
-// UNVERIFIED: TTS final field spelling: page Messages examples say `is_final`,
-// AsyncAPI FinalOutput says `isFinal`. Fixture uses page example; live spelling
-// must be confirmed before OPS runner. We deliberately reject ambiguous shapes.
-// UNVERIFIED: empty audio_base_64 with commit=true accepted by STT server (schema
-// permits empty base64; acceptance/minimum audio duration not proven offline).
-// UNVERIFIED: actual PCM16 LE mono pcm_24000 payload and account/model support;
-// configured tariffs, billable whitespace/rounding, server usage/receipts, latency,
-// retention/residency and quality. No fabricated provider usage fields are emitted.
-export const unverified = Object.freeze(['TTS is_final vs isFinal', 'STT empty commit chunk acceptance/minimum duration',
-  'PCM24k signed-16 LE mono/account/model availability', 'tariffs/billable whitespace/rounding',
+// Live evidence: fixtures/ait-250/{tts-final-flag,stt-empty-commit}.json.
+// These are non-secret OPS summaries, not raw provider frames. TTS observed only
+// isFinal and no request-id; STT empty commit accepted but returned zero text
+// after four partials. Response payloads below remain synthetic.
+// STT commit=true accompanies audio per the API Messages example. The guide
+// says processing starts after 2 s; short inputs therefore need accounted padding:
+// https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/transcripts-and-commit-strategies
+// Remaining account-specific behavior still needs OPS verification.
+export const unverified = Object.freeze(['STT nonempty commit live qualification/minimum billing',
+  'PCM24k account/model availability', 'tariffs/billable whitespace/rounding',
   'server usage/receipts', 'latency/quality', 'retention/residency']);
 export const sttWire = {
   session: () => ({ message_type: 'session_started', session_id: 'fixture-session',
@@ -32,22 +32,27 @@ export const sttWire = {
 };
 export const ttsWire = {
   initialize: { text: ' ' }, text: text => ({ text, flush: true }), end: { text: '' },
-  audio: { audio: 'AAAAAA==', is_final: false }, done: { is_final: true },
+  audio: { alignment: null, audio: 'AAAAAA==', isFinal: false, normalizedAlignment: null },
+  done: { alignment: null, audio: null, isFinal: true, normalizedAlignment: null },
 };
 
 // In-process duplex fixture: response finality depends on outbound commit/end,
 // so tests cannot accidentally pass by having prerecorded finals race ingress.
-export function fixtureSocket({ role, text = 'Grüß Gott', beforeFinal = async () => {}, onSend = () => {}, onClose = () => {} }) {
-  const ready = Promise.withResolvers(), closed = Promise.withResolvers(); let ended = false;
+export function fixtureSocket({ role, text = 'Grüß Gott', partials = [text.slice(0, 4)], beforeFinal = async () => {}, onSend = () => {}, onClose = () => {} }) {
+  const ready = Promise.withResolvers(), closed = Promise.withResolvers(); let ended = false, audioBytes = 0, committedText = text;
   return { send(wire) {
     const frame = JSON.parse(wire); onSend(frame);
+    if (role === 'stt') {
+      audioBytes += Buffer.from(frame.audio_base_64, 'base64').byteLength;
+      if (frame.commit) committedText = frame.audio_base_64 && audioBytes >= 64_000 ? text : '';
+    }
     if (role === 'stt' ? frame.commit === true : frame.text === '') ready.resolve();
   }, close() { if (!ended) { ended = true; onClose(); closed.resolve(); } },
   events: (async function* () {
-    if (role === 'stt') { yield JSON.stringify(sttWire.session()); yield JSON.stringify(sttWire.partial(text.slice(0, 4))); }
+    if (role === 'stt') { yield JSON.stringify(sttWire.session()); for (const partial of partials) yield JSON.stringify(sttWire.partial(partial)); }
     if (await Promise.race([ready.promise.then(() => true), closed.promise.then(() => false)])) {
       await beforeFinal();
-      if (role === 'stt') yield JSON.stringify(sttWire.final(text));
+      if (role === 'stt') yield JSON.stringify(sttWire.final(committedText));
       else { yield JSON.stringify(ttsWire.audio); yield JSON.stringify(ttsWire.done); }
     }
   })() };

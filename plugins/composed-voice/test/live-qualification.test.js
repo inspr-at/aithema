@@ -11,7 +11,7 @@ const events = [ { kind: 'capture', voiced: true, captureAt: 100, durationMs: 40
   { kind: 'playback-start', firstAudioAt: 900, outputTimestamp: { contextTime: 0.9, performanceTime: 900 } },
   { kind: 'capture', voiced: true, captureAt: 1000, durationMs: 40 }, { kind: 'playback-stop', stoppedAt: 1100 } ];
 const plan = () => ({ runId: 'fixture-run', corpus: [{ reference: 'Müller GmbH', expected: 'Müller GmbH', leadingSilenceMs: 20000 }],
-  checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'is_final' } : {}) }])),
+  checks: Object.fromEntries(PRELIVE_CHECKS.map(key => [key, { verified: true, reference: 'offline-test-attestation', ...(key === 'ttsFinalFlag' ? { spelling: 'isFinal' } : {}) }])),
   ceilingChecks: [{ provider: 'fixture', accountRef: 'fixture-account', endpoint: 'https://fixture.invalid/stream', model: 'fixture', operation: 'stream', maxMicro: 100, request: { seconds: 1 } }] });
 
 test('OPS entry point refuses missing operator flag, persisted budget, checklist and pricing before dispatch', async () => {
@@ -31,7 +31,8 @@ test('physical media probe rejects schedules without observed device playback an
   assert.equal(probe.evidence().speechEndAt, 140); assert.equal(probe.evidence().bargeInAt, 1000);
 });
 
-test('OPS harness produces blind PCM pairs and metrics with pending preference; ledger blocks repeated run', async t => {
+for (const voiceSettings of [fixtureVoiceSettings, { stability: 0.5, similarity_boost: 0.8, style: null, use_speaker_boost: null, speed: 1 }])
+test(`OPS harness preserves saved TTS settings (${voiceSettings.style === null ? 'start2 nulls' : 'explicit overrides'}) in blind PCM evidence and metrics; ledger blocks repeated run`, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ops-qualification-')), budgetPath = join(directory, 'budget.sqlite'), outputDirectory = join(directory, 'evidence');
   t.after(() => rm(directory, { recursive: true, force: true })); initializeQualificationBudget({ path: budgetPath });
   const host = {
@@ -45,7 +46,7 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
       }
       events.forEach(onTiming);
       return { hypothesis: 'Müller GmbH', entities: [{ expected: 'Müller GmbH', actual: 'Müller GmbH' }],
-        ttsConfig: { model: lane === 'candidate' ? 'eleven_flash_v2_5' : 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings },
+        ttsConfig: { model: lane === 'candidate' ? 'eleven_flash_v2_5' : 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings },
         ttsPCM: lane === 'candidate' ? new Uint8Array([0, 0, 128, 62]) : new Uint8Array([0, 32]),
         ttsFormat: { encoding: lane === 'candidate' ? 'pcm_f32le' : 'pcm_s16le', sampleRateHz: 24000, channels: 1 } };
     },
@@ -62,10 +63,12 @@ test('OPS harness produces blind PCM pairs and metrics with pending preference; 
   assert.equal(report.candidate.bargeInStopMs, 100); assert.equal(report.candidate.qualified, false);
   assert.equal(report.budget.exposureMicro, 6); assert.equal(report.budget.records.length, 6);
   assert.deepEqual(report.tts, {
-    candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
-    baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
+    candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings }],
+    baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings }],
   });
-  assert.deepEqual(JSON.parse(await readFile(join(outputDirectory, 'report.json'))).tts, report.tts);
+  const savedReport = JSON.parse(await readFile(join(outputDirectory, 'report.json')));
+  assert.deepEqual(savedReport.tts, report.tts);
+  assert.equal(savedReport.ttsNullSemantics, "Null style/use_speaker_boost means the voice's own default, the same as the saved agent; omitted from candidate stream-input voice_settings, preserved in lane evidence.");
   const observations = JSON.parse(await readFile(join(outputDirectory, 'observations.json')));
   for (const lane of ['candidate', 'baseline']) assert.deepEqual(observations[lane][0].ttsConfig, report.tts[lane][0]);
   const blind = JSON.parse(await readFile(join(outputDirectory, 'blind.json')));
@@ -86,8 +89,8 @@ test('unverified pricing and unresolved final-flag spelling prevent all sample/p
   let calls = 0;
   const host = { runSample() { calls++; }, verifyCeiling: async () => null, verifyReceipt: async () => false, reconcile() { calls++; } };
   await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: plan(), host, outputDirectory: directory }), /Verified provider attempt ceiling/);
-  const unresolved = plan(); unresolved.checks.ttsFinalFlag.spelling = 'isFinal';
-  await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: unresolved, host, outputDirectory: directory }), /Adapter expects is_final/);
+  const unresolved = plan(); unresolved.checks.ttsFinalFlag.spelling = 'is_final';
+  await assert.rejects(runLiveQualification({ operatorApproved: true, budgetPath, plan: unresolved, host, outputDirectory: directory }), /Adapter expects isFinal/);
   assert.equal(calls, 0);
 });
 

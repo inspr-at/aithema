@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { createQualificationServer, validateQualificationBinding, matchQualificationEntities } from '../ops/qualification-live-server.mjs';
 import { fixtureBinding, fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
@@ -50,10 +51,10 @@ test('qualification requires complete, matching saved voice settings and explici
     const missing = { ...fixtureVoiceSettings }; delete missing[key]; invalid.push(missing);
   }
   for (const key of ['stability', 'similarity_boost', 'style']) {
-    for (const value of [-0.1, 1.1, '0.5', NaN, Infinity, null]) invalid.push({ ...fixtureVoiceSettings, [key]: value });
+    for (const value of [-0.1, 1.1, '0.5', NaN, Infinity, -Infinity, undefined, true, ...(key === 'style' ? [] : [null])]) invalid.push({ ...fixtureVoiceSettings, [key]: value });
   }
-  for (const value of [0.69, 1.21, '1', NaN, Infinity, null]) invalid.push({ ...fixtureVoiceSettings, speed: value });
-  for (const value of [0, 1, 'true', null]) invalid.push({ ...fixtureVoiceSettings, use_speaker_boost: value });
+  for (const value of [0.69, 1.21, '1', NaN, Infinity, -Infinity, null, undefined, true]) invalid.push({ ...fixtureVoiceSettings, speed: value });
+  for (const value of [0, 1, 'true', undefined, {}, []]) invalid.push({ ...fixtureVoiceSettings, use_speaker_boost: value });
   for (const voiceSettings of invalid) {
     for (const lane of ['candidate', 'baseline']) {
       const binding = liveBinding();
@@ -70,6 +71,25 @@ test('qualification requires complete, matching saved voice settings and explici
   assert.throws(() => validateQualificationBinding(mismatch), /binding/i);
   const valid = validateQualificationBinding(liveBinding());
   assert.equal(Object.isFrozen(valid.tts.voiceSettings), true);
+});
+
+test('AIT-250: qualification preserves start2 nulls in both lanes and refuses null versus explicit override mismatch', () => {
+  const saved = { stability: 0.5, similarity_boost: 0.8, style: null, use_speaker_boost: null, speed: 1 };
+  const binding = liveBinding();
+  binding.tts.voiceSettings = { ...saved }; binding.baseline.tts.voiceSettings = { ...saved };
+  const valid = validateQualificationBinding(binding);
+  for (const lane of [valid.tts, valid.baseline.tts]) {
+    assert.deepEqual(lane.voiceSettings, saved); assert.equal(Object.isFrozen(lane.voiceSettings), true);
+  }
+  for (const [key, value] of [['style', 0], ['use_speaker_boost', false]]) {
+    const mismatch = structuredClone(binding); mismatch.baseline.tts.voiceSettings[key] = value;
+    assert.throws(() => validateQualificationBinding(mismatch), /binding/i);
+  }
+  for (const [stability, similarity_boost, style, speed] of [[0, 0, 0, 0.7], [1, 1, 1, 1.2]]) {
+    const boundaries = structuredClone(binding);
+    for (const lane of [boundaries.tts, boundaries.baseline.tts]) Object.assign(lane.voiceSettings, { stability, similarity_boost, style, speed });
+    assert.doesNotThrow(() => validateQualificationBinding(boundaries));
+  }
 });
 
 test('qualification duration is explicit and bounded at 120s; baseline includes the whole bound and reasoning', () => {
@@ -110,17 +130,18 @@ import { createNetworkRelayClient } from '../src/network-client.js';
 import { PluginError } from '@inspr/aithema-core/invocation';
 
 const owner = 'fixture-owner', relayOrigin = 'http://127.0.0.1:4567';
+const fixtureReplyText = 'Die Bestelllösung lässt sich so genauer planen.';
 const sentinel = 'SYNTHETIC_ONLY_NEVER_IN_EVIDENCE';
 const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: sentinel });
 // Corpus packets and endpoint silence mirror configuration.test.js turn(); the
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds,
-  generation = 'gen-fixture', ttsRequestId, replyText = 'Die Bestelllösung lässt sich so genauer planen.' } = {}) {
+  generation = 'gen-fixture', ttsRequestId, replyText = fixtureReplyText } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
-  const specs = [], reports = [], wires = [], order = [], terminals = new Map(), sockets = [], ttsFrames = [], requests = [];
+  const specs = [], reports = [], wires = [], order = [], terminals = new Map(), sockets = [], ttsFrames = [], ttsFramesByAttempt = new Map(), requests = [];
   let sttIndex = 0, reasoningIndex = 0;
   const observed = role => {
     const spec = specs.findLast(value => value.role === role && !reports.some(report => report.attemptId === value.attemptId));
@@ -135,8 +156,9 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
         const socket = fixtureSocket({ role: 'stt', text: texts[sttIndex++] ?? 'Spätere Unterbrechung' }); sockets.push(socket); return socket;
       }
       if (request.url.includes('text-to-speech')) {
-        observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
-        const socket = { ...fixtureSocket({ role: 'tts', onSend: frame => ttsFrames.push(frame) }), requestId: ttsRequestId }; sockets.push(socket); return socket;
+        const spec = observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
+        const frames = []; ttsFramesByAttempt.set(spec.attemptId, frames);
+        const socket = { ...fixtureSocket({ role: 'tts', onSend: frame => { frames.push(frame); ttsFrames.push(frame); } }), requestId: ttsRequestId }; sockets.push(socket); return socket;
       }
       throw new Error('Unexpected component socket');
     },
@@ -189,7 +211,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       assert.notEqual(value.value.event?.type, 'waiting', JSON.stringify(value.value));
     }
   }
-  return { logs, browserResponses, server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit, requests, ttsFrames,
+  return { logs, browserResponses, server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit, requests, ttsFrames, ttsFramesByAttempt,
   };
 }
 
@@ -247,8 +269,9 @@ test('candidate sends the production voice prompt and canonical shaped history, 
   assert.deepEqual(answer.ttsConfig, { model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings });
 });
 
-for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate exposes STT session and TTS ${ttsRequestId ? 'request ID' : 'explicit null'} to OPS terminals`, async t => {
-  const h = await harness(t, { ttsRequestId }), sample = await h.start(), transport = await h.open(sample);
+for (const replyText of [fixtureReplyText, 'Die 🧭 hilft bei der Planung.'])
+for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate speaks valid reply and exposes STT session and TTS ${ttsRequestId ? 'request ID' : 'explicit null'} to OPS terminals: ${replyText}`, async t => {
+  const h = await harness(t, { ttsRequestId, replyText }), sample = await h.start(), transport = await h.open(sample);
   await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000)); await h.audioFrame(transport);
   await sample.close(); await sample.result;
   for (const spec of h.specs) {
@@ -257,7 +280,15 @@ for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate e
     if (spec.role === 'stt') assert.deepEqual(report.identity, { sessionId: 'fixture-session' });
     if (spec.role === 'tts') {
       assert.deepEqual(report.identity, ttsRequestId ? { requestId: ttsRequestId } : null);
-      assert.equal(report.identityReason, ttsRequestId ? undefined : 'tts-provider-identity-not-observed');
+      assert.equal(report.identityReason, ttsRequestId ? undefined : 'no-request-id');
+      assert.equal(report.matchingKey.voiceId, 'fixture-voice');
+      assert.equal(report.matchingKey.modelId, 'eleven_flash_v2_5');
+      const wireText = h.ttsFramesByAttempt.get(spec.attemptId).map(frame => frame.text).join('');
+      assert.equal(wireText, ` ${replyText} `, 'production safeguards pass the valid reply to TTS without substituting a fallback');
+      assert.equal(report.matchingKey.characterCount, [...wireText].length);
+      assert.equal(report.matchingKey.textSha256, createHash('sha256').update(wireText).digest('hex'));
+      assert.ok(Date.parse(report.matchingKey.endedAt) >= Date.parse(report.matchingKey.startedAt));
+      assert.equal(report.matchingKey.text, undefined);
     }
   }
 });

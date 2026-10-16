@@ -1,0 +1,53 @@
+{
+  "schema": "ait160.live-probe.v1",
+  "probe": "stt-empty-commit",
+  "startedAt": "2026-10-16T11:54:23.204Z",
+  "finishedAt": "2026-10-16T11:54:59.209Z",
+  "status": "observed",
+  "model": "scribe_v2_realtime",
+  "sourceSampleRateHz": 48000,
+  "sampleRateHz": 16000,
+  "channels": 1,
+  "messages": [
+    {
+      "type": "session_started",
+      "at": "2026-10-16T11:54:23.485Z",
+      "elapsedMs": 262
+    },
+    {
+      "type": "partial_transcript",
+      "at": "2026-10-16T11:54:44.798Z",
+      "elapsedMs": 21575
+    },
+    {
+      "type": "partial_transcript",
+      "at": "2026-10-16T11:54:45.723Z",
+      "elapsedMs": 22500
+    },
+    {
+      "type": "partial_transcript",
+      "at": "2026-10-16T11:54:46.738Z",
+      "elapsedMs": 23515
+    },
+    {
+      "type": "partial_transcript",
+      "at": "2026-10-16T11:54:55.342Z",
+      "elapsedMs": 32119
+    },
+    {
+      "type": "committed_transcript",
+      "at": "2026-10-16T11:54:59.207Z",
+      "elapsedMs": 35984
+    }
+  ],
+  "sessionId": "b6d49b56bdb243c88a8fb1d85895cf0f",
+  "committedTranscriptCharacters": 0,
+  "totalAudioSecondsSent": 35.413625,
+  "emptyCommitSent": true,
+  "emptyCommitAccepted": true,
+  "providerError": false,
+  "minimumDuration": {
+    "verified": false,
+    "reason": "One corpus observation cannot establish provider billing minimums or shorter-input limits"
+  }
+}
