@@ -254,7 +254,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-actions small { font-size:.72rem; color:var(--aithema-muted); }
 /* A long reason wraps to a second line rather than ending in "…"; a longer upload refusal scrolls in its two lines. */
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
-.composer-reason:has(.upload-retry) { max-height:44px; line-height:1.25; }
+.composer-reason:has(.upload-discard) { max-height:44px; line-height:1.25; }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
 .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

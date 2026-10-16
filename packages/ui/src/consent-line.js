@@ -1,5 +1,12 @@
 import { isConsentReason } from '../../core/src/settings.js';
-import { setText } from './dom.js';
+import { node, setText } from './dom.js';
+
+/** One native, underlined action for every reason line, including its first paint. */
+export function reasonAction(label, activate) {
+  const action = node('button', 'consent-action', label); action.type = 'button';
+  action.addEventListener('click', () => activate(action));
+  return action;
+}
 
 /** Stable status node and quiet action; its surrounding slot owns the geometry. */
 export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
@@ -8,9 +15,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     setText(line, text ?? ''); delete line.dataset.consentFeature; return false;
   }
   if (!line.querySelector('.consent-line-copy')) {
-    const label = document.createElement('span'), action = document.createElement('button');
-    label.className = 'consent-line-copy'; action.className = 'consent-action'; action.type = 'button';
-    action.addEventListener('click', () => open(action));
+    const label = node('span', 'consent-line-copy'), action = reasonAction('', open);
     line.replaceChildren(label, action); line.tabIndex = -1;
     line.dataset.focusKey = action.dataset.focusKey = `consent-${feature}`;
   }

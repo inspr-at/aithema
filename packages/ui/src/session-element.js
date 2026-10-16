@@ -1,4 +1,4 @@
-import { paintConsentLine } from './consent-line.js';
+import { paintConsentLine, reasonAction } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
@@ -88,7 +88,7 @@ export class AithemaSession extends HTMLElement {
   #paneObserver; #scrollTimers = new Map();
   #questionCard; #disposeVersion;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
-  #uploadController; #uploadRetryTimer = null; #retryFiles = []; #retryRefused = false;
+  #uploadController; #uploadRetryTimer = null; #retryFiles = [];
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -202,9 +202,8 @@ export class AithemaSession extends HTMLElement {
     this.#copy = copy; this.#options.copy = copy; this.#fold?.setCopy(copy); this.#paintMotion(); this.#paintNotice();
     for (const key of ['connecting', 'connected', 'reconnecting']) if (this.#connection === previous[key]) { this.#connection = copy[key]; break; }
     this.#notice = ''; this.#chooser.error = '';
-    // Rebuild retained-file copy from the current refusal and count in the new locale.
-    this.#uploadNotice = this.#retryFiles.length && this.#retryRefused ? this.#attachRefusal() : '';
-    this.#retryRefused = Boolean(this.#uploadNotice);
+    // The current refusal and retained count are rebuilt in the new locale by the composer.
+    this.#uploadNotice = '';
     this.#anchored(() => {
       for (const n of root.querySelectorAll('[data-copy]')) setText(n, copy[n.dataset.copy]);
       const promise = root.querySelector('.promise');
@@ -882,20 +881,27 @@ export class AithemaSession extends HTMLElement {
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       if (this.#retryFiles.length) {
-        if (!reason.querySelector('.upload-retry')) {
-          const label = node('span'), action = node('button', 'consent-action upload-retry'), discard = node('button', 'consent-action upload-discard');
-          label.id = 'upload-retry-reason'; action.type = 'button'; action.setAttribute('aria-describedby', label.id);
-          action.addEventListener('click', () => { void this.#attach(this.#retryFiles, true); });
-          discard.type = 'button'; discard.setAttribute('aria-describedby', label.id);
-          discard.addEventListener('click', () => {
-            this.#retryFiles = []; this.#retryRefused = false; this.#uploadNotice = ''; this.#render('composer');
+        const refusal = this.#retryRefusal();
+        if (!reason.querySelector('.upload-discard')) {
+          const label = node('span'), discard = reasonAction('', () => {
+            this.#retryFiles = []; this.#uploadNotice = ''; this.#render('composer');
           });
-          reason.replaceChildren(label, action, document.createTextNode(' · '), discard);
+          label.id = 'upload-retry-reason'; discard.classList.add('upload-discard');
+          discard.setAttribute('aria-describedby', label.id);
+          reason.replaceChildren(label, discard);
         }
-        const facts = [this.#uploadNotice, !this.#retryRefused && plural(copy.uploads.notUploaded, this.#retryFiles.length)];
-        setText(reason.querySelector('span'), `${facts.filter(Boolean).join(' · ')} · `);
-        setText(reason.querySelector('.upload-retry'), copy.uploads.tryAgain);
-        setText(reason.querySelector('.upload-discard'), copy.uploads.discard);
+        let action = reason.querySelector('.upload-retry');
+        const discard = reason.querySelector('.upload-discard');
+        if (refusal && action) { action.nextSibling.remove(); action.remove(); }
+        else if (!refusal && !action) {
+          action = reasonAction('', () => { void this.#attach(this.#retryFiles, true); });
+          action.classList.add('upload-retry'); action.setAttribute('aria-describedby', 'upload-retry-reason');
+          reason.insertBefore(action, discard); reason.insertBefore(document.createTextNode(' · '), discard);
+        }
+        const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(' · ');
+        setText(reason.querySelector('span'), `${facts} · `);
+        if (!refusal) setText(action, copy.uploads.tryAgain);
+        setText(discard, copy.uploads.discard);
       } else setText(reason, words);
       reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
@@ -1599,7 +1605,17 @@ export class AithemaSession extends HTMLElement {
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
   }
-  #uploadRefusal(text) { this.#uploadNotice = text; this.#retryRefused = Boolean(this.#retryFiles.length); this.#render('composer'); }
+  // Recheck the retained selection without consuming it. Holds clear only the retry action,
+  // so a later resume or withdrawal restores a manual retry without uploading anything.
+  #retryRefusal() {
+    const refusal = this.#attachRefusal();
+    if (refusal) return refusal;
+    return refusalText(this.#copy, planUploads(this.#retryFiles, { limits: this.#limits, uploads: this.#session.uploads }), this.#session.locale);
+  }
+  #uploadRefusal(text) {
+    if (!this.#retryFiles.length) this.#uploadNotice = text;
+    this.#render('composer');
+  }
   // Limits are the host's (possibly lowered) values; the route defaults hold until they arrive.
   #loadLimits() {
     if (this.#limitsLoad) return this.#limitsLoad;
@@ -1618,13 +1634,13 @@ export class AithemaSession extends HTMLElement {
   }
   async #attach(files, retry = false) {
     if (!files.length || !this.isConnected) return;
-    const copy = this.#copy, sessionId = this.#session.id, refusal = this.#attachRefusal();
+    const copy = this.#copy, sessionId = this.#session.id, refusal = retry ? this.#retryRefusal() : this.#attachRefusal();
     if (refusal) { this.#uploadRefusal(refusal); return; }
     const controller = new AbortController(); this.#uploadController = controller;
     const current = () => !controller.signal.aborted && sessionId === this.#session.id && this.isConnected;
     // An admitted new pick replaces the retained set explicitly; a retry reuses that set.
     const replacement = !retry && this.#retryFiles.length ? copy.uploads.replaced : '';
-    this.#retryFiles = []; this.#retryRefused = false; this.#uploading = true; this.#uploadNotice = replacement; this.#render('composer');
+    this.#retryFiles = []; this.#uploading = true; this.#uploadNotice = replacement; this.#render('composer');
     try {
       await this.#loadLimits();
       if (!current()) return;
@@ -1659,7 +1675,7 @@ export class AithemaSession extends HTMLElement {
   }
   #cancelUploads() {
     clearTimeout(this.#uploadRetryTimer); this.#uploadRetryTimer = null;
-    this.#retryFiles = []; this.#retryRefused = false; this.#uploadController?.abort();
+    this.#retryFiles = []; this.#uploadController?.abort();
   }
   #waitForUploadRetry(delay, signal) {
     if (signal.aborted) return Promise.resolve();
