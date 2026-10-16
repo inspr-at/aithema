@@ -348,8 +348,17 @@ test('missing/empty, duplicate and unknown keys refuse startup; stdout/stderr ne
   assert.ok(!(child.stdout.toString() + child.stderr.toString()).includes(sentinel));
 });
 
-function inertBrowser(evidence) {
-  return { defaultBrowserContext: () => ({ async overridePermissions() {} }), async close() {},
+function inertBrowser(evidence, { args = ['/fixture/chrome', '--enable-automation'], commandLineUnavailable = false } = {}) {
+  return { process: () => null, target: () => ({ async createCDPSession() { return {
+    async send(method) {
+      if (method === 'Browser.getBrowserCommandLine') {
+        if (commandLineUnavailable) throw new Error('Command line unavailable');
+        return { arguments: args };
+      }
+      assert.equal(method, 'SystemInfo.getProcessInfo');
+      return { processInfo: [{ type: 'browser', id: process.pid }] };
+    }, async detach() {},
+  }; } }), defaultBrowserContext: () => ({ async overridePermissions() {} }), async close() {},
     async newPage() { return { async setExtraHTTPHeaders(headers) {
       assert.equal(Object.keys(headers).some(name => name.toLowerCase() === 'x-aithema-qualification-control'), false);
     }, async setRequestInterception() {}, on() {},
@@ -406,24 +415,38 @@ test('launcher must arm watchdog; wall-clock timeout and host close kill even a 
   }
 });
 
-test('actual launcher fake-output override refuses before control/admission despite advancing rendering', async t => {
+test('connected launcher output overrides refuse before control/admission despite advancing rendering', async t => {
   const fixture = await keysFixture(t);
-  let killed = 0;
+  for (const flag of ['--disable-audio-output', '-disable-audio-output']) await t.test(flag, async t => {
+    let killed = 0;
+    const host = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async (_settings, lifetime) => {
+      lifetime.registerProcessGroup({ watchdogArmed: true, kill() { killed++; } });
+      return inertBrowser({ renderingVerified: true, outputLatency: 0.016 }, { args: ['/fixture/chrome', flag] });
+    } });
+    t.after(() => host.close());
+    await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
+      assert.match(error.message, /null or unverified audio output/);
+      assert.equal(error.physicalBrowserMedia.renderingVerified, true);
+      assert.deepEqual(error.physicalBrowserMedia.refusedOutputFlags, [flag]);
+      assert.equal(error.physicalBrowserMedia.verified, false); return true;
+    });
+    assert.equal(killed, 1);
+  });
+});
+
+test('unavailable actual command line refuses even with clean requested and local spawn arguments', async t => {
+  const fixture = await keysFixture(t);
   const host = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async (_settings, lifetime) => {
-    lifetime.registerProcessGroup({ watchdogArmed: true, kill() { killed++; } });
-    return { ...inertBrowser({ renderingVerified: true, outputLatency: 0.016 }),
-      process: () => ({ spawnargs: ['/fixture/chrome', '--disable-audio-output'] }) };
+    lifetime.registerProcessGroup({ watchdogArmed: true, kill() {} });
+    return { ...inertBrowser({ renderingVerified: true }, { commandLineUnavailable: true }),
+      process: () => ({ pid: process.pid, spawnargs: ['/fixture/chrome', '--enable-automation'] }) };
   } });
   t.after(() => host.close());
   await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
-    assert.match(error.message, /null or unverified audio output/);
-    assert.equal(error.physicalBrowserMedia.renderingVerified, true);
-    assert.deepEqual(error.physicalBrowserMedia.refusedOutputFlags, ['--disable-audio-output']);
+    assert.equal(error.physicalBrowserMedia.commandLine.verified, false);
     assert.equal(error.physicalBrowserMedia.verified, false); return true;
   });
-  assert.equal(killed, 1);
 });
-
 
 test('rendering requires default sink, positive latency and both clocks advancing for 500ms; labels are diagnostic', async () => {
   for (const variation of ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'zeroLatency', 'nanLatency', 'contextStalled', 'performanceStalled', 'short', 'nonDefault', 'silentSink', 'defaultAlias', 'noAPI']) {
