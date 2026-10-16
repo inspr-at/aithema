@@ -35,7 +35,11 @@ export function compareEvidenceDirectories(before, after) {
   const names = directory => readdirSync(directory).filter(name => /^ait-225-.*\.png$/u.test(name)).sort();
   const files = names(before);
   assert.deepEqual(files, names(after), 'Evidence file sets differ');
-  assert.equal(files.length, 28, 'AIT-225 evidence requires all 28 states');
+  const expected = ['de', 'en'].flatMap(locale => ['light', 'dark'].flatMap(theme => [
+    ...['1440', '390'].flatMap(width => ['card', 'bounded-options'].map(state => `ait-225-${locale}-${theme}-${width}-${state}.png`)),
+    ...[508, 420, 320].map(height => `ait-225-${locale}-${theme}-390-keyboard-${height}.png`),
+  ])).sort();
+  assert.deepEqual(files, expected, 'AIT-225 evidence requires the original 28 states');
   assert.deepEqual([...a.files].sort(), files); assert.deepEqual([...b.files].sort(), files);
   const hash = bytes => createHash('sha256').update(bytes).digest('hex');
   const rows = files.map(file => {
@@ -43,7 +47,7 @@ export function compareEvidenceDirectories(before, after) {
     assert.ok(Array.isArray(boxes), `${file}: missing capture icon bounds`);
     assert.deepEqual(boxes, b.captures?.[file]?.iconBoxes, `${file}: icon geometry differs`);
     const x = readFileSync(join(before, file)), y = readFileSync(join(after, file));
-    return { file, beforeSha256: hash(x), afterSha256: hash(y), ...diffEvidencePixels(pixels(x), pixels(y), boxes) };
+    return { file, iconBoxes: boxes, beforeSha256: hash(x), afterSha256: hash(y), ...diffEvidencePixels(pixels(x), pixels(y), boxes) };
   });
   return { policy: evidenceTolerance, before: a.commit, after: b.commit, matched: rows.filter(r => r.match).length, total: rows.length, rows };
 }

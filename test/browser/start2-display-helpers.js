@@ -123,8 +123,22 @@ export async function settleEvidenceFrame(page) {
     }
     for (const root of roots.slice().reverse()) root.activeElement?.blur();
     await document.fonts.ready;
-    let scrollEvents = 0;
-    const scrolled = () => { scrollEvents++; };
+    let scrollEvents = 0, duplicateTranscriptScrolls = 0;
+    const lastScroll = new WeakMap();
+    const scrolled = event => {
+      scrollEvents++;
+      const pane = event.target;
+      if (!pane.matches?.('.transcript-shell')) return;
+      const position = [pane.scrollTop, pane.scrollLeft], previous = lastScroll.get(pane);
+      lastScroll.set(pane, position);
+      // QuestionCard.scheduleReserve calls the follower, which writes bottom
+      // then the latest-reply offset. At short heights these writes queue a
+      // further scroll even when the FINAL offset is unchanged. Drain that
+      // no-op feedback here; genuine position changes still reach all handlers.
+      if (previous && position.every((value, i) => value === previous[i])) {
+        duplicateTranscriptScrolls++; event.stopPropagation();
+      }
+    };
     for (const root of roots) root.addEventListener('scroll', scrolled, true);
     try {
       // Transcript first: its scroll handler may update fades and reservation.
@@ -162,7 +176,7 @@ export async function settleEvidenceFrame(page) {
         if (events === scrollEvents && !animations().length &&
             positions.every(pair => pair.every(Number.isInteger)) &&
             before === JSON.stringify([positions, geometry()])) {
-          return { initialScroll, scroll: positions, markers: geometry(), settledFrames: 2 };
+          return { initialScroll, scroll: positions, markers: geometry(), settledFrames: 2, duplicateTranscriptScrolls };
         }
       }
       throw new Error(`Evidence did not reach an integer, scroll-idle marker frame within 5s: ${JSON.stringify({ scrollEvents, panes: panes.map(n => ({ node: n.className, top: n.scrollTop, left: n.scrollLeft })), markers: geometry(), animations: animations().map(a => a.animationName ?? a.transitionProperty) })}`);

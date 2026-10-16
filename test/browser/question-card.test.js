@@ -552,6 +552,12 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 await shadow(page, c => { c.shadowRoot.querySelector('.voice-reply-dialog').close(); c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }); });
                 assert.deepEqual(await boxes(page, ['.band', '.qcard', '.composer']), fallbackBoxes, 'reading the full reply moves band, card and composer exactly 0 px');
               }
+              // Exercise the no-op follower scroll loop in CI too, without a shot.
+              if (height === 320 && locale === 'de' && theme === 'light' && !evidence) {
+                const frame = await settleEvidenceFrame(page);
+                assert.equal(frame.settledFrames, 2, 'short transcript drains duplicate follower scrolls');
+                await shadow(page, c => c.shadowRoot.querySelector('textarea').focus({ preventScroll: true }));
+              }
               await shot(`keyboard-${height}`, height);
               assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'a mid-sequence capture restores composer focus');
               if (height === 508 && theme === 'light') await scene.test(`AIT-225: ${locale} chip accessibility snapshot announces suggestion; Tab to chip 2 survives re-render fully visible`, async () => {
