@@ -50,7 +50,8 @@ export const questionCardStyles = `
 .turn-read-full { position:sticky; bottom:0; display:block; min-height:44px; padding:8px 0;
   font-size:.8rem; color:var(--aithema-accent); text-decoration:underline; background:var(--aithema-paper); }
 /* Latest is a floating action, never an invisible row below the last turn. */
-.transcript-shell .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
+.transcript-shell .transcript-latest { position:sticky; bottom:0; flex:none; align-self:flex-end;
+  height:44px; margin:-44px 0 0 auto; }
 @media(max-width:600px) {
   .qcard { max-height:min(35dvh,var(--question-card-limit,35dvh),calc(var(--phone-height,100dvh) - 220px)); padding:10px 12px; gap:6px; }
   .qcard:not([data-compact]) .qopts { min-height:var(--question-options-floor,66px); }
@@ -80,7 +81,6 @@ export const questionCardStyles = `
     height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 26px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
   .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
-  .workspace[data-question-compact] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }
 }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);

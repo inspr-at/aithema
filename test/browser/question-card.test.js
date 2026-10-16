@@ -490,10 +490,12 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
               // pixels after it. Scroll fully to the edge to check that mask.
               await shadow(page, c => { const opts = c.shadowRoot.querySelector('.qopts'); opts.scrollLeft = opts.scrollWidth; });
               await nextFrame(page);
-              assert.equal(await shadow(page, c => {
+              const endMask = await shadow(page, c => {
                 const opts = c.shadowRoot.querySelector('.qopts');
-                return opts.hasAttribute('data-more-start') && !opts.hasAttribute('data-more-end');
-              }), true, 'at the final chip, only the edge toward earlier answers fades');
+                return { start: opts.hasAttribute('data-more-start'), end: opts.hasAttribute('data-more-end'),
+                  offset: opts.scrollLeft, max: opts.scrollWidth - opts.clientWidth, compact: c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact') };
+              });
+              assert.ok(endMask.start && !endMask.end, `390×${height}: at the final chip only earlier answers fade: ${JSON.stringify(endMask)}`);
               keyboardChecks.push({ locale, theme, width, height, ...keyboard, chips, reachableByTab: true });
 
             }
