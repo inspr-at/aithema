@@ -246,3 +246,10 @@ test('AIT-229: removing the selected capability while HTML loads restores transc
   assert.equal(root.querySelector('.canvas-html').artifact, null);
   assert.equal(root.querySelector('.canvas-html').shadowRoot.querySelector('iframe'), null);
 });
+
+for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} missing capability fails closed even with an old draft`, t => {
+  const { root } = fixture(t, { copy, visuals: null });
+  root.querySelector('.fold').click();
+  assert.equal(root.querySelector('.conversation').hidden, false);
+  assert.equal(root.querySelector('.fold-view').hidden, true);
+});

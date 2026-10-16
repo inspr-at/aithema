@@ -281,7 +281,7 @@ export class ConceptView {
   canShowCanvas() {
     if (!this.#session || this.#session.consentWithdrawn || this.#session.tombstone) return false;
     const feature = this.feature({ ignorePause: true });
-    if (['not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device'].includes(feature.rawReason ?? feature.reason)) return false;
+    if ([this.copy.notConfigured, 'not configured', 'not offered', 'visuals not offered', 'preset not configured', 'unavailable on device'].includes(feature.rawReason ?? feature.reason)) return false;
     return feature.available || this.items.length > 0;
   }
   // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
