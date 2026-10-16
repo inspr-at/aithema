@@ -398,6 +398,43 @@ test('AIT-237: unchanged entrance confirmation is chosen and remains ready after
   assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready', 'the durable confirmation survives the consent return');
 });
 
+for (const action of ['reopen', 'navigate', 'tab', 'edit']) test(`AIT-237: held Done confirmation cannot close Settings after ${action}`, async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = await opened(fixture(t, { respond: async (body, n, ack) => { if (n === 1) await held.promise; return ack(body); } }));
+  h.q('.done').click(); await tick();
+  assert.equal(h.posts.length, 1); assert.equal(h.posts[0].confirm, true);
+  assert.equal(h.dialog.open, true, 'Done waits for its save');
+  if (action === 'reopen') {
+    h.dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
+    assert.equal(h.dialog.open, false);
+    h.c.openSettings();
+  } else if (action === 'navigate') h.c.openSettings(undefined, { tab: 'general', anchor: '.general-new' });
+  else if (action === 'tab') h.q('[data-tab=general]').click();
+  else { h.q('[data-select=model] .select__button').click(); h.option('model', 'Deep (mock)').click(); }
+  const body = h.q('.settings__body'); body.scrollTop = 123;
+  held.resolve(); await tick(12);
+  assert.equal(h.c.session.settings.origin, 'chosen', 'the explicit confirmation is still durable');
+  assert.equal(h.dialog.open, true, 'the earlier Done cannot dismiss the later interaction');
+  assert.equal(body.scrollTop, 123);
+  h.q('.done').click(); await tick(6);
+  assert.equal(h.dialog.open, false, 'a fresh Done can close the current dialog');
+});
+
+for (const debounce of [false, true]) test(`AIT-237: Done awaiting ${debounce ? 'debounced' : 'in-flight'} edits cannot close reopened Settings`, async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = await opened(fixture(t, { origin: 'chosen', respond: async (body, n, ack) => { if (n === (debounce ? 2 : 1)) await held.promise; return ack(body); } }));
+  h.q('[data-select=model] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick();
+  if (debounce) { const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true })); }
+  h.q('.done').click(); await tick();
+  assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
+  h.dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
+  h.c.openSettings();
+  const body = h.q('.settings__body'); body.scrollTop = 123;
+  held.resolve(); await tick(12);
+  assert.equal(h.dialog.open, true, 'Done belongs to the dismissed dialog');
+  assert.equal(body.scrollTop, 123);
+});
+
 test('AIT-237: Settings Done explicitly confirms unchanged defaults', async t => {
   const h = await opened(fixture(t));
   assert.equal(h.posts.length, 0);

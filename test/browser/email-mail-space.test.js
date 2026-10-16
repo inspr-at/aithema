@@ -80,6 +80,55 @@ async function fixture(page, locale, delivery, canConfirm = delivery, credits = 
   await frame(page);
 }
 
+test('AIT-237: a held Done save preserves reopened Settings and its email scroll', { timeout: 30_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-settings-done-'));
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  const browser = await browserForFile();
+  t.after(async () => { await browser.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 390, height: 844 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(server.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  await fixture(page, 'de', true);
+  await page.evaluate(() => {
+    const fetch = window.fetch, held = Promise.withResolvers();
+    window.doneSave = { posts: [], release: held.resolve };
+    window.fetch = async (url, init = {}) => {
+      if (new URL(url, location.href).pathname.endsWith('/settings') && init.method === 'POST') {
+        window.doneSave.posts.push(JSON.parse(init.body));
+        await held.promise;
+      }
+      return fetch(url, init);
+    };
+  });
+  assert.notEqual(await shadow(page, c => c.session.settings.origin), 'chosen');
+  await click(page, 'dialog.settings .done');
+  await until(page, () => window.doneSave.posts.length === 1);
+  assert.equal(await page.evaluate(() => window.doneSave.posts[0].confirm), true);
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true, 'Done waits for the acknowledgement');
+  await page.keyboard.press('Escape');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), false);
+  await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+  await frame(page);
+  const scrollTop = await shadow(page, c => c.shadowRoot.querySelector('.settings__body').scrollTop);
+  const before = await geometry(page);
+  assert.ok(scrollTop > 0, 'the reopened email cell is scrolled into view');
+  await page.evaluate(() => window.doneSave.release());
+  await until(page, () => {
+    const c = document.querySelector('aithema-session');
+    return c.session.settings.origin === 'chosen' && c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false';
+  });
+  await frame(page);
+  const open = await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open);
+  const afterScroll = await shadow(page, c => c.shadowRoot.querySelector('.settings__body').scrollTop);
+  t.diagnostic(`held Done released: reopened Settings open=${open}; scroll=${scrollTop}/${afterScroll}`);
+  assert.equal(open, true, 'the earlier Done must not close reopened Settings');
+  assert.equal(afterScroll, scrollTop, 'the earlier Done must not rescroll reopened Settings');
+  assert.deepEqual((await geometry(page)).boxes, before.boxes, 'the reopened email geometry stays unchanged');
+  assert.equal(await page.evaluate(() => window.doneSave.posts.length), 1, 'the explicit confirmation still records chosen once');
+});
+
 test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN', { timeout: 120_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-email-space-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
