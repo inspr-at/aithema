@@ -66,6 +66,10 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   border:1px solid var(--aithema-line); border-radius:.65rem; background:var(--aithema-field); }
 .select__button[aria-expanded=true] { border-color:var(--aithema-accent); box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 30%,transparent); }
 .select__button[aria-disabled=true] { color:var(--aithema-muted); cursor:help; }
+.select__spinner { display:grid; place-items:center; flex:none; width:1rem; height:1rem; animation:settings-loading 1.2s linear infinite; }
+.select__spinner svg { display:block; width:100%; height:100%; }
+@keyframes settings-loading { to { transform:rotate(360deg); } }
+:host([motion=off]) .select__spinner { animation:none; }
 .select__value { flex:1; min-width:0; display:flex; align-items:center; gap:.6rem; font-weight:550; }
 .select__menu { position:absolute; z-index:5; left:0; right:0; top:calc(100% + .25rem); max-height:17rem; overflow-y:auto; overscroll-behavior:contain;
   padding:.3rem; border:1px solid var(--aithema-line); border-radius:.7rem; background:var(--aithema-surface); box-shadow:0 8px 28px #09252d24; }
@@ -159,7 +163,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .done.consent-save[data-withdraw=false] .done-label { padding-inline:1.6rem; }
 .consent-save .done-label, .consent-save .consent-save-sizer { grid-area:1/1; }
 .consent-save .consent-save-sizer { display:block; visibility:hidden; pointer-events:none; user-select:none; }
-.done:hover { background:var(--aithema-ink); }
+.done:hover:not(:disabled) { background:var(--aithema-ink); }
 .general { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem; align-items:start; }
 .general section { display:grid; gap:.6rem; align-content:start; }
 .general .consent-editor { grid-column:1/-1; }
@@ -241,5 +245,5 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .done { justify-self:stretch; width:100%; } .disclosure__body { left:.8rem; width:calc(100% - 1.6rem); }
   .gauges { gap:.7rem .3rem; } .gauge__glass { width:3.3rem; height:6.6rem; } .gauge__value { font-size:1rem; }
 }
-@media(prefers-reduced-motion:reduce) { .gauge__level, .gauge__wave { transition:none !important; } }
+@media(prefers-reduced-motion:reduce) { .select__spinner { animation:none; } .gauge__level, .gauge__wave { transition:none !important; } }
 `;

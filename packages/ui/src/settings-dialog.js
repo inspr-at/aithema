@@ -6,6 +6,7 @@ import { ConsentSettings } from './consent-settings.js';
 import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort, isConsentReason } from '../../core/src/settings.js';
 import { modelDisplayName } from './display.js';
 import { OperatorSettings } from './operator-settings.js';
+import { icon } from './icons.js';
 
 const SAVE_MESSAGES = ['autosave', 'saving', 'saved', 'failed', 'closePending'];
 const helpMeasurements = copy => {
@@ -121,7 +122,7 @@ export class SettingsDialog {
           <div class="settings-column">
             <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="voice" data-text="voice"></span></legend>${select('voice')}</fieldset>
             <fieldset class="settings-field"><legend><span class="help-term" tabindex="0" data-help="visuals" data-text="visuals"></span></legend>${select('visuals')}</fieldset>
-            <div class="notice-area"><div class="notice-body" role="status" aria-live="polite"><p class="notice-text"></p><button type="button" class="notice-action" hidden></button></div></div>
+            <div class="notice-area"><div class="notice-body" role="status" aria-live="polite"><p class="notice-text" id="settings-notice"></p><button type="button" class="notice-action" hidden></button></div></div>
           </div>
           <div class="settings-column settings-overview"><div class="gauge-panel" data-help="gauges"><div class="gauges">${GAUGES.map(gauge).join('')}</div></div></div>
         </section>
@@ -560,12 +561,15 @@ export class SettingsDialog {
       menu.replaceChildren(...options.map(option => this.#optionNode({ ...option, selected: option.value === selectedValue })));
       if (focused) [...menu.querySelectorAll('[role=option]')].find(node => node.dataset.value === focused)?.focus();
     }
-    const chosen = options.find(option => option.value === selectedValue);
+    const loading = Boolean(this.#pendingPreset) && !this.#loadFailed;
+    const chosen = loading ? null : options.find(option => option.value === selectedValue);
     button.dataset.feature = chosen?.feature ?? (name === 'voice' ? 'voice' : 'text');
     const value = select.querySelector('.select__value');
     value.replaceChildren();
+    if (loading) { const spinner = document.createElement('span'); spinner.className = 'select__spinner'; spinner.innerHTML = icon('refresh'); value.append(spinner); }
     if (chosen?.icon) { const icon = document.createElement('span'); icon.className = 'preset-icon'; icon.innerHTML = chosen.icon; value.append(icon); }
-    const label = document.createElement('span'); label.textContent = chosen?.label ?? selectedValue ?? ''; value.append(label);
+    const label = document.createElement('span'); label.textContent = loading ? this.#copy.settings.loadingOption : chosen?.label ?? selectedValue ?? ''; value.append(label);
+    button.disabled = loading;
     button.setAttribute('aria-disabled', String(disabled));
     if (reason) button.dataset.reason = reason; else delete button.dataset.reason;
     button.setAttribute('aria-label', `${menu.getAttribute('aria-label')}: ${label.textContent}`);
@@ -649,7 +653,11 @@ export class SettingsDialog {
     this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
     this.#q('.consent-save-sizer').textContent = this.#copy.featureConsent.withdraw;
-    this.#q('.done').setAttribute('aria-disabled', String(Boolean(this.#pendingPreset)));
+    const done = this.#q('.done');
+    done.disabled = Boolean(this.#pendingPreset);
+    done.setAttribute('aria-disabled', String(done.disabled));
+    if (done.disabled) done.setAttribute('aria-describedby', 'settings-notice');
+    else done.removeAttribute('aria-describedby');
     this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset)));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';
     this.#showHelp();

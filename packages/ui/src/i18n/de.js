@@ -111,7 +111,7 @@ export const de = {
     efforts: { none: 'Keine', minimal: 'Minimal', low: 'Niedrig', medium: 'Mittel', high: 'Hoch', xhigh: 'Sehr hoch', max: 'Maximal' },
     voice: 'Sprechen und Zuhören', voiceOff: 'Textchat: lesen und tippen', visuals: 'Visuelle Entwürfe', visualsOff: 'Aus',
     unavailable: 'Nicht verfügbar', consentNeeded: 'Einwilligung nötig', limited: 'Derzeit nicht verfügbar', notOffered: 'Nicht mehr angeboten',
-    loading: 'Die Optionen dieses Hosts werden geladen …', loadFailed: 'Die Einstellungen konnten nicht geladen werden.', reload: 'Erneut versuchen',
+    loadingOption: 'Wird geladen …', loading: 'Die Optionen dieses Hosts werden geladen …', loadFailed: 'Die Einstellungen konnten nicht geladen werden.', reload: 'Erneut versuchen',
     autosave: 'Änderungen werden automatisch gespeichert.', saving: 'Wird gespeichert …', saved: 'Änderungen gespeichert', failed: 'Ihre Auswahl konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
     retry: 'Erneut versuchen', done: 'Fertig', continue: 'Weiter', closePending: 'Warten, bis das Speichern bestätigt ist …',
     conflict: 'Ihre Einstellungen wurden in einem anderen Fenster geändert. Die gespeicherte Auswahl wird angezeigt.',

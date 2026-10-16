@@ -607,11 +607,23 @@ test('AIT-234: Custom chosen before the catalog loads applies Custom defaults, n
   assert.equal(h.q('[data-preset="custom"]').getAttribute('aria-checked'), 'true');
   assert.equal(h.dialog.getAttribute('aria-busy'), 'true');
   assert.equal(h.q('.notice-body .notice-text').textContent, en.settings.loading);
+  for (const name of ['model', 'voice', 'visuals']) {
+    const button = h.q(`[data-select="${name}"] .select__button`);
+    assert.equal(button.disabled, true);
+    assert.equal(button.querySelector('.select__value').textContent, en.settings.loadingOption);
+    assert.ok(button.querySelector('.select__spinner svg'));
+  }
+  assert.equal(h.q('.done').disabled, true);
+  assert.equal(h.q('.done').getAttribute('aria-describedby'), h.q('.notice-body .notice-text').id);
   h.q('.done').click(); await tick();
   assert.equal(h.dialog.open, true, 'Done cannot confirm Best while Custom is pending');
   assert.deepEqual(h.posts, []);
   held.resolve(); await tick(10);
   assert.deepEqual(h.posts, [{ processingPreset: 'custom', model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off', baseRevision: 0, confirm: true }]);
+  assert.equal(h.q('.done').disabled, false);
+  assert.equal(h.q('.done').hasAttribute('aria-describedby'), false);
+  assert.equal(h.q('.select__spinner'), null);
+  assert.equal(h.q('[data-select="model"] .select__button').disabled, false);
   assert.equal(h.c.session.settings.origin, 'chosen');
   assert.equal(h.c.session.processingPreset, 'custom');
   assert.equal(h.c.session.settings.voice, 'off');

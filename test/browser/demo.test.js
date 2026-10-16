@@ -1828,13 +1828,32 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       });
     };
-    const geometry = () => shadowRects(page, 'dialog.settings, .settings__header, .settings-field, .notice-area, .settings-context, .settings__footer, .done');
+    const geometry = () => shadowRects(page, 'dialog.settings, .settings__header, .settings-field, .select__button, .notice-area, .settings-context, .settings__footer, .done');
     await settle();
     const pending = await geometry();
     assert.deepEqual(await page.evaluate(() => window.customCatalog.posts), [], 'no save before the catalog');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings [data-preset="custom"]').getAttribute('aria-checked')), 'true');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy')), 'true');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.notice-body .notice-text').textContent), ({ de, en })[locale].settings.loading);
+    const loadingControls = await inShadow(page, c => {
+      const root = c.shadowRoot, done = root.querySelector('.done');
+      return {
+        selects: [...root.querySelectorAll('.select__button')].map(button => ({
+          disabled: button.disabled, label: button.querySelector('.select__value').textContent,
+          muted: getComputedStyle(button).color === getComputedStyle(root.querySelector('.note')).color,
+          opacity: getComputedStyle(button).opacity,
+          spinner: Boolean(button.querySelector('.select__spinner svg')),
+          animation: getComputedStyle(button.querySelector('.select__spinner')).animationName,
+        })),
+        done: { disabled: done.disabled, opacity: getComputedStyle(done).opacity,
+          description: root.querySelector(`#${done.getAttribute('aria-describedby')}`)?.textContent },
+      };
+    });
+    assert.deepEqual(loadingControls.selects, Array.from({ length: 3 }, () => ({
+      disabled: true, label: ({ de, en })[locale].settings.loadingOption, muted: true, opacity: '0.5', spinner: true, animation: 'none',
+    })), 'queued Custom shows muted disabled loading selects; reduced motion stops the spinner');
+    assert.deepEqual(loadingControls.done, { disabled: true, opacity: '0.5', description: ({ de, en })[locale].settings.loading },
+      'Done uses the shared disabled button style and describes the loading line');
     if (evidence) await page.screenshot({ path: join(evidence, `ait-234-${locale}-${theme}-${width}-pending.png`), fullPage: false });
     await page.evaluate(() => window.customCatalog.release());
     await until(page, () => {
