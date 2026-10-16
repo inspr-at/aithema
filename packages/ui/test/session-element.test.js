@@ -1213,3 +1213,13 @@ for (const state of ['shown', 'running', 'unavailable']) test(`AIT-221 two failu
   assert.equal(retry.nextElementSibling, footer.querySelector('.export-reason'));
   assert.deepEqual([...footer.querySelectorAll('a, button')].map(n => n.className), ['export', 'retry', 'create-project'], 'original keyboard order');
 });
+
+// Definition can finish while the host is still fetching its session.
+test('AIT-210: loading shell readiness follows configuration, not element definition', () => {
+  const empty = document.createElement('aithema-session');
+  assert.ok(customElements.get('aithema-session'));
+  assert.equal(empty.hasAttribute('data-aithema-mounted'), false);
+  const mounted = setup();
+  assert.equal(mounted.hasAttribute('data-aithema-mounted'), true);
+  assert.ok(mounted.shadowRoot.querySelector('.band .audio-rail .voice-output'));
+});

@@ -274,6 +274,36 @@ specifiers, plus module JSON support for the bundled display config. Serve JS
 as JavaScript and JSON as `application/json`; Node's package exports do not
 configure browser resolution. The UI does not install providers on import.
 
+Serve the loading shell in the initial HTML, before fetching or importing the
+browser module. On the host server, import the static helpers (they have no DOM
+dependency) and append `firstPaintStyles` to the host's render-blocking CSS:
+
+```js
+import { firstPaintMarkup, firstPaintStyles } from '@inspr/aithema-ui/first-paint';
+// GET /host.css: return hostPaletteCSS + firstPaintStyles as text/css.
+// Initial HTML (link /host.css in <head>):
+const shell = `<main class="aithema-shell"><aithema-session>
+  <h1 slot="brand">Aithema</h1>
+</aithema-session>${firstPaintMarkup}</main>`;
+```
+
+The `.aithema-shell` CSS hook hides unmounted host content and reserves the
+same header, rail and 44px controls through definition, session fetch and
+`configure()`. The component sets `data-aithema-mounted` after its synchronous
+mount; the CSS then replaces the decorative, inert shell. Do not use `:defined`
+as a readiness signal: definition can precede configuration. Keep the stylesheet
+render-blocking so slotted titles never paint without their final styling.
+Serve any startup failure message outside the hidden component.
+
+The default host geometry uses the component's 1520px shell, responsive gutters,
+and a 96px desktop actions column. If the host customizes `--aithema-shell-max`,
+`--aithema-gutter`, or `--aithema-header-actions-width` (for an account slot), set
+those properties on `.aithema-shell > :is(aithema-session,
+.aithema-first-paint)` so both receive the same overrides. Supply the host
+palette through `--paper`, `--surface`, `--accent` and `--line`; use the same theme selection before the stylesheet paints.
+
+The browser configures the element already present in that shell:
+
 ```js
 import { AithemaSession } from '@inspr/aithema-ui';
 import { en } from '@inspr/aithema-ui/i18n/en';
@@ -287,9 +317,8 @@ const response = await fetch('/api/sessions', {
 });
 if (!response.ok) throw new Error('Session creation failed');
 const session = await response.json();
-const element = document.createElement('aithema-session');
+const element = document.querySelector('aithema-session');
 element.configure({ copy: en, session, sessionToken: token, baseUrl: '' });
-document.body.append(element);
 // Import registers <aithema-session> and <aithema-html-preview>.
 // createVoiceControl handles neutral voice commands; supply adapter clients separately.
 // Use HTML_PREVIEW_HOST_CSP when serving pages that embed generated HTML previews.

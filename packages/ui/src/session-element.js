@@ -145,6 +145,7 @@ export class AithemaSession extends HTMLElement {
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
     this.#journal = voiceJournal(tabStorage(), session.id);
     this.#mount();
+    this.setAttribute('data-aithema-mounted', '');
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#orphan = this.#endOrphanedCall();
     if (this.isConnected) { this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); }
