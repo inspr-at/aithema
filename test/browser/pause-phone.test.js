@@ -796,3 +796,59 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
     }
   });
 });
+
+
+// A narrow desktop window has phone notices and a real resting mouse pointer.
+for (const behavior of ['release retained room', 'follow notice changes']) {
+  test(`AIT-244: wheel over an upload must ${behavior} at phone-notice widths`, { timeout: 120_000 }, async t => {
+    const page = await fixture(t, false);
+    for (const width of [390, 393]) {
+      await voiceScene(page, 'en', 'light', width);
+      await shadow(page, c => {
+        const session = structuredClone(c.session);
+        session.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `hover-${i}`, role: 'user', content: 'Earlier conversation message. '.repeat(8) }));
+        session.uploads = [{ id: 'hover-upload', filename: 'brief.txt', bytes: 128, state: 'accepted' }];
+        c.configure({ copy: globalThis.pauseCopy, session });
+      });
+      await page.mouse.move(-1, -1); await frame(page);
+      await page.evaluate(() => globalThis.tickRail.notices.recovered()); await frame(page);
+      await shadow(page, c => {
+        const shell = c.shadowRoot.querySelector('.transcript-shell');
+        shell.scrollTop = shell.scrollHeight - shell.clientHeight - 20;
+        shell.dispatchEvent(new Event('scroll'));
+      });
+      await frame(page);
+      if (behavior === 'release retained room') {
+        await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
+        assert.ok(await shadow(page, c => parseFloat(c.shadowRoot.querySelector('.voice-notices').style.minHeight) > 0), 'reading retains removed notice room before the wheel');
+      }
+      const point = await shadow(page, c => {
+        const row = c.shadowRoot.querySelector('.upload').getBoundingClientRect();
+        const shell = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect();
+        // The 20px wheel movement must leave the pointer inside this same row.
+        return [row.left + 20, Math.min(row.bottom - 25, shell.bottom - 25)];
+      });
+      await page.mouse.move(...point);
+      const hovered = () => shadow(page, (c, point) => Boolean(c.shadowRoot.elementFromPoint(...point)?.closest('.upload')), point);
+      assert.equal(await hovered(), true, 'native pointer hits the upload before the wheel');
+      const outer = await boxes(page, ['.band', '.transcript-shell', '.composer-dock']);
+      await page.mouse.wheel({ deltaY: 10_000 });
+      await until(page, () => {
+        const shell = document.querySelector('aithema-session').shadowRoot.querySelector('.transcript-shell');
+        return shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 1;
+      });
+      await frame(page);
+      assert.equal(await hovered(), true, 'pointer still rests on the upload after the native wheel reaches bottom');
+      if (behavior === 'follow notice changes') {
+        const before = await boxes(page, ['.upload']);
+        await page.evaluate(() => globalThis.tickRail.notices.recovered({ userUnconfirmed: true })); await frame(page);
+        assert.deepEqual(await boxes(page, ['.upload']), before, 'notice growth keeps the resting upload at exactly the same box');
+      }
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notices').style.minHeight), '', `${behavior}: following must leave no reading reservation`);
+      assert.deepEqual(await boxes(page, ['.band', '.transcript-shell', '.composer-dock']), outer, 'notice handling moves the surrounding layout exactly 0px');
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await frame(page);
+      await record(t, 'ait-244', page, `${width}-${behavior.replaceAll(' ', '-')}`, await noticeMetrics(page));
+    }
+  });
+}
