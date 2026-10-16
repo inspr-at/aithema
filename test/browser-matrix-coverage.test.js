@@ -30,9 +30,9 @@ test('CI artifacts keep deterministic width rotation; full evidence retains ever
 test('nightly runs every browser shard with CI unset and an evidence directory', () => {
   const workflow = parse(readFileSync(new URL('../.github/workflows/nightly.yml', import.meta.url), 'utf8'));
   const job = workflow.jobs.browser;
-  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4]);
+  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4, 5, 6]);
   const step = job.steps.find(step => step.name === 'Full browser matrix with evidence');
-  assert.equal(step.run, 'env -u CI npm run test:browser -- --shard ${{ matrix.shard }}/4');
+  assert.equal(step.run, 'env -u CI npm run test:browser -- --shard ${{ matrix.shard }}/6');
   assert.equal(step.env.AITHEMA_EVIDENCE_DIR, '${{ runner.temp }}/evidence');
   assert.ok(job.steps.some(step => step.uses?.startsWith('actions/upload-artifact@') && step.if === 'always()'));
 });

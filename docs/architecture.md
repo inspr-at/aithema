@@ -119,7 +119,7 @@ they are not test coverage switches.
 | `test/browser/confirmation-design.test.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/consent-lines.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/credit-hold.test.js` | `CI` ×3 | Linux headless Chrome sandbox selection; AIT-185/192 full evidence matrix disabled in CI |
-| `test/browser/demo.test.js` | `CI` ×11 | Linux headless Chrome sandbox selection |
+| `test/browser/demo.test.js` | `CI` ×9 | Linux headless Chrome sandbox selection |
 | `test/browser/external-plugin.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
@@ -134,6 +134,7 @@ they are not test coverage switches.
 | `test/browser/start-look.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/start2-display-helpers.js` | `GITHUB_SHA` ×1 | Evidence/source provenance; release test matches the run identifier |
 | `test/browser/tick-followups.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
+| `test/browser/upload-capacity.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/visitor-credit-tiers-helpers.js` | `GITHUB_EVENT_PATH` ×2, `GITHUB_SHA` ×1 | Evidence labels bind merge-run SHA and PR branch head from the GitHub event payload |
 | `test/browser/voice-presentation.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/ci-slot-sharing.test.js` | `process.env` ×1 | Intentional child-process environment forwarding or hermetic fixture setup; pinned expression/count |
