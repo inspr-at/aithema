@@ -193,16 +193,18 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
     baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
   });
-  // The source and consumer use independent capture clocks. The first barge-in
-  // packet reaches the coordinator through the product capture/VAD path,
-  // admitting interruption STT. Check every admission/dispatch.
+  // The source and consumer use independent capture clocks. During sustained
+  // silence confirmation the interruption can finish STT and produce its own
+  // reply. Account for both bounded turns; keep every admission/dispatch check.
   const candidate = report.budget.records.filter(row => row.lane === 'candidate');
   const stt = candidate.filter(row => row.role === 'stt');
+  const replies = candidate.filter(row => row.role === 'tts');
   assert.ok(stt.length === 1 || stt.length === 2);
-  assert.equal(candidate.filter(row => row.role === 'reasoning').length, 2);
-  assert.equal(candidate.filter(row => row.role === 'tts').length, 1);
+  assert.ok(replies.length === 1 || replies.length === 2);
+  if (replies.length === 2) assert.equal(stt.length, 2, 'only the scripted interruption can produce a second reply');
+  assert.equal(candidate.filter(row => row.role === 'reasoning').length, 2 * replies.length);
   assert.equal(report.budget.records.filter(row => row.lane === 'baseline').length, 1);
-  assert.equal(report.budget.records.length, 4 + stt.length);
+  assert.equal(report.budget.records.length, 1 + 3 * replies.length + stt.length);
   const consumed = report.budget.records.filter(row => row.dispatchedAt), dispatched = new Set(ports.dispatches);
   for (const attemptId of dispatched) assert.ok(consumed.some(row => row.attemptId === attemptId), 'every dispatch has a consumed admission');
   // Product VAD may admit the interruption STT immediately before the observed
@@ -214,7 +216,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     assert.equal(row.role, 'stt'); assert.equal(row.attemptId, stt[1]?.attemptId);
     assert.equal(row.outcome, 'uncertain');
   }
-  assert.equal(report.budget.records.filter(row => row.retryOf).length, 1);
+  assert.equal(report.budget.records.filter(row => row.retryOf).length, replies.length);
   assert.ok(report.budget.records.every(row => row.state === 'settled' &&
     (row.dispatchedAt ? row.receipt : row.outcome === 'cancelled' && row.exposureMicro === 0)));
   for (const lane of ['candidate', 'baseline']) {
