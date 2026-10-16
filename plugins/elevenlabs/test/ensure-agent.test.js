@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
-import { ensureAgent } from '../src/ensure-agent.js';
+import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { ensureAgent, managedDrift } from '../src/ensure-agent.js';
 import { createVoiceHost, START2_VOICE_OPENERS } from '../../../demo/start2-voice-host.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { temporaryDb } from '../../../test/helpers.js';
@@ -71,15 +73,12 @@ test('startup creates only the owned agent; whitelists template settings and ref
   assert.equal(created.platform_settings.privacy.retention_days, 30);
   assert.equal(Object.hasOwn(created, 'platform_config'), false);
   for (const text of ['template greeting', 'template persona', 'private', 'local-key-fixture', 'local-bearer-fixture']) assert.ok(!JSON.stringify(created).includes(text));
-  assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent' }]);
+  assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', message: 'elevenlabs agent ensured: created' }]);
   storage.close(); storage = new SQLiteStorage(path);
   await ensureAgent(options(storage, fake, logs));
   assert.equal(writes(fake).filter(r => r.path.endsWith('/agents/create')).length, 1);
-  assert.equal(writes(fake).filter(r => r.path.endsWith('/agents/owned-agent')).length, 1);
-  assert.deepEqual(writes(fake).find(r => r.path === '/v1/convai/secrets/owned-secret'), {
-    path: '/v1/convai/secrets/owned-secret', search: '', method: 'PATCH',
-    body: { type: 'update', name: 'aithema-start2-facade', value: 'local-bearer-fixture' },
-  });
+  assert.equal(writes(fake).filter(r => r.path.endsWith('/agents/owned-agent')).length, 0);
+  assert.equal(writes(fake).filter(r => r.path === '/v1/convai/secrets/owned-secret').length, 0);
   assert.ok(fake.requests.some(r => r.path === '/v1/convai/secrets' && r.method === 'GET'));
   assert.ok(fake.requests.every(r => !r.path.includes('/workspace/secrets')));
   assert.ok(fake.requests.filter(r => r.path.endsWith('/agents/template-agent')).every(r => r.method === 'GET'));
@@ -182,7 +181,11 @@ for (const mode of ['create', 'PATCH']) {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = [];
     t.after(() => storage.close());
     Object.assign(fake.template.platform_settings.privacy, { delete_audio: true, delete_transcript: true, zero_retention_mode: true });
-    if (mode === 'PATCH') await ensureAgent(options(storage, fake));
+    if (mode === 'PATCH') {
+      await ensureAgent(options(storage, fake));
+      // Force a real write so this case still exercises post-PATCH verification.
+      fake.agents[0].conversation_config.conversation.max_duration_seconds = 1;
+    }
     let written = false;
     const host = await createVoiceHost({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
       const response = await fetch(url, init);
@@ -206,7 +209,11 @@ for (const mode of ['create', 'PATCH']) {
   test(`${mode} read-back accepts extra conversation override flags only when explicitly false`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = [];
     t.after(() => storage.close());
-    if (mode === 'PATCH') await ensureAgent(options(storage, fake));
+    if (mode === 'PATCH') {
+      await ensureAgent(options(storage, fake));
+      // Force a real write so this case still exercises post-PATCH verification.
+      fake.agents[0].conversation_config.conversation.max_duration_seconds = 1;
+    }
     const host = await createVoiceHost({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
       const response = await fetch(url, init);
       if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
@@ -217,13 +224,18 @@ for (const mode of ['create', 'PATCH']) {
     } });
     assert.ok(host.binding);
     assert.deepEqual(logs, [
-      { name: AGENT_NAME, id: 'owned-agent' },
+      { name: AGENT_NAME, id: 'owned-agent', message: mode === 'create' ? 'elevenlabs agent ensured: created'
+        : 'elevenlabs agent ensured: patched (fields: conversation_config.conversation.max_duration_seconds, conversation_config.agent.first_message)' },
       { event: 'voice-availability', from: 'starting', to: 'available', reason: null },
     ]);
   });
   test(`${mode} rejects the wrong top-level platform key and disables voice`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
-    if (mode === 'PATCH') await ensureAgent(options(storage, fake));
+    if (mode === 'PATCH') {
+      await ensureAgent(options(storage, fake));
+      // Force a real write so this case still exercises post-PATCH verification.
+      fake.agents[0].platform_settings.privacy.retention_days = 99;
+    }
     const host = await createVoiceHost({ ...options(storage, fake), fetchImpl: async (url, init) => {
       if (init.method !== 'GET' && new URL(url).pathname.startsWith('/v1/convai/agents/')) {
         const body = JSON.parse(init.body);
@@ -237,7 +249,11 @@ for (const mode of ['create', 'PATCH']) {
   });
   test(`${mode} read-back failure disables voice without logging provider values`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = []; t.after(() => storage.close());
-    if (mode === 'PATCH') await ensureAgent(options(storage, fake));
+    if (mode === 'PATCH') {
+      await ensureAgent(options(storage, fake));
+      // Force a real write so this case still exercises post-PATCH verification.
+      fake.agents[0].conversation_config.conversation.max_duration_seconds = 1;
+    }
     let written = false;
     const host = await createVoiceHost({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
       if (written && init.method === 'GET' && new URL(url).pathname.endsWith('/agents/owned-agent')) {
@@ -292,4 +308,208 @@ test('AIT-127: each locale gets only its own AI notice, with an enabled first-me
     }
     assert.equal(host.presentation('fr'), undefined);
   }
+});
+
+// Agent endpoint counts exclude template/list/secret requests.
+const agentRequests = fake => fake.requests.filter(r => r.path.endsWith('/agents/owned-agent'));
+async function existingAgent(t) {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = [];
+  t.after(() => storage.close());
+  await ensureAgent(options(storage, fake));
+  fake.requests.length = 0;
+  return { fake, storage, logs };
+}
+test('AIT-224: unchanged agent gets exactly one GET and zero PATCH on restart', async t => {
+  const { fake, storage, logs } = await existingAgent(t);
+  await ensureAgent(options(storage, fake, logs));
+  assert.deepEqual(agentRequests(fake).map(r => r.method), ['GET']);
+  assert.deepEqual(writes(fake), []);
+  assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', message: 'elevenlabs agent ensured: unchanged' }]);
+  assert.ok(fake.requests.filter(r => r.path.endsWith('/agents/template-agent')).every(r => r.method === 'GET'));
+});
+for (const section of ['conversation_config', 'platform_settings']) test(`AIT-224: drift PATCHes only the ${section} API field, then reads back`, async t => {
+  const { fake, storage, logs } = await existingAgent(t);
+  const expected = structuredClone(fake.agents[0][section]);
+  const field = section === 'conversation_config' ? 'conversation_config.tts.voice_id' : 'platform_settings.privacy.retention_days';
+  if (section === 'conversation_config') fake.agents[0].conversation_config.tts.voice_id = 'changed-voice';
+  else fake.agents[0].platform_settings.privacy.retention_days = 99;
+  await ensureAgent(options(storage, fake, logs));
+  const requests = agentRequests(fake);
+  assert.deepEqual(requests.map(r => r.method), ['GET', 'PATCH', 'GET']);
+  assert.deepEqual(requests[1].body, { [section]: expected });
+  assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', message: `elevenlabs agent ensured: patched (fields: ${field})` }]);
+  assert.ok(fake.requests.filter(r => r.path.endsWith('/agents/template-agent')).every(r => r.method === 'GET'));
+});
+test('AIT-224: object order, provider metadata, unmanaged settings and explicit false override defaults do not drift', async t => {
+  const { fake, storage } = await existingAgent(t);
+  const reverse = value => Array.isArray(value) ? value.map(reverse) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reverse(item)])) : value;
+  fake.agents[0] = reverse(fake.agents[0]);
+  fake.agents[0].updated_at = 'changed'; fake.agents[0].version_id = 'provider-version';
+  fake.agents[0].conversation_config.tts.unmanaged = true;
+  fake.agents[0].platform_settings.overrides.conversation_config_override.tts = { voice_id: false };
+  await ensureAgent(options(storage, fake));
+  assert.deepEqual(agentRequests(fake).map(r => r.method), ['GET']);
+});
+for (const [field, value, patches] of [['stability', undefined, false], ['stability', null, true],
+  ['stability', '0.5', true], ['stability', 0.6, true], ['speed', undefined, false], ['similarity_boost', undefined, false]]) {
+  test(`AIT-224: omitted default ${field}=${String(value)} has drift=${patches}`, async t => {
+    const { fake, storage } = await existingAgent(t);
+    const defaults = { stability: 0.5, speed: 1, similarity_boost: 0.8 };
+    fake.template.conversation_config.tts[field] = defaults[field];
+    if (value === undefined) delete fake.agents[0].conversation_config.tts[field];
+    else fake.agents[0].conversation_config.tts[field] = value;
+    await ensureAgent(options(storage, fake));
+    assert.deepEqual(agentRequests(fake).map(r => r.method), patches ? ['GET', 'PATCH', 'GET'] : ['GET']);
+  });
+}
+for (const field of ['prompt', 'first_message']) test(`AIT-224: ${field} whitespace is drift and logs contain no content`, async t => {
+  const { fake, storage, logs } = await existingAgent(t);
+  const agent = fake.agents[0].conversation_config.agent;
+  if (field === 'prompt') agent.prompt.prompt = '  \n';
+  else agent.first_message += ' ';
+  await ensureAgent(options(storage, fake, logs));
+  assert.deepEqual(agentRequests(fake).map(r => r.method), ['GET', 'PATCH', 'GET']);
+  const path = `conversation_config.agent.${field === 'prompt' ? 'prompt.prompt' : field}`;
+  assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', message: `elevenlabs agent ensured: patched (fields: ${path})` }]);
+});
+test('AIT-224: omitted non-default and security fields require repair; arrays and empty maps stay exact', async t => {
+  const { fake, storage } = await existingAgent(t);
+  delete fake.agents[0].platform_settings.auth.enable_auth;
+  delete fake.agents[0].conversation_config.turn.turn_timeout;
+  fake.agents[0].conversation_config.agent.prompt.tools = ['unexpected'];
+  fake.agents[0].conversation_config.language_presets = { en: {} };
+  fake.agents[0].conversation_config.asr.keywords.reverse();
+  await ensureAgent(options(storage, fake));
+  assert.deepEqual(agentRequests(fake).map(r => r.method), ['GET', 'PATCH', 'GET']);
+  assert.deepEqual(Object.keys(agentRequests(fake)[1].body), ['conversation_config', 'platform_settings']);
+});
+
+test('AIT-224: real sanitized live readback has zero managed drift and boots with GET only', async t => {
+  const liveReadback = JSON.parse(await readFile(new URL('./fixtures/agent-readback-live.json', import.meta.url), 'utf8'));
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  // Use the captured template-derived settings and the host's real AI openers.
+  fake.template.conversation_config = structuredClone(liveReadback.conversation_config);
+  fake.template.platform_settings = structuredClone(liveReadback.platform_settings);
+  const opts = { ...options(storage, fake), spokenOpeners: START2_VOICE_OPENERS };
+  await ensureAgent(opts);
+  const desiredBody = structuredClone(writes(fake).find(r => r.path.endsWith('/agents/create')).body);
+  desiredBody.conversation_config.agent.prompt.custom_llm.api_key.secret_id = 'fixture-id-003';
+  assert.deepEqual(managedDrift(liveReadback, desiredBody), []);
+  fake.requests.length = 0;
+  const host = await createVoiceHost({ ...opts, fetchImpl: async (url, init) => {
+    const response = await fetch(url, init);
+    if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
+    await response.body.cancel();
+    const saved = structuredClone(liveReadback);
+    saved.agent_id = 'owned-agent';
+    saved.conversation_config.agent.prompt.custom_llm.api_key.secret_id = 'owned-secret';
+    return Response.json(saved);
+  } });
+  t.after(() => host.close?.());
+  assert.ok(host.binding);
+  assert.deepEqual(writes(fake), []);
+});
+
+const tolerantPaths = [
+  'conversation_config.agent.prompt.prompt',
+  'conversation_config.agent.prompt.tools',
+  'conversation_config.agent.prompt.knowledge_base',
+  'conversation_config.agent.prompt.built_in_tools',
+  'conversation_config.agent.prompt.rag',
+];
+for (const mode of ['create', 'PATCH']) {
+  for (const field of tolerantPaths) {
+    for (const value of [undefined, null, '', [], { unexpected: 'provider-value' }]) {
+      test(`AIT-224: ${mode} tolerates ${field}=${JSON.stringify(value)} without disabling voice`, async t => {
+        const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = [];
+        t.after(() => storage.close());
+        if (mode === 'PATCH') {
+          await ensureAgent(options(storage, fake));
+          fake.requests.length = 0;
+          fake.agents[0].conversation_config.conversation.max_duration_seconds = 1;
+        }
+        const host = await createVoiceHost({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
+          const response = await fetch(url, init);
+          if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
+          const saved = await response.json();
+          saved.conversation_config.agent.prompt[field.split('.').at(-1)] = structuredClone(value);
+          return Response.json(saved);
+        } });
+        t.after(() => host.close?.());
+        assert.ok(host.binding);
+        assert.ok(fake.requests.some(r => ['POST', 'PATCH'].includes(r.method) && r.path.startsWith('/v1/convai/agents/')));
+        if (['prompt', 'tools', 'knowledge_base'].includes(field.split('.').at(-1)) && !['""', '[]'].includes(JSON.stringify(value))) {
+          assert.ok(logs.some(entry => entry.level === 'warn' && entry.fields.includes(field)));
+        }
+        assert.ok(!JSON.stringify(logs).includes('provider-value'));
+      });
+    }
+  }
+}
+
+test('AIT-224: allowlist item metadata is ignored but hostname and cardinality remain strict', async t => {
+  const { fake, storage } = await existingAgent(t);
+  fake.agents[0].platform_settings.auth.allowlist[0].provider_default = true;
+  const host = await createVoiceHost({ ...options(storage, fake), spokenOpeners: { de: aiNoticeText('de'), en: aiNoticeText('en') } });
+  t.after(() => host.close?.());
+  assert.ok(host.binding);
+  assert.deepEqual(writes(fake).filter(r => r.path.includes('/agents/')), []);
+});
+
+test('AIT-224: empty picks from a template without privacy or voice settings do not drift', async t => {
+  const { fake, storage } = await existingAgent(t);
+  delete fake.template.platform_settings.privacy;
+  fake.template.conversation_config.tts.voice_settings = { unmanaged: true };
+  await ensureAgent(options(storage, fake));
+  assert.deepEqual(writes(fake), []);
+  assert.deepEqual(managedDrift({ platform_settings: { privacy: { provider: true } } }, { platform_settings: { privacy: {} } }), []);
+  // An intentional language preset clear must still be compared exactly.
+  assert.deepEqual(managedDrift({ en: {} }, {}, 'conversation_config.language_presets'), ['conversation_config.language_presets']);
+});
+
+test('AIT-224: facade hash survives restart; same secret skips PATCH and rotation PATCHes once', async t => {
+  const fake = await fakeElevenLabs(t), path = await temporaryDb(), logs = [];
+  let storage = new SQLiteStorage(path); t.after(() => storage.close());
+  await ensureAgent(options(storage, fake, logs));
+  storage.close(); storage = new SQLiteStorage(path); fake.requests.length = 0;
+  await ensureAgent(options(storage, fake, logs));
+  assert.deepEqual(writes(fake), []);
+  const rotated = { ...options(storage, fake, logs), resolveSecret: ref => ref === 'ELEVENLABS_API_KEY' ? 'local-key-fixture' : 'rotated-bearer-fixture' };
+  await ensureAgent(rotated);
+  await ensureAgent(rotated);
+  assert.deepEqual(writes(fake).map(r => [r.method, r.path]), [['PATCH', '/v1/convai/secrets/owned-secret']]);
+  const receipt = storage.db.prepare('SELECT * FROM host_voice_secret_hashes').get();
+  assert.equal(receipt.value_hash, createHash('sha256').update('rotated-bearer-fixture').digest('hex'));
+  const persisted = JSON.stringify([receipt, storage.db.prepare('SELECT * FROM host_voice_secrets').all(), logs]);
+  assert.doesNotMatch(persisted, /local-bearer-fixture|rotated-bearer-fixture|local-key-fixture/);
+});
+
+test('AIT-224: legacy secret receipt PATCHes once; failed rotation never advances hash', async t => {
+  const { fake, storage } = await existingAgent(t);
+  storage.db.exec('DELETE FROM host_voice_secret_hashes');
+  await ensureAgent(options(storage, fake));
+  await ensureAgent(options(storage, fake));
+  assert.equal(writes(fake).length, 1);
+  const before = storage.db.prepare('SELECT * FROM host_voice_secret_hashes').get();
+  const rotated = { ...options(storage, fake), resolveSecret: ref => ref === 'ELEVENLABS_API_KEY' ? 'local-key-fixture' : 'rotated-bearer-fixture' };
+  await assert.rejects(ensureAgent({ ...rotated, fetchImpl: async (url, init) => {
+    if (init.method === 'PATCH' && new URL(url).pathname.includes('/secrets/')) return Response.json({}, { status: 500 });
+    return fetch(url, init);
+  } }), /agent-api-patch-500/);
+  assert.deepEqual(storage.db.prepare('SELECT * FROM host_voice_secret_hashes').get(), before);
+  fake.requests.length = 0;
+  await ensureAgent(rotated);
+  await ensureAgent(rotated);
+  assert.deepEqual(writes(fake).map(r => r.path), ['/v1/convai/secrets/owned-secret']);
+});
+
+test('AIT-224: owned GET failure prevents every PATCH, including secret rotation', async t => {
+  const { fake, storage } = await existingAgent(t);
+  await assert.rejects(ensureAgent({ ...options(storage, fake),
+    resolveSecret: ref => ref === 'ELEVENLABS_API_KEY' ? 'local-key-fixture' : 'rotated-bearer-fixture',
+    fetchImpl: async (url, init) => new URL(url).pathname.endsWith('/agents/owned-agent')
+      ? Response.json({}, { status: 503 }) : fetch(url, init),
+  }), /agent-api-get-503/);
+  assert.deepEqual(writes(fake), []);
 });

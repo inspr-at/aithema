@@ -253,7 +253,9 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (!id && request.method === 'POST') {
           const options = await body(request, ['title', 'locale', 'processingPreset', 'settings']);
           const entry = await port.new(options); storage.authorize(entry.id, ownerToken);
-          return json({ ...entry, session: await snapshot(entry.id) }, 201);
+          const response = json({ ...entry, session: await snapshot(entry.id) }, 201);
+          if (ownership.created) ownership.created(response, ownerToken, request);
+          return response;
         }
         if (id && !action && request.method === 'GET') {
           const entry = await port.open(id); storage.authorize(id, ownerToken);
@@ -271,7 +273,9 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           if (!storage.get(id).tombstone) throw new Error('Host erasure unconfirmed');
           if (action === 'delete') return json({ ...result, providerDeletion: 'not-confirmed' });
           storage.authorize(result.id, ownerToken);
-          return json({ ...result, session: await snapshot(result.id), providerDeletion: 'not-confirmed' }, 201);
+          const response = json({ ...result, session: await snapshot(result.id), providerDeletion: 'not-confirmed' }, 201);
+          if (ownership.created) ownership.created(response, ownerToken, request);
+          return response;
         }
         return json({ error: 'method-not-allowed' }, 405);
       }
@@ -438,6 +442,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     }
   }
   return { handle, initialize, syncPause,
+    retentionActive: id => deliveries.has(id),
     startCredits(id, ownerToken) { if (host?.wallet) return startCredits(id, ownerToken); },
     resume() {
       if (!host) return;

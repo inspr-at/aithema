@@ -1,6 +1,6 @@
 const escape = value => String(value).replace(/[&<>"']/gu, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 export const mailCopy = Object.freeze({
-  de: { subject: 'E-Mail-Adresse bestätigen', lead: 'Bestätigen Sie Ihre E-Mail-Adresse', action: 'E-Mail-Adresse bestätigen',
+  de: { brand: 'Aithema', subject: 'E-Mail-Adresse bestätigen', lead: 'Bestätigen Sie Ihre E-Mail-Adresse', action: 'E-Mail-Adresse bestätigen',
     explanation: 'Mit der Bestätigung steigt Ihr Guthaben auf {tier} Credits.',
     explanationFallback: 'Mit der Bestätigung erhalten Sie das höhere Gesprächsguthaben.',
     linkLabel: 'Oder kopieren Sie diesen Link in Ihren Browser:',
@@ -10,7 +10,7 @@ export const mailCopy = Object.freeze({
     unsolicited: 'Sie haben das nicht angefordert? Dann ignorieren Sie diese E-Mail. Ohne Klick wird nichts bestätigt.',
     privacy: 'Wir nutzen Ihre E-Mail-Adresse für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
     retention: 'Bitte löschen Sie diese automatisch erzeugte Produktnachricht spätestens 90 Tage nach Abschluss des Vorgangs, sofern keine eigenständige Aufbewahrungspflicht besteht.' },
-  en: { subject: 'Confirm your email address', lead: 'Confirm your email address', action: 'Confirm email address',
+  en: { brand: 'Aithema', subject: 'Confirm your email address', lead: 'Confirm your email address', action: 'Confirm email address',
     explanation: 'Once confirmed, your credit rises to {tier} Credits.',
     explanationFallback: 'Confirming gives you the higher conversation credit allowance.',
     linkLabel: 'Or copy this link into your browser:',
@@ -22,9 +22,29 @@ export const mailCopy = Object.freeze({
     retention: 'Please delete this automatically generated product message no later than 90 days after the matter is closed, unless a separate retention requirement applies.' },
 });
 
+/** Validate and snapshot host overrides once, before any delivery. */
+export function mergeMailCopy(overrides = {}) {
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value));
+  if (!record(overrides)) throw new TypeError('Invalid SMTP copy: expected a locale object');
+  for (const locale of Reflect.ownKeys(overrides)) {
+    if (!Object.hasOwn(mailCopy, locale)) throw new TypeError('Invalid SMTP copy: unknown locale ' + String(locale));
+    if (!record(overrides[locale])) throw new TypeError('Invalid SMTP copy.' + locale + ': expected a field object');
+    for (const key of Reflect.ownKeys(overrides[locale])) {
+      if (!Object.hasOwn(mailCopy[locale], key)) throw new TypeError('Invalid SMTP copy.' + locale + ': unknown field ' + String(key));
+      if (typeof overrides[locale][key] !== 'string') throw new TypeError('Invalid SMTP copy.' + locale + '.' + key + ': expected a string');
+      if (key === 'subject' && /[\u0000-\u001f\u007f]/u.test(overrides[locale][key])) {
+        throw new TypeError('Invalid SMTP copy.' + locale + '.subject: control characters are not allowed');
+      }
+    }
+  }
+  return Object.freeze(Object.fromEntries(Object.entries(mailCopy).map(([locale, defaults]) =>
+    [locale, Object.freeze({ ...defaults, ...overrides[locale] })])));
+}
+
 const explanationFor = (copy, tierAfter) => tierAfter === undefined || tierAfter === null || tierAfter === ''
   ? copy.explanationFallback : copy.explanation.replace('{tier}', () => String(tierAfter));
-const hostFor = (copy, host) => copy.host.replace('{host}', () => String(host));
+const hostFor = (copy, host) => copy.host.replace(/\{(host|brand)\}/gu, (_, key) => key === 'brand' ? copy.brand : String(host));
 
 /** Tick's approved table template: no remote assets, one progressive style block. */
 export function confirmationHtml({ locale, link, copy, host, privacyUrl, tierAfter }) {
@@ -76,7 +96,7 @@ export function confirmationHtml({ locale, link, copy, host, privacyUrl, tierAft
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
 <tr>
 <!--[if !mso]><!--><td style="padding:0 12px 0 0;vertical-align:middle;"><div class="ai-dot" style="width:10px;height:10px;border:4px solid #d6e6e2;border-radius:50%;background-color:#0e6f6c;background-image:radial-gradient(circle at 35% 30%,#7fd3cd,#0e6f6c 70%);font-size:1px;line-height:1px;">&nbsp;</div></td><!--<![endif]-->
-<td class="ai-ink" style="vertical-align:middle;font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-0.5px;color:#102b42;">Aithema</td>
+<td class="ai-ink" style="vertical-align:middle;font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif;font-size:22px;line-height:28px;font-weight:600;letter-spacing:-0.5px;color:#102b42;">${escape(copy.brand)}</td>
 </tr>
 </table>
 </td>
@@ -160,12 +180,13 @@ export function confirmationHtml({ locale, link, copy, host, privacyUrl, tierAft
 </html>`;
 }
 export function confirmationMessage({ locale = 'en', link, expiresAt, now = Date.now(), host = new URL(link).host,
-  privacyUrl, tierAfter, htmlTemplate = confirmationHtml }) {
+  privacyUrl, tierAfter, copy, htmlTemplate = confirmationHtml }) {
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) throw new TypeError('Expired confirmation link');
   locale = locale === 'de' ? 'de' : 'en';
-  const copy = mailCopy[locale], explanation = explanationFor(copy, tierAfter);
+  copy ??= mailCopy[locale];
+  const explanation = explanationFor(copy, tierAfter);
   return { subject: copy.subject,
-    text: ['Aithema', copy.lead, explanation, copy.action + ':\n' + link, copy.validity, copy.unsolicited,
+    text: [copy.brand, copy.lead, explanation, copy.action + ':\n' + link, copy.validity, copy.unsolicited,
       '-- \n' + hostFor(copy, host), copy.privacy + (privacyUrl ? '\n' + copy.privacyLabel + ': ' + privacyUrl : ''), copy.retention].join('\n\n'),
     html: htmlTemplate({ locale, link, copy, host, privacyUrl, tierAfter }) };
 }

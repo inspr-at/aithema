@@ -6,6 +6,7 @@ import { voiceEvents } from '../../core/src/live-voice.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { QuestionCard, questionCardMarkup } from '../src/question-card.js';
 
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
@@ -42,6 +43,7 @@ for (const [copy, heading, suggestion, hint] of [
   for (const row of rows) {
     assert.equal(row.tagName, 'BUTTON'); assert.equal(row.type, 'button'); assert.equal(row.tabIndex, 0);
     assert.equal(row.querySelector('.go').getAttribute('aria-hidden'), 'true');
+    assert.equal(row.getAttribute('aria-label'), row.querySelector('.t').textContent + (row.classList.contains('likely') ? `, ${suggestion}` : ''));
     assert.ok(row.getAttribute('aria-describedby').includes('qhint'));
   }
 });
@@ -143,6 +145,10 @@ test('AIT-132: card answers use active voice forwarding once, and speaking close
     return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content, voiceCallId: body.voiceCallId } });
   });
   c.shadowRoot.querySelector('.voice-start').click(); await tick(); question(c);
+  c.shadowRoot.querySelector('.workspace').setAttribute('data-phone-short', ''); question(c);
+  assert.equal(c.shadowRoot.querySelector('textarea').placeholder, en.placeholderCompact, 'compact mode keeps one-line copy during an active call too');
+  c.shadowRoot.querySelector('.workspace').removeAttribute('data-phone-short'); question(c);
+  assert.equal(c.shadowRoot.querySelector('textarea').placeholder, en.placeholderVoice, 'the expanded composer restores its voice invitation');
   assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.call, 'active');
   c.shadowRoot.querySelector('.voice-input').click(); await tick(); c.shadowRoot.querySelector('.voice-input').click(); await tick();
   assert.equal(shown(c), true); assert.ok(commands.some(([name]) => name === 'input'));
@@ -155,4 +161,79 @@ test('AIT-132: card answers use active voice forwarding once, and speaking close
   assert.equal(shown(c), true, 'captions alone do not persist an answer');
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'spoken', role: 'user', content: 'Both', callId, providerSessionId: 'qcard-voice' } });
   assert.equal(shown(c), false); assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.call, 'active');
+});
+
+test('AIT-225: the options scroll region has a translated accessible name and remains keyboard ordered across unrelated updates', () => {
+  for (const copy of [en, de]) {
+    const c = setup(copy); question(c);
+    const root = c.shadowRoot, region = root.querySelector('.qopts'), buttons = [...region.children];
+    assert.equal(region.getAttribute('role'), 'region');
+    assert.equal(root.querySelector(`#${region.getAttribute('aria-labelledby')}`).textContent, copy.questionCard.heading);
+    c.receive({ type: 'lane.status', data: { inputRevision: inputRevision(c.session), running: ['understanding'] } });
+    assert.deepEqual([...region.children], buttons);
+    assert.ok(buttons.every(button => button.tabIndex === 0));
+  }
+});
+
+test('AIT-225: shrinking or closing the card reserves only its visible height, including while reading', () => {
+  const host = document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}<textarea></textarea>`;
+  const shell = root.querySelector('.transcript-shell');
+  let following = true;
+  const card = new QuestionCard({ root, send() {}, followsTranscript: () => following });
+  card.card.getBoundingClientRect = () => ({ height: 290 });
+  card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
+  const reserved = () => root.querySelector('.conversation').style.getPropertyValue('--question-card-height');
+  assert.equal(reserved(), '290px');
+  following = false; card.card.getBoundingClientRect = () => ({ height: 150 });
+  card.reserve(); assert.equal(reserved(), '150px', 'no obsolete band survives a shorter card');
+  card.update(null, en, false); assert.equal(reserved(), '0px', 'closing leaves no empty reservation');
+  for (const event of [new window.Event('scroll'), new window.WheelEvent('wheel', { deltaY: 100 }), new window.KeyboardEvent('keydown', { key: 'End' })]) {
+    shell.dispatchEvent(event); card.reserve();
+    assert.equal(reserved(), '0px', 'scroll intent has no retained band to collapse');
+  }
+  card.destroy();
+});
+
+test('AIT-225: scroll and visual viewport resize reservations coalesce into one animation frame and disconnect cleanly', t => {
+  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}`;
+  const descriptor = Object.getOwnPropertyDescriptor(view, 'visualViewport'), viewport = new view.EventTarget();
+  Object.defineProperty(view, 'visualViewport', { configurable: true, value: viewport });
+  t.after(() => { if (descriptor) Object.defineProperty(view, 'visualViewport', descriptor); else delete view.visualViewport; });
+  const frames = [], cancelled = [];
+  t.mock.method(view, 'requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  t.mock.method(view, 'cancelAnimationFrame', id => cancelled.push(id));
+  const card = new QuestionCard({ root, send() {} });
+  let calls = 0; t.mock.method(card, 'reserve', () => calls++);
+  card.scheduleReserve(); card.scheduleReserve(); viewport.dispatchEvent(new view.Event('resize'));
+  view.dispatchEvent(new view.Event('resize'));
+  assert.equal(frames.length, 1); assert.equal(calls, 0, 'events do no synchronous layout work');
+  frames[0](); assert.equal(calls, 1);
+  viewport.scale = 2; viewport.dispatchEvent(new view.Event('resize'));
+  assert.equal(frames.length, 1, 'pinch zoom leaves the reader and dock in place');
+  viewport.scale = 1; viewport.dispatchEvent(new view.Event('resize'));
+  assert.equal(frames.length, 2, 'a later visual viewport resize schedules fresh geometry');
+  card.destroy(); assert.deepEqual(cancelled, [2]);
+  viewport.dispatchEvent(new view.Event('resize')); view.dispatchEvent(new view.Event('resize'));
+  assert.equal(frames.length, 2, 'disconnect removes both resize listeners');
+  const opts = card.card.querySelector('.qopts');
+  Object.defineProperties(opts, { scrollWidth: { value: 300 }, clientWidth: { value: 100 } });
+  card.card.setAttribute('data-compact', ''); opts.scrollLeft = 200;
+  card.connect(); opts.dispatchEvent(new view.Event('scroll'));
+  assert.equal(opts.hasAttribute('data-more-start'), true, 'reconnecting restores scroll-edge updates');
+  assert.equal(opts.hasAttribute('data-more-end'), false);
+  card.destroy(); opts.scrollLeft = 0; opts.dispatchEvent(new view.Event('scroll'));
+  assert.equal(opts.hasAttribute('data-more-start'), true, 'disconnect removes the option-scroll listener too');
+});
+
+test('AIT-225: desktop reservations do not inspect phone layout styles', t => {
+  const view = new Window(), host = view.document.createElement('div'), root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="workspace"><div class="conversation"></div><div class="transcript-shell"></div>${questionCardMarkup}</div>`;
+  t.mock.method(view, 'getComputedStyle', () => { throw new Error('phone-only style read on desktop'); });
+  const card = new QuestionCard({ root, send() {} });
+  card.card.getBoundingClientRect = () => ({ height: 290 });
+  card.update({ turnId: 'reply', question_short: 'Choose?', options }, en, false);
+  assert.equal(root.querySelector('.conversation').style.getPropertyValue('--question-card-height'), '290px');
+  card.destroy();
 });

@@ -4,7 +4,7 @@ import { deepFreeze } from '@inspr/aithema-core/plugins';
 import { createVoiceLifecycle, reduceVoiceLifecycle } from '@inspr/aithema-core/voice-lifecycle';
 import { recoverableVoiceEnd } from '@inspr/aithema-core/voice-lifecycle';
 import { voiceOperation, voiceLifetime } from '@inspr/aithema-core/live-voice';
-import { audioQueue, boundedEvents } from '../../../plugins/composed-voice/src/component.js';
+import { audioQueue, boundedEvents } from '../../../packages/core/src/voice-components.js';
 
 export function callDurationSeconds({ host, maxDurationSeconds = host === 'start2' ? 3600 : 900 } = {}) {
   if (!Number.isSafeInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400) throw new TypeError('Invalid call duration');
@@ -16,7 +16,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now = Date.now,
   spendDeadlineAt, browserLivenessDeadlineAt, host, maxDurationSeconds, endpointMs = 500,
   maxUtteranceMs = 30_000, maxPendingTurns = 4, maxTextCharacters = 32_768, fragmentCharacters = 240,
-  inputFormat = 'pcm_s16le', outputFormat = 'pcm_f32le', voice, context = {} } = {}) {
+  inputFormat = 'pcm_s16le', outputFormat = 'pcm_f32le', outputAudioFormat = { encoding: outputFormat, sampleRateHz: 24000, channels: 1 }, voice, context = {} } = {}) {
   if (!sessionId || !callId || !providerSessionId || !stt?.stream || !tts?.speak || !replyExecutor?.execute ||
     [admitComponent, authorize, commitUtterance, relay?.audio, relay?.silence, relay?.event].some(fn => typeof fn !== 'function') ||
     !Number.isSafeInteger(epoch) || epoch < 0 || inputFormat !== 'pcm_s16le' ||
@@ -120,7 +120,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           metadata: { epoch, utteranceId: turn.id, sequence: turn.sequence } } } });
       commits.set(turn.id, envelope);
       await voiceOperation(opts, bounded => commitUtterance(envelope, bounded));
-      event({ type: 'final', role: 'user', turnId: turn.id, text: final });
+      event({ type: 'final', role: 'user', turnId: turn.id, text: final, speechEndAt: turn.speechEndAt });
       dispatch({ type: 'accepted', turnId: turn.id });
       committed.resolve();
       await reply(envelope, turn.playbackRevision, signal);
@@ -145,7 +145,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           if (!(bytes instanceof Uint8Array) || bytes.byteLength > 64_000) throw new PluginError('limit');
           if (revision !== playbackRevision || !output || !current()) break;
           if (!speaking) { speaking = true; event({ type: 'speaking' }); }
-          await voiceOperation(opts, () => relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat, bytes }));
+          await voiceOperation(opts, () => relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat, sampleRateHz: outputAudioFormat.sampleRateHz, channels: outputAudioFormat.channels, bytes }));
         }
       });
     } catch (error) { if (!signal.aborted) throw error; }

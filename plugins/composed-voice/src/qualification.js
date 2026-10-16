@@ -45,14 +45,14 @@ export function evaluateQualification(samples, { blindPreference = 'pending' } =
 
 /** One shared ledger for every vendor, baseline, component and retry in a run.
  * OPS must persist the snapshot before dispatch for the later live run. */
-export function createQualificationBudget({ capMicro = QUALIFICATION_THRESHOLDS.capMicro, records = [] } = {}) {
+export function createQualificationBudget({ capMicro = QUALIFICATION_THRESHOLDS.capMicro, records = [], blocked: persistedBlocked = false } = {}) {
   if (!Number.isSafeInteger(capMicro) || capMicro < 0 || capMicro > QUALIFICATION_THRESHOLDS.capMicro || !Array.isArray(records)) throw new TypeError('Invalid qualification cap');
-  const claims = new Map(); let blocked = false;
+  const claims = new Map(); let blocked = persistedBlocked === true;
   for (const record of records) {
     if (!record.attemptId || claims.has(record.attemptId) || !Number.isSafeInteger(record.maxMicro) || record.maxMicro < 0 ||
       !Number.isSafeInteger(record.exposureMicro) || record.exposureMicro < 0 || !['reserved', 'dispatched', 'settled'].includes(record.state) ||
-      record.state !== 'settled' && record.exposureMicro !== record.maxMicro ||
-      record.state === 'settled' && record.outcome === 'uncertain' && record.exposureMicro < record.maxMicro) throw new TypeError('Invalid spend checkpoint');
+      record.state !== 'settled' && record.exposureMicro !== record.maxMicro && record.reconciled !== true ||
+      record.state === 'settled' && record.outcome === 'uncertain' && record.exposureMicro < record.maxMicro && record.reconciled !== true) throw new TypeError('Invalid spend checkpoint');
     claims.set(record.attemptId, structuredClone(record));
   }
   const exposure = () => [...claims.values()].reduce((sum, row) => sum + row.exposureMicro, 0);
