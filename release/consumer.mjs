@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, cpSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, cpSync, rmSync, mkdirSync, realpathSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,8 @@ import { verifyRelease, rollbackArtifact } from './pack.mjs';
 import { sha256 } from './lib/digest.mjs';
 import { compareVersions } from './lib/version.mjs';
 
-export function testConsumer(directory, { offline = true } = {}) {
+export function testConsumer(directory, { offline = true, bootOnly = false } = {}) {
+  const started = performance.now();
   directory = resolve(directory);
   const manifest = verifyRelease(directory), scratch = mkdtempSync(join(tmpdir(), 'aithema-consumer-'));
   const modules = manifest.artifacts.filter(artifact => artifact.kind === 'module');
@@ -55,15 +56,45 @@ export function testConsumer(directory, { offline = true } = {}) {
     writeFileSync(join(scratch, 'package.json'), JSON.stringify(hostPackage));
     writeFileSync(join(scratch, 'package-lock.json'), JSON.stringify(locked, null, 2) + '\n');
     cpSync(new URL('./consumer-smoke.mjs', import.meta.url), join(scratch, 'smoke.mjs'));
+    cpSync(new URL('./consumer-isolation.mjs', import.meta.url), join(scratch, 'isolation.mjs'));
     cpSync(new URL('../docs/embedding.md', import.meta.url), join(scratch, 'embedding.md'));
     writeFileSync(join(scratch, 'deployment-pin.json'), JSON.stringify(pin, null, 2) + '\n');
     mkdirSync(join(scratch, 'artifacts'));
     for (const artifact of modules) cpSync(join(directory, artifact.path), join(scratch, 'artifacts', artifact.path));
     const install = () => npm(['install', '--save-exact', ...modules.map(artifact => './artifacts/' + artifact.path)]);
-    const smoke = () => JSON.parse(execFileSync(process.execPath, ['smoke.mjs'], { cwd: scratch, encoding: 'utf8', timeout: 60_000 }).trim());
+    const smoke = () => {
+      // Match every installed package member to the verified tarball inventory,
+      // including package.json. Reject links even when they point inside the host.
+      const lock = JSON.parse(readFileSync(join(scratch, 'package-lock.json')));
+      let verifiedFiles = 0;
+      for (const artifact of modules) {
+        const installed = join(realpathSync(scratch), 'node_modules', artifact.name);
+        assert.equal(realpathSync(installed), join(realpathSync(scratch), 'node_modules', artifact.name), 'No workspace links');
+        const entry = lock.packages[`node_modules/${artifact.name}`];
+        assert.ok(!entry.link, 'Installed tarball, not a linked workspace');
+        assert.equal(entry.resolved, `file:artifacts/${artifact.path}`);
+        assert.equal(entry.integrity, locked.packages[`node_modules/${artifact.name}`].integrity);
+        for (const file of artifact.files) {
+          const path = join(installed, file.path);
+          assert.ok(lstatSync(path).isFile() && !lstatSync(path).isSymbolicLink(), 'Regular installed package member');
+          assert.equal(realpathSync(path), path, 'No linked parent directories');
+          assert.equal('sha256:' + sha256(readFileSync(path)), file.sha256, `${artifact.name}/${file.path} matches tarball`);
+          verifiedFiles++;
+        }
+      }
+      const result = JSON.parse(execFileSync(process.execPath, ['--import', './isolation.mjs', 'smoke.mjs'], {
+        cwd: scratch, encoding: 'utf8', timeout: 60_000, env: { PATH: process.env.PATH },
+      }).trim());
+      return { ...result, verified_packages: modules.length, verified_files: verifiedFiles, isolation: 'all module resolutions confined to temporary host' };
+    };
     npm(['ci']); const installed = smoke();
     for (const [path, pkg] of Object.entries(locked.packages)) {
       if (path) assert.equal(JSON.parse(readFileSync(join(scratch, path, 'package.json'))).version, pkg.version);
+    }
+    if (bootOnly) {
+      const evidence = { schema: 'aithema-tarball-boot/1', ...pin, installed, elapsed_ms: Math.round(performance.now() - started) };
+      writeFileSync(join(directory, 'boot-evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
+      return evidence;
     }
     const lockedBytes = readFileSync(join(scratch, 'package-lock.json'));
     rmSync(join(scratch, 'node_modules'), { recursive: true }); npm(['ci']); const reinstalled = smoke();
@@ -98,12 +129,12 @@ export function testConsumer(directory, { offline = true } = {}) {
     writeFileSync(join(directory, 'deployment-pin.json'), JSON.stringify(pin, null, 2) + '\n');
     cpSync(join(scratch, 'package-lock.json'), join(directory, 'consumer-package-lock.json'));
     const deployment = join(directory, 'consumer-deployment'); mkdirSync(deployment);
-    for (const name of ['package.json', 'package-lock.json', 'smoke.mjs', 'embedding.md', 'deployment-pin.json', 'artifacts']) {
+    for (const name of ['package.json', 'package-lock.json', 'smoke.mjs', 'isolation.mjs', 'embedding.md', 'deployment-pin.json', 'artifacts']) {
       cpSync(join(scratch, name), join(deployment, name), { recursive: true });
     }
     return evidence;
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(JSON.stringify(testConsumer(process.argv[2] ?? 'dist/release', { offline: !process.argv.includes('--online') })));
+  console.log(JSON.stringify(testConsumer(process.argv[2] ?? 'dist/release', { offline: !process.argv.includes('--online'), bootOnly: process.argv.includes('--boot-only') })));
 }

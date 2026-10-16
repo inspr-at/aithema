@@ -22,6 +22,10 @@ test('workflow parses, only a matching pushed tag admits release packing, and PR
   assert.ok(ci.jobs.test.steps.some(step => step.run?.includes('release/dry-run.mjs')));
   assert.equal(ci.jobs.browser['timeout-minutes'], 10); // 480 s is the measured budget, with runner headroom.
   assert.equal(ci.jobs.test['timeout-minutes'], 10);
+  const boot = ci.jobs.test.steps.find(step => step.name === 'Boot standalone host from candidate tarballs');
+  assert.equal(boot['timeout-minutes'], 2);
+  assert.equal(boot.if, ci.jobs.test.steps.find(step => step.run === 'npm test').if);
+  assert.match(boot.run, /npm run release:pack -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --candidate\nnpm run release:consumer -- "\$RUNNER_TEMP\/release-evidence\/tarball-boot" --boot-only/u);
   const upload = ci.jobs.test.steps.find(step => step.uses?.includes('upload-artifact'));
   assert.equal(upload.with.name, 'reset-candidate'); assert.equal(upload.with['retention-days'], 90);
   assert.match(upload.with.path, /release-evidence\/candidate\//u);

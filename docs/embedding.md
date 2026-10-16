@@ -9,6 +9,11 @@ See [candidate notes](../release/notes.md) and the [GitHub release route](../rel
 
 ## Consume Aithema as a module (START or another thin host)
 
+[START’s `host/`](https://github.com/augmentoring-team/start-agm-com/tree/main/host)
+is the living reference for a thin host consuming Aithema’s release tarballs.
+Follow that host’s current integration when wiring storage, consent and runtime
+lifecycle into a consuming application.
+
 On the build runner, retain the candidate directory and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
 From a separate host directory, install **all fifteen** module tarballs so npm
