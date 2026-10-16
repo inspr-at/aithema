@@ -158,7 +158,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     }).finally(committed.resolve));
     return turn;
   }
-  function createPlayback(revision, turnSignal, replyId) {
+  function createPlayback(revision, turnSignal, replyId, onFailure) {
     const queue = audioQueue(replyAudioBytes), controller = new AbortController(), fragments = [];
     const signal = AbortSignal.any([turnSignal, controller.signal]), opts = options(signal);
     let bytes = 0, chunks = 0, endAt, speaking = false, failure;
@@ -174,6 +174,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     signal.addEventListener('abort', clear, { once: true });
     const playback = {
       signal,
+      throwIfFailed() { if (failure) throw failure; },
       stop() { controller.abort(); clear(); },
       async beginSpeak() {
         // N+1 may open at N's provider terminal, but N+2 needs N's last
@@ -222,7 +223,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           if (!valid()) return;
           bytes -= chunk.byteLength; chunks--; fragment.pending--; drain();
         }
-      } catch (error) { if (!signal.aborted) failure = error; }
+      } catch (error) {
+        if (!signal.aborted) { failure = error; onFailure(error); }
+      }
       finally {
         playback.stop(); signal.removeEventListener('abort', clear); playbacks.delete(playback);
       }
@@ -244,10 +247,17 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         }
       });
       playback.endSpeak(fragment);
-    } catch (error) { if (!signal.aborted) throw error; }
+    } catch (error) {
+      // A relay failure aborts playback too, but must take the recovery path.
+      playback.throwIfFailed();
+      if (!signal.aborted) throw error;
+    }
     finally { speechJobs.delete(job); }
   }
-  async function reply(envelope, revision, signal) {
+  async function reply(envelope, revision, turnSignal) {
+    // Only playback failure cancels reasoning. Deliberate silence still lets
+    // admitted reasoning finish; keep the turn signal live for error recovery.
+    const controller = new AbortController(), signal = AbortSignal.any([turnSignal, controller.signal]);
     let pending = '', full = '', replyId, complete = false, playback;
     try {
       for await (const item of boundedEvents(replyExecutor.execute(envelope, options(signal)), options(signal))) {
@@ -255,7 +265,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         if (item.type === 'operation') {
           if (replyId || typeof item.replyId !== 'string') throw new PluginError('invalid-output');
           replyId = item.replyId;
-          playback = createPlayback(revision, signal, replyId);
+          playback = createPlayback(revision, signal, replyId, error => controller.abort(error));
         } else if (item.type === 'delta' && replyId && typeof item.text === 'string') {
           full += item.text; pending += item.text;
           if (full.length > maxTextCharacters) throw new PluginError('limit');
@@ -272,7 +282,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
           }
         } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
           complete = true;
-          // Publication belongs to admitted reasoning even if playback was interrupted.
+          // Deliberate silence retains completed reasoning. Playback failure
+          // aborts this reply signal and prevents any later final publication.
           if (!signal.aborted) {
             appendHistory('assistant', full);
             event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
@@ -282,6 +293,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       }
       if (!complete) throw new PluginError('invalid-output');
       await playback.finish();
+    } catch (error) {
+      // A failure can also interrupt a pending reasoning read, outside speak.
+      playback?.throwIfFailed();
+      throw error;
     } finally {
       if (playback) { playback.stop(); await playback.finish().catch(() => {}); }
     }
