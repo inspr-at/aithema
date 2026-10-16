@@ -339,7 +339,18 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
         if (width === 390) {
           // Emulate a keyboard that changes only visualViewport. The layout
           // viewport stays 390×844, so window.resize cannot drive this check.
-          await page.evaluate(() => {
+          await page.evaluate(async () => {
+            const { QuestionCard } = await import('/packages/ui/src/question-card.js');
+            if (!globalThis.qcardReserveOriginal) {
+              globalThis.qcardReserveOriginal = QuestionCard.prototype.reserve;
+              QuestionCard.prototype.reserve = function () {
+                const shell = this.root.querySelector('.transcript-shell');
+                const before = { viewport: visualViewport.height, following: this.followsTranscript(), resizing: this.followOnResize, held: this.held, height: this.height, scroll: shell.scrollTop, gap: shell.scrollHeight - shell.clientHeight - shell.scrollTop };
+                globalThis.qcardReserveOriginal.call(this);
+                (globalThis.qcardTrace ??= []).push({ before, after: { following: this.followsTranscript(), held: this.held, height: this.height, scroll: shell.scrollTop, gap: shell.scrollHeight - shell.clientHeight - shell.scrollTop, client: shell.clientHeight } });
+                globalThis.qcardTrace = globalThis.qcardTrace.slice(-12);
+              };
+            }
             globalThis.qcardNativeViewport = visualViewport;
             const viewport = new EventTarget(); Object.assign(viewport, { height: 844, offsetTop: 0, scale: 1 });
             Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
@@ -381,7 +392,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                 return { layoutHeight: innerHeight, viewport: visualViewport.height, compact: r.querySelector('.qcard').hasAttribute('data-compact'),
                   rowHeight: row.height, rowTop: row.top, rowBottom: row.bottom, optionsTop: opts.top, optionsBottom: opts.bottom,
                   cardTop: card.top, bubbleBottom: bubble.bottom, shellTop: shell.getBoundingClientRect().top, shellBottom: shell.getBoundingClientRect().bottom,
-                  composerBottom: composer.bottom, bandBottom: band.bottom };
+                  composerBottom: composer.bottom, bandBottom: band.bottom, trace: globalThis.qcardTrace };
               });
               assert.equal(keyboard.layoutHeight, 844, 'only the visual viewport shrinks');
               assert.equal(keyboard.compact, true, `390×${height}: short keyboard viewports explicitly use compact answers`);
