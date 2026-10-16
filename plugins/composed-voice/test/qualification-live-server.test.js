@@ -54,7 +54,7 @@ const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: s
 // Corpus packets and endpoint silence mirror configuration.test.js turn(); the
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
-async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'] } = {}) {
+async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
@@ -101,7 +101,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
     },
     async fetch(url, init) {
       if (url.includes('/convai/conversation/get-signed-url')) {
-        observed('reasoning'); assert.equal(init.method, 'GET');
+        observed('reasoning'); assert.equal(init.method ?? 'GET', 'GET');
         assert.equal(init.headers['xi-api-key'], sentinel);
         const mint = wireFixture.mints.find(value => value.name === 'websocket');
         return new Response(mint.response.body, { status: mint.response.status });
@@ -112,7 +112,8 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       return new Response('data: {"id":"gen-fixture","choices":[{"delta":{"content":"Danke. "},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
     },
   };
-  const server = createQualificationServer({ binding: liveBinding(), storage, keys, relayOrigin, transports,
+  const configured = liveBinding(); if (durationSeconds) configured.maxDurationSeconds = durationSeconds;
+  const server = createQualificationServer({ binding: configured, storage, keys, relayOrigin, transports,
     authenticateRelay: () => owner,
     handlers: { consent: { coverage(input) { return { ...input.scope, scope: input.scope, covered, consentRevision: input.consentRevision,
       checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }; } } } });
@@ -185,7 +186,7 @@ for (const [name, options, setup] of [
   ['owner', {}, h => ({ owner: 'someone-else' })], ['consent', { covered: false }, () => ({})],
   ['pause', {}, h => { h.storage.pause(h.session.id, true); return {}; }],
   ['withdrawn', {}, h => { h.storage.reviseConsent(h.session.id, false); return {}; }],
-  ['lifecycle hold', {}, h => { h.storage.transitionVoiceLifecycle(h.session.id, 'held-call', { type: 'pause', reason: 'purpose' }); return {}; }],
+  ['lifecycle hold', {}, h => { h.storage.transitionVoiceLifecycle(h.session.id, 'held-call', { type: 'start' }); h.storage.transitionVoiceLifecycle(h.session.id, 'held-call', { type: 'pause', reason: 'purpose' }); return {}; }],
 ]) test(`live ${name} refusal precedes every admission`, async t => {
   const h = await harness(t, options), override = setup(h);
   await assert.rejects(h.start('candidate', override));
@@ -225,4 +226,19 @@ test('host revoke stops sample before acknowledging the hold; next sample uses a
   assert.ok(h.storage.voiceCalls(h.session.id).every(call => call.terminal));
   const next = await h.start(); assert.notEqual(next.grant.providerSessionId, sample.grant.providerSessionId);
   await next.close(); await assert.rejects(next.result);
+});
+
+for (const refusal of ['admit', 'consume']) test(`baseline refused ${refusal} blocks mint and conversation wire`, async t => {
+  const h = await harness(t, { [refusal === 'admit' ? 'refuse' : 'refuseConsume']: 'reasoning' });
+  await assert.rejects(h.start('baseline'));
+  assert.equal(h.wires.length, 0); assert.equal(h.reports.length, refusal === 'consume' ? 1 : 0);
+});
+
+test('baseline paid duration closes an idle socket and persists uncertain terminal without browser cooperation', { timeout: 4000 }, async t => {
+  // Source: explicit binding maxDurationSeconds / MAX_SAMPLE_SECONDS, not a
+  // new quality threshold. A deliberately short synthetic lease exercises expiry.
+  const h = await harness(t, { durationSeconds: 1 }), sample = await h.start('baseline');
+  await assert.rejects(sample.result, /Missing qualification audio or transcript/);
+  assert.equal(h.reports.length, 1);
+  assert.ok(h.storage.voiceCalls(h.session.id)[0].terminal);
 });
