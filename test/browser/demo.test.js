@@ -1797,7 +1797,7 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
       localStorage.setItem('aithema-motion', 'off');
     }, theme);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await until(page, () => document.querySelector('aithema-session')?.session);
+    await until(page, () => document.documentElement.hasAttribute('data-host-ready') && document.querySelector('aithema-session')?.session);
     await inShadow(page, c => {
       const original = window.fetch.bind(window), held = Promise.withResolvers();
       window.customCatalog = { release: held.resolve, posts: [], reads: 0 };
