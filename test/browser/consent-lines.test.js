@@ -41,6 +41,7 @@ async function fixture(t, real = false, purpose = false) {
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     if (page.state && path.endsWith('/consent')) {
       if (request.method() === 'GET') return json({ contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
@@ -437,4 +438,81 @@ test('AIT-197 R3: save consent visibly retains the check icon', async t => {
   await page.locator('aithema-session >>> .voice-state button').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'voice-elevenlabs');
   assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none');
+});
+
+
+const genericConsent = /Einwilligung zur Verarbeitung erforderlich|(?:Current )?Processing consent required|current processing consent required/iu;
+async function noGenericConsent(page, label) {
+  const tree = await page.accessibility.snapshot({ interestingOnly: false });
+  assert.ok(tree, label + ': accessibility snapshot exists');
+  assert.doesNotMatch(JSON.stringify(tree), genericConsent, label + ': full accessibility tree, including shadow content');
+  const exposed = await page.evaluate(() => {
+    const results = [];
+    const walk = root => {
+      for (const n of root.querySelectorAll('*')) {
+        if (n.shadowRoot) walk(n.shadowRoot);
+        if (!n.checkVisibility({ visibilityProperty: true }) || n.closest('[inert], [hidden], dialog:not([open])')) continue;
+        results.push({ tag: n.tagName, class: n.className, title: n.getAttribute('title'), label: n.getAttribute('aria-label'),
+          tooltip: n.matches('[role="tooltip"]') ? n.textContent : null,
+          text: n.children.length ? null : n.textContent,
+          described: (n.getAttribute('aria-describedby') ?? '').split(/\s+/u).map(id => n.getRootNode().getElementById?.(id)?.textContent).filter(Boolean) });
+      }
+    };
+    walk(document); return results;
+  });
+  assert.doesNotMatch(JSON.stringify(exposed), genericConsent, label + ': visible text, titles, labels and referenced descriptions');
+  // Prove the snapshot traversed the component's shadow root rather than only the host.
+  const featureList = await shadow(page, c => c.shadowRoot.querySelector('.features').textContent);
+  assert.ok(featureList.length > 0);
+  return { accessibility: true, exposedCopy: true };
+}
+
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent in AT, intake, Settings, hover or focus`, { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  for (const width of [1440, 390]) {
+    await scene(page, locale, 'light', width, ['text', 'analysis', 'voice', 'html']);
+    await noGenericConsent(page, `${locale}/${width}/conversation`);
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(c.session); session.transcript = []; session.settings.origin = 'default';
+      c.configure({ copy, session });
+    }, locale);
+    await frame(page);
+    for (const preset of ['best', 'eu', 'device', 'custom']) {
+      const option = await page.$(`aithema-session >>> .chooser-option[data-preset="${preset}"]`);
+      assert.ok(option, 'each intake option exists');
+      await option.hover(); await noGenericConsent(page, `${locale}/${width}/intake/${preset}/hover`);
+      await page.mouse.move(-10, -10); await option.focus();
+      assert.equal(await option.evaluate(n => n.getRootNode().activeElement === n), true);
+      await noGenericConsent(page, `${locale}/${width}/intake/${preset}/focus`);
+      await option.dispose();
+    }
+    page.consentCatalog = await shadow(page, c => fetch(`/api/sessions/${c.session.id}/settings`).then(r => r.json()));
+    for (const info of Object.values(page.consentCatalog.presets)) {
+      if (!info.offered) continue;
+      info.status = 'consent'; info.reason = 'current processing consent required';
+      for (const option of [...info.models ?? [], ...info.voices ?? [], ...info.visuals ?? []]) {
+        option.status = 'consent'; option.reason = 'current processing consent required';
+      }
+    }
+    await shadow(page, c => c.openSettings());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="voice"] [role="option"][data-reason]'));
+    for (const selector of ['.preset-option', '[data-select="model"] [role="option"]', '[data-select="voice"] [role="option"]', '[data-select="visuals"] [role="option"]']) {
+      const name = /data-select="([^"]+)"/u.exec(selector)?.[1];
+      if (name) await page.locator(`aithema-session >>> [data-select="${name}"] .select__button`).click();
+      const rows = await page.$$(`aithema-session >>> ${selector}`);
+      assert.ok(rows.length > 0, selector + ': rows exist');
+      for (const [index, row] of rows.entries()) {
+        await row.hover(); await noGenericConsent(page, `${locale}/${width}/${selector}/${index}/hover`);
+        await page.mouse.move(-10, -10); await row.focus();
+        await noGenericConsent(page, `${locale}/${width}/${selector}/${index}/focus`);
+        await row.dispose();
+      }
+      if (name) await page.keyboard.press('Escape');
+    }
+    await page.keyboard.press('Escape');
+    page.consentCatalog = null;
+    t.diagnostic(`PASS AIT-215 ${evidenceCommit} ${locale} ${width}: accessibility tree, all intake and Settings options, hover and focus`);
+  }
 });
