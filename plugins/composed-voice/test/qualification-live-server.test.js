@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { createQualificationServer, validateQualificationBinding, matchQualificationEntities } from '../ops/qualification-live-server.mjs';
 import { fixtureBinding, fixtureVoiceSettings } from '../../elevenlabs/test/component-fixtures.js';
@@ -110,17 +111,18 @@ import { createNetworkRelayClient } from '../src/network-client.js';
 import { PluginError } from '@inspr/aithema-core/invocation';
 
 const owner = 'fixture-owner', relayOrigin = 'http://127.0.0.1:4567';
+const fixtureReplyText = 'Die Bestelllösung lässt sich so genauer planen.';
 const sentinel = 'SYNTHETIC_ONLY_NEVER_IN_EVIDENCE';
 const keys = Object.freeze({ ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: sentinel });
 // Corpus packets and endpoint silence mirror configuration.test.js turn(); the
 // 500 ms endpoint is composed-voice.js's endpointMs default, not a new threshold.
 const voiced = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.length; i += 2) bytes.writeInt16LE(8000, i); return bytes; };
 async function harness(t, { covered = true, retry = false, refuse, refuseConsume, texts = ['In Wien bei Müller GmbH.'], durationSeconds,
-  generation = 'gen-fixture', ttsRequestId, replyText = 'Die Bestelllösung lässt sich so genauer planen.' } = {}) {
+  generation = 'gen-fixture', ttsRequestId, replyText = fixtureReplyText } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: owner, locale: 'de' });
   const logs = [], browserResponses = [];
   for (const method of ['log', 'warn', 'error']) t.mock.method(console, method, (...args) => logs.push(args));
-  const specs = [], reports = [], wires = [], order = [], terminals = new Map(), sockets = [], ttsFrames = [], requests = [];
+  const specs = [], reports = [], wires = [], order = [], terminals = new Map(), sockets = [], ttsFrames = [], ttsFramesByAttempt = new Map(), requests = [];
   let sttIndex = 0, reasoningIndex = 0;
   const observed = role => {
     const spec = specs.findLast(value => value.role === role && !reports.some(report => report.attemptId === value.attemptId));
@@ -135,8 +137,9 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
         const socket = fixtureSocket({ role: 'stt', text: texts[sttIndex++] ?? 'Spätere Unterbrechung' }); sockets.push(socket); return socket;
       }
       if (request.url.includes('text-to-speech')) {
-        observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
-        const socket = { ...fixtureSocket({ role: 'tts', onSend: frame => ttsFrames.push(frame) }), requestId: ttsRequestId }; sockets.push(socket); return socket;
+        const spec = observed('tts'); assert.equal(request.headers['xi-api-key'], sentinel);
+        const frames = []; ttsFramesByAttempt.set(spec.attemptId, frames);
+        const socket = { ...fixtureSocket({ role: 'tts', onSend: frame => { frames.push(frame); ttsFrames.push(frame); } }), requestId: ttsRequestId }; sockets.push(socket); return socket;
       }
       throw new Error('Unexpected component socket');
     },
@@ -189,7 +192,7 @@ async function harness(t, { covered = true, retry = false, refuse, refuseConsume
       assert.notEqual(value.value.event?.type, 'waiting', JSON.stringify(value.value));
     }
   }
-  return { logs, browserResponses, server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit, requests, ttsFrames,
+  return { logs, browserResponses, server, storage, session, specs, reports, order, wires, start, open, audioFrame, admit, requests, ttsFrames, ttsFramesByAttempt,
   };
 }
 
@@ -247,8 +250,9 @@ test('candidate sends the production voice prompt and canonical shaped history, 
   assert.deepEqual(answer.ttsConfig, { model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings });
 });
 
-for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate exposes STT session and TTS ${ttsRequestId ? 'request ID' : 'explicit null'} to OPS terminals`, async t => {
-  const h = await harness(t, { ttsRequestId }), sample = await h.start(), transport = await h.open(sample);
+for (const replyText of [fixtureReplyText, 'Die 🧭 hilft bei der Planung.'])
+for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate speaks valid reply and exposes STT session and TTS ${ttsRequestId ? 'request ID' : 'explicit null'} to OPS terminals: ${replyText}`, async t => {
+  const h = await harness(t, { ttsRequestId, replyText }), sample = await h.start(), transport = await h.open(sample);
   await transport.sendAudio(voiced()); await transport.sendAudio(Buffer.alloc(16000)); await h.audioFrame(transport);
   await sample.close(); await sample.result;
   for (const spec of h.specs) {
@@ -260,8 +264,10 @@ for (const ttsRequestId of [undefined, 'fixture-tts-request']) test(`candidate e
       assert.equal(report.identityReason, ttsRequestId ? undefined : 'no-request-id');
       assert.equal(report.matchingKey.voiceId, 'fixture-voice');
       assert.equal(report.matchingKey.modelId, 'eleven_flash_v2_5');
-      assert.equal(report.matchingKey.characterCount, 8); // initialization + 'Danke. '
-      assert.match(report.matchingKey.textSha256, /^[a-f0-9]{64}$/u);
+      const wireText = h.ttsFramesByAttempt.get(spec.attemptId).map(frame => frame.text).join('');
+      assert.equal(wireText, ` ${replyText} `, 'production safeguards pass the valid reply to TTS without substituting a fallback');
+      assert.equal(report.matchingKey.characterCount, [...wireText].length);
+      assert.equal(report.matchingKey.textSha256, createHash('sha256').update(wireText).digest('hex'));
       assert.ok(Date.parse(report.matchingKey.endedAt) >= Date.parse(report.matchingKey.startedAt));
       assert.equal(report.matchingKey.text, undefined);
     }
