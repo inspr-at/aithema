@@ -1208,7 +1208,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const gap = (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
     // AIT-260: notice, version/host/build stack, then optional host notes.
     const rhythm = [gap(root.querySelector('#ai-notice'), row), gap(row, root.querySelector('.host-version')),
-      gap(root.querySelector('.host-version'), build.querySelector('.build-label')), gap(build.querySelector('.build-label'), notes)];
+      gap(root.querySelector('.host-version'), build.querySelector('.build-label')),
+      gap(root.querySelector('.phone-status').checkVisibility({ checkVisibilityCSS: true }) ? root.querySelector('.phone-status') : build.querySelector('.build-label'), notes)];
     const rowStyle = getComputedStyle(row);
     const ring = rowStyle.outlineStyle !== 'none' && parseFloat(rowStyle.outlineWidth) > 0;
     const rowBox = row.getBoundingClientRect();
