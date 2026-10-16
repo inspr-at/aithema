@@ -93,6 +93,16 @@ owner admission; `wallet(ownerToken)` and `credits` supply the host account UI.
 For paid models, register the chosen plugin factory and supply qualified private
 bindings in the preset choices; mock presets alone never enable a paid route.
 
+Both `SQLiteBudgetLedger` caps apply **per conversation**: `sessionCapMicro`
+(`session`) bounds upstream usage, and `visitorCapMicro` (`voiceVisitor`) bounds
+only that conversation's voice charge. `maxVisitorMicro` is the admission's
+per-conversation voice maximum; reasoning admissions use `0`. Despite its name,
+`visitorCapMicro` does not bound a visitor's or owner's total across conversations.
+Enforce owner- or visitor-wide limits in the host's owner-wallet port
+(`canAdmit` preview and atomic `admit`), supplied through `walletForSession`.
+See the [README host ports section](../README.md#host-ports-ait-104-part-a)
+for the wallet admission contract.
+
 ## Server handlers
 
 This complete local example starts a mock-only server. The memory ledger starts
