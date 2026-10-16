@@ -81,6 +81,14 @@ test('AIT-228 manual copy evidence: 12 viewport/theme/locale combinations', { ti
         await shot(label, state + '-footer');
       }
     }
+    await shadow(page, c => {
+      c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'failed' } } });
+      c.shadowRoot.querySelector('.concept-request').scrollIntoView({ block: 'center' });
+    });
+    await shot(label, 'retry');
+    await shadow(page, c => c.shadowRoot.querySelector('.concept-tab').click());
+    await shot(label, 'regenerate');
+    await shadow(page, c => c.shadowRoot.querySelector('.concept-close').click());
     // The real mock consent page with a locale-specific session response; all copy is production copy.
     const session = await shadow(page, c => c.session);
     await page.setRequestInterception(true);

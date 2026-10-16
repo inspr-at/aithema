@@ -327,16 +327,16 @@ for (const copy of [de, en]) test(`AIT-229: ${copy === de ? 'DE' : 'EN'} preset-
   assert.equal(calls.filter(url => url.endsWith('/html')).length, 1, 'cached bytes are reused');
 });
 
-test('AIT-228: rendered overview, locale flag and all draft actions retain their nodes across quote changes', t => {
+test('AIT-228: rendered overview, locale flag and all draft actions retain their nodes across quote changes', async t => {
   for (const copy of [de, en]) {
-    const { c, root } = fixture(t, { copy, cost: { maxMicro: 0 } });
+    const { c, root, refresh } = fixture(t, { copy, cost: { maxMicro: 0 } });
+    receive(c, 'concept.state', { intent: c.session.conceptIntent, status: { phase: 'failed' } });
     assert.equal(root.querySelector('#understanding-title').textContent, copy.understanding);
     assert.equal(root.querySelector('.concept-tab').textContent, copy.conceptTab);
     assert.equal(root.querySelector('.engine__flag').dataset.kind, copy.display.locale);
     const request = root.querySelector('.concept-request'), regenerate = root.querySelector('.concept-regenerate');
     for (const [micro, label] of [[0, ''], [1, `< 1 ${copy.display.credit}`], [10000, `1 ${copy.display.credit}`], [20000, `2 ${copy.display.credits}`]]) {
-      const session = c.session; session.conceptCost = { maxMicro: micro }; session.conceptStatus = { phase: 'failed' };
-      c.configure({ copy, session });
+      await refresh({ available: true }, { maxMicro: micro });
       assert.equal(root.querySelector('.concept-request'), request);
       assert.equal(root.querySelector('.concept-regenerate'), regenerate);
       assert.equal(request.textContent, [copy.conceptRetry, label].filter(Boolean).join('\u00a0· '));
