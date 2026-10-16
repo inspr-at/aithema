@@ -93,7 +93,7 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
         // The OPS browser forwards these onTiming events from its physical ports.
         // Every component/reasoning attempt and retry must use this shared admit.
         const result = await host.runSample({ item, lane, runId: plan.runId,
-          admit: spec => budget.admit({ ...spec, lane }), onTiming: probe.onTiming });
+          admit: spec => budget.admit({ ...spec, lane, runId: plan.runId }), onTiming: probe.onTiming });
         const media = probe.evidence();
         const sample = { ...media, physicalBrowserMedia: result.physicalBrowserMedia,
           reference: item.reference, hypothesis: result.hypothesis, entities: result.entities };

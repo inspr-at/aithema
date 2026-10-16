@@ -19,11 +19,14 @@ export function createQualificationHost(options = {}) {
   if (!Number.isSafeInteger(sampleTimeoutMs) || sampleTimeoutMs < 1 || sampleTimeoutMs > 20 * 60_000) throw new TypeError('sampleTimeoutMs must be 1..1200000');
   if (options.launchBrowser !== undefined && typeof options.launchBrowser !== 'function') throw new TypeError('launchBrowser must be a function');
   if (!options.ownerHeaders || !Object.keys(options.ownerHeaders).length) throw new TypeError('Existing owner authentication headers required');
+  if (!/^[a-f0-9]{64}$/u.test(options.controlCapability ?? '')) throw new TypeError('CLI controlCapability required');
+  if (Object.keys(options.ownerHeaders).some(name => name.toLowerCase() === 'x-aithema-qualification-control')) throw new TypeError('Control capability must stay out of browser ownerHeaders');
   const lifetimes = new Set(); let closed = false, running = false;
   const headers = { ...options.ownerHeaders };
   const post = async (input, signal) => {
     const response = await fetch(`${hostOrigin}/composed/qualification/control`, { method: 'POST', redirect: 'error',
-      signal: signal ?? AbortSignal.timeout(15_000), headers: { ...headers, origin: hostOrigin, 'content-type': 'application/json' }, body: JSON.stringify(input) });
+      signal: signal ?? AbortSignal.timeout(15_000), headers: { ...headers, origin: hostOrigin, 'content-type': 'application/json',
+        'x-aithema-qualification-control': options.controlCapability }, body: JSON.stringify(input) });
     if (!response.ok) throw new Error(`Qualification control refused (${response.status})`);
     return response.json();
   };

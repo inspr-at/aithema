@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createQualificationMount, qualificationSettings, loadQualificationKeys } from '../ops/qualification-server.mjs';
+import { createQualificationMount, qualificationSettings, loadQualificationKeys, loadQualificationControl } from '../ops/qualification-server.mjs';
 import { createQualificationHost } from '../ops/qualification-host-template.mjs';
 import { startChild, temporaryDb } from '../../../test/helpers.js';
 import { spawn, spawnSync } from 'node:child_process';
@@ -14,6 +14,7 @@ import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { initializeQualificationBudget, openPersistedQualificationBudget } from '../src/persisted-budget.js';
 
 const sentinel = 'SENTINEL_FAKE_QUALIFICATION_VALUE_NEVER_LOG';
 async function keysFixture(t) {
@@ -23,6 +24,22 @@ async function keysFixture(t) {
   await writeFile(path, `# run-window fake only\n\nELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}=suffix\n`, { mode: 0o600 });
   return { directory, path, values: { AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_COMPOSED_KEYS_FILE: path } };
 }
+
+const fakeControl = { capability: 'a'.repeat(64), runId: 'fixture-run', budgetPath: '/unused/fixture.sqlite' };
+async function controlFixture(t, runId = 'fixture-run') {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-control-')), budgetPath = join(directory, 'budget.sqlite');
+  initializeQualificationBudget({ path: budgetPath });
+  const budget = openPersistedQualificationBudget({ path: budgetPath,
+    verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'SENTINEL_FAKE_PRICE', expiresAt: Date.now() + 60_000 }),
+    verifyReceipt: async () => false });
+  budget.claimRun(runId);
+  const control = { ...fakeControl, runId, budgetPath }, controlFile = join(directory, 'control.json');
+  await writeFile(controlFile, JSON.stringify(control), { mode: 0o600 });
+  t.after(async () => { budget.close(); await rm(directory, { recursive: true, force: true }); });
+  return { control, controlFile, budget };
+}
+const attemptSpec = attemptId => ({ attemptId, lane: 'candidate', role: 'stt', provider: 'fixture', model: 'fixture',
+  operation: 'stream', accountRef: 'offline-fixture', endpoint: 'https://fixture.invalid', maxMicro: 100, request: { fixture: true } });
 
 test('qualification flag is default-off and loopback bind/origin are mandatory', async () => {
   assert.deepEqual(qualificationSettings({}), { enabled: false });
@@ -43,7 +60,7 @@ test('qualification flag is default-off and loopback bind/origin are mandatory',
 test('OPS template is inert, requires browser-facing hostOrigin and every accounting port', () => {
   assert.throws(() => createQualificationHost(), /loopback/);
   let calls = 0;
-  const base = { hostOrigin: 'http://127.0.0.1:4567', runDirectory: '/unused', ownerHeaders: { cookie: 'fixture' },
+  const base = { hostOrigin: 'http://127.0.0.1:4567', runDirectory: '/unused', ownerHeaders: { cookie: 'fixture' }, controlCapability: fakeControl.capability,
     verifyCeiling() { calls++; }, verifyReceipt() { calls++; }, reconcile() { calls++; } };
   for (const port of ['verifyCeiling', 'verifyReceipt', 'reconcile']) assert.throws(() => createQualificationHost({ ...base, [port]: undefined }), new RegExp(port));
   const host = createQualificationHost(base); assert.equal(calls, 0); assert.equal(host.verifyCeiling, base.verifyCeiling);
@@ -71,7 +88,7 @@ test('demo leaves qualification routes and browser assets unreachable without fl
 
 test('enabled mount enforces tunnel Host, owner authentication and cross-origin guards', async t => {
   let calls = 0;
-  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+  const mount = createQualificationMount({ enabled: true, control: fakeControl, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
     authenticateRelay: request => request.headers.get('cookie') === 'fixture' ? 'owner' : null,
     networkRelay: { handle: async () => { calls++; return new Response(null, { status: 204 }); } }, createSample() { assert.fail(); } });
   t.after(() => mount.close());
@@ -84,7 +101,7 @@ test('enabled mount enforces tunnel Host, owner authentication and cross-origin 
 });
 
 test('flagged demo serves the authenticated hook and mounts binary relay before JSON guards', async t => {
-  const keys = await keysFixture(t);
+  const keys = await keysFixture(t), { controlFile } = await controlFixture(t);
   const module = join(keys.directory, 'server.mjs');
   await writeFile(module, `
 import { createQualificationServer as fixture } from ${JSON.stringify(new URL('../../../test/fixtures/composed-qualification-provider.mjs', import.meta.url).href)};
@@ -93,7 +110,7 @@ export function createQualificationServer(options) {
   return fixture(options);
 }`);
   const fixture = await startChild(new URL('../../../demo/server.js', import.meta.url), await temporaryDb(), {
-    ...keys.values, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
+    ...keys.values, AITHEMA_COMPOSED_CONTROL_FILE: controlFile, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
     AITHEMA_COMPOSED_QUALIFICATION_MODULE: module, ELEVENLABS_API_KEY: 'ambient-poison', OPENROUTER_API_KEY: 'ambient-poison',
   });
   t.after(() => fixture.kill());
@@ -111,10 +128,11 @@ export function createQualificationServer(options) {
 
 test('remote sample cannot dispatch until persisted consume acknowledgement; refusal blocks work', async t => {
   let dispatched = 0;
-  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+  const { control, budget } = await controlFixture(t, 'denied-run');
+  const mount = createQualificationMount({ enabled: true, control, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
     authenticateRelay: () => 'owner', networkRelay: { handle() {} },
     async createSample({ admit }) {
-      const { attempt } = await admit({ attemptId: 'denied-attempt' });
+      const { attempt } = await admit(attemptSpec('denied-attempt'));
       await attempt.consume(); dispatched++;
       assert.fail('Denied consume dispatched');
     },
@@ -122,13 +140,15 @@ test('remote sample cannot dispatch until persisted consume acknowledgement; ref
   t.after(() => mount.close());
   const post = async input => {
     const response = await mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
-      headers: { host: '127.0.0.1:4567' }, body: JSON.stringify(input) }));
+      headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': fakeControl.capability }, body: JSON.stringify(input) }));
     assert.equal(response.status, 200); return response.json();
   };
   const { sampleId } = await post({ action: 'start', lane: 'candidate', runId: 'denied-run', item: { id: 'one' } });
   const { event: admission } = await post({ action: 'poll', sampleId });
   assert.equal(admission.type, 'admit'); assert.equal(dispatched, 0);
-  await post({ action: 'ack', sampleId, id: admission.id, value: { attemptId: 'denied-attempt', claimId: 'fixture', maxMicro: 100 } });
+  const admitted = await budget.admit({ ...attemptSpec('denied-attempt'), runId: control.runId });
+  const { attemptId, claimId, maxMicro } = admitted.attempt;
+  await post({ action: 'ack', sampleId, id: admission.id, value: { attemptId, claimId, maxMicro } });
   const { event: consume } = await post({ action: 'poll', sampleId });
   assert.equal(consume.type, 'consume'); assert.equal(dispatched, 0);
   await post({ action: 'ack', sampleId, id: consume.id, error: true });
@@ -137,9 +157,10 @@ test('remote sample cannot dispatch until persisted consume acknowledgement; ref
 });
 
 test('remote close acknowledgement and next sample wait for confirmed OPS shutdown', async t => {
+  const { control } = await controlFixture(t, 'stop-proof');
   const stopped = Promise.withResolvers(), answer = Promise.withResolvers();
   let signal;
-  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
+  const mount = createQualificationMount({ enabled: true, control, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567',
     authenticateRelay: () => 'owner', networkRelay: { handle() {} },
     async createSample(options) {
       signal = options.signal;
@@ -148,7 +169,7 @@ test('remote close acknowledgement and next sample wait for confirmed OPS shutdo
   });
   t.after(() => mount.close());
   const post = input => mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
-    headers: { host: '127.0.0.1:4567' }, body: JSON.stringify(input) }));
+    headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': fakeControl.capability }, body: JSON.stringify(input) }));
   const input = { action: 'start', lane: 'candidate', runId: 'stop-proof', item: { id: 'one' } };
   const { sampleId } = await (await post(input)).json();
   let acknowledged = false;
@@ -157,6 +178,92 @@ test('remote close acknowledgement and next sample wait for confirmed OPS shutdo
   assert.equal(signal.aborted, true); assert.equal(acknowledged, false);
   assert.equal((await post(input)).status, 400);
   stopped.resolve(); assert.equal((await closing).status, 200);
+});
+
+test('control capability protects start, poll, acknowledgements and stop from another loopback visitor', async t => {
+  const { control } = await controlFixture(t);
+  let starts = 0;
+  const result = Promise.withResolvers(); result.promise.catch(() => {});
+  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567', control,
+    authenticateRelay: () => 'visitor', networkRelay: { handle() {} },
+    createSample() { starts++; return { grant: {}, result: result.promise, close() { result.reject(new Error('Closed')); } }; } });
+  t.after(() => mount.close());
+  const post = (input, capability) => mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+    headers: { host: '127.0.0.1:4567', ...(capability === undefined ? {} : { 'x-aithema-qualification-control': capability }) }, body: JSON.stringify(input) }));
+  const start = { action: 'start', lane: 'candidate', runId: control.runId, item: { id: 'one' } };
+  for (const capability of [undefined, 'wrong', 'b'.repeat(64)]) assert.equal((await post(start, capability)).status, 403);
+  assert.equal(starts, 0);
+  const { sampleId } = await (await post(start, control.capability)).json();
+  for (const action of ['start', 'ack', 'poll', 'close']) {
+    assert.equal((await post({ ...start, action, sampleId, id: 'forged', value: { attemptId: 'forged' } })).status, 403);
+  }
+  assert.equal(starts, 1);
+  assert.equal((await post({ action: 'close', sampleId }, control.capability)).status, 200);
+});
+
+test('only matching admissions and committed consumes from this run can dispatch; all dispatches are in the ledger', async t => {
+  const { control, budget } = await controlFixture(t), dispatched = [];
+  const spec = attemptSpec('ledger-bound-attempt'), answer = Promise.withResolvers(); answer.promise.catch(() => {});
+  const mount = createQualificationMount({ enabled: true, hostname: '127.0.0.1', relayOrigin: 'http://127.0.0.1:4567', control,
+    authenticateRelay: () => 'owner', networkRelay: { handle() {} }, async createSample({ admit }) {
+      const admission = await admit(spec);
+      await admission.dispatch(async ({ attempt, report }) => {
+        const stored = budget.snapshot().records.find(row => row.attemptId === attempt.attemptId);
+        assert.equal(stored.state, 'dispatched'); assert.equal(stored.runId, control.runId);
+        dispatched.push(attempt.attemptId);
+        await report({ attemptId: attempt.attemptId, outcome: 'completed' });
+      });
+      return { grant: {}, result: answer.promise, close() { answer.reject(new Error('Closed')); } };
+    } });
+  t.after(() => mount.close());
+  const post = input => mount.handle(new Request('http://localhost/composed/qualification/control', { method: 'POST',
+    headers: { host: '127.0.0.1:4567', 'x-aithema-qualification-control': control.capability }, body: JSON.stringify(input) }));
+  assert.equal((await post({ action: 'start', lane: 'candidate', runId: 'other-run', item: {} })).status, 403);
+  const { sampleId } = await (await post({ action: 'start', lane: 'candidate', runId: control.runId, item: {} })).json();
+  const { event: admission } = await (await post({ action: 'poll', sampleId })).json();
+  const ack = (event, value) => post({ action: 'ack', sampleId, id: event.id, value });
+  const identity = { attemptId: spec.attemptId, claimId: `qualification-${spec.attemptId}`, maxMicro: 100 };
+  assert.equal((await ack(admission, identity)).status, 403, 'Identity without durable reservation');
+  budget.claimRun('other-run');
+  const other = await budget.admit({ ...attemptSpec('other-attempt'), runId: 'other-run' });
+  assert.equal((await ack(admission, { attemptId: other.attempt.attemptId, claimId: other.attempt.claimId, maxMicro: 100 })).status, 403);
+  const admitted = await budget.admit({ ...spec, runId: control.runId });
+  for (const forged of [{ ...identity, attemptId: 'unknown' }, { ...identity, claimId: 'forged' }, { ...identity, maxMicro: 0 }]) {
+    assert.equal((await ack(admission, forged)).status, 403);
+  }
+  assert.equal((await ack({ id: 'unknown' }, identity)).status, 403);
+  assert.equal(dispatched.length, 0);
+  assert.equal((await ack(admission, identity)).status, 200);
+  const { event: consume } = await (await post({ action: 'poll', sampleId })).json();
+  assert.equal((await ack(consume)).status, 403, 'Client cannot pretend consume committed');
+  assert.equal(dispatched.length, 0);
+  await admitted.attempt.consume();
+  assert.equal((await ack(consume)).status, 200);
+  const { event: terminal } = await (await post({ action: 'poll', sampleId })).json();
+  assert.equal((await ack(terminal)).status, 403, 'Client cannot pretend terminal committed');
+  await admitted.report(terminal.terminal);
+  assert.equal((await ack(terminal)).status, 200);
+  const { event: ready } = await (await post({ action: 'poll', sampleId })).json();
+  assert.equal(ready.type, 'ready');
+  assert.deepEqual(dispatched, [spec.attemptId]);
+  assert.ok(dispatched.every(id => budget.snapshot().records.some(row => row.attemptId === id && row.state === 'settled' && row.runId === control.runId)));
+  assert.equal((await post({ action: 'close', sampleId })).status, 200);
+});
+
+test('control authority is flag-only, private-file-only, and never accepted as browser headers', async t => {
+  const { controlFile, control } = await controlFixture(t);
+  assert.equal(await loadQualificationControl({}), undefined);
+  const values = { AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_COMPOSED_CONTROL_FILE: controlFile };
+  assert.deepEqual(await loadQualificationControl(values), control);
+  await chmod(controlFile, 0o644);
+  await assert.rejects(loadQualificationControl(values), /0600/);
+  await chmod(controlFile, 0o600);
+  await symlink(controlFile, `${controlFile}.link`);
+  await assert.rejects(loadQualificationControl({ ...values, AITHEMA_COMPOSED_CONTROL_FILE: `${controlFile}.link` }), /non-symlink/);
+  await writeFile(controlFile, '{bad');
+  await assert.rejects(loadQualificationControl(values), /valid per-run authority/);
+  assert.throws(() => createQualificationHost({ ...hostOptions('/unused'), controlCapability: undefined }), /controlCapability/);
+  assert.throws(() => createQualificationHost({ ...hostOptions('/unused'), ownerHeaders: { 'X-Aithema-Qualification-Control': control.capability } }), /browser ownerHeaders/);
 });
 
 
@@ -224,7 +331,7 @@ function inertBrowser(evidence) {
       async goto() { return { status: () => 200 }; }, async waitForFunction() {}, async evaluate() { return evidence; } }; } };
 }
 const hostOptions = directory => ({ hostOrigin: 'http://127.0.0.1:4567', runDirectory: directory,
-  ownerHeaders: { cookie: 'fixture' }, verifyCeiling() {}, verifyReceipt() {}, reconcile() {} });
+  ownerHeaders: { cookie: 'fixture' }, controlCapability: fakeControl.capability, verifyCeiling() {}, verifyReceipt() {}, reconcile() {} });
 const sampleOptions = wavPath => ({ item: { id: 'one', wavPath }, lane: 'candidate', runId: 'probe-refusal',
   admit() { assert.fail('No dispatch before probe'); }, onTiming() {} });
 
@@ -269,7 +376,7 @@ test('launcher must arm watchdog; wall-clock timeout and host close kill even a 
 
 
 test('output probe requires labelled output, positive latency and both device clocks advancing for 500ms', async () => {
-  for (const variation of ['real', 'unlabelled', 'zeroLatency', 'contextStalled', 'performanceStalled', 'noAPI']) {
+  for (const variation of ['real', 'fake', 'fakeAliases', 'mixed', 'unlabelled', 'zeroLatency', 'contextStalled', 'performanceStalled', 'noAPI']) {
     let reads = 0, now = 0, closed = false;
     class AudioContext {
       outputLatency = variation === 'zeroLatency' ? 0 : 0.01;
@@ -284,11 +391,24 @@ test('output probe requires labelled output, positive latency and both device cl
       }
     }
     const evidence = await runInNewContext(`(${probeOutputDevice.toString()})()`, {
-      navigator: { mediaDevices: { async enumerateDevices() { return [{ kind: 'audiooutput', label: variation === 'unlabelled' ? '' : 'Output' }]; } } },
+      navigator: { mediaDevices: { async enumerateDevices() { return variation === 'fake' ? ['Fake Default Audio Output', 'Fake Audio Output 1', 'Fake Audio Output 2'].map(label => ({ kind: 'audiooutput', label })) :
+        variation === 'fakeAliases' ? [{ kind: 'audiooutput', label: 'Fake Audio Output 1', groupId: 'fake' },
+          { kind: 'audiooutput', deviceId: 'default', groupId: 'fake', label: 'Default' },
+          { kind: 'audiooutput', deviceId: 'communications', label: 'Communications - Fake Audio Output 1' }] :
+        variation === 'mixed' ? [{ kind: 'audiooutput', label: 'Fake Audio Output 1' }, { kind: 'audiooutput', label: 'MacBook Speakers' }] :
+        [{ kind: 'audiooutput', label: variation === 'unlabelled' ? '' : 'Output' }]; } } },
       AudioContext: variation === 'noAPI' ? undefined : AudioContext,
       performance: { now: () => now }, setTimeout(resolve) { now += 550; resolve(); },
     });
-    assert.equal(evidence.verified, variation === 'real', variation);
+    assert.equal(evidence.verified, ['real', 'mixed'].includes(variation), variation);
+    if (['fake', 'fakeAliases'].includes(variation)) {
+      assert.equal(evidence.realAudioOutputs, 0); assert.equal(evidence.fakeAudioOutputs, 3);
+      assert.equal(evidence.fakeAudioOutputLabels.length, 3);
+    }
+    if (variation === 'mixed') {
+      assert.equal(evidence.realAudioOutputs, 1); assert.equal(evidence.fakeAudioOutputs, 1);
+      assert.deepEqual(Array.from(evidence.realAudioOutputLabels), ['MacBook Speakers']);
+    }
     if (variation !== 'noAPI') assert.equal(closed, true);
   }
 });

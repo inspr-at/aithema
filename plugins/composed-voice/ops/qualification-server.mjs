@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { lstat, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { isAbsolute } from 'node:path';
+import { qualificationRequestDigest, readPersistedQualificationSnapshot } from '../src/persisted-budget.js';
 
 const keyNames = Object.freeze(['ELEVENLABS_API_KEY', 'OPENROUTER_API_KEY']);
 
@@ -44,6 +45,30 @@ export async function loadQualificationKeys(values = process.env, { uid = proces
   return Object.freeze(keys);
 }
 
+/** CLI-created, server-only per-run authority. Never sent to the browser. */
+export async function loadQualificationControl(values = process.env) {
+  if (values.AITHEMA_COMPOSED_QUALIFICATION !== '1') return undefined;
+  const path = values.AITHEMA_COMPOSED_CONTROL_FILE;
+  if (!isAbsolute(path ?? '')) throw new TypeError('Absolute AITHEMA_COMPOSED_CONTROL_FILE required');
+  let file;
+  try {
+    const before = await lstat(path);
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error();
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = await file.stat();
+    if (!stat.isFile() || before.dev !== stat.dev || before.ino !== stat.ino || stat.uid !== process.getuid() ||
+      (stat.mode & 0o7777) !== 0o600 || stat.size > 16_384) throw new Error();
+    return validateControl(JSON.parse(await file.readFile('utf8')));
+  } catch { throw new Error('Qualification control file must contain valid per-run authority in a user-owned regular non-symlink 0600 file'); }
+  finally { await file?.close(); }
+}
+
+function validateControl(control) {
+  if (!/^[a-f0-9]{64}$/u.test(control?.capability ?? '') || typeof control.runId !== 'string' || !control.runId ||
+    !isAbsolute(control.budgetPath ?? '')) throw new TypeError('Per-run qualification control authority required');
+  return Object.freeze({ capability: control.capability, runId: control.runId, budgetPath: control.budgetPath });
+}
+
 export function loopbackOrigin(value) {
   let url;
   try { url = new URL(value); } catch { throw new TypeError('Explicit loopback http(s) origin required'); }
@@ -78,10 +103,42 @@ async function body(request) {
 /** No listener or provider is started here. OPS builds its composed factory with
  * this same authenticateRelay and relayOrigin, retaining stored owner/consent
  * checks and revoke propagation. Only this mount is added to the demo host. */
-export function createQualificationMount({ enabled = false, hostname, relayOrigin, authenticateRelay, networkRelay, createSample } = {}) {
+export function createQualificationMount({ enabled = false, hostname, relayOrigin, authenticateRelay, networkRelay, createSample, control } = {}) {
   if (enabled) {
     qualificationSettings({ AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_LISTEN_HOST: hostname, AITHEMA_COMPOSED_RELAY_ORIGIN: relayOrigin });
     if (![authenticateRelay, networkRelay?.handle, createSample].every(fn => typeof fn === 'function')) throw new TypeError('OPS qualification server ports required');
+    control = validateControl(control);
+  }
+  const capabilityHash = enabled ? createHash('sha256').update(control.capability).digest() : undefined;
+  function authorized(request) {
+    // Fixed-length digests keep the comparison constant-time even for wrong-length inputs.
+    return timingSafeEqual(capabilityHash, createHash('sha256').update(request.headers.get('x-aithema-qualification-control') ?? '').digest());
+  }
+  function acknowledged(row, pending, value) {
+    const snapshot = readPersistedQualificationSnapshot(control.budgetPath);
+    if (snapshot.blocked || !snapshot.runs?.includes(control.runId)) throw new Error();
+    const attemptId = pending.type === 'admit' ? pending.payload.spec.attemptId : pending.payload.attemptId;
+    const stored = snapshot.records.find(record => record.attemptId === attemptId && record.runId === control.runId && record.lane === row.lane);
+    if (!stored) throw new Error();
+    if (pending.type === 'admit') {
+      const spec = pending.payload.spec;
+      if (stored.state !== 'reserved' || row.admissions.has(attemptId) ||
+        ['provider', 'model', 'operation', 'accountRef', 'endpoint', 'role', 'maxMicro'].some(key => stored[key] !== spec[key]) ||
+        stored.retryOf !== (spec.retryOf ?? null) || stored.requestDigest !== qualificationRequestDigest(spec.request) ||
+        value?.attemptId !== stored.attemptId || value.claimId !== `qualification-${stored.attemptId}` || value.maxMicro !== stored.maxMicro) throw new Error();
+      // Resolve from the ledger, never from client-supplied identity fields.
+      const identity = { attemptId: stored.attemptId, claimId: `qualification-${stored.attemptId}`, maxMicro: stored.maxMicro };
+      row.admissions.set(attemptId, { consumed: false });
+      return identity;
+    }
+    const admission = row.admissions.get(attemptId);
+    if (!admission) throw new Error();
+    if (pending.type === 'consume') {
+      if (stored.state !== 'dispatched' || admission.consumed) throw new Error();
+      admission.consumed = true;
+    } else if (pending.type === 'report') {
+      if (stored.state !== 'settled' || stored.outcome !== pending.payload.terminal?.outcome) throw new Error();
+    } else throw new Error();
   }
   let active;
   function dispose(row) {
@@ -109,6 +166,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
     if (row.closed) return Promise.reject(new Error('Sample closed'));
     if (row.pending.size >= 128) return Promise.reject(new Error('Admission queue limit'));
     const id = randomUUID(), pending = Promise.withResolvers();
+    pending.type = type; pending.payload = payload;
     pending.timer = setTimeout(() => { row.pending.delete(id); pending.reject(new Error('Admission acknowledgement timeout')); }, 30_000);
     row.pending.set(id, pending); publish(row, { type, id, ...payload });
     // Ports may report synchronously; keep failures observed until drain below.
@@ -155,6 +213,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       if (request.headers.get('host') !== new URL(relayOrigin).host ||
         request.headers.get('origin') && request.headers.get('origin') !== relayOrigin ||
         request.headers.get('sec-fetch-site') === 'cross-site') return new Response(null, { status: 403 });
+      if (path === '/composed/qualification/control' && !authorized(request)) return new Response(null, { status: 403 });
       // Worklet fetches do not inherit Puppeteer's page-only authentication
       // headers. These exact key-free assets need only the flagged origin guard.
       if (request.method === 'GET' && (asset.test(path) || path === '/composed/qualification-page.js')) {
@@ -172,9 +231,12 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
       try {
         const input = await body(request);
         if (input.action === 'start') {
-          if (active || !['candidate', 'baseline'].includes(input.lane) || typeof input.runId !== 'string' || !input.item) throw new Error('Invalid or concurrent sample');
+          if (input.runId !== control.runId) return new Response(null, { status: 403 });
+          const snapshot = readPersistedQualificationSnapshot(control.budgetPath);
+          if (snapshot.blocked || !snapshot.runs?.includes(control.runId)) return new Response(null, { status: 403 });
+          if (active || !['candidate', 'baseline'].includes(input.lane) || !input.item) throw new Error('Invalid or concurrent sample');
           const row = { id: randomUUID(), owner, queue: [], pending: new Map(), closed: false, polling: false,
-            setup: Promise.withResolvers(), controller: new AbortController() };
+            lane: input.lane, admissions: new Map(), setup: Promise.withResolvers(), controller: new AbortController() };
           active = row; row.timer = setTimeout(() => void dispose(row)?.catch(() => {}), 120_000); row.timer.unref?.();
           void start(row, { item: input.item, lane: input.lane, runId: input.runId });
           return json({ sampleId: row.id });
@@ -182,9 +244,14 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
         const row = active;
         if (!row || row.closed || row.owner !== owner || input.sampleId !== row.id) return new Response(null, { status: 403 });
         if (input.action === 'ack') {
-          const pending = row.pending.get(input.id); if (!pending) throw new Error('Unknown acknowledgement');
+          const pending = row.pending.get(input.id); if (!pending) return new Response(null, { status: 403 });
+          let value;
+          if (!input.error) {
+            try { value = acknowledged(row, pending, input.value); }
+            catch { return new Response(null, { status: 403 }); }
+          }
           row.pending.delete(input.id); clearTimeout(pending.timer);
-          if (input.error) pending.reject(new Error('Admission refused')); else pending.resolve(input.value);
+          if (input.error) pending.reject(new Error('Admission refused')); else pending.resolve(value);
           return json({ acknowledged: true });
         }
         if (input.action === 'poll') {

@@ -35,12 +35,14 @@ import { listenAdmin } from './admin-socket.js';
 import { smtpConfig, createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createConfirmationPage } from './confirmation-page.js';
 import { createAdminHTTP } from './admin-http.js';
-import { createQualificationMount, qualificationSettings, loadQualificationKeys } from '../plugins/composed-voice/ops/qualification-server.mjs';
 
 const deployment = deploymentConfig();
 // Refuse before database, ordinary provider setup or listener startup.
-const qualification = qualificationSettings();
-const qualificationKeys = await loadQualificationKeys();
+// Source-only OPS tooling is absent from release packages; load it only under its flag.
+const qualificationOps = process.env.AITHEMA_COMPOSED_QUALIFICATION === '1' ? await import('../plugins/composed-voice/ops/qualification-server.mjs') : undefined;
+const qualification = qualificationOps?.qualificationSettings() ?? { enabled: false };
+const qualificationKeys = await qualificationOps?.loadQualificationKeys();
+const qualificationControl = await qualificationOps?.loadQualificationControl();
 const resolveProviderSecret = ref => qualification.enabled ? qualificationKeys[ref] : process.env[ref];
 if (qualification.enabled && !process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE) throw new TypeError('OPS AITHEMA_COMPOSED_QUALIFICATION_MODULE required');
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
@@ -173,11 +175,11 @@ const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrig
 const qualificationPorts = qualification.enabled ? await (await import(
   pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href
 )).createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers, keys: qualificationKeys }) : {};
-const qualificationMount = createQualificationMount({ ...qualificationPorts, ...qualification,
-  authenticateRelay: request => ownership.token(request) });
+const qualificationMount = qualificationOps?.createQualificationMount({ ...qualificationPorts, ...qualification,
+  control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
-  const qualificationResponse = await qualificationMount.handle(request); if (qualificationResponse) return qualificationResponse;
+  const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: build.commit ?? deployment.commit, version: build.version, version_scheme: build.version_scheme, release_channel: build.release_channel, release_sequence: build.release_sequence, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
@@ -230,7 +232,7 @@ allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
-  await qualificationMount.close();
+  await qualificationMount?.close();
   await voiceHost?.close?.();
   clearInterval(expiry);
   visitorRetention.close();

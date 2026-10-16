@@ -287,7 +287,7 @@ evidence rather than trusting fixtures:
   selected voices/models and account availability; Voxtral float32 remains distinct.
 - `retentionAndResidency`: verify actual account policy and processing location.
 
-The external host module exports `createQualificationHost({ keysFile, sampleTimeoutMs })`.
+The external host module exports `createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability })`.
 The CLI forwards the operator's absolute `--keys-file` path without reading it;
 an OPS factory that starts the server passes it as `AITHEMA_COMPOSED_KEYS_FILE`.
 For a separately started server, OPS must use the same path in its launch instructions. Its factory must be
@@ -332,6 +332,8 @@ and uncertain while keeping their full reservation. Receipts for in-flight attem
 are refused; only settled attempts can be reconciled.
 
 ## OPS host template — PR 4c
+
+The OPS directory is **source-only** and excluded in full from release packages. Run this tooling from the repo checkout; the demo imports it only when qualification is explicitly enabled.
 
 The key-free `ops/qualification-host-template.mjs` exports the **inert**
 `createQualificationHost(options)`. It launches Chrome locally by default; OPS can supply `launchBrowser` for a
@@ -384,6 +386,7 @@ The demo mounts qualification only with `AITHEMA_COMPOSED_QUALIFICATION=1`:
 | `PORT` | Local host bind port, normally the same port in `hostOrigin`; independent only in the alternative tunnel topology. |
 | `AITHEMA_COMPOSED_RELAY_ORIGIN` | Required explicit loopback http(s) **browser** origin. It controls Host and Origin checks and must also be passed to the composed factory's `relayOrigin`. |
 | `AITHEMA_COMPOSED_KEYS_FILE` | Absolute run-window keys file; regular, non-symlink, running-user-owned, exactly 0600. Required under the flag. |
+| `AITHEMA_COMPOSED_CONTROL_FILE` | Absolute path to the CLI-created per-run 0600 control file; server-only capability, run ID and shared durable budget path. Required under the flag. |
 | `AITHEMA_COMPOSED_QUALIFICATION_MODULE` | Required path to OPS's server module, exporting `createQualificationServer({ relayOrigin, authenticateRelay, storage, handlers, keys })`. Loaded only with the flag. |
 
 The mount precedes the demo's JSON-only mutations and 404 so binary PCM reaches
@@ -393,20 +396,20 @@ stored owner, consent, authorization and single-use grant. OPS must retain immed
 revoke propagation. `/composed/qualification` is an authenticated minimal harness
 page; its hook and the capture/player, network client, worklet and client module
 dependencies are served from that same origin. The authenticated control endpoint
-is `/composed/qualification/control`; sample capabilities and acknowledgements
-travel in POST bodies, never URLs. Host/Origin mismatches and cross-site requests
+is `/composed/qualification/control`. Every call (start, poll, acknowledgement and close) requires the CLI's `x-aithema-qualification-control` capability header, compared through fixed-size SHA-256 digests with `timingSafeEqual`. The CLI creates a random 256-bit capability in a private temporary directory and an exactly 0600 file before loading OPS's factory. It hands that file to the host at startup via `AITHEMA_COMPOSED_CONTROL_FILE`; it removes the file after factory shutdown, including failures. The browser never receives the capability or file. Sample identities and acknowledgements travel in POST bodies, never URLs. Host/Origin mismatches and cross-site requests
 are refused. Without the flag the page, control, relay and composed browser assets
 return 404, and the OPS module is never imported. start2's normal preset is unchanged.
 
 ### Exact ports
 
-OPS's browser-side `host.mjs` exports `createQualificationHost({ keysFile, sampleTimeoutMs })` and delegates to
+OPS's browser-side `host.mjs` exports `createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability })` and delegates to
 the template with these options. There are **no successful accounting defaults**:
 
 | Option or method | Required contract |
 | --- | --- |
 | `hostOrigin` | Browser-facing loopback origin; never inferred from a local process or bind port. |
 | `runDirectory` | Absolute run root on mbp2606; default is the running user's `~/ci.noindex/aithema-runs/`. The template creates a hashed run directory and separate candidate/baseline Chrome profiles beneath it, retained as OPS evidence. No hard-coded mba paths. |
+| `controlCapability` | CLI-generated per-run capability; only Node control requests receive it. Supplying it in browser `ownerHeaders` is refused. OPS passes `controlFile` to the server as `AITHEMA_COMPOSED_CONTROL_FILE` before host startup. |
 | `ownerHeaders` | Existing owner authentication, e.g. the visitor cookie obtained by OPS's session setup. Never provider authentication; never log it. Node control requests and same-origin Chrome requests use the same owner. |
 | `executablePath` | OPS's installed Chrome path (or explicit `CHROME_PATH`). No browser discovery or installation in the template. The default launcher arms the process-group watchdog before CDP setup. |
 | `launchBrowser(launchOptions, lifetime)` | Optional launcher returning a Puppeteer `Browser`, including one connected over a DevTools websocket. Must register an independent browser-user watchdog and process-group kill port before returning; see lifetime contract below. |
@@ -435,8 +438,7 @@ dispatch }`. Every STT, TTS, existing Rule C reasoning dispatch and retry must
 use it; retries include `retryOf`. Await `attempt.consume()` before transport,
 then report exactly once, or use `dispatch(async ({ attempt, report }) => ...)`
 which consumes first and reports uncertainty if the action has no terminal.
-Admission, consume and report each await the CLI's acknowledgement; failure or
-timeout blocks work. The mount drains reports before publishing the result.
+Admission, consume and report each await the CLI's acknowledgement; failure or timeout blocks work. Each acknowledgement is independently checked against the shared ledger: admission must match the exact reserved attempt, run ID, lane, request digest, provider/pricing identity and server-derived claim ID; consume requires the committed dispatched state; report requires the committed terminal. Unknown, forged and other-run identities are refused, even with the capability. The mount resolves the identity from the ledger rather than trusting client fields. The mount drains reports before publishing the result.
 OPS must place reasoning admission at its actual dispatch boundary while keeping
 the existing Rule C operation store. The parent remains zero-cost. Server-side
 receipt implementations and provider adapters belong solely to OPS's ops-qa module.
@@ -474,23 +476,23 @@ watchdog is the final process-group deadline even if a port hangs.
 
 Before **every sample**, after opening the authenticated page and before the
 control `start` request/admission, Chrome runs `probeOutputDevice()`: it requires
-a labelled `audiooutput` from `enumerateDevices()`, both `getOutputTimestamp()`
+at least one real labelled `audiooutput` from `enumerateDevices()` (labels starting with `Fake` and their default/communications aliases are excluded), both `getOutputTimestamp()`
 clocks advancing across at least 500 ms, and finite `outputLatency > 0`.
 A silent oscillator drives the output clock without changing corpus audio.
 A null/unverified device refuses the run **before any dispatch**. The template
 records the result as `physicalBrowserMedia` in
 `<runDirectory>/<hashed-runId>/<lane>-physical-browser-media.json`, including
-failures; successful results also enter `observations.json`. Labels/device IDs
-are not retained. The plan's existing checklist cannot bypass this probe.
+failures; successful results also enter `observations.json`. Evidence retains real/fake counts and separate label lists; device IDs are not retained. The plan's existing checklist cannot bypass this probe.
 
 Example browser module (account ports and any server launcher remain OPS-owned):
 
 ```js
 import { createQualificationHost as template } from '/path/to/aithema/plugins/composed-voice/ops/qualification-host-template.mjs';
 import { verifyCeiling, verifyReceipt, reconcile, ownerHeaders } from './ops-qa-ports.mjs';
-export function createQualificationHost({ keysFile, sampleTimeoutMs }) {
-  // If OPS starts the host here, pass keysFile as AITHEMA_COMPOSED_KEYS_FILE.
-  return template({ hostOrigin: 'http://127.0.0.1:43101', sampleTimeoutMs,
+export async function createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability }) {
+  // OPS starts its flagged host here, passing keysFile as AITHEMA_COMPOSED_KEYS_FILE
+  // and controlFile as AITHEMA_COMPOSED_CONTROL_FILE, and stops it in close().
+  return template({ controlCapability, hostOrigin: 'http://127.0.0.1:43101', sampleTimeoutMs,
     executablePath: '/ops/chrome', ownerHeaders, verifyCeiling, verifyReceipt, reconcile });
 }
 ```
@@ -498,10 +500,17 @@ export function createQualificationHost({ keysFile, sampleTimeoutMs }) {
 ### OPS runbook and user fallback (primary local topology)
 
 1. On mbp2606 as **mba over SSH**, run the key-free output-device probe with the
-   intended headless Chrome and save `physicalBrowserMedia`. A labelled output,
-   advancing clocks and positive latency select **host mba / Chrome mba**. This
+   intended headless Chrome and save `physicalBrowserMedia`:
+
+   ```sh
+   node plugins/composed-voice/ops/qualification-output-probe.mjs \
+     --executable-path /absolute/path/to/chrome-headless-shell \
+     --report /absolute/run/output-device-probe.json
+   ```
+
+   The report must be a new file; exit 0 means verified and exit 1 means device refusal. At least one real labelled output, advancing clocks and positive latency select **host mba / Chrome mba**. This
    hardware preflight uses fake keys only and makes no provider calls.
-2. **Only if mba gets a null device**, start a trivial throwaway HTTP listener
+2. **Only if mba has no verified real output**, start a trivial throwaway HTTP listener
    as mba, bound to `127.0.0.1` on an unused test port, with no sensitive content.
    Use `ssh ci@mbp2606 bash -s` (ci's login shell is fish) to `curl` that loopback
    address with a short timeout. Stop the listener. Record the outcome: a
@@ -512,14 +521,14 @@ export function createQualificationHost({ keysFile, sampleTimeoutMs }) {
    In either case rerun the output probe in the selected browser session before
    dispatch. Only ci currently has the CoreAudio GUI session. Record the final
    user choice and both applicable probes in the handoff.
-4. OPS places the keys file privately for the run window and starts the host
-   under the selected host user. This command names paths only; no key values
+4. OPS places the keys file privately for the run window. Its CLI-loaded factory starts the host under the selected host user using the supplied `controlFile`. This command names paths only; no key values
    belong on the command line. OPS supplies its reviewed module and bindings:
 
    ```sh
    AITHEMA_COMPOSED_QUALIFICATION=1 AITHEMA_LISTEN_HOST=127.0.0.1 \
      PORT=43101 AITHEMA_COMPOSED_RELAY_ORIGIN=http://127.0.0.1:43101 \
      AITHEMA_COMPOSED_KEYS_FILE=/absolute/run/provider.keys \
+     AITHEMA_COMPOSED_CONTROL_FILE="$controlFile" \
      AITHEMA_COMPOSED_QUALIFICATION_MODULE=/absolute/run/server.mjs \
      node demo/server.js
    ```
@@ -537,7 +546,7 @@ export function createQualificationHost({ keysFile, sampleTimeoutMs }) {
    optionally, `--sample-timeout-ms 1200000`. Use a run directory under the
    running user's `~/ci.noindex/aithema-runs/`. The CLI checks the plan/budget
    before importing OPS code; the factory forwards the path to any server it
-   starts. Retain ledger, profiles, probe/observations and blind listening files.
+   starts, together with the per-run control file. Retain ledger, profiles, probe/observations and blind listening files.
    Stop the host and browser groups, then **trash the keys file immediately**.
    A failure retains reservations; confirm the old dispatcher stopped before
    explicit orphan settlement/reconciliation. Never silently rerun the same ID.

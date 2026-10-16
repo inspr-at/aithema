@@ -1,6 +1,8 @@
 import { parseArgs } from 'node:util';
-import { readFile } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { initializeQualificationBudget, readPersistedQualificationSnapshot } from '../plugins/composed-voice/src/persisted-budget.js';
 import { runLiveQualification, validateQualificationPlan } from '../plugins/composed-voice/src/live-qualification.js';
@@ -21,13 +23,20 @@ if (values.initialize) {
   const plan = JSON.parse(await readFile(resolve(values.plan), 'utf8'));
   validateQualificationPlan(plan);
   if (readPersistedQualificationSnapshot(resolve(values.budget)).blocked) throw new Error('Qualification budget blocked');
-  const { createQualificationHost } = await import(pathToFileURL(resolve(values.host)).href);
-  // Forward the path only. The OPS factory starts its flagged server with
-  // AITHEMA_COMPOSED_KEYS_FILE; this CLI/template never reads credentials.
-  const host = await createQualificationHost({ keysFile: values['keys-file'], sampleTimeoutMs });
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-control-'));
+  let host;
   try {
+    const controlCapability = randomBytes(32).toString('hex'), controlFile = join(directory, 'control.json');
+    await writeFile(controlFile, JSON.stringify({ capability: controlCapability, runId: plan.runId, budgetPath: resolve(values.budget) }), { mode: 0o600, flag: 'wx' });
+    const { createQualificationHost } = await import(pathToFileURL(resolve(values.host)).href);
+    // OPS hands the control file to its server at startup. Only Node control
+    // requests get the capability; provider keys remain file-only on the server.
+    host = await createQualificationHost({ keysFile: values['keys-file'], sampleTimeoutMs, controlFile, controlCapability });
     const report = await runLiveQualification({ operatorApproved: true, budgetPath: resolve(values.budget), plan,
       host, outputDirectory: resolve(values.out) });
     console.log(JSON.stringify({ runId: report.runId, report: resolve(values.out, 'report.json'), blindPreference: 'pending' }));
-  } finally { await host.close?.(); }
+  } finally {
+    try { await host?.close?.(); }
+    finally { await rm(directory, { recursive: true, force: true }); }
+  }
 }

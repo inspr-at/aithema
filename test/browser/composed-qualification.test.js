@@ -2,21 +2,23 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createServer, connect } from 'node:net';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startLocalQualificationHost, qualificationSettings } from '../../plugins/composed-voice/ops/qualification-server.mjs';
-import { createQualificationServer } from '../fixtures/composed-qualification-provider.mjs';
 import { initializeQualificationBudget } from '../../plugins/composed-voice/src/persisted-budget.js';
 import { PRELIVE_CHECKS } from '../../plugins/composed-voice/src/live-qualification.js';
+import { browserPath } from '../../scripts/install-test-browser.js';
 
 test('AIT-160 CLI: output-device gate before fake pair through different-port tunnel', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-tunnel-')), sockets = new Set();
-  let local, target, child;
+  let target, child;
+  const targetFile = join(directory, 'server-port.json'), dispatchFile = join(directory, 'dispatches.json');
   const forwarder = createServer(socket => {
+    target ??= JSON.parse(readFileSync(targetFile)).port;
     const upstream = connect({ host: '127.0.0.1', port: target });
     // Match an interactive ssh tunnel: tiny PCM POSTs must not wait for Nagle's
     // delayed ACK cycle on either half of this byte-for-byte TCP forwarder.
@@ -25,7 +27,7 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
     socket.pipe(upstream); upstream.pipe(socket);
   });
   t.after(async () => {
-    child?.kill('SIGTERM'); await local?.close(); for (const socket of sockets) socket.destroy();
+    child?.kill('SIGTERM'); for (const socket of sockets) socket.destroy();
     forwarder.close(); await rm(directory, { recursive: true, force: true });
   });
   forwarder.listen(0, '127.0.0.1'); await once(forwarder, 'listening');
@@ -33,15 +35,6 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
   const sentinel = 'SENTINEL_FAKE_KEYS_FILE_NO_PROVIDER';
   const keysFile = join(directory, 'provider.keys');
   await writeFile(keysFile, `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`, { mode: 0o600 });
-  const authenticateRelay = request => request.headers.get('cookie') === 'aithema-visitor=fixture-owner' ? 'fixture-owner' : null;
-  const ports = await createQualificationServer({ relayOrigin: hostOrigin, authenticateRelay });
-  local = await startLocalQualificationHost({ ...qualificationSettings({ AITHEMA_COMPOSED_QUALIFICATION: '1',
-    AITHEMA_LISTEN_HOST: '127.0.0.1', AITHEMA_COMPOSED_RELAY_ORIGIN: hostOrigin }), ...ports, authenticateRelay, keysFile });
-  target = Number(new URL(local.url).port);
-  assert.notEqual(target, forwarder.address().port);
-  assert.equal((await fetch(`${hostOrigin}/composed/qualification`)).status, 401);
-  assert.equal((await fetch(`${hostOrigin}/composed/relay`, { method: 'POST', headers: { origin: 'https://fixture.invalid' } })).status, 403);
-
   // Fake microphone uses a real WAV: utterance, endpointing silence, barge-in.
   const wavPath = join(directory, 'corpus.wav'), rate = 48000, frames = rate * 4, wav = Buffer.alloc(44 + frames * 2);
   wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
@@ -63,9 +56,18 @@ test('AIT-160 CLI: output-device gate before fake pair through different-port tu
   await writeFile(hostPath, `
 import { createQualificationHost as template } from ${JSON.stringify(new URL('../../plugins/composed-voice/ops/qualification-host-template.mjs', import.meta.url).href)};
 import { browserPath } from ${JSON.stringify(new URL('../../scripts/install-test-browser.js', import.meta.url).href)};
-export async function createQualificationHost({ keysFile, sampleTimeoutMs }) {
+import { startLocalQualificationHost, loadQualificationControl } from ${JSON.stringify(new URL('../../plugins/composed-voice/ops/qualification-server.mjs', import.meta.url).href)};
+import { createQualificationServer } from ${JSON.stringify(new URL('../fixtures/composed-qualification-provider.mjs', import.meta.url).href)};
+import { writeFile } from 'node:fs/promises';
+export async function createQualificationHost({ keysFile, sampleTimeoutMs, controlFile, controlCapability }) {
   if (keysFile !== ${JSON.stringify(keysFile)}) throw new Error("CLI keys-file path not forwarded");
-  return template({ hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
+  const authenticateRelay = request => request.headers.get('cookie') === 'aithema-visitor=fixture-owner' ? 'fixture-owner' : null;
+  const ports = await createQualificationServer({ relayOrigin: ${JSON.stringify(hostOrigin)}, authenticateRelay });
+  const control = await loadQualificationControl({ AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_COMPOSED_CONTROL_FILE: controlFile });
+  const local = await startLocalQualificationHost({ enabled: true, hostname: '127.0.0.1', relayOrigin: ${JSON.stringify(hostOrigin)},
+    ...ports, authenticateRelay, keysFile, control });
+  await writeFile(${JSON.stringify(targetFile)}, JSON.stringify({ port: Number(new URL(local.url).port) }));
+  const host = template({ controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
     ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
     launchArgs: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [],
     verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'fake price evidence', expiresAt: Date.now() + 60000 }),
@@ -77,8 +79,28 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs }) {
       }
     },
   });
+  return { ...host, async close() {
+    try { await host.close(); } finally { await local.close(); await writeFile(${JSON.stringify(dispatchFile)}, JSON.stringify(ports.dispatches)); }
+  } };
 }
 `);
+  if (process.platform === 'darwin') {
+    const reportPath = join(directory, 'standalone-output-probe.json');
+    const probeChild = spawn(process.execPath, [fileURLToPath(new URL('../../plugins/composed-voice/ops/qualification-output-probe.mjs', import.meta.url)),
+      '--report', reportPath, '--executable-path', await browserPath()], {
+      env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    t.after(() => probeChild.kill('SIGTERM'));
+    let probeError = ''; probeChild.stdout.resume(); probeChild.stderr.on('data', bytes => { probeError += bytes; });
+    const [probeCode] = await once(probeChild, 'exit');
+    const standalone = JSON.parse(await readFile(reportPath));
+    assert.equal(probeCode, standalone.physicalBrowserMedia.verified ? 0 : 1, probeError);
+    console.log(`AIT-160 standalone probe: ${JSON.stringify(standalone)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+      await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-standalone-output-probe.json'), JSON.stringify(standalone, null, 2));
+    }
+  }
   child = spawn(process.execPath, [fileURLToPath(new URL('../../scripts/composed-qualification.js', import.meta.url)),
     '--operator-approved', '--budget', budget, '--plan', planPath, '--host', hostPath, '--out', output, '--keys-file', keysFile],
   { env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR,
@@ -87,6 +109,8 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs }) {
   child.stdout.on('data', bytes => { stdout += bytes; }); child.stderr.on('data', bytes => { stderr += bytes; });
   const [code] = await once(child, 'exit');
   assert.ok(!(stdout + stderr).includes(sentinel), 'Keys must never reach logs/errors');
+  const ports = { dispatches: JSON.parse(await readFile(dispatchFile)) };
+  assert.notEqual(target, forwarder.address().port);
   const run = createHash('sha256').update('tunnel-fake-proof').digest('hex').slice(0, 24);
   const probe = JSON.parse(await readFile(join(directory, run, 'candidate-physical-browser-media.json'))).physicalBrowserMedia;
   console.log(`AIT-160 output-device probe (${process.platform}, ${homedir()}): ${JSON.stringify(probe)}`);
@@ -110,6 +134,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs }) {
   for (const lane of ['candidate', 'baseline']) {
     const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, physicalBrowserMedia } = observations[lane][0];
     assert.equal(physicalBrowserMedia.verified, true);
+    assert.ok(physicalBrowserMedia.realAudioOutputs > 0);
     assert.ok(physicalBrowserMedia.outputLatency > 0);
     assert.ok(speechEndAt < firstAudioAt && firstAudioAt <= bargeInAt && bargeInAt <= stoppedAt);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));
