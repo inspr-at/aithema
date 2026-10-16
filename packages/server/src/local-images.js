@@ -1,8 +1,17 @@
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { deepFreeze, beginInvocation, operationScope, validateUIReferences } from '@inspr/aithema-core';
-import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images/index';
-import { imageArtifact } from '@inspr/aithema-plugin-openai-images/image-artifact';
+import { imageArtifact } from '@inspr/aithema-core/ui-image-artifact';
+
+// Deterministic adapters own their metadata; no provider plugin supplies defaults.
+const manifest = deepFreeze({ id: 'fake-images', version: '0.0.0', apiVersion: '^1.0.0',
+  kinds: ['ui-generation'], placement: 'server', entrypoints: { server: './src/index.js' },
+  configSchema: { type: 'object', properties: {}, additionalProperties: false }, vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
+  models: [{ id: 'deterministic-ui', operations: ['generate', 'edit'], streaming: false, structured: false,
+    efforts: ['none'], languages: ['en', 'de'], germanQuality: 'unverified', formats: ['image/png', 'image/webp'],
+    processingLocations: ['unverified'], qualification: 'unverified', expiresAt: null,
+    evidence: ['https://developers.openai.com/api/docs/models/gpt-image-2'],
+    cost: { unit: 'token', inputMicro: null, outputMicro: null, reviewedAt: null } }] });
 
 // No public enrollment: a copied generate cannot authorize another edit.
 const implementations = new WeakMap();
@@ -58,8 +67,7 @@ export function createLocalImages({ delayMs = 250, now = Date.now } = {}) {
       invocation.usage({ inputTokens: 1, outputTokens: 1 }); completed = true; return artifact;
     } finally { try { await invocation?.finish(completed); } finally { scope.dispose(); } }
   }
-  const plugin = Object.freeze({ manifest: deepFreeze({ ...imageManifest, id: 'fake-images', vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
-    models: [{ ...imageManifest.models[0], id: 'deterministic-ui' }] }), label: 'Fake images — local deterministic PNG, no provider network', generate,
+  const plugin = Object.freeze({ manifest, label: 'Fake images — local deterministic PNG, no provider network', generate,
     edit: (artifact, spec, feedback, options) => generate({ ...spec, references: [{ bytes: artifact.bytes, mediaType: artifact.mediaType, role: 'previous' }, ...(spec.references ?? [])] }, feedback, options),
     async health(options) { options.signal?.throwIfAborted(); return { available: true }; } });
   implementations.set(generate, plugin); return plugin;

@@ -32,6 +32,15 @@ and image fakes.
 (`inspr-calver-3`). Core, server, UI and twelve shipped plugin packages have exact
 versions and reproducible, independently installable tarballs; the root workspace
 stays private. No tag, GitHub release or registry publication is made here.
+Embedding hosts register their own HTML/image plugins and private bindings; the
+server does not select providers. Use `createClaudeHTML` from
+`@inspr/aithema-plugin-claude-html` and `createOpenAIImages` from
+`@inspr/aithema-plugin-openai-images`, register them in `PluginRegistry`, and allow
+their IDs/bindings in the selected preset (HTML uses `kind: 'html'`). Supply the
+same authoritative consent port and qualified scope as for other paid plugins.
+The demo wiring is in `demo/visual-plugins.js` and `demo/server.js`; Claude retains
+its `estimateCost` port for exact admission pricing.
+
 See [the consumer guide](docs/embedding.md), [candidate notes](release/notes.md)
 and [registry recommendation](release/README.md). AIT-139's soak is not measured;
 AIT-160's second voice pipeline is not yet proven. Both are disclosed limits,

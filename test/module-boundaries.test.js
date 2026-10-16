@@ -117,7 +117,7 @@ test('AIT-160 qualification host allowances pin the source edge and OPS module e
 });
 
 
-test('dev exemptions and AIT-211 cycles are pinned to exact paths', () => {
+test('dev exemptions stay exact and AIT-211 server-to-plugin edges are forbidden', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'aithema-exact-edges-'));
   const put = (path, source) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), source); };
   put('packages/core/package.json', JSON.stringify({ name: '@inspr/aithema-core', exports: { '.': './src/index.js' } }));
@@ -127,16 +127,22 @@ test('dev exemptions and AIT-211 cycles are pinned to exact paths', () => {
   put('packages/server/src/dev/local-voice.js', "import '@inspr/aithema-core';");
   put('plugins/claude-html/package.json', JSON.stringify({ name: '@inspr/aithema-plugin-claude-html', exports: { '.': './src/index.js', './html-artifact': './src/html-artifact.js', './new': './src/new.js' } }));
   for (const name of ['index', 'html-artifact', 'new']) put(`plugins/claude-html/src/${name}.js`, '');
-  put('packages/server/src/plugin-runtime.js', "import '@inspr/aithema-plugin-claude-html/html-artifact';");
+  put('plugins/openai-images/package.json', JSON.stringify({ name: '@inspr/aithema-plugin-openai-images', exports: { '.': './src/index.js', './image-artifact': './src/image-artifact.js' } }));
+  for (const name of ['index', 'image-artifact']) put(`plugins/openai-images/src/${name}.js`, '');
   put('demo/server.js', "import '@inspr/aithema-server/dev/local-voice';");
   put('plugins/fake-voice/src/server.js', "export * from '../../../packages/server/src/dev/local-voice.js';");
   assert.deepEqual(checkBoundaries(dir), []);
-  put('packages/server/src/new.js', "import '@inspr/aithema-plugin-claude-html/html-artifact';");
-  assert.ok(checkBoundaries(dir).some(error => error.includes('Forbidden server')));
-  put('packages/server/src/new.js', '');
-  put('packages/server/src/plugin-runtime.js', "import '@inspr/aithema-plugin-claude-html/new';");
-  assert.ok(checkBoundaries(dir).some(error => error.includes('Forbidden server')));
-  put('packages/server/src/plugin-runtime.js', '');
+  for (const file of ['plugin-runtime', 'local-html', 'local-images', 'new']) {
+    for (const specifier of ['@inspr/aithema-plugin-claude-html', '@inspr/aithema-plugin-claude-html/html-artifact',
+      '@inspr/aithema-plugin-openai-images', '@inspr/aithema-plugin-openai-images/image-artifact',
+      '../../../plugins/claude-html/src/index.js', '../../../plugins/openai-images/src/image-artifact.js']) {
+      put(`packages/server/src/${file}.js`, `import '${specifier}';`);
+      const errors = checkBoundaries(dir);
+      assert.equal(errors.length, 1, errors.join('\n'));
+      assert.match(errors[0], /Forbidden server → plugin/u, `${file}: ${specifier}`);
+    }
+    put(`packages/server/src/${file}.js`, '');
+  }
   put('packages/core/dev/bypass.js', "import '@inspr/aithema-server';");
   assert.ok(checkBoundaries(dir).some(error => error.includes('Forbidden core')));
   put('packages/core/dev/bypass.js', '');
