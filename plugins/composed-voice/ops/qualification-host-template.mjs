@@ -42,7 +42,9 @@ export function createQualificationHost(options = {}) {
       const lifetime = new AbortController(), ready = Promise.withResolvers(), result = Promise.withResolvers();
       const processGroups = new Set(), deadlineAt = Date.now() + sampleTimeoutMs;
       const kill = () => { for (const group of processGroups) group.kill(); };
-      const abort = reason => { lifetime.abort(reason); kill(); };
+      // Kill the group before Puppeteer's abort handler tears down/reaps its
+      // leader; otherwise macOS can report EPERM for the dying process group.
+      const abort = reason => { try { kill(); } finally { lifetime.abort(reason); } };
       const lease = { abort };
       lifetimes.add(lease);
       const timer = setTimeout(() => abort(new Error('Qualification sample wall-clock timeout')), sampleTimeoutMs);
@@ -132,9 +134,9 @@ export function createQualificationHost(options = {}) {
         return { physicalBrowserMedia, hypothesis: answer.hypothesis, entities: answer.entities,
           ttsPCM: new Uint8Array(Buffer.from(answer.ttsPCM, 'base64')), ttsFormat: answer.ttsFormat };
       } finally {
-        lifetime.abort(new Error('Qualification sample ended'));
         try {
-          kill(); await polling?.catch(() => {});
+          try { kill(); } finally { lifetime.abort(new Error('Qualification sample ended')); }
+          await polling?.catch(() => {});
           if (sampleId) {
             // Acknowledgement means OPS close() has stopped the dispatcher.
             // If it cannot be confirmed, retain exposure for explicit orphan recovery.

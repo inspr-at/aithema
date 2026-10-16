@@ -19,6 +19,7 @@ export function guardBrowserProcessGroup(pid, { deadlineAt, controllerPid = proc
       if (error.code === 'ESRCH') killed = true;
       else throw new Error(`Browser process group kill failed (${error.code ?? 'unknown'})`);
     }
+    watchdog.kill('SIGTERM');
   };
   return { kill, watchdogArmed: true, get failed() { return failed; } };
 }
