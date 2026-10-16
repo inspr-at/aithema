@@ -37,7 +37,8 @@ test('extractor process file survives repeated execution under CPU pressure', { 
   console.log(`AIT-222 stress: ${version.trim()}, ${process.platform}, ${repeats} files, concurrency ${concurrency}, CPU workers ${cpuWorkers}`);
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT; // This is an independent runner, not its parent's test worker.
-  const child = spawn(executable, ['--test', '--test-reporter=spec', `--test-concurrency=${concurrency}`, '--test-timeout=90000', ...files],
+  const child = spawn(executable, ['--test', '--test-reporter=spec', `--test-concurrency=${concurrency}`, '--test-timeout=90000',
+    '--import', new URL('./unit-watchdog.js', import.meta.url).href, ...files],
     { env, stdio: ['ignore', 'pipe', 'inherit'] });
   let output = '';
   child.stdout.on('data', chunk => { output += chunk; process.stdout.write(chunk); });
@@ -45,4 +46,5 @@ test('extractor process file survives repeated execution under CPU pressure', { 
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
   assert.equal(code, 0);
   assert.match(output, new RegExp(`ℹ tests ${repeats * 14}\\b`, 'u'), 'every copy must actually execute its 14 tests');
+  console.log(`AIT-222 completed: ${version.trim()}, ${repeats} full-file repetitions, concurrency ${concurrency}, CPU workers ${cpuWorkers}`);
 });
