@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
+import { createSession, inputRevision, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { bandStyles } from '../src/band-styles.js';
@@ -210,9 +210,11 @@ test('AIT-131: detach removes the conversations outside-click listener and reatt
 for (const copy of [de, en]) for (const kind of ['html', 'image']) {
   test(`AIT-229: ${copy === de ? 'DE' : 'EN'}/${kind} no-drafts host keeps transcript through fold attempts and incoming replies`, t => {
     const { c, root } = fixture(t, { copy, kind, concepts: [], visuals: { available: false, reason: 'not configured' } });
+    receive(c, 'turn.final', { id: 'source', role: 'user', content: 'A shop for cushions' });
     // Exercise both the ordinary conversation and the final open-question card.
     for (const options of [[], [{ text: 'Yes' }, { text: 'No' }]]) {
-      receive(c, 'turn.final', { id: `question-${options.length}`, role: 'assistant', content: 'Which option?', question_short: 'Which option?', options });
+      receive(c, 'turn.final', { id: `question-${options.length}`, role: 'assistant', content: 'Which option?', question_short: 'Which option?', options, inputRevision: inputRevision(c.session) });
+      assert.equal(root.querySelector('.qcard').hidden, !options.length);
       root.querySelector('.fold').click();
       assert.equal(root.querySelector('.conversation').hidden, false, 'the transcript owns the space');
       assert.equal(root.querySelector('.fold-view').hidden, true, 'no empty canvas or promise');

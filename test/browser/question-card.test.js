@@ -698,6 +698,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     await page.evaluate(async locale => {
       const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
       const { paintUtilities } = await import('/demo/page-preferences.js');
+      const { inputRevision } = await import('/packages/core/src/session.js');
       const c = document.querySelector('aithema-session'), copy = { en, de }[locale], session = c.session;
       session.paused = false; session.pauseReason = null; session.locale = locale; session.settings.origin = 'chosen'; session.concepts = []; session.conceptVisualKind = 'html';
       session.transcript = [{ id: 'source', role: 'user', content: locale === 'de' ? 'Ein Onlineshop für handgestickte Polster.' : 'An online shop for hand-embroidered cushions.' }];
@@ -709,7 +710,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       globalThis.noDraftsReply = options => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
         id: `question-${c.session.seq}`, role: 'assistant', content: locale === 'de' ? 'Sollen Kunden selbst wählen?' : 'Should customers choose for themselves?',
-        question_short: locale === 'de' ? 'Selbst wählen?' : 'Choose for themselves?', options,
+        question_short: locale === 'de' ? 'Selbst wählen?' : 'Choose for themselves?', options, inputRevision: inputRevision(c.session),
       } });
     }, locale);
     const label = `${locale}-${theme}-${width}`;
@@ -726,6 +727,7 @@ test('AIT-229: no-drafts hosts retain transcript; configured hosts can fold; cap
     for (const question of [false, true]) {
       await page.evaluate(question => globalThis.noDraftsReply(question ? [{ text: 'Yes' }, { text: 'No' }] : []), question);
       await nextFrame(page);
+      assert.equal(await shown(page), question, `${label}: final options own the question card`);
       const before = await boxes(page, ['.transcript-shell', '.composer', '.display-foot']);
       await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await nextFrame(page);
       const state = await shadow(page, c => {
