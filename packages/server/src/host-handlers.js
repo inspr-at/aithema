@@ -123,7 +123,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       identityTransition(id, ownerToken, { type: 'pause', origin: 'manual', paused: storage.get(id).paused });
     }
     const paused = storage.get(id).paused, guard = storage.creditState(id);
-    if (host.credits?.ownerGuard !== false && host.wallet && ownerToken) storage.setOwnerPaused(ownerToken, paused);
+    if (host.credits?.ownerGuard !== false && host.wallet && ownerToken) {
+      const ownerGuard = storage.ownerCreditState(ownerToken);
+      if (ownerGuard ? ownerGuard.paused !== paused : paused) storage.setOwnerPaused(ownerToken, paused);
+    }
     if (guard && guard.paused !== paused) conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
   }
   function identityResult(id, extra = {}, ownerToken) {
