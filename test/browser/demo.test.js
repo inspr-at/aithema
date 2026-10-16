@@ -1903,7 +1903,7 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
         .filter(node => node.checkVisibility()).map(node => node.textContent), name);
       assert.ok(labels.length, `${name} menu exposes its option labels`);
       assert.doesNotMatch(labels.join('\n'), /mock/iu, `${name}: no visible option label exposes Mock`);
-      await page.keyboard.press('Escape');
+      await inShadow(page, (c, name) => c.shadowRoot.querySelector(`[data-select="${name}"] .select__button`).click(), name);
     }
     await page.close();
   }
