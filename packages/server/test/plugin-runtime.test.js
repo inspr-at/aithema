@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger, createLocalImages, localImageBinding, isLocalImages, createLocalHTML, localHTMLBinding, isLocalHTML } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes, inputRevision, createPreset } from '@inspr/aithema-core';
+import { hostSettingsGauges } from '../../ui/src/settings-dialog.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
@@ -59,6 +60,16 @@ test('AIT-262 catalog exposes only public host summaries from admission evidence
     clock = at;
     const f = (await h.runtime.catalog(h.session)).presets.best.models[0].facts;
     for (const key of fields) assert.equal(Object.hasOwn(f, key), present, `${key} at ${at}`);
+  }
+});
+test('AIT-270 evidence expiry recomputes host qualification and returns quality to unchecked', async t => {
+  let clock = Date.now();
+  const h = setup(t, 'http://127.0.0.1:1/chat', { now: () => clock });
+  for (const [at, state] of [[h.b.legal.evidence.expiresAt - 1, 'hostQualified'],
+    [h.b.legal.evidence.expiresAt, 'unverified'], [h.b.legal.evidence.expiresAt + 1, 'unverified']]) {
+    clock = at;
+    const catalog = await h.runtime.catalog(h.session), info = catalog.presets.best;
+    assert.equal(hostSettingsGauges({ preset: 'best', info, model: info.models[0] }).quality.state, state);
   }
 });
 test('AIT-262 missing, mismatched and policy-denied host evidence leaves manifest facts unchanged', async t => {
