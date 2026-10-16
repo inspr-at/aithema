@@ -64,7 +64,7 @@ export const questionCardStyles = `
      focus/accessibility target while the compact transcript uses that space. */
   .workspace[data-question-compact] .concept-bar { position:absolute; inset:0 0 auto; visibility:hidden; pointer-events:none; }
   .workspace[data-question-compact] .conversation { row-gap:0; grid-template-rows:minmax(0,1fr);
-    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 28px); }
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,128px) - var(--phone-footer,57px) - var(--phone-dock,58px) - 26px); }
   .workspace[data-question-compact] .transcript-shell { padding-block:4px; mask-image:none; }
   .workspace[data-question-compact] .transcript-shell > .voice-notices { margin-top:0; }
   .workspace[data-question-compact] .transcript-latest { position:absolute; right:0; bottom:0; margin:0; }

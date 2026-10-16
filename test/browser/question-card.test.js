@@ -426,15 +426,15 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
             // At one fixed viewport a longer question can require chips. That
             // content decision must never resize or move the input underneath.
             await shadow(page, () => {
-              visualViewport.height = 740; visualViewport.dispatchEvent(new Event('resize'));
+              visualViewport.height = 728; visualViewport.dispatchEvent(new Event('resize'));
               globalThis.showQuestion({ question_short: 'Choose?' });
             });
             await nextFrame(page); await nextFrame(page);
             const beforeModeChange = await boxes(page);
-            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, '390×740: a short question fits the full card');
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), false, '390×728: a short question fits the full card');
             await page.evaluate(() => globalThis.showQuestion({ question_short: (globalThis.qcardReply.question_short + ' ').repeat(4) }));
             await nextFrame(page); await nextFrame(page);
-            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, '390×740: a longer question needs compact answers');
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.qcard').hasAttribute('data-compact')), true, '390×728: a longer question needs compact answers');
             still(beforeModeChange, await boxes(page), 'full-to-compact content change at the same viewport');
             await page.evaluate(() => globalThis.showQuestion({ question_short: 'Choose?' }));
             await nextFrame(page); await nextFrame(page);
