@@ -772,7 +772,7 @@ export function createQualificationHost(cli) {
    (record its full SHA with the run evidence), run:
 
    ```sh
-   git checkout --detach f382891ad76458d7a8affbbc4d63e59ad7ae9ed7
+   git checkout --detach "${AIT160_QUALIFICATION_HEAD:?Set to the full SHA from the coordinator handoff}"
    node scripts/composed-qualification.js --operator-approved --initialize \
      --budget /absolute/run/budget.sqlite
    node scripts/composed-qualification.js --operator-approved \
