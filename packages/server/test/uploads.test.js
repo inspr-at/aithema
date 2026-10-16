@@ -470,8 +470,12 @@ test('concurrent admission cannot exceed the per-session count', async t => {
   const f = setup(t, { limits: { maxDocumentsPerSession: 1 } });
   const responses = await Promise.all(['one', 'two'].map(id => f.handlers.handle(uploadRequest(f.session.id, id))));
   assert.equal(responses.filter(r => r.status === 202).length, 1);
-  assert.ok(responses.some(r => [409, 413].includes(r.status)));
+  const busy = responses.find(r => r.status !== 202);
+  assert.equal(busy.status, 429); assert.deepEqual(await busy.json(), { error: 'upload-rate-limit' });
   await f.handlers.idle(); assert.equal(f.storage.get(f.session.id).uploads.length, 1);
+  const retry = await f.handlers.handle(uploadRequest(f.session.id, 'after-busy'));
+  assert.equal(retry.status, 413, 'fresh admission still enforces the full session count');
+  assert.equal(f.storage.get(f.session.id).uploads.length, 1);
 });
 
 for (const operation of ['withdraw', 'erase', 'consent']) test(`${operation} kills and reaps a running parser before acknowledgement`, { timeout: 10000 }, async t => {
