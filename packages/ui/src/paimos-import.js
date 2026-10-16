@@ -45,7 +45,8 @@ export function buildPaimosPayload(session, { host, fallbackTitle = '' } = {}) {
 
   if (!omittedTurns) payload.summary = summaryWithOmittedNote(u.summary, session.locale);
   let bytes = jsonBytes(payload), start = 0;
-  while (bytes > PAIMOS_PAYLOAD_MAX_BYTES && start < payload.transcript.length) {
+  // A byte overflow must omit a turn even if reserving the note itself frees enough UTF-8 bytes.
+  while ((bytes > PAIMOS_PAYLOAD_MAX_BYTES || !omittedTurns && start === 0) && start < payload.transcript.length) {
     bytes -= jsonBytes(payload.transcript[start]) + (start < payload.transcript.length - 1 ? 1 : 0);
     start += 1;
   }

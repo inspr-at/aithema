@@ -13,7 +13,7 @@ const settle = page => shadow(page, async c => {
   await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
 });
 
-const capture = async (page, options) => {
+const captureViewport = async (page, options) => {
   await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
   await page.mouse.move(-1, -1);
   await settle(page);
@@ -79,7 +79,7 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
         }
         if (evidence && enabled) {
           await shadow(page, c => c.shadowRoot.querySelector('.understanding > .foot').scrollIntoView({ block: 'center' }));
-          await capture(page, { path: join(evidence, `ait242-${locale}-${width}-${state}-footer.png`), fullPage: false, captureBeyondViewport: false });
+          await captureViewport(page, { path: join(evidence, `ait242-${locale}-${width}-${state}-footer.png`), fullPage: false, captureBeyondViewport: false });
           await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await settle(page);
         }
       }
@@ -147,7 +147,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
       c.receive({ type: 'lane.status', data: c.session.operations });
     });
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement === window.focusedOverviewRetry && c.shadowRoot.querySelector('.overview-retry') === window.focusedOverviewRetry), true, 'inline retry retains keyboard focus across live renders');
-    if (evidence) await capture(page, { path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence) await captureViewport(page, { path: join(evidence, `ait198-${locale}-${width}-${verdict}.png`), fullPage: false, captureBeyondViewport: false });
     await page.evaluate(() => fetch('/success'));
     const retry = await shadow(page, c => ({ inlineDisabled: c.shadowRoot.querySelector('.overview-retry').disabled, footerDisabled: c.shadowRoot.querySelector('.retry').disabled, operations: c.session.operations, features: c.session.featureMatrix }));
     assert.equal(retry.inlineDisabled, false, JSON.stringify(retry)); assert.equal(retry.footerDisabled, false, JSON.stringify(retry));
@@ -160,7 +160,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     assert.equal(await shadow(page, c => c === window.fixtureComponent), true);
     const pass = { head: evidenceCommit, locale, width, verdict, visitorCharge: 0, layoutShiftPx: 0, recoveredWithoutReload: true, pass: true };
     passes.push(pass); console.log(`AIT-198 PASS ${locale} ${width} ${verdict}: quiet failure, hold released on settle, next success without reload, 0 px`);
-    if (evidence) await capture(page, { path: join(evidence, `ait198-${locale}-${width}-${verdict}-recovered.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence) await captureViewport(page, { path: join(evidence, `ait198-${locale}-${width}-${verdict}-recovered.png`), fullPage: false, captureBeyondViewport: false });
   }
   assert.equal(passes.length, 8);
   assert.deepEqual(errors, []);
@@ -209,7 +209,7 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
     assert.equal(state.inline, 1); assert.equal(state.disabled, false); assert.equal(state.footerHidden, true);
     assert.equal(state.operations.lastFailure, null); assert.deepEqual(state.operations.running, []);
     assert.deepEqual(await boxes(page, targets), before, 'idle stuck state causes exactly 0 px displacement');
-    if (evidence) await capture(page, { path: join(evidence, `ait198-${locale}-${width}-stuck.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence) await captureViewport(page, { path: join(evidence, `ait198-${locale}-${width}-stuck.png`), fullPage: false, captureBeyondViewport: false });
     passes.push({ head: evidenceCommit, locale, width, missingReply: true, running: [], lastFailure: null, inlineRetries: 1, layoutShiftPx: 0, pass: true });
   }
   assert.equal(passes.length, 4);
@@ -324,7 +324,7 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
     assert.deepEqual(await boxes(page, targets), before, 'single reply failure causes 0 px surrounding displacement');
     passes.push({ head: evidenceCommit, kind, locale, width, theme: 'light', failureSentences: 1, retries: 1, layoutShiftPx: 0, pass: true });
     console.log(`AIT-212 PASS single reply failure ${kind} ${locale} ${width} light: sentence once, one Retry, 0 px`);
-    if (evidence && kind === 'waiting voice' && locale === 'de') await capture(page, { path: join(evidence, `ait212-de-${width}-reply-failure-light.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence && kind === 'waiting voice' && locale === 'de') await captureViewport(page, { path: join(evidence, `ait212-de-${width}-reply-failure-light.png`), fullPage: false, captureBeyondViewport: false });
   }
   if (evidence) await writeFile(join(evidence, `ait212-reply-failure-${kind.replaceAll(' ', '-')}-passes.json`), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
 });
@@ -391,7 +391,7 @@ test('AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 39
     assert.equal(failed.notice, failed.expected); assert.equal(failed.retries, 1); assert.equal(failed.enabled, true); assert.equal(failed.failure, 'understanding');
     if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
     await settle(page);
-    if (evidence) await capture(page, { path: join(evidence, `ait212-${locale}-${width}-${theme}-${kind}-reconnected.png`), fullPage: false, captureBeyondViewport: false });
+    if (evidence) await captureViewport(page, { path: join(evidence, `ait212-${locale}-${width}-${theme}-${kind}-reconnected.png`), fullPage: false, captureBeyondViewport: false });
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')),
       shadow(page, c => c.shadowRoot.querySelector('.overview-retry').click())]);
     assert.equal(response.status(), 202);
@@ -418,15 +418,15 @@ test('AIT-212 two failures: one visible Retry recovers reply then overview once,
     if (!evidence) return;
     const stem = `ait212-two-failures-${locale}-${width}-light-${state}`;
     await settle(page);
-    await capture(page, { path: join(evidence, `${stem}.png`), fullPage: false, captureBeyondViewport: false });
+    await captureViewport(page, { path: join(evidence, `${stem}.png`), fullPage: false, captureBeyondViewport: false });
     if (width === 390) {
       const scrollY = await page.evaluate(() => window.scrollY);
       await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
       await settle(page);
-      await capture(page, { path: join(evidence, `${stem}-overview.png`), fullPage: false, captureBeyondViewport: false });
+      await captureViewport(page, { path: join(evidence, `${stem}-overview.png`), fullPage: false, captureBeyondViewport: false });
       await shadow(page, c => c.shadowRoot.querySelector('.understanding > .foot').scrollIntoView({ block: 'center' }));
       await settle(page);
-      await capture(page, { path: join(evidence, `${stem}-footer.png`), fullPage: false, captureBeyondViewport: false });
+      await captureViewport(page, { path: join(evidence, `${stem}-footer.png`), fullPage: false, captureBeyondViewport: false });
       await page.evaluate(y => window.scrollTo({ top: y, behavior: 'instant' }), scrollY);
       await settle(page);
     }
@@ -534,7 +534,7 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     if (evidence && locale === 'de') {
       await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' }));
       await settle(page);
-      await capture(page, { path: join(evidence, `ait212-r5-de-${width}-reply-pending-light.png`), fullPage: false, captureBeyondViewport: false });
+      await captureViewport(page, { path: join(evidence, `ait212-r5-de-${width}-reply-pending-light.png`), fullPage: false, captureBeyondViewport: false });
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await settle(page);
     }
     const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith('/retry')), shadow(page, c => c.shadowRoot.querySelector('.retry').click())]);

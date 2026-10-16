@@ -128,6 +128,21 @@ test('contract v1 (AEON-1441): count and byte caps both remove oldest turns and 
   assert.ok(bytes(payload) <= PAIMOS_PAYLOAD_MAX_BYTES);
 });
 
+test('contract v1 (AEON-1441): reserving the omitted note cannot substitute for dropping an oversized transcript turn', () => {
+  const session = fixture(); session.transcript = session.transcript.slice(0, 2);
+  session.understanding.summary = '🥐'.repeat(4000);
+  const spare = PAIMOS_PAYLOAD_MAX_BYTES - bytes(buildPaimosPayload(session, context));
+  session.transcript[0].content += 'x'.repeat(spare);
+  const exact = buildPaimosPayload(session, context);
+  assert.equal(bytes(exact), PAIMOS_PAYLOAD_MAX_BYTES);
+  assert.equal(exact.summary, session.understanding.summary);
+  session.transcript[0].content += 'x';
+  const trimmed = buildPaimosPayload(session, context);
+  assert.deepEqual(trimmed.transcript, [exact.transcript[1]], 'the oldest turn is actually omitted even if reserving the note reduces UTF-8 bytes');
+  assert.equal(Array.from(trimmed.summary).length, 4000);
+  assert.ok(bytes(trimmed) <= PAIMOS_PAYLOAD_MAX_BYTES);
+});
+
 for (const locale of ['de', 'en', 'fr']) test(`contract v1 (AEON-1441): byte cap removes only the necessary oldest turns and localizes the note (${locale})`, () => {
   const session = fixture(); session.locale = locale;
   session.transcript = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: undefined,
