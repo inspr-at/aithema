@@ -114,7 +114,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'fake price evidence', expiresAt: Date.now() + 60000 }),
     verifyReceipt: async () => true,
     async reconcile({ snapshot, reconcile }) {
-      for (const row of snapshot.records.filter(row => row.state === 'settled' && !row.receipt)) {
+      for (const row of snapshot.records.filter(row => row.state === 'settled' && row.dispatchedAt && !row.receipt)) {
         await reconcile({ attemptId: row.attemptId, receiptId: row.attemptId, provider: row.provider, model: row.model,
           operation: row.operation, accountRef: row.accountRef, endpoint: row.endpoint, chargedMicro: 1, estimated: false });
       }
@@ -193,10 +193,20 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
     candidate: [{ model: 'eleven_flash_v2_5', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
     baseline: [{ model: 'eleven_turbo_v2', voiceId: 'fixture-voice', voiceSettings: fixtureVoiceSettings }],
   });
-  assert.equal(report.budget.records.length, 5); assert.equal(ports.dispatches.length, 5);
-  assert.deepEqual(new Set(report.budget.records.map(row => row.attemptId)), new Set(ports.dispatches));
+  // The source and consumer use independent capture clocks. The first barge-in
+  // packet can reach the coordinator before local input stops, admitting one
+  // interruption STT. Check every admission/dispatch instead of a WAV-race count.
+  const candidate = report.budget.records.filter(row => row.lane === 'candidate');
+  const stt = candidate.filter(row => row.role === 'stt');
+  assert.ok(stt.length === 1 || stt.length === 2);
+  assert.equal(candidate.filter(row => row.role === 'reasoning').length, 2);
+  assert.equal(candidate.filter(row => row.role === 'tts').length, 1);
+  assert.equal(report.budget.records.filter(row => row.lane === 'baseline').length, 1);
+  assert.equal(report.budget.records.length, 4 + stt.length);
+  assert.deepEqual(new Set(report.budget.records.filter(row => row.dispatchedAt).map(row => row.attemptId)), new Set(ports.dispatches));
   assert.equal(report.budget.records.filter(row => row.retryOf).length, 1);
-  assert.ok(report.budget.records.every(row => row.state === 'settled' && row.receipt && row.dispatchedAt));
+  assert.ok(report.budget.records.every(row => row.state === 'settled' &&
+    (row.dispatchedAt ? row.receipt : row.outcome === 'cancelled' && row.exposureMicro === 0)));
   for (const lane of ['candidate', 'baseline']) {
     const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, physicalBrowserMedia } = observations[lane][0];
     assert.equal(physicalBrowserMedia.verified, true);
