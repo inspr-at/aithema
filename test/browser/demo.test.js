@@ -212,7 +212,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           await page.click('aithema-session >>> .chooser-option[data-preset="best"]');
         }
         await page.setViewport({ width: 800, height: 600 });
-        assert.match(await page.$eval('#provider', node => node.textContent), /Mock reasoning/u);
+        assert.match(await page.$eval('#provider', node => node.textContent), /Local demo, no AI provider/u);
 
         for (const [selector, enabled] of [['#grant', true], ['#revoke', false], ['#grant', true]]) {
           const consent = page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/consent`
@@ -366,7 +366,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.local__messages').textContent.includes('Hello from loopback-large'));
         assert.deepEqual(local.chats.map(chat => [chat.model, chat.stream, chat.messages]), [['loopback-large', true, [{ role: 'system', content: '' }, { role: 'user', content: 'Are you there?' }]]]);
         await page.keyboard.press('Escape');
-        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Mock processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, settings (preset, model and effort acknowledged; next reply from Swift), reload, ZIP download, 400 px dialog layout/focus and a loopback local model (handshake, model choice, streamed test chat) passed.`);
+        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Demo processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, settings (preset, model and effort acknowledged; next reply from Swift), reload, ZIP download, 400 px dialog layout/focus and a loopback local model (handshake, model choice, streamed test chat) passed.`);
       })()]);
     } finally {
       controller.abort();
@@ -727,7 +727,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
     // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
-    assert.equal(await german.$eval('#provider', node => node.textContent), 'Mock-Auswertung: deterministische Demo · Testentwürfe (lokaler Klick-Entwurf)');
+    assert.equal(await german.$eval('#provider', node => node.textContent), 'Lokale Demo, ohne KI-Anbieter · Nur Demo: klickbarer Entwurf');
     // AIT-118: at 400 px every English and German voice message, the longest German recovery and closure
     // messages included, is whole in the rail's reserved lines and moves no control.
     const voiceMessages = [en, de].flatMap(copy => Object.entries(copy).filter(([key, value]) => /^voice[A-Z]/u.test(key) && typeof value === 'string'

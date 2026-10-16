@@ -176,17 +176,21 @@ export class QuestionCard {
     // gap, including while the concept bar is measured outside that grid.
     const expandedGap = phone && workspace
       ? parseFloat(this.view.getComputedStyle(shell.querySelector('ol')).rowGap) : 0;
+    const conceptHeight = this.root.querySelector('.concept-bar').getBoundingClientRect().height;
     const available = phone && workspace
       ? viewport + (visual?.scale === 1 ? visual.offsetTop : 0)
         - this.root.querySelector('.band').getBoundingClientRect().height
         - this.root.querySelector('.display-foot').getBoundingClientRect().height
         - this.root.querySelector('.composer-dock').getBoundingClientRect().height
-        - this.root.querySelector('.concept-bar').getBoundingClientRect().height - expandedGap - 32
+        - conceptHeight - expandedGap - 32
       : shell.getBoundingClientRect().height + (this.height ?? 0);
     // Include the 12px fade within the 28px clearance above the reply.
     // Very long replies retain a bounded reading pane and open in the full-text dialog.
     const latest = shell.querySelector('.turn:last-child');
-    const replyRoom = Math.max(128, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - 150));
+    // The two-row phone rail reserves another action target. Take that space
+    // from the transcript's spare minimum before collapsing a short question.
+    const replyFloor = phone ? Math.max(84, 128 - Math.max(0, conceptHeight - 44)) : 128;
+    const replyRoom = Math.max(replyFloor, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - 150));
     const limit = Math.max(0, available - replyRoom);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
     const wasCompact = this.card.hasAttribute('data-compact');
