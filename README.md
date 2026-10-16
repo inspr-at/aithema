@@ -529,7 +529,7 @@ Missing/erased records hydrate as tombstones, including on receipt replay,
 restart and export. SQLite secure deletion and WAL checkpointing run before
 erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
 hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
-The demo applies a twelve-month turn retention cutoff each minute.
+The demo retires whole sessions after twelve months of inactivity, checking each minute.
 
 Assistant replies, including assistant voice transcripts, and generated
 understanding objects carry `origin: "ai-generated"` in API snapshots, durable

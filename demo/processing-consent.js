@@ -65,7 +65,8 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
   db.exec(`CREATE TABLE IF NOT EXISTS processing_consents (session_id TEXT PRIMARY KEY REFERENCES sessions(id), revision INTEGER NOT NULL,
     grants TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS processing_consent_events (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
-    revision INTEGER NOT NULL, at INTEGER NOT NULL, items TEXT NOT NULL, copy_version TEXT NOT NULL);`);
+    revision INTEGER NOT NULL, at INTEGER NOT NULL, items TEXT NOT NULL, copy_version TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS processing_consent_session ON processing_consent_events(session_id);`);
   const describe = sessionId => {
     const row = sessionId ? db.prepare('SELECT * FROM processing_consents WHERE session_id=?').get(sessionId) : null;
     const session = sessionId ? storage.get(sessionId) : null, at = now();

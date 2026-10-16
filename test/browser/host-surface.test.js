@@ -370,3 +370,46 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.deepEqual(german, []);
     t.diagnostic(`Host surface: ${tally.join('; ')}; German dark 400 px lock, verify dialog and library; no sideways overflow.`);
   });
+
+test('AIT-214: retiring an idle session removes its export and reload creates a fresh conversation', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-retention-browser-'));
+  const child = fork(new URL('../fixtures/retention-server.js', import.meta.url), [], {
+    env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite') }, silent: true,
+  });
+  child.stdout.resume(); child.stderr.resume();
+  let browser;
+  t.after(async () => {
+    try { await browser?.close(); } finally { await stopDemo(child); await rm(directory, { recursive: true, force: true }); }
+  });
+  const [ready] = await Promise.race([once(child, 'message'), once(child, 'exit').then(() => { throw new Error('Retention host exited'); })]);
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+    env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
+    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 1000 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.goto(ready.url);
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  const id = await page.$eval('aithema-session', c => c.session.id);
+  assert.equal(await page.evaluate(id => fetch(`/api/sessions/${id}/export`).then(r => r.status), id), 200);
+  // Disconnect live traffic; a connected stream deliberately protects its session.
+  await page.goto('about:blank');
+  const retired = once(child, 'message'); child.send({ type: 'retire', id });
+  const [result] = await retired;
+  assert.deepEqual(result, { type: 'retired', result: { retired: 1, failed: 0, more: false } });
+  await page.goto(ready.url);
+  await page.waitForFunction(id => {
+    const c = document.querySelector('aithema-session'); return c?.session?.id && c.session.id !== id;
+  }, {}, id);
+  const gone = await page.evaluate(async id => {
+    const response = await fetch(`/api/sessions/${id}/export`);
+    return { status: response.status, type: response.headers.get('content-type'), body: await response.json() };
+  }, id);
+  assert.deepEqual(gone, { status: 404, type: 'application/json', body: { error: 'session-not-found' } });
+  assert.deepEqual(await page.$eval('aithema-session', c => c.session.transcript), []);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(requestAnimationFrame); });
+    await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-214-fresh-session.png'), fullPage: false });
+  }
+});

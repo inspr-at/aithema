@@ -108,9 +108,140 @@ unpredictable token when creating a session and retain it for every subsequent
 request. A framework host should pass its own authenticated `ownership.token`
 port (for example, its HttpOnly visitor cookie). A session ID alone is never
 ownership. `POST /api/sessions` takes JSON and returns the public session.
+The optional `ownership.created(response, ownerToken, request)` hook runs once
+before returning a successful 201 from every session-creating route:
+`POST /api/sessions`, `POST /api/library`, and `POST /api/library/:id/reset`.
+Use it to set or renew the host's owner cookie; failed requests do not call it.
+After upgrading to a release containing AIT-217, START can remove its
+`compose.js` wrapper that calls `ownership.created` for the two library 201s.
 `GET /api/sessions/:id/events` supplies durable SSE replay; `/export` downloads
 the provenance-preserving ZIP. See the root README's route tables for commands,
 settings, uploads, withdrawal, concepts, and host routes.
+
+## Host retention contract
+
+Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
+sessions**, without possessing visitor tokens. `before` is a nonnegative Unix
+millisecond timestamp; eligibility is strictly `lastActivity < before`. `limit`
+is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
+`retired` counts completed core erasures; `failed` counts sessions that failed
+this call; `more` means another eligible or due retry batch exists. Repeated and overlapping calls are safe. An interrupted
+retirement is durably queued and retried, including the host cleanup hook.
+Hooks must therefore be idempotent. A failing session stays tombstoned and
+pending with a durable attempt count and exponential backoff (1 second up to
+1 hour); the batch continues. Deferred retries do not set `more`: call again
+on the maintenance schedule even when `more` is false. Monitor `failed`;
+host failures can delay deletion beyond the intended retention window.
+
+Last activity is the latest **server timestamp** of person- or host-initiated
+activity: session creation, turns and other committed session changes, authorized
+session and individual library requests (including reads and export), and the
+completion of protected requests, streams and work the person started. Client
+turn timestamps cannot backdate it. The rule lives in `SQLiteStorage.countsAsActivity`:
+direct storage calls are host activity; `storage.systemWork(fn)` marks system work
+and its asynchronous descendants as maintenance. System events, including
+`expire` withdrawal events and the rebuild jobs they schedule, never renew the
+idle clock. Hosts must wrap other system-originated work in `systemWork` too.
+Failed ownership checks and read-only maintenance scans do not renew activity.
+Expire and retire can use the same cutoff in either order without adding an
+extra retention window. In-flight authorized requests, open SSE streams and running
+text reasoning jobs exclude the session from retirement; active voice calls
+and pending host deliveries also exclude it. An idle but connected page is therefore still active. Selection
+and the final idle check run under the exclusive SQLite writer, before any
+asynchronous cancellation or hook, so newly active sessions cannot be erased
+from a stale candidate list. On migration, the latest stored event timestamp
+initializes activity (unknown timestamps conservatively start at migration).
+
+Retirement uses the erase route's `session.erased` invalidation: it broadcasts
+and closes live streams and cancels lanes, concepts, uploads and voice. It then
+withdraws consent, awaits `host.retired({ sessionId, ownerHash })`, and physically
+deletes core rows in child-before-parent FK order, then the session. The owner
+hash is captured inside the tombstone transaction. No owner token is invented;
+the user erase route continues to use `host.erased({ sessionId, ownerToken })`.
+The host hook runs after the tombstone commits and before the separate core
+purge transaction; it may open its own transaction. The hook has a per-session deadline of 30 seconds (configure the positive integer
+`retiredHookTimeoutMs` in `createHandlers`). A timeout or failure keeps core rows
+pending for retry, counts as failed, and lets the batch continue. The timeout
+cannot cancel host code; hooks must tolerate a late completion overlapping a retry.
+Failures log only session ID and error class, never error content. Core purge and the final batch checkpoint truncate the WAL
+for sessions already purged even if another session's hook fails.
+
+| Data | After successful retirement |
+| --- | --- |
+| Session, settings, consent revision, owner hash | Deleted |
+| Value-free event journal, receipts and content hashes | Deleted |
+| Text, understanding, actor, focused question, identity and library projections | Deleted |
+| Upload bytes, extracted text, concept blobs and feedback | Deleted |
+| Host state, safeguards, voice calls, lifecycle and operation records | Deleted |
+| Processing consent grants and history in the composed demo | Deleted |
+| Per-session budget attempts, corrections, render claims, duration reservations | Deleted |
+| Deployment spend, render and voice totals | Only value-free totals per account or UTC day remain; no session, owner, attempt or provider generation identifiers |
+| Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
+
+SQLite uses `secure_delete` and truncates its WAL before acknowledging the
+full erase. Unreconciled deployment holds remain conservatively charged in
+aggregate; their deleted receipts can no longer be reconciled. Retained totals
+are deployment spend/reserved/uncertain amounts and breach flags per account,
+render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
+On low-volume days, a daily total may reveal one session's usage. Daily buckets
+remain necessary for daily cap enforcement; hosts should aggregate reports by
+week and restrict access to raw daily accounting. This does not erase independent backups or remote provider copies.
+Core removes only its own explicit table list. Hosts must clean their own SQLite
+and external session rows in the idempotent `retired` hook, including in-memory
+projections. Index host `session_id` columns to avoid a full scan per session.
+Host FKs to `sessions(id)` or core child tables such as `content`, `uploads`
+and `concept_artifacts` must be removed or detached before the hook returns;
+a remaining FK blocks core purge and causes a retry. Host tables are never
+automatically deleted merely because they have a `session_id` column. Hosts may
+retain legally required records such as consent proof: that is their decision,
+to document under their own policy, with a schema independent of the deleted
+session (or a detached nullable FK). For example:
+
+```js
+const host = {
+  async retired({ sessionId, ownerHash }) {
+    storage.transaction(() => {
+      storage.db.prepare('DELETE FROM host_consent_events WHERE session_id=?').run(sessionId);
+      storage.db.prepare('DELETE FROM host_consent_grants WHERE session_id=?').run(sessionId);
+    });
+    await removeExternalSessionData({ sessionId, ownerHash }); // idempotent
+  },
+};
+```
+
+The demo deletes its own consent history, session mail outbox and wallet holds. Visitor identity, visitor credit
+accounts and deployment abuse controls are separate host records, governed by
+the host's visitor-retention policy. Shared owner credit guards are removed
+when they refer to the retired session. Do not promise provider-side deletion
+from this API.
+
+For a 24-hour idle policy, run at startup and on the host's existing maintenance
+schedule. Drain batches with a short yield between calls; serialize the loop:
+
+```js
+let retaining = false;
+async function retainIdleSessions() {
+  if (retaining) return;
+  retaining = true;
+  const before = Date.now() - 24 * 60 * 60 * 1000;
+  try {
+    while ((await handlers.retire({ before, limit: 100 })).more) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  } finally { retaining = false; }
+}
+await retainIdleSessions();
+const retentionTimer = setInterval(() => void retainIdleSessions().catch(reportRetentionFailure), 15 * 60_000);
+// Shutdown: clearInterval(retentionTimer), await any running maintenance, then close handlers/storage.
+```
+
+A 15-minute schedule normally deletes after 24 hours of inactivity **plus up to
+15 minutes and backlog/maintenance delays**. Privacy copy must reflect that
+window and distinguish idle retention from a fixed lifetime. The demo keeps its
+existing one-minute schedule and 365-day cutoff, retiring at most 100 sessions
+per tick. The older `expire(before)` only withdraws old turns/uploads; it is not
+a full-erasure contract. Both sweeps query an indexed live-session set, excluding
+tombstones and retired sessions without scanning historical session rows.
 
 ## Web components
 
@@ -158,6 +289,19 @@ version in a reserved slot for 1.2 seconds. Unknown schemes hide only the
 version row and log once, leaving the session usable. Auto colors use the host branding;
 `host.version.display: "semver"` selects the full reduced coordinate in that same
 popup, with the same canonical-copy interaction. Legacy details remain plain.
+
+The UI's optional `host.operator` configuration supplies `provider`,
+`url: '/api/operator/login/'`, `logoutUrl: '/api/operator/logout/'`, and the
+authenticated operator's `name`. Set `operator.adminUrl` only when the host
+provides an admin destination, for example
+`host: { operator: { provider: 'Zitadel', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', name: 'Ada', adminUrl: '/admin' } }`.
+`adminUrl` accepts same-origin relative paths (such as `/admin` or `./admin`)
+or absolute HTTP(S) URLs. Other schemes, protocol-relative URLs, backslashes,
+whitespace and malformed URLs fail closed. Omit it when no admin page exists:
+the name has no admin anchor, dot separators or reserved admin space; native
+sign-out remains available. The complete operator line is built synchronously
+before attachment. The demo host explicitly supplies `/admin`; admin pages
+remain host-owned.
 
 ## Host ports and presets
 
@@ -449,8 +593,8 @@ metadata. The demo's operator page is internal for this release.
 The demo browser currently resolves source URLs without an import map. Its
 `host.js`, `consent-page.js`, shared `admin-view.js` and test-only `fake-voice.js`
 retain those browser paths; every other non-test demo module uses package
-specifiers. `test/demo-package-imports.test.js` enforces that explicit exception
-list. Existing static routes continue to serve package component dependencies.
+specifiers. The unified [module boundary policy](architecture.md#allowed-edges) defines
+and checks those exceptions with the packages/plugins rules. Existing static routes continue to serve package component dependencies.
 The packed consumer imports every runtime subpath and also attempts each
 types-only subpath, asserting Node's expected rejection and its installed type
 file. It checks recursive German/English key parity on every install/reinstall
@@ -487,11 +631,50 @@ relative adapter import; it is served by a separate test host, outside the demo
 module graph. The new ElevenLabs components are internal package implementation
 files, and the demo does not import them directly. Neither needs a demo guard
 exception or a new public export.
-The unexported ElevenLabs `components.js` also imports
-`plugins/composed-voice/src/component.js`, which has no publishable package.
-It stays in the workspace/source archive alongside the existing source-only
-composed coordinator and Voxtral proof, and is omitted from the ElevenLabs
-module tarball. No current package export or demo entrypoint imports it. This
-keeps the proof and its tests while avoiding a public composed-component API
-in this candidate. The packer still rejects any admitted runtime module that
-tries to import an unpublished dependency.
+The unexported ElevenLabs `components.js`, server composed coordinator and core
+component helpers remain in the workspace/source archive alongside the Voxtral
+proof. They are omitted from module tarballs. Exact source-to-target proof edges
+in the boundary checker retain their internal imports while avoiding a public
+composed-component API. Neither `/composed-voice` nor `/voice-components` is
+exported. The packer rejects admitted runtime modules that import unpublished
+code. See [next-release notes](../release/next-notes.md) for the identity API change.
+
+
+### Core subpath decisions (AIT-202)
+
+The #173 release candidate already exposes the subpaths below. Each is retained
+because an actual production module consumes it; none is added speculatively.
+These are explicit public contracts, not permission to import arbitrary `src/`
+files. The root remains the normal host entrypoint. AIT-202 adds no core or
+server package subpath. The public server `/local-voice-identity` retains only
+`isLocalVoice`; AIT-218's always-throwing `markLocalVoice` compatibility export is
+removed in the next release. Hosts cannot enroll providers as the simulator.
+
+| Core subpath | Keep reason and actual consumer |
+| --- | --- |
+| `./understanding` | UI session understanding model. |
+| `./readiness` | UI session readiness model. |
+| `./live-voice` | Server voice handlers and composed provider lifecycle. |
+| `./extractor` | Server upload admission and extraction adapters. |
+| `./extractor-process` | OOXML/PDF/text subprocess adapters. |
+| `./extractor-zip` | OOXML child ZIP safety checks. |
+| `./invocation` | Server coordinator, UI reply audio and provider admission errors. |
+| `./session` | UI session-element and email session state. |
+| `./ui-html` | Host HTML setup and UI HTML rendering contract. |
+| `./reply` | UI session and ElevenLabs facade reply delivery. |
+| `./prompts` | UI session prompt construction. |
+| `./document-context` | UI session document context. |
+| `./text-origin` | UI session and ElevenLabs facade origin tracking. |
+| `./presets` | UI session and composed/ElevenLabs feature configuration. |
+| `./settings` | Server handlers and UI settings/consent controls. |
+| `./ai-notice` | UI locales and ElevenLabs host notice/options. |
+| `./voice-lifecycle` | Server composed coordinator and UI session lifecycle. |
+| `./reply-replay` | UI page replay and ElevenLabs/fake-voice clients. |
+| `./voice-lifecycle-controller` | UI audio rail and provider clients. |
+| `./cost` | Server budget and ElevenLabs speech/server costing. |
+| `./plugins` | Provider manifests and server coordinator deepFreeze. |
+| `./plugin-contract` | Codex-imagegen declaration contract (types only). |
+| `./safeguards` | ElevenLabs facade safeguards. |
+| `./reasoning` | Device adapter and ElevenLabs facade operation scopes. |
+| `./reply-opener` | ElevenLabs facade opener delivery. |
+| `./chat-completions` | Device adapter chat protocol. |

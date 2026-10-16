@@ -719,8 +719,8 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     for (let i = 0; i < 300 && !refreshed; i++) await new Promise(resolve => setTimeout(resolve, 10));
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
-    assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
-    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent · Give consent…');
+    assert.equal(root.querySelector('.composer-reason').textContent, `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
+    assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent\u00a0· Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });
@@ -736,7 +736,7 @@ test('the German bundle covers every English key and renders the component in Ge
   c.configure({ copy: de, session });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.send').textContent, 'Senden');
-  assert.equal(root.querySelector('.composer-reason').textContent, de.reasons['current processing consent required']);
+  assert.equal(root.querySelector('.composer-reason').textContent, `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
 test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {
@@ -961,7 +961,7 @@ for (const copy of [de, en]) for (const reason of ['not configured', 'budget den
   c.configure({ session, copy });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.notice').textContent, reason === 'current processing consent required'
-    ? `${copy.featureConsent.analysis} · ${copy.featureConsent.action}` : copy.reasons[reason]);
+    ? `${copy.featureConsent.analysis}\u00a0· ${copy.featureConsent.action}` : copy.reasons[reason]);
   assert.equal(root.querySelector('.notice button') !== null, reason === 'current processing consent required');
   assert.equal(root.querySelector('.understanding').hasAttribute('aria-disabled'), reason !== 'current processing consent required', 'the consent action stays interactive');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');

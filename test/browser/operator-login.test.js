@@ -12,6 +12,25 @@ import { browserPath, shadow, until, evidenceCommit } from './start2-display-hel
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 
+const fontStack = 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif';
+const settle = page => shadow(page, async c => {
+  await document.fonts.ready;
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+    .filter(animation => animation.playState === 'running' && Number.isFinite(animation.effect.getComputedTiming().endTime))
+    .map(animation => animation.finished.catch(() => {})));
+});
+async function captureViewport(page, path) {
+  // Evidence is taken mid-flow: retain the actual element, including shadow focus.
+  await shadow(page, c => {
+    window.operatorShotFocus = c.shadowRoot.activeElement ?? document.activeElement;
+    c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+  });
+  await page.mouse.move(-10, -10);
+  try { await settle(page); await page.screenshot({ path, fullPage: false }); }
+  finally { await page.evaluate(() => { window.operatorShotFocus?.focus({ preventScroll: true }); delete window.operatorShotFocus; }); }
+}
+
 async function host(directory, issuer, configured) {
   const reservation = await listen(() => new Response());
   const port = reservation.server.address().port;
@@ -39,6 +58,7 @@ const emailLayout = page => shadow(page, c => {
 });
 const openGeneral = async (page, returned = false) => {
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, (c, font) => { c.style.setProperty('--aithema-font', font); c.setAttribute('motion', 'off'); }, fontStack);
   // Compare operator navigation with the same known-tier reservation at each
   // open; AIT-171 deliberately retains an unknown-tier union until close.
   await until(page, () => {
@@ -82,10 +102,8 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       await page.evaluateOnNewDocument(locale => { localStorage.setItem('aithema-demo-locale', locale); }, locale);
       const capture = async (state, width, theme) => {
         const name = `ait-165-${evidenceCommit}-${locale}-${theme}-${width}-${state}.png`;
-        await page.evaluate(() => { document.activeElement?.blur(); document.querySelector('aithema-session')?.shadowRoot.activeElement?.blur(); });
-        await page.mouse.move(-1, -1);
-        if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
-          if (['signed-in', 'signed-out'].includes(state)) await page.screenshot({ path: join(evidence, `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state === 'signed-in' ? 'entry' : 'entry-out'}.png`), fullPage: false }); }
+        if (evidence) { await captureViewport(page, join(evidence, name)); shots.push(name);
+          if (['signed-in', 'signed-out'].includes(state)) await captureViewport(page, join(evidence, `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state === 'signed-in' ? 'entry' : 'entry-out'}.png`)); }
         if (['signed-in', 'signed-out'].includes(state)) adminEntries.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width}/${state === 'signed-in' ? 'entry' : 'entry-out'} 0.00 px shift`);
         const row = { head: evidenceCommit, locale, theme, width, state, shiftPx: 0 };
         passLines.push(row); t.diagnostic(`PASS head=${evidenceCommit} AIT-165 ${locale}-${theme}-${width}/${state} 0 px layout shift`);
@@ -109,6 +127,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
         await openGeneral(page, true);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-name').textContent), 'Operator: Ada');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-admin').getAttribute('href')), '/admin', 'demo host supplies its admin destination');
         // Chrome inserts newlines between flex items in form.innerText; each
         // item's innerText still exposes whether its spaces actually rendered.
         await t.test(`AIT-169 exact rendered entry: ${locale}-${theme}-${width}`, async () => {
@@ -170,4 +189,100 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
     if (evidence) await writeFile(join(evidence, 'ait-169-entry-pass-lines.txt'), adminEntries.join('\n') + '\n');
     adminEntries.forEach(line => t.diagnostic(line));
     assert.equal(passLines.length, 48);
+  });
+
+test('AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame',
+  { timeout: 180_000 }, async t => {
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-operator-admin-url-')), issuer = await stubOperatorIssuer();
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR && join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-223');
+    const shots = [], passLines = [];
+    let browser, demo;
+    t.after(async () => { await browser?.close(); await demo?.kill(); await issuer.close(); await rm(directory, { recursive: true, force: true }); });
+    demo = await host(directory, issuer, true);
+    if (evidence) await mkdir(evidence, { recursive: true });
+    for (const [locale, copy] of [['de', de], ['en', en]]) {
+      browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, locale),
+        env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+      const page = await browser.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
+      // A minimal embedding host exercises the public configure({ host: { operator } })
+      // contract with no adminUrl at all. It has no demo host script or /admin fallback.
+      await page.setRequestInterception(true);
+      page.on('request', request => {
+        if (new URL(request.url()).pathname !== '/operator-settings-fixture') { void request.continue(); return; }
+        void request.respond({ status: 200, contentType: 'text/html', body: `<!doctype html><html lang="${locale}">
+          <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,">
+          <style>body{margin:0}aithema-session{display:block;min-height:100vh}</style><aithema-session motion="off"></aithema-session>
+          <script type="module">
+            import '/packages/ui/src/session-element.js';
+            import { ${locale} as copy } from '/packages/ui/src/i18n/${locale}.js';
+            const response = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale: '${locale}' }) });
+            const session = await response.json(), component = document.querySelector('aithema-session');
+            component.style.setProperty('--aithema-font', ${JSON.stringify(fontStack)});
+            component.configure({ session, copy, host: { library: true, credits: true, verification: { delivery: false, privacyDocumentConfigured: false },
+              operator: { provider: 'Zitadel', name: 'Ada', url: '/api/operator/login/', logoutUrl: '/api/operator/logout/' } } });
+            window.operatorAtAttach = component.shadowRoot.querySelector('.operator-signed-in').innerHTML;
+          </script></html>` });
+      });
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await openGeneral(page);
+      await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
+      await openGeneral(page, true);
+      for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) {
+        const frames = [], texts = [], renderedTexts = [];
+        await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }, { name: 'prefers-reduced-motion', value: 'reduce' }]);
+        for (const state of ['with-admin', 'without-admin']) {
+          await page.goto(demo.url + (state === 'without-admin' ? '/operator-settings-fixture' : ''), { waitUntil: 'domcontentloaded' });
+          await openGeneral(page);
+          const first = await shadow(page, c => {
+            const r = c.shadowRoot, form = r.querySelector('.operator-signed-in'), row = r.querySelector('.operator-row');
+            return { html: form.innerHTML, name: r.querySelector('.operator-name').textContent, text: form.textContent.trim(),
+              renderedText: [...form.children].map(node => node.innerText).join(''),
+              href: r.querySelector('.operator-admin')?.getAttribute('href') ?? null,
+              anchors: form.querySelectorAll('a').length, children: form.children.length,
+              separators: r.querySelectorAll('.operator-separator').length, height: row.getBoundingClientRect().height,
+              separatorsHidden: [...form.querySelectorAll('.operator-separator')].every(node => node.getAttribute('aria-hidden') === 'true'),
+              logoutMargin: getComputedStyle(r.querySelector('.operator-logout')).marginInlineStart,
+              overflow: form.scrollWidth - form.clientWidth };
+          });
+          assert.equal(first.name, 'Operator: Ada'); assert.equal(first.height, 44); assert.equal(first.overflow, 0);
+          assert.equal(first.href, state === 'with-admin' ? '/admin' : null);
+          assert.equal(first.anchors, state === 'with-admin' ? 1 : 0);
+          assert.equal(first.children, state === 'with-admin' ? 5 : 3, 'no hidden admin slot');
+          assert.equal(first.separators, state === 'with-admin' ? 2 : 1);
+          assert.equal(first.separatorsHidden, true); assert.equal(first.logoutMargin, '0px', 'no reserved admin gap');
+          const expectedText = `Operator: Ada${state === 'with-admin' ? ` · ${copy.settings.operatorAdmin}` : ''} · ${copy.settings.operatorLogout}`;
+          assert.equal(first.text, expectedText); assert.equal(first.renderedText, expectedText);
+          texts.push(first.text); renderedTexts.push(first.renderedText);
+          if (state === 'without-admin') assert.equal(await page.evaluate(() => window.operatorAtAttach), first.html, 'no admin fallback at attachment');
+          await settle(page);
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-signed-in').innerHTML), first.html, 'operator line is final at first frame');
+          const before = await geometry(page);
+          frames.push([before[0], before[4], first.height]);
+          await shadow(page, c => c.shadowRoot.querySelector('.operator-logout').focus({ preventScroll: true }));
+          const name = `ait-223-${evidenceCommit}-${locale}-${theme}-${width}-${state}.png`;
+          if (evidence) { await captureViewport(page, join(evidence, name)); shots.push(name); }
+          assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.operator-logout')), true, 'mid-sequence capture restores focus');
+          assert.deepEqual(await geometry(page), before, 'capture leaves layout and scroll unchanged');
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-logout').textContent), copy.settings.operatorLogout);
+          const line = `PASS head=${evidenceCommit} AIT-223 ${locale}-${theme}-${width}/${state}: text=${JSON.stringify(first.text)}, href=${first.href ?? 'none'}, separators=${first.separators} aria-hidden, logout margin=0px, row=44px, first-frame final, 0px shift, focus restored`;
+          passLines.push(line); t.diagnostic(line);
+          await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), false, 'flow continues after capture');
+        }
+        assert.deepEqual(frames[1], frames[0], 'admin availability preserves dialog, footer and row height');
+        assert.equal(texts[1], texts[0].replace(` · ${copy.settings.operatorAdmin}`, ''), 'only the admin item and its separator disappear');
+        assert.equal(renderedTexts[1], renderedTexts[0].replace(` · ${copy.settings.operatorAdmin}`, ''), 'remaining items keep their rendered join');
+      }
+      assert.deepEqual(errors, []); await browser.close(); browser = null;
+    }
+    assert.equal(passLines.length, 24);
+    if (evidence) {
+      assert.equal(shots.length, 24);
+      await writeFile(join(evidence, 'pass-lines.txt'), passLines.join('\n') + '\n');
+      await writeFile(join(evidence, 'index.json'), JSON.stringify({ head: evidenceCommit, viewport: true, reducedMotion: true,
+        fontStack, blurBeforeEveryShot: true, restoreFocus: true, passLines, shots }, null, 2));
+    }
   });

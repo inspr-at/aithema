@@ -6,10 +6,11 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
+import audit from '../fixtures/consent-copy-audit.json' with { type: 'json' };
 import { CONSENT_ITEMS } from '../../demo/processing-consent.js';
 import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
-const features = { text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
+const features = { uploads: ['models-international'], transcription: ['voice-elevenlabs'], images: ['models-international'], text: ['models-international'], html: ['drafts-anthropic'], voice: ['voice-elevenlabs'], analysis: ['models-international'] };
 const places = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' };
 const words = {
   de: { html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung', action: 'Einwilligen…' },
@@ -41,6 +42,7 @@ async function fixture(t, real = false, purpose = false) {
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     if (page.state && path.endsWith('/consent')) {
       if (request.method() === 'GET') return json({ contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
@@ -65,7 +67,7 @@ async function scene(page, locale, theme, width, missing) {
   await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
   page.posts = [];
   page.state = { selected: CONSENT_ITEMS.map(i => i.id).filter(id => !missing.flatMap(f => features[f]).includes(id)),
-    seq: 100, matrix: { best: Object.fromEntries(['text', 'analysis', 'voice', 'html'].map(f => [f,
+    seq: 100, matrix: { best: Object.fromEntries(Object.keys(features).map(f => [f,
       missing.includes(f) ? { available: false, reason: 'current processing consent required' } : { available: true, reason: null }])) } };
   await page.evaluate(async ({ locale, matrix }) => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -73,6 +75,9 @@ async function scene(page, locale, theme, width, missing) {
     const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
     const { inputRevision } = await import('/packages/core/src/session.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.consentSeed);
+    c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+    c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+    document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
     session.locale = locale; session.seq = 100; session.consentRevision = 1;
     session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs'; session.conceptVisualKind = 'html';
     session.conceptCost = { maxMicro: 10000 }; session.featureMatrix = matrix;
@@ -110,7 +115,7 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
   for (const theme of ['light', 'dark']) for (const width of [390, 1440]) for (const feature of ['html', 'voice', 'analysis']) {
     const label = `${locale}-${theme}-${width}-${feature}`;
     await scene(page, locale, theme, width, [feature]);
-    const selector = places[feature], expected = `${words[locale][feature]} · ${words[locale].action}`;
+    const selector = places[feature], expected = `${words[locale][feature]}\u00a0· ${words[locale].action}`;
     const state = await shadow(page, (c, { selector, expected }) => {
       const r = c.shadowRoot, line = r.querySelector(selector);
       return { text: line.textContent, lines: [...r.querySelectorAll('[data-consent-feature]')].filter(n => n.textContent === expected).length,
@@ -194,7 +199,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
     session.featureMatrix.best.html = { available: false, reason: 'session paused', unpaused: { available: false, reason: 'current processing consent required' } };
     c.configure({ session, copy });
   });
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…');
   await shadow(page, c => c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' })); await frame(page);
   const before = await boxes(page, geometry);
   await page.locator('aithema-session >>> .notice button').click();
@@ -203,7 +208,7 @@ test('AIT-197 C1: all three refusals have one action each; stage survives a paus
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open); await frame(page);
   assert.equal(await shadow(page, c => c.session.paused), true, 'giving consent preserves the purpose pause');
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.notice').textContent), 'Ihr Überblick wird erstellt …', 'a person turn cannot regain the first-sentence placeholder during a purpose pause');
-  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung · Einwilligen…', 'drafts keep their separate refusal');
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), 'Entwürfe brauchen Ihre Einwilligung\u00a0· Einwilligen…', 'drafts keep their separate refusal');
   assert.deepEqual(await boxes(page, geometry), before, 'paused consent save shifts 0 px');
 });
 
@@ -271,7 +276,7 @@ test('AIT-197 R2 images: the stage uses image consent words', async t => {
     await scene(page, locale, 'light', 390, ['html']);
     await shadow(page, async (c, locale) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); const session = structuredClone(c.session);
       session.conceptVisualKind = 'image'; session.featureMatrix.best.images = session.featureMatrix.best.html; c.configure({ session, copy }); }, locale);
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung · Einwilligen…' : 'Images need your consent · Give consent…');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), locale === 'de' ? 'Bilder brauchen Ihre Einwilligung\u00a0· Einwilligen…' : 'Images need your consent\u00a0· Give consent…');
     await record(t, page, `${locale}-image-line`, { images: true });
   }
 });
@@ -364,7 +369,7 @@ for (const feature of ['voice', 'html']) test(`AIT-197 R2 High: removing only ${
   await page.locator('aithema-session >>> .consent-save').click();
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
   assert.equal(page.posts[0].granted, true); assert.equal(await shadow(page, c => c.session.consentWithdrawn), false);
-  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]} · ${words.de.action}`);
+  assert.equal(await shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).textContent, places[feature]), `${words.de[feature]}\u00a0· ${words.de.action}`);
 });
 
 for (const locale of ['de', 'en']) for (const project of [false, true]) test(`AIT-197 R3 ${locale}: paused consent with ${project ? 'earlier project' : 'only off-topic turns'}, 390/1440 L/D`, { timeout: 120_000 }, async t => {
@@ -437,4 +442,259 @@ test('AIT-197 R3: save consent visibly retains the check icon', async t => {
   await page.locator('aithema-session >>> .voice-state button').click();
   await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'voice-elevenlabs');
   assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.done svg')).display), 'none');
+});
+
+
+const genericConsent = /(?:Einwilligung zur )?Verarbeitung erforderlich|(?:Current )?Processing consent required|current processing consent required/iu;
+async function noGenericConsent(page, label) {
+  const tree = await page.accessibility.snapshot({ interestingOnly: false });
+  assert.ok(tree, label + ': accessibility snapshot exists');
+  assert.doesNotMatch(JSON.stringify(tree), genericConsent, label + ': full accessibility tree, including shadow content');
+  const exposed = await page.evaluate(() => {
+    const results = [];
+    const walk = root => {
+      for (const n of root.querySelectorAll('*')) {
+        if (n.shadowRoot) walk(n.shadowRoot);
+        if (!n.checkVisibility({ visibilityProperty: true }) || n.closest('[inert], [hidden], dialog:not([open])')) continue;
+        results.push({ tag: n.tagName, class: n.className, title: n.getAttribute('title'), label: n.getAttribute('aria-label'),
+          tooltip: n.matches('[role="tooltip"]') ? n.textContent : null,
+          text: n.children.length ? null : n.textContent,
+          described: (n.getAttribute('aria-describedby') ?? '').split(/\s+/u).map(id => n.getRootNode().getElementById?.(id)?.textContent).filter(Boolean) });
+      }
+    };
+    walk(document); return results;
+  });
+  assert.doesNotMatch(JSON.stringify(exposed), genericConsent, label + ': visible text, titles, labels and referenced descriptions');
+  const shadowText = await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open
+    ? c.shadowRoot.querySelector('.settings__title').textContent : c.shadowRoot.querySelector('.features li').firstChild.nodeValue);
+  assert.ok(JSON.stringify(tree).includes(shadowText), label + ': snapshot includes shadow-root content');
+  return { accessibility: true, exposedCopy: true };
+}
+
+async function capture215(t, page, label, values, interaction = null) {
+  if (interaction !== 'focus') await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+  // A requested hover/focus shot retains that interaction; all other shots have the pointer outside.
+  if (interaction !== 'hover') await page.mouse.move(-10, -10);
+  await frame(page);
+  await shadow(page, async c => {
+    await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+      .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+  });
+  const ready = await shadow(page, c => ({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+    blurred: !c.shadowRoot.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]'),
+    font: getComputedStyle(c).getPropertyValue('--aithema-font').trim() }));
+  assert.equal(ready.reducedMotion, true);
+  if (interaction !== 'focus') assert.equal(ready.blurred, true);
+  const pass = { head: evidenceCommit, label, ...values, ...ready, interaction, viewportOnly: true, baselineFonts: true, pass: true };
+  t.diagnostic(`PASS AIT-215 ${JSON.stringify(pass)}`);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-215'); await mkdir(dir, { recursive: true });
+    await page.screenshot({ path: join(dir, label + '.png'), fullPage: false, captureBeyondViewport: false });
+    await writeFile(join(dir, label + '.json'), JSON.stringify(pass, null, 2));
+  }
+}
+
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent action opens the text item and saves in place, 390/1440`, async t => {
+  const page = await fixture(t);
+  for (const width of [390, 1440]) {
+    await scene(page, locale, 'light', width, ['text']);
+    await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+    await frame(page);
+    const state = await shadow(page, async c => {
+      const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason');
+      const range = document.createRange(); range.selectNodeContents(line);
+      const ink = range.getBoundingClientRect(), slot = line.getBoundingClientRect();
+      return { text: line.textContent, expected: `${copy.featureConsent.text}\u00a0· ${copy.featureConsent.action}`,
+        action: line.querySelector('.consent-action')?.textContent, expectedAction: copy.featureConsent.action,
+        inputDisabled: r.querySelector('textarea').disabled, sendDisabled: r.querySelector('.send').disabled,
+        reasonFits: ink.top >= slot.top - 1 && ink.bottom <= slot.bottom + 1 && ink.left >= slot.left - 1 && ink.right <= slot.right + 1,
+        inkBox: [ink.x, ink.y, ink.width, ink.height], reasonBox: [slot.x, slot.y, slot.width, slot.height] };
+    });
+    assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
+    assert.equal(state.inputDisabled, true); assert.equal(state.sendDisabled, true);
+    const selectors = ['.composer-shell', '.composer', 'textarea', '.send'];
+    const before = await boxes(page, selectors);
+    await capture215(t, page, `${locale}-light-${width}-composer-action`, { locale, width, ...state, composerBox: before[1] });
+    assert.equal(state.reasonFits, true, `sentence and action fit the two-line reason: ${JSON.stringify(state)}`);
+    await page.locator('aithema-session >>> .composer-reason .consent-action').click();
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('dialog.settings').open && r.activeElement?.value === 'models-international';
+    });
+    const target = await shadow(page, c => {
+      const r = c.shadowRoot, rows = [...r.querySelectorAll('.consent-item')];
+      return { focused: r.activeElement.value,
+        tinted: rows.filter(n => getComputedStyle(n, '::before').content !== 'none').map(n => n.querySelector('input').value) };
+    });
+    assert.equal(target.focused, 'models-international'); assert.deepEqual(target.tinted, ['models-international'], 'AIT-197 B tint is on the text consent item only');
+    await page.keyboard.press('Space');
+    await page.locator('aithema-session >>> .consent-save').click();
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return !r.querySelector('dialog.settings').open && !r.querySelector('textarea').disabled && !r.querySelector('.send').disabled;
+    });
+    await frame(page);
+    const saved = await shadow(page, c => ({ sameDocument: globalThis.documentToken === globalThis.c1Document,
+      sameNodes: globalThis.c1Nodes.every(n => n.isConnected), inputEnabled: !c.shadowRoot.querySelector('textarea').disabled,
+      sendEnabled: !c.shadowRoot.querySelector('.send').disabled, actionRemoved: !c.shadowRoot.querySelector('.composer-reason .consent-action') }));
+    assert.deepEqual(saved, { sameDocument: true, sameNodes: true, inputEnabled: true, sendEnabled: true, actionRemoved: true });
+    assert.equal(page.posts.length, 1);
+    assert.deepEqual([...page.posts[0].processing.items].sort(), CONSENT_ITEMS.map(i => i.id).sort());
+    assert.deepEqual(await boxes(page, selectors), before, 'composer, input and send move 0 px after saving consent');
+    if (width === 390) await capture215(t, page, `${locale}-light-${width}-composer-enabled`, { locale, width, ...saved, ...target, layoutShiftPx: 0 });
+  }
+});
+
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: no generic consent in AT, intake, Settings, hover or focus`, { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  const passes = [];
+  for (const width of [1440, 390]) {
+    await scene(page, locale, 'light', width, Object.keys(features));
+    await noGenericConsent(page, `${locale}/${width}/conversation`);
+    const featureReasons = await shadow(page, async c => {
+      const locale = c.session.locale, { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      return [...c.shadowRoot.querySelectorAll('.features li')].map((n, i) => {
+        const feature = ['text', 'analysis', 'voice', 'transcription', 'images', 'html', 'uploads'][i];
+        return { feature, actual: n.querySelector('span')?.textContent, expected: copy.featureConsent[feature === 'transcription' ? 'voice' : feature] };
+      });
+    });
+    assert.equal(featureReasons.length, 7);
+    for (const { feature, actual, expected } of featureReasons) {
+      assert.equal(typeof expected, 'string', feature + ': canonical feature sentence exists');
+      assert.ok(expected.length > 0); assert.equal(actual, expected, feature + ': AT-only row reuses C1');
+    }
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(c.session); session.transcript = []; session.settings.origin = 'default';
+      c.configure({ copy, session });
+    }, locale);
+    page.state.snapshot = await shadow(page, c => structuredClone(c.session));
+    await frame(page);
+    for (const preset of ['best', 'eu', 'device', 'custom']) {
+      const option = await page.$(`aithema-session >>> .chooser-option[data-preset="${preset}"]`);
+      assert.ok(option, 'each intake option exists');
+      await option.hover(); await noGenericConsent(page, `${locale}/${width}/intake/${preset}/hover`);
+      await page.mouse.move(-10, -10); await option.focus();
+      assert.equal(await option.evaluate(n => n.getRootNode().activeElement === n), true);
+      await noGenericConsent(page, `${locale}/${width}/intake/${preset}/focus`);
+      await option.dispose();
+    }
+    page.consentCatalog = await shadow(page, c => fetch(`/api/sessions/${c.session.id}/settings`).then(r => r.json()));
+    for (const info of Object.values(page.consentCatalog.presets)) {
+      if (!info.offered) continue;
+      info.status = 'consent'; info.reason = 'current processing consent required';
+      for (const [index, option] of [...info.models ?? [], ...info.voices ?? [], ...info.visuals ?? []].entries()) {
+        option.status = ['consent', 'limited', 'unavailable'][index % 3]; option.reason = index % 2 ? 'delegated reasoning: current processing consent required' : 'current processing consent required';
+      }
+    }
+    await shadow(page, c => c.openSettings());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="voice"] [role="option"][data-reason]'));
+    let helpCaptured = false;
+    for (const selector of ['.preset-option', '[data-select="model"] [role="option"]', '[data-select="voice"] [role="option"]', '[data-select="visuals"] [role="option"]']) {
+      const name = /data-select="([^"]+)"/u.exec(selector)?.[1];
+      if (name) await page.locator(`aithema-session >>> [data-select="${name}"] .select__button`).click();
+      const rows = await page.$$(`aithema-session >>> ${selector}`);
+      assert.ok(rows.length > 0, selector + ': rows exist');
+      const geometryBefore = await boxes(page, ['dialog.settings', '.settings__header', '.settings__footer']);
+      for (const [index, row] of rows.entries()) {
+        const expected = await row.evaluate(async n => {
+          if (!n.dataset.reason?.includes('current processing consent required')) return null;
+          const locale = document.documentElement.lang, { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          return copy.help.consentNeeded.replace('{reason}', copy.featureConsent[n.dataset.feature ?? 'text']);
+        });
+        await row.hover(); await noGenericConsent(page, `${locale}/${width}/${selector}/${index}/hover`);
+        if (expected) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected, 'hover help uses the feature C1 sentence and the unchanged explanation');
+        if (expected && width === 1440 && !helpCaptured) {
+          await capture215(t, page, `${locale}-light-1440-settings-help-hover`, { locale, width, help: expected }, 'hover');
+          assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected);
+        }
+        await page.mouse.move(-10, -10); await row.focus();
+        await noGenericConsent(page, `${locale}/${width}/${selector}/${index}/focus`);
+        if (expected) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), expected, 'focus help uses the feature C1 sentence and the unchanged explanation');
+        if (expected && width === 1440 && !helpCaptured) {
+          await capture215(t, page, `${locale}-light-1440-settings-help-focus`, { locale, width, help: expected }, 'focus');
+          helpCaptured = true;
+        }
+        assert.deepEqual(await boxes(page, ['dialog.settings', '.settings__header', '.settings__footer']), geometryBefore, 'hover/focus help shifts layout by 0 px');
+        await row.dispose();
+      }
+      if (name) await page.keyboard.press('Escape');
+    }
+    if (width === 1440) assert.equal(helpCaptured, true, 'captured a consent-status row on hover and focus');
+    await page.keyboard.press('Escape');
+    page.consentCatalog = null;
+    const pass = { head: evidenceCommit, locale, width, accessibilityTree: 'interestingOnly:false; shadow-root content asserted', intakeOptions: 4,
+      settings: ['presets', 'models', 'voice', 'visuals'], states: ['consent', 'limited', 'unavailable'], interactions: ['hover', 'focus'], genericReasonAbsent: true, layoutShiftPx: 0, pass: true };
+    passes.push(pass); t.diagnostic(`PASS AIT-215 ${JSON.stringify(pass)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-215'); await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, `interaction-pass-lines-${locale}.json`), JSON.stringify(passes, null, 2));
+    }
+  }
+});
+
+
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing viewport evidence, 1440/1024/390 light/dark`, { timeout: 120_000 }, async t => {
+  const page = await fixture(t);
+  const passes = [];
+  for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await scene(page, locale, theme, width, Object.keys(features));
+    const state = await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+      const lines = Object.fromEntries(['html', 'voice', 'analysis'].map(feature => {
+        const selector = { html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
+        const line = c.shadowRoot.querySelector(selector).textContent;
+        if (line !== `${copy.featureConsent[feature]}\u00a0· ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
+        return [feature, line];
+      }));
+      const label = c.shadowRoot.querySelector('.voice-state .consent-line-copy').firstChild;
+      const dot = label.textContent.indexOf('·'), range = document.createRange();
+      range.setStart(label, dot - 2); range.setEnd(label, dot - 1); const letterBox = range.getBoundingClientRect();
+      range.setStart(label, dot); range.setEnd(label, dot + 1); const dotBox = range.getBoundingClientRect();
+      if (letterBox.y !== dotBox.y || dotBox.x < letterBox.right) throw new Error('Rail separator starts a line');
+      const r = c.shadowRoot;
+      r.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
+      return { lines, separatorStartsLine: false, locale: document.documentElement.lang, font: getComputedStyle(c).getPropertyValue('--aithema-font').trim() };
+    }, locale);
+    await page.mouse.move(-10, -10); await frame(page);
+    await shadow(page, async c => {
+      await Promise.all(c.shadowRoot.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+    });
+    const ready = await shadow(page, c => ({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      blurred: !c.shadowRoot.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]') }));
+    assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true);
+    const checked = await noGenericConsent(page, `${locale}/${theme}/${width}/capture`);
+    // The reason's existing slot must keep its geometry when the longer legacy text is replaced.
+    const before = await boxes(page, geometry);
+    const legacy = await shadow(page, async c => {
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason'); globalThis.composerConsentNodes = [...line.childNodes];
+      const { [c.session.locale]: copy } = await import(`/packages/ui/src/i18n/${c.session.locale}.js`);
+      line.textContent = copy.reasons['current processing consent required'];
+      return { boxes: ['.band', '.concept-bar', '.understanding', '.notice', '.composer'].map(selector => {
+        const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      }) };
+    });
+    await shadow(page, c => { c.shadowRoot.querySelector('.composer-reason').replaceChildren(...globalThis.composerConsentNodes); });
+    assert.deepEqual(legacy.boxes, before, 'feature copy changes layout by 0 px');
+    assert.deepEqual(await boxes(page, geometry), before);
+    const pass = { head: evidenceCommit, label: `${locale}-${theme}-${width}-consent-missing`, ...state, width, theme,
+      ...checked, ...ready, viewportOnly: true, baselineFonts: true, layoutShiftPx: 0, pass: true };
+    passes.push(pass); t.diagnostic(`PASS AIT-215 ${JSON.stringify(pass)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-215'); await mkdir(dir, { recursive: true });
+      // Blur again immediately before every viewport capture.
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-10, -10); await frame(page);
+      await page.screenshot({ path: join(dir, pass.label + '.png'), fullPage: false, captureBeyondViewport: false });
+      await writeFile(join(dir, pass.label + '.json'), JSON.stringify(pass, null, 2));
+      await writeFile(join(dir, pass.label + '.ax.json'), JSON.stringify(await page.accessibility.snapshot({ interestingOnly: false }), null, 2));
+      await writeFile(join(dir, `pass-lines-${locale}.json`), JSON.stringify(passes, null, 2));
+      await writeFile(join(dir, 'audit.json'), JSON.stringify({ head: evidenceCommit, ...audit }, null, 2));
+    }
+  }
 });
