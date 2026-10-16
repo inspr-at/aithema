@@ -35,11 +35,13 @@ import { listenAdmin } from './admin-socket.js';
 import { smtpConfig, createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createConfirmationPage } from './confirmation-page.js';
 import { createAdminHTTP } from './admin-http.js';
-import { createQualificationMount, qualificationSettings } from '../plugins/composed-voice/ops/qualification-server.mjs';
+import { createQualificationMount, qualificationSettings, loadQualificationKeys } from '../plugins/composed-voice/ops/qualification-server.mjs';
 
 const deployment = deploymentConfig();
 // Refuse before database, ordinary provider setup or listener startup.
 const qualification = qualificationSettings();
+const qualificationKeys = await loadQualificationKeys();
+const resolveProviderSecret = ref => qualification.enabled ? qualificationKeys[ref] : process.env[ref];
 if (qualification.enabled && !process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE) throw new TypeError('OPS AITHEMA_COMPOSED_QUALIFICATION_MODULE required');
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
 const build = buildInfo();
@@ -81,10 +83,10 @@ const understandingBinding = openrouter?.understanding ?? privateBinding;
 const spendCap = provider === 'openrouter' || html.mode === 'claude' ? createSpendCap({ storage, account: 'start2-openrouter',
   capMicro: openrouter?.capMicro ?? html.capMicro }) : undefined;
 const htmlPlugin = html.mode === 'fake' ? createLocalHTML() : html.mode === 'claude'
-  ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro }) : null;
+  ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro, resolveSecret: resolveProviderSecret }) : null;
 const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : {};
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
-  ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding });
+  ? createOpenRouterReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding, resolveSecret: resolveProviderSecret });
 const secrets = createFacadeSecrets();
 const voiceMode = providerMode(process.env.AITHEMA_VOICE_MODE, live);
 if (!['fake', 'off', 'elevenlabs'].includes(voiceMode)) throw new TypeError('Unknown voice mode');
@@ -95,7 +97,7 @@ if (voiceMode === 'elevenlabs') {
     : createStart2VoiceHost;
   voiceHost = await createVoiceHost({ storage, facadeSecrets: secrets,
     publicOrigin: deployment.publicOrigin, templateAgentId: process.env.AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID,
-    resolveSecret: ref => secrets.resolve(ref) ?? process.env[ref] });
+    resolveSecret: ref => secrets.resolve(ref) ?? resolveProviderSecret(ref) });
 }
 const imageMode = providerMode(process.env.AITHEMA_IMAGE_MODE, live);
 if (!['fake', 'off', 'openai'].includes(imageMode)) throw new TypeError('Unknown image mode');
@@ -114,17 +116,17 @@ const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length
     voiceBinding: () => readVoiceState().binding }) : createMockConsent(storage));
 if (voiceHost?.staticSecretRef) {
   const resolve = secrets.resolve;
-  secrets.resolve = ref => ref === voiceHost.staticSecretRef ? process.env[ref] : resolve(ref);
+  secrets.resolve = ref => ref === voiceHost.staticSecretRef ? resolveProviderSecret(ref) : resolve(ref);
 }
 const policy = imageHost?.policy ?? voiceHost?.policy ?? { endpoints: liveBindings.map(b => b.endpoint) };
 const imagePlugin = imageMode === 'fake' ? createLocalImages() : imageHost ? createOpenAIImages({ binding: imagePluginBinding(imageHost.binding),
-  resolveSecret: imageHost.resolveSecret ?? (ref => process.env[ref]) }) : null;
+  resolveSecret: qualification.enabled ? resolveProviderSecret : imageHost.resolveSecret ?? resolveProviderSecret }) : null;
 const imageSelection = imagePlugin ? { images: imageHost?.binding ?? localImageBinding } : {};
 function configuredVoicePlugin(binding) {
   return createVoiceProvider({ storage, binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef,
       apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute,
       visitorMicroPerMinute: binding.visitorMicroPerMinute,
-      reservationSeconds: binding.reservationSeconds }, resolveSecret: ref => process.env[ref],
+      reservationSeconds: binding.reservationSeconds }, resolveSecret: resolveProviderSecret,
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
     reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log });
 }
@@ -170,7 +172,7 @@ await handlers.resume();
 const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin: deployment.publicOrigin });
 const qualificationPorts = qualification.enabled ? await (await import(
   pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href
-)).createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers }) : {};
+)).createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers, keys: qualificationKeys }) : {};
 const qualificationMount = createQualificationMount({ ...qualificationPorts, ...qualification,
   authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();

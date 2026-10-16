@@ -34,7 +34,7 @@
   },
   "test/browser/composed-qualification.test.js": {
     "reads": ["CI", "CI"],
-    "reason": "Forward CI explicitly to the hermetic qualification CLI child for Linux Chrome sandbox selection"
+    "reason": "Forward CI explicitly to the hermetic qualification CLI child for Linux Chrome sandbox selection, including the pre-dispatch output-device probe"
   },
   "test/browser/consent-lines.test.js": {
     "reads": [

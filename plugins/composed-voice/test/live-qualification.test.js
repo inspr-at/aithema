@@ -85,7 +85,7 @@ test('OPS CLI refuses a missing persisted budget before importing account-specif
   const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs'), missing = join(directory, 'missing.sqlite');
   await writeFile(planPath, JSON.stringify(plan())); await writeFile(hostPath, "throw new Error('OPS_HOST_SHOULD_NOT_LOAD');\n");
   const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../../scripts/composed-qualification.js', import.meta.url)),
-    '--operator-approved', '--budget', missing, '--plan', planPath, '--host', hostPath, '--out', directory], {
+    '--operator-approved', '--budget', missing, '--plan', planPath, '--host', hostPath, '--out', directory, '--keys-file', join(directory, 'unread-fake.keys')], {
     env: { PATH: process.env.PATH }, timeout: 15_000,
   });
   assert.notEqual(result.status, 0); assert.doesNotMatch(result.stderr.toString(), /OPS_HOST_SHOULD_NOT_LOAD/);
@@ -101,7 +101,7 @@ test('OPS CLI still refuses absent accounting ports and checklist before sample 
   for (const [input, expected] of [[plan(), /OPS host ports required/], [{ ...plan(), checks: {} }, /checklist/]]) {
     await writeFile(planPath, JSON.stringify(input));
     const child = spawnSync(process.execPath, [fileURLToPath(new URL('../../../scripts/composed-qualification.js', import.meta.url)),
-      '--operator-approved', '--budget', budgetPath, '--plan', planPath, '--host', hostPath, '--out', directory], {
+      '--operator-approved', '--budget', budgetPath, '--plan', planPath, '--host', hostPath, '--out', directory, '--keys-file', join(directory, 'unread-fake.keys')], {
       env: { PATH: process.env.PATH }, timeout: 15_000,
     });
     assert.notEqual(child.status, 0); assert.match(child.stderr.toString(), expected);

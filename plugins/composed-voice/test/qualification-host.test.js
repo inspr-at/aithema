@@ -1,11 +1,28 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createQualificationMount, qualificationSettings } from '../ops/qualification-server.mjs';
+import { createQualificationMount, qualificationSettings, loadQualificationKeys } from '../ops/qualification-server.mjs';
 import { createQualificationHost } from '../ops/qualification-host-template.mjs';
 import { startChild, temporaryDb } from '../../../test/helpers.js';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { runInNewContext } from 'node:vm';
+import { probeOutputDevice } from '../ops/qualification-output-probe.mjs';
+import { guardBrowserProcessGroup } from '../ops/qualification-browser-watchdog.mjs';
 import { fileURLToPath } from 'node:url';
 import { request } from 'node:http';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+
+const sentinel = 'SENTINEL_FAKE_QUALIFICATION_VALUE_NEVER_LOG';
+async function keysFixture(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-keys-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'provider.keys');
+  await writeFile(path, `# run-window fake only\n\nELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}=suffix\n`, { mode: 0o600 });
+  return { directory, path, values: { AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_COMPOSED_KEYS_FILE: path } };
+}
 
 test('qualification flag is default-off and loopback bind/origin are mandatory', async () => {
   assert.deepEqual(qualificationSettings({}), { enabled: false });
@@ -67,8 +84,9 @@ test('enabled mount enforces tunnel Host, owner authentication and cross-origin 
 });
 
 test('flagged demo serves the authenticated hook and mounts binary relay before JSON guards', async t => {
+  const keys = await keysFixture(t);
   const fixture = await startChild(new URL('../../../demo/server.js', import.meta.url), await temporaryDb(), {
-    AITHEMA_COMPOSED_QUALIFICATION: '1', AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
+    ...keys.values, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
     AITHEMA_COMPOSED_QUALIFICATION_MODULE: fileURLToPath(new URL('../../../test/fixtures/composed-qualification-provider.mjs', import.meta.url)),
   });
   t.after(() => fixture.kill());
@@ -132,4 +150,158 @@ test('remote close acknowledgement and next sample wait for confirmed OPS shutdo
   assert.equal(signal.aborted, true); assert.equal(acknowledged, false);
   assert.equal((await post(input)).status, 400);
   stopped.resolve(); assert.equal((await closing).status, 200);
+});
+
+
+test('keys are flag-only, file-only and parse comments/blanks without environment fallback', async t => {
+  const fixture = await keysFixture(t);
+  assert.equal(await loadQualificationKeys({ AITHEMA_COMPOSED_KEYS_FILE: '/does/not/exist' }), undefined);
+  const keys = await loadQualificationKeys({ ...fixture.values, ELEVENLABS_API_KEY: 'ambient-poison', OPENROUTER_API_KEY: 'ambient-poison' });
+  assert.equal(keys.ELEVENLABS_API_KEY, sentinel);
+  assert.equal(keys.OPENROUTER_API_KEY, `${sentinel}=suffix`);
+  assert.ok(Object.isFrozen(keys));
+  await assert.rejects(loadQualificationKeys({ AITHEMA_COMPOSED_QUALIFICATION: '1', ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: sentinel }), /Absolute AITHEMA_COMPOSED_KEYS_FILE required/);
+});
+
+test('keys file refuses 0644, symlink, other owner, non-file and relative paths without leaking values', async t => {
+  const fixture = await keysFixture(t);
+  const refused = async (values, options, pattern) => {
+    await assert.rejects(loadQualificationKeys(values, options), error => {
+      assert.match(error.message, pattern); assert.ok(!String(error.stack).includes(sentinel)); assert.equal(error.cause, undefined); return true;
+    });
+  };
+  await chmod(fixture.path, 0o644);
+  await refused(fixture.values, undefined, /mode exactly 0600/);
+  await chmod(fixture.path, 0o600);
+  const link = join(fixture.directory, 'link'); await symlink(fixture.path, link);
+  await refused({ ...fixture.values, AITHEMA_COMPOSED_KEYS_FILE: link }, undefined, /non-symlink/);
+  await refused(fixture.values, { uid: process.getuid() + 1 }, /owned by the running user/);
+  await refused({ ...fixture.values, AITHEMA_COMPOSED_KEYS_FILE: fixture.directory }, undefined, /regular/);
+  await refused({ ...fixture.values, AITHEMA_COMPOSED_KEYS_FILE: 'relative.keys' }, undefined, /Absolute/);
+  await refused({ ...fixture.values, AITHEMA_COMPOSED_KEYS_FILE: join(fixture.directory, sentinel) }, undefined, /regular/);
+});
+
+test('missing/empty, duplicate and unknown keys refuse startup; stdout/stderr never include sentinel', async t => {
+  const fixture = await keysFixture(t);
+  const contents = [
+    `ELEVENLABS_API_KEY=${sentinel}\n`,
+    `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=\n`,
+    `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\nUNKNOWN=${sentinel}\n`,
+    `ELEVENLABS_API_KEY=${sentinel}\nELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`,
+    `${sentinel}\n`,
+  ];
+  for (const content of contents) {
+    await writeFile(fixture.path, content);
+    const child = spawnSync(process.execPath, [fileURLToPath(new URL('../../../demo/server.js', import.meta.url))], {
+      env: { PATH: process.env.PATH, ...fixture.values, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567',
+        ELEVENLABS_API_KEY: sentinel, OPENROUTER_API_KEY: sentinel }, timeout: 15_000,
+    });
+    assert.notEqual(child.status, 0);
+    const logs = child.stdout.toString() + child.stderr.toString();
+    assert.match(logs, /Missing qualification key|Duplicate qualification key|Unknown key/);
+    assert.ok(!logs.includes(sentinel));
+    assert.doesNotMatch(logs, /QUALIFICATION_MODULE required/);
+  }
+  await writeFile(fixture.path, `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`);
+  await chmod(fixture.path, 0o644);
+  const child = spawnSync(process.execPath, [fileURLToPath(new URL('../../../demo/server.js', import.meta.url))], {
+    env: { PATH: process.env.PATH, ...fixture.values, AITHEMA_COMPOSED_RELAY_ORIGIN: 'http://127.0.0.1:4567' }, timeout: 15_000,
+  });
+  assert.notEqual(child.status, 0); assert.match(child.stderr.toString(), /mode exactly 0600/);
+  assert.ok(!(child.stdout.toString() + child.stderr.toString()).includes(sentinel));
+});
+
+function inertBrowser(evidence) {
+  return { defaultBrowserContext: () => ({ async overridePermissions() {} }), async close() {},
+    async newPage() { return { async setExtraHTTPHeaders() {}, async setRequestInterception() {}, on() {},
+      async goto() { return { status: () => 200 }; }, async waitForFunction() {}, async evaluate() { return evidence; } }; } };
+}
+const hostOptions = directory => ({ hostOrigin: 'http://127.0.0.1:4567', runDirectory: directory,
+  ownerHeaders: { cookie: 'fixture' }, verifyCeiling() {}, verifyReceipt() {}, reconcile() {} });
+const sampleOptions = wavPath => ({ item: { id: 'one', wavPath }, lane: 'candidate', runId: 'probe-refusal',
+  admit() { assert.fail('No dispatch before probe'); }, onTiming() {} });
+
+test('null-device refusal persists physicalBrowserMedia before control/admission and kills launcher group', async t => {
+  const fixture = await keysFixture(t), evidence = { verified: false, labelledAudioOutputs: 0, outputLatency: 0 };
+  let killed = 0;
+  const host = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async (settings, lifetime) => {
+    assert.ok(settings.userDataDir.startsWith(fixture.directory));
+    assert.equal(settings.env.HOME, (await import('node:os')).homedir());
+    assert.ok(lifetime.deadlineAt > Date.now());
+    lifetime.registerProcessGroup({ watchdogArmed: true, kill() { killed++; } });
+    return inertBrowser(evidence);
+  } });
+  t.after(() => host.close());
+  await assert.rejects(host.runSample(sampleOptions(fixture.path)), error => {
+    assert.match(error.message, /null or unverified audio output/); assert.deepEqual(error.physicalBrowserMedia, evidence); return true;
+  });
+  const run = createHash('sha256').update('probe-refusal').digest('hex').slice(0, 24);
+  assert.deepEqual(JSON.parse(await readFile(join(fixture.directory, run, 'candidate-physical-browser-media.json'))).physicalBrowserMedia, evidence);
+  assert.equal(killed, 1);
+});
+
+test('launcher must arm watchdog; wall-clock timeout and host close kill even a pending launch', async t => {
+  const fixture = await keysFixture(t);
+  const unguarded = createQualificationHost({ ...hostOptions(fixture.directory), launchBrowser: async () => inertBrowser({}) });
+  await assert.rejects(unguarded.runSample(sampleOptions(fixture.path)), /without an armed/);
+  for (const closeEarly of [false, true]) {
+    let killed = 0;
+    const started = Promise.withResolvers();
+    const host = createQualificationHost({ ...hostOptions(fixture.directory), sampleTimeoutMs: closeEarly ? 10_000 : 100,
+      launchBrowser(_options, lifetime) {
+        lifetime.registerProcessGroup({ watchdogArmed: true, kill() { killed++; } }); started.resolve();
+        return new Promise(() => {});
+      } });
+    const pending = host.runSample(sampleOptions(fixture.path));
+    pending.catch(() => {}); await started.promise;
+    if (closeEarly) await host.close();
+    await assert.rejects(pending, closeEarly ? /host closed/ : /wall-clock timeout/);
+    assert.ok(killed >= 1);
+  }
+});
+
+
+test('output probe requires labelled output, positive latency and both device clocks advancing for 500ms', async () => {
+  for (const variation of ['real', 'unlabelled', 'zeroLatency', 'contextStalled', 'performanceStalled', 'noAPI']) {
+    let reads = 0, now = 0, closed = false;
+    class AudioContext {
+      outputLatency = variation === 'zeroLatency' ? 0 : 0.01;
+      createOscillator() { return { connect: () => ({ connect() {} }), start() {}, stop() {} }; }
+      createGain() { return { gain: {} }; }
+      async resume() {}
+      async close() { closed = true; }
+      getOutputTimestamp() {
+        const after = reads++ > 0;
+        return { contextTime: after && variation !== 'contextStalled' ? 0.55 : 0,
+          performanceTime: after && variation !== 'performanceStalled' ? 550 : 0 };
+      }
+    }
+    const evidence = await runInNewContext(`(${probeOutputDevice.toString()})()`, {
+      navigator: { mediaDevices: { async enumerateDevices() { return [{ kind: 'audiooutput', label: variation === 'unlabelled' ? '' : 'Output' }]; } } },
+      AudioContext: variation === 'noAPI' ? undefined : AudioContext,
+      performance: { now: () => now }, setTimeout(resolve) { now += 550; resolve(); },
+    });
+    assert.equal(evidence.verified, variation === 'real', variation);
+    if (variation !== 'noAPI') assert.equal(closed, true);
+  }
+});
+
+test('independent watchdog kills the browser process group at deadline even without template callbacks', { timeout: 10_000 }, async t => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH } });
+  t.after(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} });
+  const ended = once(child, 'exit');
+  guardBrowserProcessGroup(child.pid, { deadlineAt: Date.now() + 500 });
+  const [code, signal] = await ended;
+  assert.equal(code, null); assert.equal(signal, 'SIGKILL');
+});
+
+test('independent watchdog kills browser group after runner SIGKILL (also supports cross-user controller PID)', { timeout: 10_000 }, async t => {
+  const controller = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', env: { PATH: process.env.PATH } });
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH } });
+  t.after(() => { controller.kill('SIGKILL'); try { process.kill(-child.pid, 'SIGKILL'); } catch {} });
+  const ended = once(child, 'exit');
+  guardBrowserProcessGroup(child.pid, { deadlineAt: Date.now() + 8000, controllerPid: controller.pid });
+  controller.kill('SIGKILL');
+  const [code, signal] = await ended;
+  assert.equal(code, null); assert.equal(signal, 'SIGKILL');
 });

@@ -95,7 +95,8 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
         const result = await host.runSample({ item, lane, runId: plan.runId,
           admit: spec => budget.admit({ ...spec, lane }), onTiming: probe.onTiming });
         const media = probe.evidence();
-        const sample = { ...media, reference: item.reference, hypothesis: result.hypothesis, entities: result.entities };
+        const sample = { ...media, physicalBrowserMedia: result.physicalBrowserMedia,
+          reference: item.reference, hypothesis: result.hypothesis, entities: result.entities };
         samples[lane].push(sample);
         if (!(result.ttsPCM instanceof Uint8Array) || !result.ttsPCM.length ||
           !['pcm_s16le', 'pcm_f32le'].includes(result.ttsFormat?.encoding) || result.ttsFormat.channels !== 1 ||

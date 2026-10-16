@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer, connect } from 'node:net';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -12,7 +13,7 @@ import { createQualificationServer } from '../fixtures/composed-qualification-pr
 import { initializeQualificationBudget } from '../../plugins/composed-voice/src/persisted-budget.js';
 import { PRELIVE_CHECKS } from '../../plugins/composed-voice/src/live-qualification.js';
 
-test('AIT-160 CLI: fake pair through different-port tunnel, admitted retry and browser device clocks', { timeout: 120_000 }, async t => {
+test('AIT-160 CLI: output-device gate before fake pair through different-port tunnel', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-tunnel-')), sockets = new Set();
   let local, target, child;
   const forwarder = createServer(socket => {
@@ -29,10 +30,13 @@ test('AIT-160 CLI: fake pair through different-port tunnel, admitted retry and b
   });
   forwarder.listen(0, '127.0.0.1'); await once(forwarder, 'listening');
   const hostOrigin = `http://127.0.0.1:${forwarder.address().port}`;
+  const sentinel = 'SENTINEL_FAKE_KEYS_FILE_NO_PROVIDER';
+  const keysFile = join(directory, 'provider.keys');
+  await writeFile(keysFile, `ELEVENLABS_API_KEY=${sentinel}\nOPENROUTER_API_KEY=${sentinel}\n`, { mode: 0o600 });
   const authenticateRelay = request => request.headers.get('cookie') === 'aithema-visitor=fixture-owner' ? 'fixture-owner' : null;
   const ports = await createQualificationServer({ relayOrigin: hostOrigin, authenticateRelay });
   local = await startLocalQualificationHost({ ...qualificationSettings({ AITHEMA_COMPOSED_QUALIFICATION: '1',
-    AITHEMA_LISTEN_HOST: '127.0.0.1', AITHEMA_COMPOSED_RELAY_ORIGIN: hostOrigin }), ...ports, authenticateRelay });
+    AITHEMA_LISTEN_HOST: '127.0.0.1', AITHEMA_COMPOSED_RELAY_ORIGIN: hostOrigin }), ...ports, authenticateRelay, keysFile });
   target = Number(new URL(local.url).port);
   assert.notEqual(target, forwarder.address().port);
   assert.equal((await fetch(`${hostOrigin}/composed/qualification`)).status, 401);
@@ -58,11 +62,11 @@ test('AIT-160 CLI: fake pair through different-port tunnel, admitted retry and b
   await writeFile(planPath, JSON.stringify(plan));
   await writeFile(hostPath, `
 import { createQualificationHost as template } from ${JSON.stringify(new URL('../../plugins/composed-voice/ops/qualification-host-template.mjs', import.meta.url).href)};
-import launcher from ${JSON.stringify(new URL('./launch.js', import.meta.url).href)};
 import { browserPath } from ${JSON.stringify(new URL('../../scripts/install-test-browser.js', import.meta.url).href)};
-export async function createQualificationHost() {
+export async function createQualificationHost({ keysFile, sampleTimeoutMs }) {
+  if (keysFile !== ${JSON.stringify(keysFile)}) throw new Error("CLI keys-file path not forwarded");
   return template({ hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
-    ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), launchBrowser: launcher.launch,
+    ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
     launchArgs: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [],
     verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'fake price evidence', expiresAt: Date.now() + 60000 }),
     verifyReceipt: async () => true,
@@ -76,12 +80,26 @@ export async function createQualificationHost() {
 }
 `);
   child = spawn(process.execPath, [fileURLToPath(new URL('../../scripts/composed-qualification.js', import.meta.url)),
-    '--operator-approved', '--budget', budget, '--plan', planPath, '--host', hostPath, '--out', output],
+    '--operator-approved', '--budget', budget, '--plan', planPath, '--host', hostPath, '--out', output, '--keys-file', keysFile],
   { env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: process.env.TMPDIR,
     ...(process.env.CHROME_PATH ? { CHROME_PATH: process.env.CHROME_PATH } : {}), ...(process.env.CI ? { CI: process.env.CI } : {}) } });
   let stdout = '', stderr = '';
   child.stdout.on('data', bytes => { stdout += bytes; }); child.stderr.on('data', bytes => { stderr += bytes; });
   const [code] = await once(child, 'exit');
+  assert.ok(!(stdout + stderr).includes(sentinel), 'Keys must never reach logs/errors');
+  const run = createHash('sha256').update('tunnel-fake-proof').digest('hex').slice(0, 24);
+  const probe = JSON.parse(await readFile(join(directory, run, 'candidate-physical-browser-media.json'))).physicalBrowserMedia;
+  console.log(`AIT-160 output-device probe (${process.platform}, ${homedir()}): ${JSON.stringify(probe)}`);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-160-output-device-probe.json'), JSON.stringify({ physicalBrowserMedia: probe }, null, 2));
+  }
+  if (!probe.verified) {
+    assert.notEqual(code, 0); assert.match(stderr, /null or unverified audio output device/);
+    assert.equal(ports.dispatches.length, 0, 'Null device must refuse before any dispatch');
+    assert.equal(JSON.parse(await readFile(join(output, 'budget-final.json'))).records.length, 0);
+    return;
+  }
   assert.equal(code, 0, `${stderr}\nFixture dispatches: ${JSON.stringify(ports.dispatches)}`); assert.match(stdout, /tunnel-fake-proof/);
   const report = JSON.parse(await readFile(join(output, 'report.json'))), observations = JSON.parse(await readFile(join(output, 'observations.json')));
   assert.equal(report.candidate.wer, 0); assert.equal(report.baseline.wer, 0); assert.equal(report.candidate.qualified, false);
@@ -90,7 +108,9 @@ export async function createQualificationHost() {
   assert.equal(report.budget.records.filter(row => row.retryOf).length, 2);
   assert.ok(report.budget.records.every(row => row.state === 'settled' && row.receipt && row.dispatchedAt));
   for (const lane of ['candidate', 'baseline']) {
-    const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt } = observations[lane][0];
+    const { trace, speechEndAt, firstAudioAt, bargeInAt, stoppedAt, physicalBrowserMedia } = observations[lane][0];
+    assert.equal(physicalBrowserMedia.verified, true);
+    assert.ok(physicalBrowserMedia.outputLatency > 0);
     assert.ok(speechEndAt < firstAudioAt && firstAudioAt <= bargeInAt && bargeInAt <= stoppedAt);
     assert.ok(trace.some(event => event.kind === 'capture' && Number.isFinite(event.captureFrame) && event.contextSampleRate === 16000));
     assert.ok(trace.some(event => event.kind === 'playback-start' && event.outputTimestamp.contextTime > 0 && event.outputTimestamp.performanceTime > 0));

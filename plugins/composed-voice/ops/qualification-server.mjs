@@ -1,5 +1,48 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { lstat, open } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { isAbsolute } from 'node:path';
+
+const keyNames = Object.freeze(['ELEVENLABS_API_KEY', 'OPENROUTER_API_KEY']);
+
+/** Server-only, flag-only source of qualification credentials. Errors deliberately
+ * omit filesystem errors, paths, input lines and values, including their causes. */
+export async function loadQualificationKeys(values = process.env, { uid = process.getuid() } = {}) {
+  if (values.AITHEMA_COMPOSED_QUALIFICATION !== '1') return undefined;
+  const path = values.AITHEMA_COMPOSED_KEYS_FILE;
+  if (typeof path !== 'string' || !isAbsolute(path)) throw new TypeError('Absolute AITHEMA_COMPOSED_KEYS_FILE required');
+  let file;
+  try {
+    const before = await lstat(path);
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error();
+    // NOFOLLOW closes the final-component symlink race; NONBLOCK avoids a FIFO
+    // replacement hanging startup. Validate the opened inode before reading it.
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = await file.stat();
+    if (!stat.isFile() || before.dev !== stat.dev || before.ino !== stat.ino ||
+      stat.uid !== uid || (stat.mode & 0o7777) !== 0o600 || stat.size > 16_384) throw new Error();
+  } catch {
+    await file?.close();
+    throw new Error('Qualification keys file must be a regular non-symlink file, owned by the running user, mode exactly 0600 (maximum 16 KiB)');
+  }
+  let content;
+  try { content = await file.readFile('utf8'); }
+  catch { throw new Error('Qualification keys file could not be read'); }
+  finally { await file.close(); }
+  const keys = Object.create(null);
+  for (const line of content.split(/\r?\n/u)) {
+    if (!line.trim() || line.trimStart().startsWith('#')) continue;
+    const entry = /^([A-Z_]+)=(.*)$/u.exec(line);
+    if (!entry || !keyNames.includes(entry[1])) throw new Error('Unknown key or invalid KEY=VALUE line in qualification keys file');
+    const [, name, value] = entry;
+    if (Object.hasOwn(keys, name)) throw new Error(`Duplicate qualification key: ${name}`);
+    if (!value.trim()) throw new Error(`Missing qualification key: ${name}`);
+    keys[name] = value.trim();
+  }
+  for (const name of keyNames) if (!keys[name]) throw new Error(`Missing qualification key: ${name}`);
+  return Object.freeze(keys);
+}
 
 export function loopbackOrigin(value) {
   let url;
@@ -166,6 +209,7 @@ export function createQualificationMount({ enabled = false, hostname, relayOrigi
 
 /** Test-only local listener. The OPS browser template never calls this helper. */
 export async function startLocalQualificationHost(options) {
+  await loadQualificationKeys({ AITHEMA_COMPOSED_QUALIFICATION: options.enabled ? '1' : '0', AITHEMA_COMPOSED_KEYS_FILE: options.keysFile });
   const { listen } = await import('../../../packages/server/src/http.js');
   const mount = createQualificationMount(options);
   const { server, url } = await listen(async request => await mount.handle(request) ?? new Response(null, { status: 404 }),
