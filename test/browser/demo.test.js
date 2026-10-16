@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from './launch.js';
+import { samePaint } from './png-pixels.js';
 import { FEATURES } from '../../packages/core/src/presets.js';
 import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
@@ -1382,6 +1383,39 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });
 
+// Computed decoration can still be clipped by the scrolling reason slot. Compare the
+// actual action pixels with the underline removed, while preserving geometry and focus.
+async function uploadActionPaint(page, state) {
+  await inShadow(page, async c => {
+    c.uploadPaintFocus = c.shadowRoot.activeElement;
+    c.uploadPaintFocus?.blur(); document.activeElement?.blur();
+    await document.fonts.ready;
+    await Promise.all(c.shadowRoot.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => {})));
+  });
+  await page.mouse.move(-1, -1);
+  try {
+    const clips = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-reason button')].map(button => {
+      const rect = button.getBoundingClientRect(), reason = button.parentNode.getBoundingClientRect();
+      return { x: Math.floor(rect.left), y: Math.floor(rect.top), width: Math.ceil(rect.right) - Math.floor(rect.left),
+        height: Math.ceil(Math.min(reason.bottom, rect.bottom + 4)) - Math.floor(rect.top), name: button.textContent };
+    }));
+    const painted = [];
+    for (let i = 0; i < clips.length; i++) {
+      const { name, ...clip } = clips[i];
+      const underlined = Buffer.from(await page.screenshot({ clip }));
+      await inShadow(page, (c, i) => { c.shadowRoot.querySelectorAll('.composer-reason button')[i].style.textDecorationLine = 'none'; }, i);
+      let plain;
+      try { plain = Buffer.from(await page.screenshot({ clip })); }
+      finally { await inShadow(page, (c, i) => { c.shadowRoot.querySelectorAll('.composer-reason button')[i].style.removeProperty('text-decoration-line'); }, i); }
+      assert.equal(samePaint(underlined, plain), false, `${state}: ${name} underline is visibly painted inside the reason slot`);
+      painted.push(name);
+    }
+    return painted;
+  } finally {
+    await inShadow(page, c => { c.uploadPaintFocus?.focus({ preventScroll: true }); delete c.uploadPaintFocus; });
+  }
+}
+
 // Verify the real accessibility tree as well as the DOM and painted action style at every state shot.
 async function uploadActions(page, expected, state) {
   const actions = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.composer-reason button')].map(button => {
@@ -1412,7 +1446,7 @@ async function uploadActions(page, expected, state) {
     };
     visit(root);
     assert.deepEqual(buttons, expected.map(name => ({ role: 'button', name })), `${state}: exact accessible names and roles`);
-    return { state, actions, accessible: buttons, role: root.role.value };
+    return { state, actions, accessible: buttons, role: root.role.value, paintedUnderlines: await uploadActionPaint(page, state) };
   } finally { await cdp.detach(); }
 }
 
