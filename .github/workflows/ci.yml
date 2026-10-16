@@ -115,13 +115,13 @@ jobs:
   browser:
     needs: changes
     if: ${{ !cancelled() }}
-    name: browser (${{ matrix.shard }}/7)
+    name: browser (${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - name: Docs-only success
         if: github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.docs-only == 'true'
@@ -138,21 +138,21 @@ jobs:
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
         run: npm run setup:browser
       - if: (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')
-        run: npm run test:browser -- --shard ${{ matrix.shard }}/7
+        run: npm run test:browser -- --shard ${{ matrix.shard }}/6
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       # Screenshots the browser suites write, for visual review of UI changes.
       - if: ${{ always() && (github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-evidence-${{ matrix.shard }}-of-7
+          name: browser-evidence-${{ matrix.shard }}-of-6
           path: ${{ runner.temp }}/evidence
           if-no-files-found: ignore
           # Evidence is predominantly PNG; avoid recompressing it in the job budget.
           compression-level: 0
           retention-days: 14
 
-  # Keep the ruleset's four required names; each requires all seven shards to pass.
+  # Keep the ruleset's four required names; each requires all six shards to pass.
   browser-required:
     needs: browser
     if: ${{ !cancelled() }}

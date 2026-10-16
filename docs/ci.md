@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All seven browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All six browser shards run
 at once for every event. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,14 +27,10 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Seven worker shards report `browser (1/7)` through `browser (7/7)`. The ruleset
+Six worker shards report `browser (1/6)` through `browser (6/6)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
-
-AIT-246 round 4 adds the seventh worker: main’s expanded qualification suite
-and the measured UI matrix exceed six seven-minute planning bins. The 420s
-plan ceiling and the four required summary check names stay unchanged.
 
 On the light path, `test` and every worker shard run an explicit success step.
 They skip dependency installation, packaging,

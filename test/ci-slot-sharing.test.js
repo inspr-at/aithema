@@ -14,12 +14,12 @@ const lightCondition = "github.event_name == 'pull_request' && needs.changes.res
 const heavyCondition = "(github.event_name != 'pull_request' || needs.changes.result != 'success' || needs.changes.outputs.docs-only != 'true')";
 const expression = (value, github) => runInNewContext(value.slice(3, -2), { github });
 
-test('dedupe cancels only PRs, with unique queue refs and all seven browser shards in parallel', () => {
+test('dedupe cancels only PRs, with unique queue refs and all six browser shards in parallel', () => {
   assert.equal(ci.concurrency.group, 'ci-${{ github.event.pull_request.number || github.ref }}');
   assert.equal(ci.concurrency['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}");
-  // AIT-207: all seven shards run at once for every event (AEON-1407 baseline: Enterprise runners, Aithema ~2 % of CI hours).
+  // AIT-207: all six shards run at once for every event (AEON-1407 baseline: Enterprise runners, Aithema ~2 % of CI hours).
   assert.equal(ci.jobs.browser.strategy['max-parallel'], undefined);
-  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6]);
   const groups = [];
   for (const [event, ref, number] of [
     ['pull_request', 'refs/pull/204/merge', 204],
@@ -43,8 +43,8 @@ test('required jobs always exist; docs-only success gates every heavy step', () 
   assert.deepEqual(Object.keys(ci.on), ['pull_request', 'merge_group', 'push']);
   assert.equal(ci.on.pull_request, null); // No workflow-level paths filter.
   assert.deepEqual(ci.on.merge_group, { types: ['checks_requested'] });
-  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(ci.jobs.browser.name, 'browser (${{ matrix.shard }}/7)');
+  assert.deepEqual(ci.jobs.browser.strategy.matrix.shard, [1, 2, 3, 4, 5, 6]);
+  assert.equal(ci.jobs.browser.name, 'browser (${{ matrix.shard }}/6)');
   assert.equal(ci.jobs.changes.if, undefined);
   assert.equal(ci.jobs.changes.outputs['docs-only'], '${{ steps.changes.outputs.docs-only }}');
   assert.deepEqual(detector.env, {
