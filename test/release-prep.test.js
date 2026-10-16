@@ -66,6 +66,7 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   try {
     assert.equal((await fetch(`${demo.url}/healthz`)).status, 200);
     assert.equal((await fetch(`${demo.url}/composed/qualification`)).status, 404);
+    assert.equal((await fetch(`${demo.url}/composed/relay`, { method: 'POST', body: new Uint8Array(1280) })).status, 404);
   } finally { await demo.kill(); }
   const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession } from '@inspr/aithema-server';
     import { createSession, createMockReasoning } from '@inspr/aithema-core';
