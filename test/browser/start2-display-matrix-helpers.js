@@ -285,12 +285,15 @@ export async function displayMatrix(t, section) {
     await t.test('B5: 320 flag hover has no slide-in label; 390 retains it without moving the credits', async () => {
       for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 390]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
-        const before = await boxes(page, ['.engine-info', '.host-credits__amount', '.connection-timer']);
+        // AIT-260: the phone timer lives in the closed info popup. Check the
+        // visible footer controls, independent of that hidden connection copy.
+        const selectors = ['.engine-info', '.host-credits__amount'];
+        const before = await boxes(page, selectors);
         await page.hover('aithema-session >>> .engine-info'); await settle();
         const label = await shadow(page, c => { const n = c.shadowRoot.querySelector('.engine__value'), style = getComputedStyle(n);
           return { displayed: style.display !== 'none', popup: getComputedStyle(c.shadowRoot.querySelector('.engine__detail')).visibility }; });
         assert.equal(label.displayed, width >= 360); assert.equal(label.popup, 'visible');
-        sameBoxes(before, await boxes(page, ['.engine-info', '.host-credits__amount', '.connection-timer']), 'flag hover');
+        sameBoxes(before, await boxes(page, selectors), 'flag hover');
         await shot('flag-hover-amended', width, theme);
       }
     });

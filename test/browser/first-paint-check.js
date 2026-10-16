@@ -109,7 +109,7 @@ export async function firstPaintCheck(t) {
   }
   // AIT-260: a voice-off host must not paint voice placeholders or shrink a
   // phone header on upgrade. Reuse this page/browser for the binding check.
-  textDemo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'text-sessions.sqlite'), { AITHEMA_VOICE_MODE: 'off' });
+  textDemo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'text-sessions.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_ADMIN_SOCKET: join(directory, 'off') });
   for (const width of [1440, 1024, 390]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.goto(`${textDemo.url}?theme=light&locale=de`, { waitUntil: 'domcontentloaded' });
