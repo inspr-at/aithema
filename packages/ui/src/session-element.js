@@ -564,12 +564,15 @@ export class AithemaSession extends HTMLElement {
     this.#follow = true; this.#questionCard?.reserve();
     shell.scrollTop = shell.scrollHeight;
     const latest = shell.querySelector('.turn:last-child');
+    latest?.removeAttribute('data-start-only');
     const readFull = latest?.querySelector('.turn-read-full');
     if (readFull) readFull.hidden = true;
     if (latest && !this.shadowRoot.querySelector('.qcard').hidden) {
       const top = shell.getBoundingClientRect().top + parseFloat(this.ownerDocument.defaultView.getComputedStyle(shell).paddingTop);
       const room = shell.getBoundingClientRect().bottom - top;
       if (latest.getBoundingClientRect().height > room) {
+        latest.toggleAttribute('data-start-only', room < 88);
+        if (room >= 88) {
         let button = readFull;
         if (!button) {
           button = node('button', 'turn-read-full'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
@@ -581,6 +584,7 @@ export class AithemaSession extends HTMLElement {
           latest.append(button);
         }
         button.hidden = false; setText(button, this.#copy.voiceReadFullReply);
+        }
         shell.scrollTop += latest.getBoundingClientRect().top - top;
       }
     }

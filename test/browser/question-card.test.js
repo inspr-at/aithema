@@ -109,6 +109,16 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
           });
           await nextFrame(page);
           assert.deepEqual((await rest()).box, before.box, `${state}: release moves the latest bubble exactly 0 px`);
+          const point = await shadow(page, c => { const b = c.shadowRoot.querySelector('.transcript-shell').getBoundingClientRect(); return [b.left + 20, b.top + b.height / 2]; });
+          await page.mouse.move(...point); await page.mouse.wheel({ deltaY: 1000 }); await nextFrame(page);
+          assert.deepEqual((await rest()).box, before.box, `${state}: a native wheel at rest moves the latest bubble exactly 0 px`);
+          await shadow(page, c => { const shell = c.shadowRoot.querySelector('.transcript-shell'); shell.tabIndex = -1; shell.focus({ preventScroll: true }); });
+          for (const key of ['End', 'PageDown']) {
+            await page.keyboard.press(key); await nextFrame(page);
+            assert.deepEqual((await rest()).box, before.box, `${state}: native ${key} at rest moves the latest bubble exactly 0 px`);
+          }
+          await shadow(page, c => { const shell = c.shadowRoot.querySelector('.transcript-shell'); shell.blur(); shell.removeAttribute('tabindex'); });
+          await page.mouse.move(-1, -1); await nextFrame(page);
           return before;
         };
         await page.setViewport({ width, height: width === 390 ? 844 : width === 393 ? 852 : 900 });
@@ -559,6 +569,7 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
     if (evidence) {
+      assert.equal(checks.length, 20, 'every matrix scene must complete before writing evidence');
       assert.equal(files.length, 28, 'sixteen card/bounded and twelve keyboard viewport captures are required');
       const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
       await writeFile(join(evidence, 'index.md'), `# AIT-225 round 4 — head ${commit}\n\nViewport captures; reduced motion, pinned baseline fonts, blur before every shot, focus restored after each shot.\n\n${files.map(file => `- [${file}](${file})`).join('\n')}\n\nPass lines: [ait-225-pass-lines.json](ait-225-pass-lines.json) · metadata: [ait-225-evidence.json](ait-225-evidence.json)\n`);
