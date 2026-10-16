@@ -1293,8 +1293,9 @@ export class AithemaSession extends HTMLElement {
     const copy = this.#copy, preset = this.#session.processingPreset ?? 'best', view = engineView(this.#session);
     const d = copy.display, name = copy.presets[preset] ?? d.presetUnknown;
     const scope = preset === 'device' ? d.device : preset === 'eu' ? d.eu : d.international;
-    const reply = preset === 'device' ? d.localModel : modelDisplayName(view.model?.reply ?? view.model?.id, copy, view.model?.label);
-    const understanding = preset === 'device' ? d.localModel : modelDisplayName(view.model?.understanding ?? view.model?.id, copy, view.model?.label);
+    const servedName = route => modelDisplayName(route, copy, route === view.model?.id ? view.model?.label : undefined);
+    const reply = preset === 'device' ? d.localModel : servedName(view.model?.reply ?? view.model?.id);
+    const understanding = preset === 'device' ? d.localModel : servedName(view.model?.understanding ?? view.model?.id);
     const provider = { openrouter: 'OpenRouter', mistral: 'Mistral', mock: d.testProvider }[view.model?.provider] ?? d.hostProvider;
     const presentation = typeof this.#options.voicePresentation === 'function'
       ? this.#options.voicePresentation(this.#session.locale, view.voice)
