@@ -74,3 +74,12 @@ for (const locale of ['de', 'en']) {
     assert.ok(root.querySelector('slot[name="footer"]').closest('.footer-popup'));
   });
 }
+
+test('AIT-260: changing device connector and voice binding keeps teardown renders consistent', () => {
+  const c = configure('en'), session = c.session, deviceConnector = () => {};
+  for (const voiceClient of [undefined, {}, undefined, {}]) {
+    c.configure({ copy: en, session, voiceClient, deviceConnector });
+    c.configure({ copy: en, session, voiceClient: voiceClient ? undefined : {} });
+    assert.equal(Boolean(c.shadowRoot.querySelector('.audio-rail')), !voiceClient);
+  }
+});

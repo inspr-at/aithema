@@ -260,7 +260,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { window.opaqueBandSeed = c.session; });
   const approvedBackground = 'linear-gradient(to bottom,color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)),color-mix(in srgb,var(--aithema-accent) 4%,transparent) 70%,transparent)';
-  const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
+  const selectors = ['.band', '.band-orb', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
   const shot = async (label, state) => {
     const file = `ait155-band-${label}-${state}.png`;
     let png, paintAttempts = 0, firstLineInkPixels;
@@ -705,7 +705,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
         const label = `${locale}/${theme}/${width}`;
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-        const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
+        const selectors = ['.band', '.band-orb', '.header-actions', '.conversations-toggle', '.settings-open'];
         const before = await boxes(page, selectors);
         await page.click('aithema-session >>> .conversations-toggle');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
@@ -1426,7 +1426,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       return response;
     };
   });
-  const stable = ['.band', '.audio-rail', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
+  const stable = ['.band', '.concept-bar', '.composer-shell', '.display-foot', '.understanding > .foot'];
   const record = (label, state, detail = {}) => {
     checks.push({ head: evidenceCommit, label, state, ...detail });
   };

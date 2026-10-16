@@ -100,8 +100,8 @@ export async function displayMatrix(t, section) {
           s.understanding = { ...s.understanding, locale, inputRevision: inputRevision(s), readinessAssessed: true, draft: false, summary: words.summary,
             signals: words.signals, openQuestions: words.questions, progress: { talk: { value: .5 }, build: { value: .2 } } };
         }
-        try { c.configure({ copy, copyForLocale: value => ({ en, de })[value], session: s, voiceClient: globalThis.displayClient,
-          host: { library: true, credits: true, locale: () => locale, version: { version: '0.0.0', commit, date: '2026-10-12T09:00:00Z' } } }); } catch (error) { throw new Error(error.stack); }
+        c.configure({ copy, copyForLocale: value => ({ en, de })[value], session: s, voiceClient: globalThis.displayClient,
+          host: { library: true, credits: true, locale: () => locale, version: { version: '0.0.0', commit, date: '2026-10-12T09:00:00Z' } } });
         document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
         const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
         window.scrollTo(0, 0);

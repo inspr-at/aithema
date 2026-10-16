@@ -127,7 +127,7 @@ export class AithemaSession extends HTMLElement {
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.open;
-    this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null; this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
+    this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
     if (deviceConnector !== this.#createDevice || deviceEndpoint !== this.#deviceEndpoint) {
@@ -135,6 +135,8 @@ export class AithemaSession extends HTMLElement {
       this.#connector = deviceConnector ? new LocalConnector({ copy, create: deviceConnector, endpoint: deviceEndpoint,
         onChange: () => { this.#render('features'); this.#render('transcript'); this.#dialog?.sync(); } }) : null;
     }
+    // clear() may render the old tree; keep its binding signal until that render finishes.
+    this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
