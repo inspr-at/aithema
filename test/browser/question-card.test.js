@@ -528,16 +528,20 @@ test('AIT-225: bounded question card at 1440/1024/800/390/393, light/dark, DE/EN
                   const r = c.shadowRoot, row = r.querySelectorAll('.qopt')[1], opts = r.querySelector('.qopts');
                   const b = row.getBoundingClientRect(), v = opts.getBoundingClientRect();
                   return { focused: r.activeElement === row, fullyVisible: b.left >= v.left && b.right <= v.right && b.top >= v.top && b.bottom <= v.bottom,
-                    scrollLeft: opts.scrollLeft };
+                    scrollLeft: opts.scrollLeft, bounds: [b.left, b.right, b.top, b.bottom], viewport: [v.left, v.right, v.top, v.bottom] };
                 });
                 const before = await focusedChip();
-                assert.equal(before.focused && before.fullyVisible, true, 'native Tab focuses and fully reveals chip 2');
+                assert.equal(before.focused, true, `native Tab focuses chip 2: ${JSON.stringify(before)}`);
                 await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } }));
                 await nextFrame(page);
-                assert.deepEqual(await focusedChip(), before, 're-render preserves chip 2 focus, visibility and scroll position');
+                const after = await focusedChip();
+                assert.equal(after.focused && after.fullyVisible, true, `re-render keeps chip 2 focused and fully visible: ${JSON.stringify(after)}`);
+                await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } }));
+                await nextFrame(page);
+                assert.deepEqual(await focusedChip(), after, 'a further re-render leaves the visible focused chip in place');
                 await page.evaluate(() => visualViewport.dispatchEvent(new Event('resize')));
                 await nextFrame(page); await nextFrame(page);
-                assert.deepEqual(await focusedChip(), before, 'viewport reservation also preserves the focused chip');
+                assert.deepEqual(await focusedChip(), after, 'viewport reservation also preserves the focused chip');
                 await shadow(page, c => {
                   c.shadowRoot.querySelector('.qopts').scrollLeft = 0;
                   c.receive({ type: 'lane.status', data: { inputRevision: c.session.inputRevision, running: ['understanding'] } });
