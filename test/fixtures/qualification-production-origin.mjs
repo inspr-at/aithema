@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export async function startFakeProductionOrigin(directory, { mediaElement = false } = {}) {
+export async function startFakeProductionOrigin(directory, { mediaElement = false, assistantFinal = 'before-audio' } = {}) {
   const key = join(directory, 'synthetic-tls-key.pem'), cert = join(directory, 'synthetic-tls-cert.pem');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
     '-days', '1', '-subj', '/CN=start2.fixture.test'], { stdio: 'ignore' });
@@ -63,13 +63,19 @@ export async function startFakeProductionOrigin(directory, { mediaElement = fals
         detect.onaudioprocess=e=>{const samples=e.inputBuffer.getChannelData(0);if(answering&&Math.sqrt(samples.reduce((s,x)=>s+x*x,0)/samples.length)>=.015){gain.gain.value=0;
           answering=false;fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:2,text:'Bitte aufhören'}})});}};
         setTimeout(()=>fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'user',userTurnOrdinal:1,text:'Wien'}})}),700);
-        setTimeout(async()=>{
-          await fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',text:'Danke.'}})});
-          oscillator=context.createOscillator();gain=context.createGain();gain.gain.value=.2;
-          ${mediaElement ? `const destination=context.createMediaStreamDestination();oscillator.connect(gain).connect(destination);
-          const audio=new Audio();audio.srcObject=destination.stream;document.body.append(audio);await audio.play();` : 'oscillator.connect(gain).connect(context.destination);'}
-          oscillator.start();answering=true;
-        },1050);
+        const final=()=>{window.fixtureAssistantFinalAt=performance.now();return fetch('/api/sessions/production-visitor/voice/fake-call/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({event:{type:'final',role:'assistant',text:'Danke.'}})});};
+        oscillator=context.createOscillator();gain=context.createGain();gain.gain.value=0;
+        ${mediaElement ? `const destination=context.createMediaStreamDestination();oscillator.connect(gain).connect(destination);
+        const audio=new Audio();audio.srcObject=destination.stream;document.body.append(audio);await audio.play();` : 'oscillator.connect(gain).connect(context.destination);'}
+        // An audible opener on the SAME graph must never enter the reply PCM.
+        const start=context.currentTime;oscillator.start();
+        gain.gain.setValueAtTime(.6,start+.05);gain.gain.setValueAtTime(0,start+.25);
+        gain.gain.setValueAtTime(.2,start+1.05);gain.gain.setValueAtTime(.08,start+1.5);
+        window.fixtureReplyContextTime=start+1.05;
+        window.fixtureOutputClock=()=>context.getOutputTimestamp();
+        if(${JSON.stringify(assistantFinal)}==='before-audio')setTimeout(final,1000);
+        if(${JSON.stringify(assistantFinal)}==='after-audio')setTimeout(final,1500);
+        setTimeout(()=>{answering=true;},1100);
       };})();</script>`);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

@@ -16,7 +16,7 @@ export function liveBinding() {
         processors: ['Anthropic'], dataCategories: ['messages', 'conversation-history'] } },
     baseline: { ...fixtureBinding('stt'), model: 'agent_fixture', agentId: 'agent_fixture', secretRef: 'ELEVENLABS_API_KEY',
       microPerMinute: 1000 },
-    baselineOrigin: 'https://start2.example', maxDurationSeconds: 60, reasoningAttempts: 2,
+    baselineOrigin: 'https://start2.example', baselineReasoningCeilingMicro: 23, maxDurationSeconds: 60, reasoningAttempts: 2,
   };
 }
 
@@ -225,4 +225,14 @@ test('normal persistent consent ledger covers the exact selected component, reas
   assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope({ ...binding.tts, model: 'other-model' }, 'speak')), false);
   storage.reviseConsent(session.id, false);
   assert.equal(await consentCoverage(consent, storage.get(session.id), processingScope(binding.stt, 'stream')), false);
+});
+
+
+test('baseline reasoning ceiling is required, nonnegative integer micro and safe when combined with the conversation ceiling', () => {
+  for (const baselineReasoningCeilingMicro of [undefined, null, -1, .5, '23', Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => validateQualificationBinding({ ...liveBinding(), baselineReasoningCeilingMicro }), /binding/i);
+  }
+  for (const baselineReasoningCeilingMicro of [0, 23]) {
+    assert.equal(validateQualificationBinding({ ...liveBinding(), baselineReasoningCeilingMicro }).baselineReasoningCeilingMicro, baselineReasoningCeilingMicro);
+  }
 });

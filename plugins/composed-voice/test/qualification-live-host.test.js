@@ -15,7 +15,7 @@ const binding = () => ({
     maxMicro: 100000, maxTokens: 128, maxInputTokens: 4096, rates: { inputMicro: 1, outputMicro: 2 },
     legal: { purpose: 'models-international', consentVersion: 1, recipient: 'OpenRouter, Inc.', processors: ['Anthropic'], dataCategories: ['messages'] } },
   baseline: { ...fixtureBinding('stt'), model: 'agent_fixture', agentId: 'agent_fixture', secretRef: 'ELEVENLABS_API_KEY', microPerMinute: 1000 },
-  baselineOrigin: 'https://start2.example', maxDurationSeconds: 60, reasoningAttempts: 2,
+  baselineOrigin: 'https://start2.example', baselineReasoningCeilingMicro: 23, maxDurationSeconds: 60, reasoningAttempts: 2,
 });
 const decision = { contract: 'synthetic-contract', items: ['voice-elevenlabs', 'models-international'] };
 

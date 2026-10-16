@@ -106,7 +106,7 @@ export async function createQualificationHost({ keysFile, sampleTimeoutMs, contr
   const baselineAuthFile = ${JSON.stringify(join(directory, 'baseline-auth.json'))};
   await writeFile(baselineAuthFile, JSON.stringify({username:production.username,password:production.password}), {mode:0o600});
   let baselineAttemptId;
-  const host = template({ binding: {baselineOrigin:production.origin,baselineAuthFile,maxDurationSeconds:10,
+  const host = template({ binding: {baselineOrigin:production.origin,baselineAuthFile,maxDurationSeconds:10,baselineReasoningCeilingMicro:25,
       baseline:{plugin:'fixture',model:'fixture',agentId:'fixture-agent',accountRef:'offline-fixture',endpoint:'https://fixture.invalid/stream',microPerMinute:600}},
     consentDecision:{items:['voice-elevenlabs','models-international']}, controlCapability, hostOrigin: ${JSON.stringify(hostOrigin)}, runDirectory: ${JSON.stringify(directory)},
     ownerHeaders: { cookie: 'aithema-visitor=fixture-owner' }, executablePath: await browserPath(), sampleTimeoutMs,
@@ -229,8 +229,9 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(frames * 2, 40);
   for (let i = 0; i < frames; i++) wav.writeInt16LE(i < rate * .5 || i >= rate * 1.8 ? Math.round(Math.sin(i * 2 * Math.PI * 440 / rate) * 12000) : 0, 44 + i * 2);
   await writeFile(wavPath, wav);
-  for (const mediaElement of [false, true]) await t.test(mediaElement ? 'WebRTC media element' : 'Web Audio output', async () => {
-    const production = await startFakeProductionOrigin(directory, { mediaElement });
+  for (const mediaElement of [false, true]) for (const assistantFinal of ['before-audio', 'after-audio', 'missing']) await t.test(
+    `${mediaElement ? 'WebRTC media element' : 'Web Audio output'}: assistant final ${assistantFinal}`, async () => {
+    const production = await startFakeProductionOrigin(directory, { mediaElement, assistantFinal });
     const browser = await puppeteer.launch({ headless: true, ignoreDefaultArgs: ['--mute-audio'],
       args: [...production.launchArgs, ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
         // Test-only fake renderer makes this hermetic on CI hosts with no audio
@@ -245,7 +246,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
     let result;
     try {
       await browser.defaultBrowserContext().overridePermissions(production.origin, ['microphone']);
-      result = await runProductionBaseline({ page, binding: { baselineOrigin: production.origin, maxDurationSeconds: 8,
+      result = await runProductionBaseline({ page, binding: { baselineOrigin: production.origin, maxDurationSeconds: 8, baselineReasoningCeilingMicro:25,
         baseline: { plugin: 'elevenlabs', model: 'fake-agent', agentId: 'fake-agent', accountRef: 'fixture-account', endpoint: 'https://api.elevenlabs.io', microPerMinute: 600 } },
         item: { id: 'fake-corpus' }, runId: 'production-fixture', auth: { username: production.username, password: production.password },
         consentDecision: { items: ['voice-elevenlabs', 'models-international'] }, onTiming: probe.onTiming,
@@ -254,7 +255,7 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
         boundConversation: async deadline => { watchdog = setTimeout(() => abort.abort(new Error('fixture duration watchdog')), deadline - Date.now()); },
         admit: async spec => {
           assert.equal(production.dispatches.length, 0, 'durable admission precedes production conversation');
-          // Source: binding 600 micro/min * 8 s / 60 = 80 micro.
+          // Before the cost fix, keep this independent timing regression at the existing 80-micro reservation.
           assert.equal(spec.maxMicro, 80);
           return { attempt: { async consume() { assert.equal(production.dispatches.length, 0); } }, report: async terminal => reports.push(terminal) };
         },
@@ -263,6 +264,19 @@ test('AIT-160 production baseline: injected probe captures PCM and final utteran
       assert.ok(evidence.speechEndAt < evidence.firstAudioAt && evidence.firstAudioAt <= evidence.bargeInAt && evidence.bargeInAt <= evidence.stoppedAt);
       assert.equal(result.hypothesis, 'Wien', 'later final barge-in phrase is excluded');
       assert.ok(result.ttsPCM.byteLength > 0); assert.equal(result.ttsFormat.encoding, 'pcm_f32le');
+      const samples = new Float32Array(result.ttsPCM.buffer, result.ttsPCM.byteOffset, result.ttsPCM.byteLength / 4);
+      const peak = values => values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+      assert.ok(peak(samples.subarray(0, 2048)) > .15, 'PCM retains the first voiced reply block before the assistant final');
+      assert.ok(peak(samples) < .3, 'the .6-amplitude production opener is excluded');
+      const reference = await page.evaluate(() => ({ clock: window.fixtureOutputClock(), reply: window.fixtureReplyContextTime,
+        finalAt: window.fixtureAssistantFinalAt }));
+      const expectedReplyAt = reference.clock.performanceTime + (reference.reply - reference.clock.contextTime) * 1000;
+      assert.ok(evidence.firstAudioAt >= expectedReplyAt - 75 && evidence.firstAudioAt < expectedReplyAt + 250,
+        `first reply block observed at ${evidence.firstAudioAt}, device reference ${expectedReplyAt}`);
+      if (assistantFinal === 'after-audio') assert.ok(evidence.firstAudioAt < reference.finalAt - 100);
+      if (assistantFinal === 'missing') assert.equal(reference.finalAt, undefined);
+      assert.ok(evidence.bargeInAt > evidence.firstAudioAt + 300, 'barge-in remains the next voiced corpus segment');
+
       assert.equal(result.baselineSession.visitorSessionId, 'production-visitor');
       assert.equal(result.baselineSession.providerSessionId, 'conv_production');
       assert.equal(production.dispatches.length, 1); assert.ok(production.stopped >= 1);

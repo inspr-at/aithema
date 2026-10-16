@@ -50,7 +50,7 @@ import { runProductionBaseline, baselineOrigin } from '../ops/qualification-prod
 import { startBaselineSample } from '../ops/qualification-live-baseline.mjs';
 import { createQualificationHost } from '../ops/qualification-host-template.mjs';
 
-const binding = { baselineOrigin: 'https://start2.example', maxDurationSeconds: 1,
+const binding = { baselineOrigin: 'https://start2.example', maxDurationSeconds: 1, baselineReasoningCeilingMicro: 23,
   baseline: { plugin: 'elevenlabs', model: 'agent_fake', agentId: 'agent_fake', accountRef: 'fake-account',
     endpoint: 'https://api.elevenlabs.io', microPerMinute: 1001 } };
 
@@ -74,7 +74,7 @@ test('baseline missing auth refuses before browser, control or admission', async
     admit() { assert.fail('must not admit'); }, onTiming() {} }), /Baseline auth/);
 });
 
-async function productionFixture(t, { duration = false, refusal, duplicate = false } = {}) {
+async function productionFixture(t, { duration = false, refusal, duplicate = false, configured = binding, admit } = {}) {
   const order = [], sent = [], identities = [], reports = [], timings = [], aborts = [];
   const expiry = Promise.withResolvers(); expiry.promise.catch(() => {});
   const page = new EventEmitter(), cdp = new EventEmitter();
@@ -108,7 +108,7 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
       ] };
     if (input?.visitorSessionId) order.push('stop');
   };
-  const run = () => runProductionBaseline({ page, binding, item: { id: 'corpus' }, runId: 'fake-run',
+  const run = () => runProductionBaseline({ page, binding: configured, item: { id: 'corpus' }, runId: 'fake-run',
     auth: { username: 'fake-operator', password: secret }, consentDecision: { items: ['voice-elevenlabs', 'models-international'] },
     bounded: promise => Promise.race([promise, expiry.promise]), abort(error) { aborts.push(error.message); expiry.reject(error); },
     preflight: async () => ({ verified: true }), boundConversation: async deadlineAt => {
@@ -117,8 +117,12 @@ async function productionFixture(t, { duration = false, refusal, duplicate = fal
     async admit(spec) {
       order.push('admit'); if (refusal === 'admit') throw new Error('fake admission denied');
       // Source: explicit synthetic tariff 1001 micro/min * binding 1 s / 60,
-      // rounded up by the shared integer-micro accounting contract.
-      assert.equal(spec.maxMicro, 17); assert.equal(spec.request.visitorSessionId, 'production-visitor');
+      // rounded up, plus 23 micro for production facade reasoning.
+      assert.equal(spec.maxMicro, 40); assert.equal(spec.request.visitorSessionId, 'production-visitor');
+      if (admit) {
+        const claim = await admit(spec);
+        return { ...claim, attempt: { ...claim.attempt, async consume() { await claim.attempt.consume(); order.push('consume'); } } };
+      }
       return { attempt: { attemptId: spec.attemptId, async consume() { if (refusal === 'consume') throw new Error('fake consume denied'); order.push('consume'); } },
         report: async terminal => reports.push(terminal) };
     } });
@@ -186,7 +190,7 @@ test('baseline launcher gets fresh profile and corpus flags, with no loopback he
 import { runInNewContext } from 'node:vm';
 import { installBaselineProbe } from '../ops/qualification-baseline-probe.js';
 
-test('injected probe ignores silence in unrelated audio contexts after barge-in', async () => {
+async function probeFixture() {
   const contexts = []; let now = 0;
   class Node {
     constructor(context) { this.context = context; }
@@ -223,9 +227,15 @@ test('injected probe ignores silence in unrelated audio contexts after barge-in'
     context.processors[0].onaudioprocess({ playbackTime: time + samples.length / context.sampleRate,
       inputBuffer: { duration: samples.length / context.sampleRate, getChannelData: () => samples } });
   };
-  emit(capture, .5, .2);
+  const final = event => runtime.fetch('/api/sessions/visitor/voice/call/events', { body: JSON.stringify({ event }) });
+  return { probe, capture, audio, other, emit, final };
+}
+
+test('injected probe ignores silence in unrelated audio contexts after barge-in', async () => {
+  const { probe, capture, audio, other, emit, final } = await probeFixture();
+  emit(capture, .5, .2); emit(capture, .6, 0);
   for (const event of [{ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' }, { type: 'final', role: 'assistant', text: 'Danke.' }]) {
-    await runtime.fetch('/api/sessions/visitor/voice/call/events', { body: JSON.stringify({ event }) });
+    await final(event);
   }
   emit(audio, 1, .2); emit(capture, 2, .2);
   emit(other, 2.1, 0);
@@ -235,5 +245,67 @@ test('injected probe ignores silence in unrelated audio contexts after barge-in'
   const result = probe.result();
   assert.equal(result.hypothesis, 'Wien'); assert.ok(result.ttsPCM.length > 0);
   assert.equal(result.trace.filter(event => event.kind === 'playback-stop').length, 1);
+  await probe.close();
+});
+
+
+import { initializeQualificationBudget, openPersistedQualificationBudget } from '../src/persisted-budget.js';
+
+test('production baseline reserves ElevenLabs plus facade reasoning in the persisted cap until combined receipts reconcile', async t => {
+  const { dir } = await fixture(t), path = join(dir, 'budget.sqlite');
+  initializeQualificationBudget({ path, capMicro: 40 });
+  const ports = { verifyCeiling: async spec => ({ ...spec, verified: true, reference: 'synthetic combined price proof', expiresAt: Date.now() + 60000 }),
+    verifyReceipt: async receipt => receipt.conversationAuthenticated && receipt.reasoningAuthenticated };
+  const budget = openPersistedQualificationBudget({ path, ...ports });
+  t.after(() => budget.close());
+  const h = await productionFixture(t, { admit: spec => budget.admit(spec) });
+  await h.run();
+  const snapshot = budget.snapshot(), row = snapshot.records[0];
+  assert.equal(snapshot.exposureMicro, 40); assert.equal(row.maxMicro, 40);
+  assert.equal(row.outcome, 'uncertain'); assert.equal(row.receipt, undefined);
+  const restarted = openPersistedQualificationBudget({ path, ...ports }); t.after(() => restarted.close());
+  assert.equal(restarted.snapshot().exposureMicro, 40);
+  const receipt = { attemptId: row.attemptId, receiptId: 'combined-receipt', provider: row.provider, model: row.model,
+    operation: row.operation, accountRef: row.accountRef, endpoint: row.endpoint, chargedMicro: 9, estimated: false,
+    conversationAuthenticated: true, reasoningAuthenticated: false };
+  await assert.rejects(restarted.reconcile(receipt), { code: 'not-admitted' });
+  assert.equal(restarted.snapshot().exposureMicro, 40, 'ElevenLabs receipt alone cannot release reasoning exposure');
+  await restarted.reconcile({ ...receipt, reasoningAuthenticated: true });
+  assert.equal(budget.snapshot().exposureMicro, 9);
+});
+
+for (const ceiling of [undefined, null, -1, .5, '23', Number.MAX_SAFE_INTEGER]) {
+  test(`production baseline refuses invalid reasoning ceiling ${ceiling} before navigation or admission`, async t => {
+    const h = await productionFixture(t, { configured: { ...binding, baselineReasoningCeilingMicro: ceiling } });
+    h.page.goto = () => assert.fail('invalid combined ceiling must refuse before navigation');
+    await assert.rejects(h.run(), /ceiling|binding/i);
+    assert.deepEqual(h.order, []);
+  });
+}
+
+
+for (const assistantFinal of ['late', 'missing']) test(`probe retains reply onset and PCM with ${assistantFinal} assistant final, excludes opener and preserves barge-in`, async () => {
+  const { probe, capture, audio, emit, final } = await probeFixture();
+  emit(audio, .1, .6); // Opener before user speech, same agent graph.
+  emit(capture, .3, .2); emit(audio, .35, .6);
+  emit(capture, .5, 0); emit(audio, .55, .6); // Opener tail spans speech end.
+  emit(audio, .6, 0);
+  emit(audio, 1, .2); // First voiced reply, before BOTH final callbacks.
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 1, text: 'Wien' });
+  emit(audio, 1.2, .1);
+  if (assistantFinal === 'late') await final({ type: 'final', role: 'assistant', text: 'Danke.' });
+  emit(capture, 2, .2); emit(audio, 2.1, .1); emit(audio, 2.2, 0);
+  await final({ type: 'final', role: 'user', userTurnOrdinal: 2, text: 'Bitte aufhören' });
+  assert.equal(probe.complete(), true);
+  const result = probe.result(), start = result.trace.find(event => event.kind === 'playback-start');
+  assert.equal(start.firstAudioAt, 1000);
+  // Decode through an owned byte copy: Buffer pools need not start at offset 0.
+  const bytes = Uint8Array.from(Buffer.from(result.ttsPCM, 'base64'));
+  const pcm = new Float32Array(bytes.buffer);
+  assert.equal(pcm.length, 3 * 1024); assert.equal(pcm[0], Math.fround(.2));
+  assert.equal(pcm[1024], Math.fround(.1)); assert.ok(pcm.every(value => value < .3));
+  assert.ok(Math.abs(probe.diagnostics().bargeInAt - 1900) < .001);
+  assert.equal(result.trace.find(event => event.kind === 'playback-stop').stoppedAt, 2200);
+  assert.equal(result.hypothesis, 'Wien');
   await probe.close();
 });
