@@ -125,5 +125,13 @@
         "overrun": false
       }
     }
-  ]
+  ],
+  "sources": [
+    {
+      "url": "https://elevenlabs.io/docs/api-reference/conversations/get/",
+      "shapes": "GET conversation details: conversation_id, processing/done status, metadata start_time_unix_secs/call_duration_secs/cost_fiat",
+      "checked": "2026-10-16"
+    }
+  ],
+  "scenarioNotes": "call and terminal are local expected projections; delayed closure and missing-then-present usage are synthetic scenarios, not vendor timing guarantees"
 }

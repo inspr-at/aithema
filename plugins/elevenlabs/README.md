@@ -125,7 +125,11 @@ AIT-139 adds independent synthetic v1 oracles in
 `test/voice-observability-wire.js` covers growth, truncation, duplicate stream/JSON
 readers and partial failure; reconciliation tests inject the exact recorded GET
 responses for pending closure, estimated usage and confirmed usage. These
-expectations are authored independently of the production recorder. The original
+expectations are authored independently of the production recorder and shared
+with `plugins/composed-voice/test/observability.test.js` through
+`test/voice-observability-fixtures.js`. Each oracle cites the vendor documentation
+for its wire shapes and distinguishes local extensions and synthetic timing
+scenarios. The original
 `elevenlabs-wire.json` remains byte-identical.
 
 `liveVoiceConformance` is re-exported by core's existing conformance export.
@@ -460,13 +464,15 @@ reconnect records contain call/generation hashes only.
 | `voice.turn.closure` | `closureConfirmed`, `costEstimated`, `reconciliationAgeMs` |
 | `voice.segment.reconnect` | bounded `cause` |
 
-Times are nonnegative milliseconds from writer start, including admission time.
+Times are nonnegative milliseconds from writer start, including admission time,
+clamped to the previous stage duration if the wall clock moves backwards.
 First token means the first nonempty validated executor delta; it is recorded
 once per attempt, regardless of chunk or reader count. Completion follows the
-durable terminal write. Segment closure is reported for each settled turn in
-that generation; pending writers receive it after their terminal write. An
-uncertain closure can later receive one confirmation. Diagnostic deduplication
-is bounded to 4096 entries per executor; it is not durable across restarts.
+durable terminal write. Exactly one confirmed segment closure is reported per
+settled writer attempt in that generation; pending writers receive it after their
+terminal write. Uncertain lookups wait for confirmation, and later usage updates
+use reconciliation records rather than another closure. Diagnostic deduplication
+is bounded to 4096 entries per executor; eviction or restart can permit a repeat.
 Reconciliation age starts at segment end, or segment start for an open orphan.
 Existing object records `voice.cost-reconciled` and `voice.reconciliation-retry`
 retain their fields and add generation correlation and reconciliation age.

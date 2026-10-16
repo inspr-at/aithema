@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage } from '../src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../src/voice-turns.js';
+import { SQLiteBudgetLedger } from '../src/budget.js';
 import { PluginError } from '../../core/src/invocation.js';
 
 const collect = async events => { const values = []; for await (const event of events) values.push(event); return values; };
@@ -257,3 +258,108 @@ for (const order of ['abc', 'acb', 'bac', 'bca', 'cab', 'cba']) {
     assertSafe(h.logs);
   });
 }
+
+
+for (const sink of ['collect', 'throw', 'reject']) test(`AIT-139: consent revokes publication while paid work settles once with ${sink} diagnostics`, async t => {
+  let logCalls = 0;
+  const h = fixture(t, sink === 'collect' ? {} : { log() {
+    logCalls++;
+    if (sink === 'throw') throw new Error('Private diagnostic failure');
+    return Promise.reject(new Error('Private diagnostic failure'));
+  } });
+  const ledger = new SQLiteBudgetLedger(h.storage), gate = Promise.withResolvers();
+  h.unblock.push(() => gate.resolve());
+  let settlements = 0;
+  const result = await h.turns.run(h.context, worker => {
+    worker.beforeAdmission();
+    const attempt = ledger.admit({ sessionId: h.session.id, lane: 'reaction', maxMicro: 40,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+    const claim = ledger.claim(attempt.attemptId); claim.consume(); worker.admitted(attempt.attemptId);
+    return { replyId: 'reply', created: 1, events: (async function* () {
+      try {
+        yield { type: 'delta', text: 'Private partial' }; await gate.promise;
+        yield { type: 'delta', text: 'Private late' }; yield { type: 'completion', text: 'Private partialPrivate late' };
+      } finally {
+        settlements++;
+        ledger.settle(claim.claimId, { attemptId: attempt.attemptId, outcome: 'completed', chargedMicro: 7 });
+      }
+    })() };
+  });
+  const reader = result.events.getReader();
+  assert.equal((await reader.read()).value.type, 'operation');
+  assert.equal((await reader.read()).value.text, 'Private partial');
+  h.storage.reviseConsent(h.session.id, false); gate.resolve();
+  await assert.rejects(reader.read(), { code: 'not-admitted' }); reader.releaseLock();
+  await h.turns.idle();
+  const operation = h.storage.voiceOperations(h.session.id)[0];
+  assert.equal(operation.state, 'failed'); assert.equal(operation.replyRef, undefined);
+  assert.equal(settlements, 1); assert.equal(ledger.used(h.session.id), 7);
+  assert.deepEqual(h.storage.db.prepare('SELECT state,settled_micro FROM budget_attempts').all().map(row => ({ ...row })),
+    [{ state: 'settled', settled_micro: 7 }]);
+  await assert.rejects(h.turns.run(h.context, () => assert.fail('Withdrawn consent cannot dispatch')), { code: 'not-admitted' });
+  h.turns.observeClosure({ ...h.context, endedAt: 1000 }, { closureConfirmed: true });
+  await new Promise(resolve => setImmediate(resolve));
+  if (sink === 'collect') assertSafe(h.logs);
+  else assert.equal(logCalls, 4, 'Admission, first token, failed completion and closure all tolerate sink failure');
+});
+
+test('AIT-139: every stage stays below 1 KiB and rejects content, references, token counts and unsafe numbers', async () => {
+  const { createVoiceDiagnostics } = await import('../src/voice-observability.js');
+  const logs = [], emit = createVoiceDiagnostics({ log: row => logs.push(typeof row === 'string' ? JSON.parse(row) : row) });
+  const secret = 'Private prompt transcript speech reference credential'.repeat(1000);
+  const identity = { callId: secret, providerSessionId: secret, fence: secret, attempts: [{ id: secret }] };
+  const fields = { prompt: secret, text: secret, transcript: secret, reference: secret, secretRef: secret, token: secret,
+    inputTokens: 8, outputTokens: 4, cause: secret, code: secret, outcome: secret,
+    admissionMs: -1, firstTokenMs: NaN, totalMs: Infinity, reconciliationAgeMs: Number.MAX_SAFE_INTEGER + 1,
+    chargedMicro: -1, closureConfirmed: true, costEstimated: false };
+  for (const event of ['voice.turn.admission', 'voice.turn.first-token', 'voice.turn.completion', 'voice.turn.retry',
+    'voice.turn.closure', 'voice.segment.reconnect', 'voice.cost-reconciled', 'voice.reconciliation-retry']) emit(event, identity, fields);
+  assert.equal(logs.length, 8);
+  for (const row of logs) {
+    assert.ok(Buffer.byteLength(JSON.stringify(row)) < 1024);
+    for (const key of Object.keys(fields)) {
+      if (['cause', 'code', 'closureConfirmed', 'costEstimated'].includes(key)) continue;
+      assert.equal(Object.hasOwn(row, key), false, key);
+    }
+    for (const [key, value] of Object.entries(row)) if (key.endsWith('Hash')) assert.match(value, /^[a-f0-9]{64}$/u);
+  }
+  assert.doesNotMatch(JSON.stringify(logs), /Private|prompt|transcript|speech|reference|credential|Tokens|secretRef/iu);
+});
+
+test('AIT-139: confirmed closure interleaved with a failed writer and authorized retry stays unique per attempt', async t => {
+  const h = fixture(t, { authorizeReplacement: () => true }), gate = Promise.withResolvers();
+  h.unblock.push(() => gate.resolve());
+  const record = { ...h.context, endedAt: 1000 };
+  const failed = await h.turns.run(h.context, worker => {
+    h.tick(1010); worker.admitted('failed-attempt');
+    return { replyId: 'failed-reply', created: 1, events: (async function* () {
+      yield { type: 'delta', text: 'Private partial' }; await gate.promise;
+      throw new PluginError('provider', 'Private failure');
+    })() };
+  });
+  const follower = await h.turns.run(h.context, () => assert.fail('Duplicate must join the paid writer'));
+  await follower.events.cancel();
+  h.turns.observeClosure(record, { closureConfirmed: true }); gate.resolve();
+  await assert.rejects(collect(failed.events), { code: 'provider' }); await h.turns.idle();
+  const retry = await h.turns.run(h.context, worker => {
+    h.tick(1100); worker.admitted('retry-attempt');
+    h.turns.observeClosure(record, { closureConfirmed: false });
+    return { replyId: 'retry-reply', created: 1, events: (async function* () {
+      h.tick(1120); yield { type: 'delta', text: 'Private complete' };
+      h.tick(1150); yield { type: 'completion', text: 'Private complete' };
+    })() };
+  });
+  await collect(retry.events); await h.turns.idle();
+  h.turns.observeClosure(record, { closureConfirmed: true });
+  const replay = await h.turns.run(h.context, () => assert.fail('Replay cannot dispatch')); await collect(replay.events);
+  const closures = h.logs.filter(row => row.event === 'voice.turn.closure');
+  assert.equal(closures.length, 2); assert.equal(new Set(closures.map(row => row.attemptHash)).size, 2);
+  assert.equal(new Set(h.logs.map(row => row.turnHash)).size, 1, 'All retries retain one turn ID');
+  for (const closure of closures) {
+    const rows = h.logs.filter(row => row.attemptHash === closure.attemptHash && row.event !== 'voice.turn.retry');
+    assert.deepEqual(rows.map(row => row.event), ['voice.turn.admission', 'voice.turn.first-token', 'voice.turn.completion', 'voice.turn.closure']);
+    assert.ok(rows[0].admissionMs <= rows[1].firstTokenMs && rows[1].firstTokenMs <= rows[2].totalMs);
+  }
+  assert.deepEqual(h.logs.filter(row => row.event === 'voice.turn.retry').map(row => row.cause), ['duplicate-callback', 'provider', 'replay']);
+  assertSafe(h.logs);
+});
