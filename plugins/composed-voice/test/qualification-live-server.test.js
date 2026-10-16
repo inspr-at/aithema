@@ -51,10 +51,10 @@ test('qualification requires complete, matching saved voice settings and explici
     const missing = { ...fixtureVoiceSettings }; delete missing[key]; invalid.push(missing);
   }
   for (const key of ['stability', 'similarity_boost', 'style']) {
-    for (const value of [-0.1, 1.1, '0.5', NaN, Infinity, null]) invalid.push({ ...fixtureVoiceSettings, [key]: value });
+    for (const value of [-0.1, 1.1, '0.5', NaN, Infinity, -Infinity, undefined, true, ...(key === 'style' ? [] : [null])]) invalid.push({ ...fixtureVoiceSettings, [key]: value });
   }
-  for (const value of [0.69, 1.21, '1', NaN, Infinity, null]) invalid.push({ ...fixtureVoiceSettings, speed: value });
-  for (const value of [0, 1, 'true', null]) invalid.push({ ...fixtureVoiceSettings, use_speaker_boost: value });
+  for (const value of [0.69, 1.21, '1', NaN, Infinity, -Infinity, null, undefined, true]) invalid.push({ ...fixtureVoiceSettings, speed: value });
+  for (const value of [0, 1, 'true', undefined, {}, []]) invalid.push({ ...fixtureVoiceSettings, use_speaker_boost: value });
   for (const voiceSettings of invalid) {
     for (const lane of ['candidate', 'baseline']) {
       const binding = liveBinding();
@@ -71,6 +71,25 @@ test('qualification requires complete, matching saved voice settings and explici
   assert.throws(() => validateQualificationBinding(mismatch), /binding/i);
   const valid = validateQualificationBinding(liveBinding());
   assert.equal(Object.isFrozen(valid.tts.voiceSettings), true);
+});
+
+test('AIT-250: qualification preserves start2 nulls in both lanes and refuses null versus explicit override mismatch', () => {
+  const saved = { stability: 0.5, similarity_boost: 0.8, style: null, use_speaker_boost: null, speed: 1 };
+  const binding = liveBinding();
+  binding.tts.voiceSettings = { ...saved }; binding.baseline.tts.voiceSettings = { ...saved };
+  const valid = validateQualificationBinding(binding);
+  for (const lane of [valid.tts, valid.baseline.tts]) {
+    assert.deepEqual(lane.voiceSettings, saved); assert.equal(Object.isFrozen(lane.voiceSettings), true);
+  }
+  for (const [key, value] of [['style', 0], ['use_speaker_boost', false]]) {
+    const mismatch = structuredClone(binding); mismatch.baseline.tts.voiceSettings[key] = value;
+    assert.throws(() => validateQualificationBinding(mismatch), /binding/i);
+  }
+  for (const [stability, similarity_boost, style, speed] of [[0, 0, 0, 0.7], [1, 1, 1, 1.2]]) {
+    const boundaries = structuredClone(binding);
+    for (const lane of [boundaries.tts, boundaries.baseline.tts]) Object.assign(lane.voiceSettings, { stability, similarity_boost, style, speed });
+    assert.doesNotThrow(() => validateQualificationBinding(boundaries));
+  }
 });
 
 test('qualification duration is explicit and bounded at 120s; baseline includes the whole bound and reasoning', () => {

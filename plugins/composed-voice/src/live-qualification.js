@@ -167,6 +167,7 @@ export async function runLiveQualification({ operatorApproved = false, budgetPat
     const report = { mode: 'live', runId: plan.runId, candidate: evaluateQualification(samples.candidate),
       baseline: evaluateQualification(samples.baseline),
       tts: Object.fromEntries(['candidate', 'baseline'].map(lane => [lane, samples[lane].map(sample => sample.ttsConfig)])),
+      ttsNullSemantics: "Null style/use_speaker_boost means the voice's own default, the same as the saved agent; omitted from candidate stream-input voice_settings, preserved in lane evidence.",
       budget: budget.snapshot(), blindPreference: 'pending' };
     await writeFile(join(outputDirectory, 'blind.json'), JSON.stringify(blind, null, 2), { flag: 'wx', mode: 0o600 });
     await writeFile(join(outputDirectory, 'ops-answer-key.json'), JSON.stringify(answerKey, null, 2), { flag: 'wx', mode: 0o600 });

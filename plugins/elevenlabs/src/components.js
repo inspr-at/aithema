@@ -232,7 +232,11 @@ export function createElevenLabsTTS({ enabled = false, config: raw, consent, res
         catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
         invocation.identify('requestId', socket.requestId);
         stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
-        for (const message of [{ text: ' ', ...(config.voiceSettings ? { voice_settings: config.voiceSettings } : {}) },
+        // Stream-input RealtimeVoiceSettings fields are optional number/boolean,
+        // not nullable: https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input
+        // Omit saved nulls only on the wire; retain them in qualification evidence.
+        const voiceSettings = config.voiceSettings && Object.fromEntries(Object.entries(config.voiceSettings).filter(([, value]) => value !== null));
+        for (const message of [{ text: ' ', ...(voiceSettings ? { voice_settings: voiceSettings } : {}) },
           { text: wireText, flush: true }, { text: '' }]) {
           await voiceOperation(opts, () => socket.send(JSON.stringify(message)));
         }

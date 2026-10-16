@@ -562,7 +562,7 @@ module. Missing or malformed money settings refuse construction.
 | --- | --- |
 | `stt` | Processing binding for ElevenLabs `scribe_v2_realtime`, plus explicit integer `microPerSecond >= 0`. |
 | `tts` | Processing binding for fixed ElevenLabs `eleven_flash_v2_5`, plus saved `voiceId`, required `voiceSettings` (below), and explicit integer `microPerCharacter >= 0`. |
-| `tts.voiceSettings` | Required complete object `{ stability, similarity_boost, style, use_speaker_boost, speed }`. First three are finite numbers in `[0, 1]`, speaker boost is boolean, speed is a finite number in `[0.7, 1.2]`. Missing, extra, or invalid fields refuse before provider setup. Read the saved start2 agent as described below; no provider defaults. |
+| `tts.voiceSettings` | Required complete object `{ stability, similarity_boost, style, use_speaker_boost, speed }`. Stability and similarity boost are finite numbers in `[0, 1]`; style is `null` or a finite number in `[0, 1]`; speaker boost is `null` or boolean; speed is a finite number in `[0.7, 1.2]`. All five fields remain required. Missing, extra, or invalid fields refuse before provider setup. Copy the saved start2 values, including explicit nulls. |
 | `reasoning` | Existing OpenRouter private binding: `plugin`, `model`, `effort`, `endpoint`, `accountRef`, `secretRef`, `maxMicro`, `maxTokens`, `maxInputTokens`, `rates: { inputMicro, outputMicro }` and `legal`; optional `routing`. Rates are integer micro-USD per token. No model/routing fallback. |
 | `baselineOrigin` | Required canonical HTTPS production origin, without path, credentials, query or trailing slash. Loopback/localhost refuse; no default. Chrome runs production's normal visitor/consent/voice flow there. |
 | `baselineAuthFile` | Optional binding field, but required to run the baseline behind start2's basic-auth gate; missing refuses before admission. Absolute mba-owned 0600 regular non-symlink file containing JSON `{ "username": "...", "password": "..." }`. Inode, owner, mode and 16 KiB bound use the same checks as `loadQualificationKeys`. |
@@ -581,7 +581,16 @@ returns them under `conversation_config.tts.voice_settings`, use those values
 for the corresponding keys (nested values take precedence). Do not invent
 missing settings or copy other agent configuration into the binding.
 The candidate model remains `eleven_flash_v2_5`; each synthesis connection sends
-the validated settings as `voice_settings` in its initialization message.
+the non-null validated settings as `voice_settings` in its initialization message.
+The [stream-input AsyncAPI schema](https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input)
+defines `RealtimeVoiceSettings.style` and `.use_speaker_boost` as optional number
+and boolean fields, without nullable types. Therefore saved nulls are omitted
+on the wire. Effectively, null means the voice's own default, the same thing the
+saved agent gets; it must never be replaced with an invented `0` or `false`.
+ElevenLabs also describes [request voice settings](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
+as overrides of the voice's stored settings. For start2's saved
+`{ stability: 0.5, similarity_boost: 0.8, style: null, use_speaker_boost: null, speed: 1 }`,
+the request sends `{ stability: 0.5, similarity_boost: 0.8, speed: 1 }`.
 
 The candidate uses the same exported `buildVoiceReplyRequest` as production's
 voice reply lane, bound by the host handlers to their purpose policy, host
@@ -595,7 +604,9 @@ person and assistant history is retained within that sample.
 
 `observations.json` records `ttsConfig: { model, voiceId, voiceSettings }` per
 sample. `report.json.tts.candidate` and `.baseline` list those same configurations
-in corpus order, including both TTS model IDs and all settings. The private
+in corpus order, including both TTS model IDs and all settings with nulls
+preserved exactly. `report.json.ttsNullSemantics` states the effective default
+behavior and wire omission. The private
 `ops-answer-key.json` also associates each audio file with its source TTS
 configuration. These OPS files disclose the fixed-model difference; `blind.json`
 and the A/B WAV labels retain no lane or settings information. Keep the report

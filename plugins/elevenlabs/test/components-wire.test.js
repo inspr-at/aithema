@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createElevenLabsSTT, createElevenLabsTTS, STT_FORMAT, TTS_FORMAT } from '../src/components.js';
 import { fixtureSocket, fixtureBinding, fixtureConsent, fixtureConfig as config, fixtureVoiceSettings, sttWire, ttsWire, unverified } from './component-fixtures.js';
 import { createQualificationBudget, runOfflineQualification } from '../../composed-voice/src/qualification.js';
+import { validateVoiceSettings } from '../src/voice-settings.js';
 
 const collect = async source => { const result = []; for await (const item of source) result.push(item); return result; };
 const options = reports => ({ deadlineAt: Date.now() + 5000,
@@ -60,6 +61,21 @@ test('AIT-249: TTS validates and snapshots explicit voice settings and sends the
   assert.deepEqual(sent.filter(frame => frame.text === ' '), Array.from({ length: 2 }, () => ({ text: ' ', voice_settings: fixtureVoiceSettings })));
   for (const voiceSettings of [null, {}, { ...fixtureVoiceSettings, speed: 2 }, { ...fixtureVoiceSettings, stability: '0.5' }]) {
     assert.throws(() => setup('tts', { config: { ...config, voiceSettings } }), /voice settings/);
+  }
+});
+
+test('AIT-250: start2 saved null settings pass unchanged and only nulls are omitted on every TTS initialization', async () => {
+  for (const [style, use_speaker_boost] of [[null, null], [null, false], [0, null], [0, false], [1, true]]) {
+    const saved = { stability: 0.5, similarity_boost: 0.8, style, use_speaker_boost, speed: 1 };
+    const voiceSettings = { ...saved }, sent = [];
+    assert.deepEqual(validateVoiceSettings(saved), saved);
+    const tts = setup('tts', { config: { ...config, voiceSettings },
+      connect: () => fixtureSocket({ role: 'tts', onSend: frame => sent.push(frame) }) });
+    voiceSettings.style = 0.5; voiceSettings.use_speaker_boost = true;
+    for (let i = 0; i < 2; i++) await run('tts', tts, options([]));
+    const expected = { stability: 0.5, similarity_boost: 0.8,
+      ...(style === null ? {} : { style }), ...(use_speaker_boost === null ? {} : { use_speaker_boost }), speed: 1 };
+    assert.deepEqual(sent.filter(frame => frame.text === ' '), Array.from({ length: 2 }, () => ({ text: ' ', voice_settings: expected })));
   }
 });
 
