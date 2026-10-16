@@ -2,7 +2,7 @@ import { start2PurposePolicy } from './safeguards.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
 import { createOperatorSessions, createSQLiteOperatorStore } from '@inspr/aithema-server';
 import { mkdir, readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '@inspr/aithema-server/dev/local-voice';
@@ -35,8 +35,12 @@ import { listenAdmin } from './admin-socket.js';
 import { smtpConfig, createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
 import { createConfirmationPage } from './confirmation-page.js';
 import { createAdminHTTP } from './admin-http.js';
+import { createQualificationMount, qualificationSettings } from '../plugins/composed-voice/ops/qualification-server.mjs';
 
 const deployment = deploymentConfig();
+// Refuse before database, ordinary provider setup or listener startup.
+const qualification = qualificationSettings();
+if (qualification.enabled && !process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE) throw new TypeError('OPS AITHEMA_COMPOSED_QUALIFICATION_MODULE required');
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
 const build = buildInfo();
 // The demo is deterministic unless the operator explicitly selects a provider.
@@ -164,8 +168,14 @@ const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options =>
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();
 const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin: deployment.publicOrigin });
+const qualificationPorts = qualification.enabled ? await (await import(
+  pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href
+)).createQualificationServer({ relayOrigin: qualification.relayOrigin, authenticateRelay: request => ownership.token(request), storage, handlers }) : {};
+const qualificationMount = createQualificationMount({ ...qualificationPorts, ...qualification,
+  authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
+  const qualificationResponse = await qualificationMount.handle(request); if (qualificationResponse) return qualificationResponse;
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: build.commit ?? deployment.commit, version: build.version, version_scheme: build.version_scheme, release_channel: build.release_channel, release_sequence: build.release_sequence, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
@@ -218,6 +228,7 @@ allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
+  await qualificationMount.close();
   await voiceHost?.close?.();
   clearInterval(expiry);
   visitorRetention.close();

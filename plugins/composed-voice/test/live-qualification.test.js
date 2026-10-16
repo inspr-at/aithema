@@ -91,3 +91,20 @@ test('OPS CLI refuses a missing persisted budget before importing account-specif
   assert.notEqual(result.status, 0); assert.doesNotMatch(result.stderr.toString(), /OPS_HOST_SHOULD_NOT_LOAD/);
   await assert.rejects(readFile(missing), { code: 'ENOENT' });
 });
+
+test('OPS CLI still refuses absent accounting ports and checklist before sample work', async t => {
+  const { spawnSync } = await import('node:child_process'), { fileURLToPath } = await import('node:url');
+  const directory = await mkdtemp(join(tmpdir(), 'ops-cli-ports-')), budgetPath = join(directory, 'budget.sqlite');
+  t.after(() => rm(directory, { recursive: true, force: true })); initializeQualificationBudget({ path: budgetPath });
+  const planPath = join(directory, 'plan.json'), hostPath = join(directory, 'host.mjs');
+  await writeFile(hostPath, "export function createQualificationHost() { return { runSample() { throw new Error('SAMPLE_SHOULD_NOT_RUN'); } }; }\n");
+  for (const [input, expected] of [[plan(), /OPS host ports required/], [{ ...plan(), checks: {} }, /checklist/]]) {
+    await writeFile(planPath, JSON.stringify(input));
+    const child = spawnSync(process.execPath, [fileURLToPath(new URL('../../../scripts/composed-qualification.js', import.meta.url)),
+      '--operator-approved', '--budget', budgetPath, '--plan', planPath, '--host', hostPath, '--out', directory], {
+      env: { PATH: process.env.PATH }, timeout: 15_000,
+    });
+    assert.notEqual(child.status, 0); assert.match(child.stderr.toString(), expected);
+    assert.doesNotMatch(child.stderr.toString(), /SAMPLE_SHOULD_NOT_RUN/);
+  }
+});

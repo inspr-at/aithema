@@ -24,6 +24,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Estimates exclude setup, file-process overhead and evidence upload. The final
 // layout is validated separately against the 450s whole-job wall budget.
 export const browserTestWeights = {
+  'test/browser/composed-qualification.test.js': 45.000, // AIT-160 provisional; replace with mbp2606 measurement before handoff
   'test/browser/composed-media.test.js': 20.000, // AIT-160 mbp2606 2d9ee5ada7-81358: 0.708s; rounded up + 10s margin
   'test/browser/admin-pages.test.js': 80.000, // AIT-199 latest max 62.782s, CI 38770896962-1; historical floor 80s
   'test/browser/audio-replay.test.js': 50.000, // AIT-199 latest max 30.882s, CI 38770896962-1; historical floor 50s

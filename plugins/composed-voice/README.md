@@ -327,3 +327,160 @@ After a restart, OPS must confirm the previous dispatcher has stopped and explic
 call `settleOrphan(attemptId)` for its dispatched attempts. This marks them settled
 and uncertain while keeping their full reservation. Receipts for in-flight attempts
 are refused; only settled attempts can be reconciled.
+
+## OPS host template — PR 4c
+
+The key-free `ops/qualification-host-template.mjs` exports the **inert**
+`createQualificationHost(options)`. It owns Chrome on the machine running the CLI.
+It never starts, stops, probes for, or assumes a local host process. `hostOrigin`
+is required: the browser-facing loopback http(s) origin, for example
+`http://127.0.0.1:43101`. Bind address and port are separate settings. Literal
+`127.0.0.1` and `::1` are accepted; DNS names, wildcard binds, credentials, paths,
+queries and trailing slashes in origins are refused.
+
+Provider keys stay exclusively in start2's environment on **agm1**. OPS runs the
+short-lived qualification host there from the aithema image, with host networking
+and `AITHEMA_LISTEN_HOST=127.0.0.1`. Chrome and the CLI run on **mbp2606**. An ssh
+tunnel joins them. The browser origin is loopback and a secure context;
+**TLS is N/A for this loopback topology by design**. The tunnel authenticates and
+encrypts transport between machines. No provider key, secret resolver or account
+credential is supplied to the browser template or copied to mbp2606.
+
+The demo mounts qualification only with `AITHEMA_COMPOSED_QUALIFICATION=1`:
+
+| Setting | Contract |
+| --- | --- |
+| `AITHEMA_LISTEN_HOST` | Must be literal `127.0.0.1` or `::1`; checked before normal host initialization or listening. |
+| `PORT` | Host bind port on agm1, independent of the browser-facing tunnel port. |
+| `AITHEMA_COMPOSED_RELAY_ORIGIN` | Required explicit loopback http(s) **browser** origin. It controls Host and Origin checks and must also be passed to the composed factory's `relayOrigin`. |
+| `AITHEMA_COMPOSED_QUALIFICATION_MODULE` | Required path to OPS's server module, exporting `createQualificationServer({ relayOrigin, authenticateRelay, storage, handlers })`. Loaded only with the flag. |
+
+The mount precedes the demo's JSON-only mutations and 404 so binary PCM reaches
+`networkRelay.handle` at **POST /composed/relay**. It uses the existing visitor
+owner cookie (`authenticateRelay`), and the composed factory still verifies the
+stored owner, consent, authorization and single-use grant. OPS must retain immediate
+revoke propagation. `/composed/qualification` is an authenticated minimal harness
+page; its hook and the capture/player, network client, worklet and client module
+dependencies are served from that same origin. The authenticated control endpoint
+is `/composed/qualification/control`; sample capabilities and acknowledgements
+travel in POST bodies, never URLs. Host/Origin mismatches and cross-site requests
+are refused. Without the flag the page, control, relay and composed browser assets
+return 404, and the OPS module is never imported. start2's normal preset is unchanged.
+
+### Exact ports
+
+OPS's browser-side `host.mjs` exports `createQualificationHost()` and delegates to
+the template with these options. There are **no successful accounting defaults**:
+
+| Option or method | Required contract |
+| --- | --- |
+| `hostOrigin` | Browser-facing loopback origin; never inferred from a local process or bind port. |
+| `runDirectory` | Absolute existing run root on mbp2606. The template creates a hashed run directory and separate candidate/baseline Chrome profiles beneath it, retained as OPS evidence. |
+| `ownerHeaders` | Existing owner authentication, e.g. the visitor cookie obtained by OPS's session setup. Never provider authentication; never log it. Node control requests and same-origin Chrome requests use the same owner. |
+| `executablePath` | OPS's installed Chrome path (or explicit `CHROME_PATH`). No browser discovery or installation in the template. `launchBrowser` may inject the repository's guarded launcher in tests. |
+| `verifyCeiling(spec)` | OPS account operation on agm1. Return the matching verified ceiling proof described above, including request digest, evidence reference and future expiry. Called at preflight, admission and consume. Missing port throws at factory construction. |
+| `verifyReceipt(receipt, storedAttempt)` | OPS authenticates the server-observed receipt on agm1; return exactly `true` only for a matching trusted receipt. Missing port throws. |
+| `reconcile({ snapshot, reconcile })` | OPS fetches/authenticates/persists receipts on agm1, calls supplied `reconcile(receipt)` for each settled attempt and applies the existing settlement ledger without a second terminal. Pending receipts retain exposure. Missing port throws. |
+| `runSample({ item, lane, runId, admit, onTiming })` | `item.wavPath` is an absolute corpus WAV on mbp2606; `item.id`/`sampleId` identify the server sample. Launch a fresh profile, open the remote page through `hostOrigin`, admit every dispatch, then return `{ hypothesis, entities, ttsPCM: Uint8Array, ttsFormat: { encoding, sampleRateHz, channels } }`. Hypothesis/entities/PCM come from the server; corpus references stay in the CLI. `onTiming(event)` receives the browser's event values unchanged. |
+| `close()` | Close owned Chrome instances; it has no host-process lifecycle authority. |
+
+OPS's **server** module returns `{ networkRelay, createSample }`. Construct the
+composed factory with the supplied `authenticateRelay` and `relayOrigin`; expose
+its `networkRelay` (including revoke/close). `createSample({ item, lane, runId,
+owner, admit })` must verify the stored session owner and exact consent/holds,
+then return `{ grant, result, close }`. `result` is a promise for the authoritative
+sample result above, with at most 16 MB of PCM, after all sample attempts report.
+`close()` must stop this sample's media and work and persist its terminal state.
+The generic mount allows one active sample and expires it after two minutes;
+the browser requires complete physical evidence within one minute.
+
+The server's `admit(spec)` is a remote port to the CLI's **same durable budget**.
+It returns `{ attempt: { attemptId, claimId, maxMicro, consume, report }, report,
+dispatch }`. Every STT, TTS, existing Rule C reasoning dispatch and retry must
+use it; retries include `retryOf`. Await `attempt.consume()` before transport,
+then report exactly once, or use `dispatch(async ({ attempt, report }) => ...)`
+which consumes first and reports uncertainty if the action has no terminal.
+Admission, consume and report each await the CLI's acknowledgement; failure or
+timeout blocks work. The mount drains reports before publishing the result.
+OPS must place reasoning admission at its actual dispatch boundary while keeping
+the existing Rule C operation store. The parent remains zero-cost. Server-side
+receipt implementations and provider adapters belong solely to OPS's ops-qa module.
+
+Example browser module (port implementations live in OPS, not this repository):
+
+```js
+import { createQualificationHost as template } from '/path/to/aithema/plugins/composed-voice/ops/qualification-host-template.mjs';
+import { verifyCeiling, verifyReceipt, reconcile, ownerHeaders } from './ops-qa-ports.mjs';
+export function createQualificationHost() {
+  return template({ hostOrigin: 'http://127.0.0.1:43101', runDirectory: '/ops/run',
+    executablePath: '/ops/chrome', ownerHeaders, verifyCeiling, verifyReceipt, reconcile });
+}
+```
+
+### OPS runbook and evidence
+
+1. On agm1, OPS uses its ops-qa launcher to supply the existing start2 server-only
+   bindings inside the short-lived container. The following is the key-free launch
+   shape; OPS supplies its reviewed image, directories and server module. It is
+   not live-ready until those account ports and existing bindings are wired:
+
+   ```sh
+   docker run --rm --network host --read-only --tmpfs /tmp \
+     --mount type=bind,src=<ops-qa-dir>,dst=/ops,readonly \
+     --mount type=bind,src=<qualification-data-dir>,dst=/data \
+     -e AITHEMA_COMPOSED_QUALIFICATION=1 -e AITHEMA_LISTEN_HOST=127.0.0.1 \
+     -e PORT=43100 -e AITHEMA_COMPOSED_RELAY_ORIGIN=http://127.0.0.1:43101 \
+     -e AITHEMA_COMPOSED_QUALIFICATION_MODULE=/ops/server.mjs \
+     <reviewed-aithema-image> node demo/server.js
+   ```
+
+2. On mbp2606, establish the tunnel and keep it alive for the whole run:
+
+   ```sh
+   ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:43101:127.0.0.1:43100 agm1
+   ```
+
+   Set the browser module's `hostOrigin` to `http://127.0.0.1:43101`, matching
+   `AITHEMA_COMPOSED_RELAY_ORIGIN`, **not** the host bind port 43100. Confirm that
+   the cookie belongs to this qualification session; do not copy start2 secrets.
+
+3. Corpus WAVs live on mbp2606. The template launches Puppeteer with
+   `--use-fake-device-for-media-stream`,
+   `--use-file-for-fake-audio-capture=<item.wavPath>`,
+   `--use-fake-ui-for-media-stream` and
+   `--autoplay-policy=no-user-gesture-required`. It removes Puppeteer's default
+   `--mute-audio`: output uses mbp2606's real output device. Select/verify that
+   device before running. It records actual capture frames and output device
+   timestamps. The next voiced corpus segment triggers synchronous barge-in
+   stop and ends sample capture; include utterance, endpoint silence and a
+   later voiced segment in each WAV. No timing event is synthesized or shifted.
+
+4. OPS supplies its browser module and plan, initializes the shared persisted
+   budget once, and runs the CLI commands in the pre-live section on mbp2606.
+   The CLI enforces all checklist entries before importing the OPS module.
+   Ceiling/receipt account calls from the ports execute on agm1. Retain the
+   SQLite ledger, browser profiles, observations, blind files and OPS answer key.
+   Stop the container and tunnel explicitly after collecting evidence. A network
+   failure retains reservations; confirm the old dispatcher stopped before the
+   existing explicit orphan settlement/reconciliation procedure.
+
+The nine operational evidence areas below cover **all ten existing checklist
+keys** (Rule C shares the consent/holds row). None is auto-attested by the template:
+
+| Checklist key(s) | OPS evidence required from this topology |
+| --- | --- |
+| `authenticatedRelay` | Flagged loopback bind; distinct bind/tunnel ports; authenticated same-origin POST; wrong owner/origin and revoked grants denied. Record ssh protection; **TLS N/A: loopback by design**. |
+| `physicalBrowserMedia` | WAV identity/hash and capture flags; actual mbp2606 output device; unchanged capture frame/sample-rate and output timestamps, 40 ms capture resolution and device output resolution; permission, stop and failure evidence. |
+| `consentAndHolds`, `ruleCAndNoSilentRerun` | Exact stored owner/processing scopes; Rule C envelope/store; immediate revoke, holds and AIT-138 fresh generation recovery; persisted run identity refusing rerun; every reasoning/retry routed through the shared admit. |
+| `verifiedTariffsAndRounding` | agm1 account proofs matching each exact request/digest, lane, component/model and retry ceiling; whitespace, initialization, rounding, minimums and duration coverage; one persisted $25 cap. |
+| `authenticatedReceipts` | Authenticated agm1 usage/receipts for both lanes, components, reasoning and retries; matching attempt/receipt identities and existing settlement reconciliation; pending exposure retained. |
+| `sttEmptyCommitAndMinimumDuration` | Account/provider observation of endpoint commit with an empty chunk and actual minimum duration using corpus capture. |
+| `ttsFinalFlag` | Provider evidence for `is_final`, preserved in plan `spelling`; adapter still refuses unresolved `isFinal`. |
+| `pcmOutputAndAccountModels` | Available account models/voices and observed output encoding, mono channels and rate; PCM16 versus float32 kept explicit through relay/player and blind normalization. |
+| `retentionAndResidency` | Actual account retention and processing-location evidence on agm1; secure evidence access and later disposal under OPS policy. |
+
+`startLocalQualificationHost()` in `ops/qualification-server.mjs` is **tests only**.
+The fake CLI proof uses that helper behind a TCP forwarder on a different port,
+real Chrome capture/playback clocks, a fake provider pair, the actual coordinator
+and Rule C store, and admitted reasoning retries. It performs no provider calls
+and does not establish vendor quality, billing or live qualification.
