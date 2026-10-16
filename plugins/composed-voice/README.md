@@ -598,6 +598,15 @@ user capture. If they do not, the sample terminates as `opener-overlap`, with
 no retry inside that attempt and no PCM/metric result. The private
 `baseline-invalid-<sample-hash>.json` records the refusal and session labels;
 the consumed attempt remains uncertain until authenticated combined receipts.
+If speech resumes over a buffered reply before ordinal-1 final arrives, the
+sample is refused as `barge-in-before-user-final`; it cannot fold that speech
+into corpus speech end. The same value-free refusal record is written once,
+without transcript or PCM and without a retry. A final can still arrive after
+reply onset when no barge-in has begun. The candidate commits its user transcript
+before executing the reply, so this ordering cannot occur in that lane.
+Trace and pending-output limits report `trace-bound` and `output-queue-bound`.
+Failures before dispatch use `setup-failed` or `not-admitted`, rather than
+claiming that admitted media was invalid.
 Missing ordinal-1 final cannot release buffered output: the existing duration,
 wall-clock, trace and PCM bounds stop it and retain uncertain exposure.
 Barge-in remains the next voiced capture at or after the original reply onset.
