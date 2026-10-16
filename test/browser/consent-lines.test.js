@@ -99,7 +99,8 @@ async function scene(page, locale, theme, width, missing) {
 async function consentEvidenceReady(page) {
   await shadow(page, c => {
     c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
-    c.shadowRoot.querySelector('.consent-intro').scrollIntoView({ block: 'start', behavior: 'instant' });
+    const body = c.shadowRoot.querySelector('.settings__body'), intro = c.shadowRoot.querySelector('.consent-intro');
+    body.scrollTop += intro.getBoundingClientRect().top - body.getBoundingClientRect().top - 12;
   });
   await page.mouse.move(-10, -10); await frame(page);
   await shadow(page, async c => {
@@ -109,7 +110,8 @@ async function consentEvidenceReady(page) {
     const r = c.shadowRoot, intro = r.querySelector('.consent-intro').getBoundingClientRect(), body = r.querySelector('.settings__body').getBoundingClientRect();
     return { reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
       blurred: !r.activeElement && !document.activeElement?.matches('button, input, select, textarea, a[href]'),
-      introVisible: intro.top >= body.top && intro.bottom <= body.bottom };
+      introVisible: intro.top >= body.top && intro.bottom <= body.bottom,
+      introBounds: { top: intro.top, bottom: intro.bottom, paneTop: body.top, paneBottom: body.bottom } };
   });
 }
 async function pauseHeader(page, locale) {
@@ -241,7 +243,7 @@ for (const locale of ['de', 'en']) test(`AIT-231 ${locale}: real and mock Settin
     assert.doesNotMatch(state.intro, /twelve|zwölf|Monat|month|browser|stored|gespeichert|until|bis/iu);
     const before = await boxes(page, ['.done', '.settings__footer', '.settings__body']);
     const ready = await consentEvidenceReady(page);
-    assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true);
+    assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true, JSON.stringify(ready));
     const label = `${locale}-${theme}-${width}-${mock ? 'mock' : 'real'}`;
     if (process.env.AITHEMA_EVIDENCE_DIR) {
       const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-231'); await mkdir(dir, { recursive: true });
@@ -283,7 +285,7 @@ test('AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light', 
   assert.equal(wording.intro, 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.');
   assert.equal(wording.terms, 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.');
   const ready = await consentEvidenceReady(page);
-  assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true);
+  assert.equal(ready.reducedMotion, true); assert.equal(ready.blurred, true); assert.equal(ready.introVisible, true, JSON.stringify(ready));
   const label = 'de-light-1440-demo', pass = { head: evidenceCommit, label, ...wording, ...ready, viewportOnly: true, baselineFonts: true, pass: true };
   t.diagnostic(`PASS AIT-231 ${JSON.stringify(pass)}`);
   if (process.env.AITHEMA_EVIDENCE_DIR) {
