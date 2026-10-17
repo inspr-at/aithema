@@ -162,6 +162,9 @@ for (const locale of ['de', 'en']) for (const voice of [false, true]) {
       assert.ok(reserved.includes(words), 'transport and bound-voice labels have a permanent width reservation');
     }
     assert.equal(status.querySelector('.status__sizer').getAttribute('aria-hidden'), 'true');
+    const group = status.querySelector('.status__group');
+    assert.ok(group, 'AIT-285: dot and label share one right-aligned group');
+    assert.equal(group.querySelector('.status__dot').nextElementSibling, group.querySelector('.status__label'));
     assert.equal(r.querySelector('.engine-info').disabled, false);
     assert.equal(r.querySelector('.ai-notice').disabled, false);
   });
