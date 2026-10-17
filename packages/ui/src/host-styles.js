@@ -183,7 +183,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__steps { display:none; }
 .composer-out[data-host-limit] .composer-out__actions { width:100%; grid-template-columns:minmax(0,1fr) auto; gap:14px; justify-items:start; }
 .composer-out[data-host-limit] .composer-out__actions > * { grid-area:auto; }
-.composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; text-decoration:underline; text-underline-offset:3px; text-align:start; }
+.composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-align:start; }
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
@@ -293,13 +293,14 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-sent-prefix { font-weight:400; color:var(--aithema-muted); }
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
-  .composer-out__bar { font-size:13px; gap:10px; }
+  /* Reserve both 44 px action rows before the limit arrives, including hidden variants. */
+  .composer-out__bar { font-size:13px; gap:10px; min-height:90px; }
   /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
   .composer-out[data-host-limit] .composer-out__bar { display:grid; min-height:calc(4.05em + 2px); transform:translateY(10px); }
   /* Retain the old action's wrapped height too, including three-line Linux labels. */
   .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; box-sizing:border-box; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
-  .composer-out[data-host-limit] .composer-out__actions { grid-area:1/1; }
+  .composer-out[data-host-limit] .composer-out__actions { grid-area:1/1; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:0; }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }

@@ -428,6 +428,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url); await shadow(page, '.composer');
   const original = await inShadow(page, c => c.session);
+  const legal297 = await inShadow(page, c => c.querySelector('#demo-legal').outerHTML);
   const export294Checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const assertExport = async (locale, surface) => {
     for (const width of [320, 360, 390]) {
@@ -538,7 +539,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
           heights: [upgrade, link].map(n => n.getBoundingClientRect().height),
           sameRow: Math.abs(upgrade.getBoundingClientRect().y - link.getBoundingClientRect().y) < 1,
           linkStyle: getComputedStyle(upgrade).textDecorationLine,
-          overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left,
+          overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left && upgrade.getBoundingClientRect().bottom > link.getBoundingClientRect().top,
           bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(upgrade.getBoundingClientRect().top, link.getBoundingClientRect().top),
           textContained: r.querySelector('.composer-out__title').getBoundingClientRect().top >= r.querySelector('.composer-out').getBoundingClientRect().top && link.getBoundingClientRect().bottom <= r.querySelector('.composer-out').getBoundingClientRect().bottom,
           clip: box('.composer-out'), body: r.querySelector('.composer-out__body').textContent };
@@ -548,7 +549,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       assert.deepEqual(geometry.boxes, reserved, `${locale}/${width}/${variant}: 0 px between host-limit variants`);
       assert.equal(geometry.primary, variant !== 'no-upgrade');
       assert.equal(geometry.export, 'visible');
-      assert.equal(geometry.sameRow, true);
+      assert.equal(geometry.sameRow, width > 600, 'AIT-297: phone actions stack; wider actions share a row');
       assert.equal(geometry.overlap, false);
       assert.equal(geometry.bodyClear, true, 'body clears both 44 px action targets');
       assert.equal(geometry.textContained, true, 'title and action targets remain inside the surface');
@@ -568,6 +569,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       }
     }
   }
+  await postRelease297(page, t, legal297);
   assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
   const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
   t.diagnostic(export294Pass);
@@ -611,3 +613,63 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   }
   assert.deepEqual(problems, []);
 });
+
+// AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
+async function postRelease297(page, t, legalHTML) {
+  const checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320]) {
+    const height = width < 600 ? 844 : 1000;
+    await page.setViewport({ width, height });
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+    let reserved;
+    for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
+      await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true,
+        confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
+      await inShadow(page, (c, { legalHTML, theme, labels }) => {
+        c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme;
+        c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        c.insertAdjacentHTML('beforeend', legalHTML);
+        c.querySelector('#demo-legal').setAttribute('aria-label', labels.legal);
+        c.querySelector('#demo-license').textContent = labels.license;
+        c.querySelector('#demo-legal-source').textContent = labels.legalSource;
+      }, { legalHTML, theme, labels: (locale === 'de' ? de : en).host.slots });
+      await settleEvidenceFrame(page);
+      const stable = () => inShadow(page, c => ['.composer-shell', '.question-card', '.band', '.display-foot', '.settings-open'].map(selector => {
+        const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      }));
+      const before = await stable();
+      await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }));
+      await settleEvidenceFrame(page);
+      const after = await stable(), label = `${locale}/${theme}/${width}/${variant}`;
+      assert.deepEqual(after, before, `${label}: zero layout shift on host-limit entry`);
+      const state = await inShadow(page, c => {
+        const r = c.shadowRoot, selectors = ['.composer-out__upgrade', '.composer-out__export'];
+        return { boxes: selectors.map(selector => {
+          const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        }), lines: selectors.map(selector => {
+          const n = r.querySelector(selector), text = n.querySelector('[aria-hidden="false"]') ?? n.querySelector('span');
+          const range = document.createRange(); range.selectNodeContents(text);
+          return new Set([...range.getClientRects()].filter(b => b.width > 0).map(b => b.y)).size;
+        }), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
+          const b = n.getBoundingClientRect(); return { width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }) };
+        }) };
+      });
+      reserved ??= state.boxes;
+      assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
+      assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
+      for (const [x, y, w, h] of state.boxes) { assert.ok(x >= 0 && x + w <= width && y >= 0 && y + h <= height, `${label}: action is in viewport`); assert.ok(h >= 44); }
+      assert.equal(state.legal.length, 2);
+      assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
+      assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
+      checks.push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
+      if (evidence && variant === 'upgrade') {
+        await mkdir(evidence, { recursive: true });
+        await settleEvidenceFrame(page);
+        await page.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+      }
+    }
+  }
+  assert.equal(checks.length, 48);
+  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/320; single-line actions, zero layout shift, legal targets >=24px.');
+  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks }, null, 2));
+}
