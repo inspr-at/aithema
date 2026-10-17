@@ -7,8 +7,8 @@ import { parse } from 'yaml';
 const moduleUrl = new URL('./browser/matrix-coverage.js', import.meta.url).href;
 function selection(env) {
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
-    import { fullMatrix, matrixWidths } from ${JSON.stringify(moduleUrl)};
-    console.log(JSON.stringify({ fullMatrix, groups: [0, 1, 2].map(group =>
+    import { fullMatrix, a11yEvidenceMode, matrixWidths } from ${JSON.stringify(moduleUrl)};
+    console.log(JSON.stringify({ fullMatrix, a11yEvidenceMode, groups: [0, 1, 2].map(group =>
       ['light', 'dark'].map(theme => matrixWidths([390, 1024, 1440], theme, group, 'email-ask'))) }));
   `], { env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
@@ -16,15 +16,19 @@ function selection(env) {
 }
 
 test('CI artifacts keep deterministic width rotation; full evidence retains every width', () => {
-  const base = { ...process.env }; delete base.CI; delete base.AITHEMA_EVIDENCE_DIR;
+  const base = { ...process.env }; delete base.CI; delete base.GITHUB_ACTIONS; delete base.AITHEMA_EVIDENCE_DIR;
   const ci = selection({ ...base, CI: 'true', AITHEMA_EVIDENCE_DIR: '/tmp/evidence' });
-  assert.deepEqual(ci, { fullMatrix: false, groups: [
+  assert.deepEqual(ci, { fullMatrix: false, a11yEvidenceMode: false, groups: [
     [[390], [1024]], [[1024], [1440]], [[1440], [390]],
   ] });
   assert.deepEqual(selection(base), ci);
   assert.deepEqual(selection({ ...base, AITHEMA_EVIDENCE_DIR: '/tmp/evidence' }), {
-    fullMatrix: true, groups: Array.from({ length: 3 }, () => [[390, 1024, 1440], [390, 1024, 1440]]),
+    fullMatrix: true, a11yEvidenceMode: true, groups: Array.from({ length: 3 }, () => [[390, 1024, 1440], [390, 1024, 1440]]),
   });
+  const nightly = selection({ ...base, GITHUB_ACTIONS: 'true', AITHEMA_EVIDENCE_DIR: '/tmp/evidence' });
+  assert.equal(nightly.fullMatrix, true, 'nightly retains its full browser matrix');
+  assert.equal(nightly.a11yEvidenceMode, false, 'nightly never admits the manual axe audit');
+  assert.deepEqual(selection({ ...base, CI: 'true', GITHUB_ACTIONS: 'true', AITHEMA_EVIDENCE_DIR: '/tmp/evidence' }), ci);
 });
 
 test('nightly runs every browser shard with CI unset and an evidence directory', () => {
