@@ -298,6 +298,8 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await settle(); const baseline = await boxes();
     const capture = async state => {
       await settle();
+      const actualState=await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-access').dataset.state);
+      assert.equal(actualState,({gen:'gen',gone:'gone',err:'err',none:'none'})[state]??'ready',`${state}: real presentation state`);
       if(state!=='focus')await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
       if(state!=='hover')await page.mouse.move(-10,-10);
       assert.deepEqual(await boxes(),baseline,`${locale}/${width}/${theme}/${state}: 0 px`);
