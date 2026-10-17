@@ -178,7 +178,11 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
           const analysis = c.shadowRoot.querySelector('.analysis-content');
           // Rest evidence must show the real entry position, never clipped earlier sections.
           analysis.scrollTop = 0;
-          if (innerWidth < 600) c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' });
+          if (innerWidth < 600) {
+            const aside = c.shadowRoot.querySelector('.understanding'), band = c.shadowRoot.querySelector('.band');
+            aside.scrollIntoView({ block: 'start', behavior: 'instant' });
+            window.scrollBy({ top: aside.getBoundingClientRect().top - band.getBoundingClientRect().bottom - 12, behavior: 'instant' });
+          }
           c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
         }, state);
         await page.mouse.move(-1, -1); await settle(page);
@@ -202,7 +206,11 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
         shots.push({ file, head: evidenceCommit, theme, locale, state, width, pass, viewportOnly: true, reducedMotion: true, fontsPinned: true, controlsBlurred: true });
         if (state === 'selected' && width === 390) {
-          await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').scrollIntoView({ block: 'start', behavior: 'instant' }));
+          await shadow(page, c => {
+            const transcript = c.shadowRoot.querySelector('.transcript-shell'), band = c.shadowRoot.querySelector('.band');
+            transcript.scrollIntoView({ block: 'start', behavior: 'instant' });
+            window.scrollBy({ top: transcript.getBoundingClientRect().top - band.getBoundingClientRect().bottom - 12, behavior: 'instant' });
+          });
           await settle(page);
           const file = `ait288-${locale}-${width}-${theme}-${state}-conversation.png`;
           await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
