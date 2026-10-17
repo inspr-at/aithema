@@ -642,7 +642,7 @@ async function postRelease297(browserPage, t, legalHTML) {
     }
     let reserved;
     for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
-      await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true,
+      await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true, demo: true,
         confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
       await inShadow(page, (c, { legalHTML, theme, labels }) => {
         c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme; document.documentElement.lang = c.session.locale;
@@ -673,7 +673,7 @@ async function postRelease297(browserPage, t, legalHTML) {
           const n = r.querySelector(selector), text = n.querySelector('[aria-hidden="false"]') ?? n.querySelector('span');
           const range = document.createRange(); range.selectNodeContents(text);
           return new Set([...range.getClientRects()].filter(b => b.width > 0).map(b => b.y)).size;
-        }), bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(...selectors.map(selector => r.querySelector(selector).getBoundingClientRect().top)),
+        }), upgradeVisible: r.querySelector('.composer-out__upgrade').getAttribute('aria-hidden') === 'false', bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(...selectors.map(selector => r.querySelector(selector).getBoundingClientRect().top)),
         overlap: (() => { const [a, b] = selectors.map(selector => r.querySelector(selector).getBoundingClientRect());
           return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; })(),
         licenceLines: (() => {
@@ -687,6 +687,7 @@ async function postRelease297(browserPage, t, legalHTML) {
       reserved ??= state.boxes;
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
+      assert.equal(state.upgradeVisible, variant !== 'no-upgrade', `${label}: fixture renders the requested tier action`);
       assert.equal(state.bodyClear, true, `${label}: body clears both actions`);
       assert.equal(state.overlap, false, `${label}: action targets do not overlap`);
       assert.equal(state.licenceLines, 1, `${label}: AGPL-3.0-only stays unbroken`);

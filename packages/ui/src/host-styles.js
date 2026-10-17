@@ -318,9 +318,12 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 }
 /* Only the host-limit state reserves stacked actions on narrow phones. */
 @media(width < 389px) {
-  .composer-out[data-host-limit] { grid-template-rows:auto auto minmax(0,1fr); }
-  .composer-out[data-host-limit] .composer-out__bar { min-height:90px; }
+  /* The measured bar retains the normal composer's size; only its absolute
+     host-limit action layer reserves the two 44 px rows. */
+  .composer-out[data-host-limit] .composer-out__actions { min-height:90px; }
   .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
+  .composer-out[data-host-limit] .composer-out__title > span { line-height:1.35; }
+  .composer-out[data-host-limit] .composer-out__body > span { top:-6px; font-size:12px; line-height:1.3; }
 }
 @media(389px <= width <= 600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
