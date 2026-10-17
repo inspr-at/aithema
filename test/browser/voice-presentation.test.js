@@ -265,6 +265,8 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
 
 async function checkPhoneVoiceHeader(t, widths) {
   const { voiceStatusCases } = await import('../voice-status-cases.js');
+  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const head = event?.pull_request?.head?.sha ?? evidenceCommit;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait302-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -272,7 +274,7 @@ async function checkPhoneVoiceHeader(t, widths) {
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
@@ -328,6 +330,11 @@ async function checkPhoneVoiceHeader(t, widths) {
           await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           const status = root.querySelector('.voice-state'), lines = new Map();
+          const record = (rect, text) => {
+            // Inline boxes and glyph ranges can differ slightly at the same baseline.
+            const y = [...lines.keys()].find(y => Math.abs(y - rect.y) < 3) ?? rect.y;
+            const parts = lines.get(y) ?? []; parts.push({ x: rect.x, right: rect.right, text }); lines.set(y, parts);
+          };
           const walker = document.createTreeWalker(status, NodeFilter.SHOW_TEXT);
           while (walker.nextNode()) {
             const text = walker.currentNode, parent = text.parentElement, style = getComputedStyle(parent);
@@ -335,15 +342,16 @@ async function checkPhoneVoiceHeader(t, widths) {
             for (let i = 0; i < text.length; i++) {
               const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1);
               for (const rect of range.getClientRects()) if (rect.width && rect.height) {
-                const key = Math.round(rect.y * 10); lines.set(key, (lines.get(key) ?? '') + text.textContent[i]);
+                record(rect, text.textContent[i]);
               }
             }
           }
           const narrow = status.querySelector('.consent-narrow');
           if (narrow && getComputedStyle(narrow).display !== 'none') {
-            for (const rect of narrow.getClientRects()) if (rect.width && rect.height) lines.set(Math.round(rect.y * 10), narrow.dataset.copy);
+            for (const rect of narrow.getClientRects()) if (rect.width && rect.height) record(rect, narrow.dataset.copy);
           }
-          return { lines: [...lines.values()], short: narrow?.dataset.copy, text: status.textContent,
+          return { lines: [...lines.values()].map(parts => parts.sort((a, b) => a.x - b.x)
+              .map((p, i, row) => (i && p.x - row[i - 1].right > 1 ? ' ' : '') + p.text).join('')), short: narrow?.dataset.copy, text: status.textContent,
             boxes: ['.band', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-output', '.voice-playback', '.pause', '.voice-input', '.voice-start', '.conversations-toggle', '.settings-open'].map(selector => {
               const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
             }) };
@@ -382,10 +390,11 @@ async function checkPhoneVoiceHeader(t, widths) {
         }
         checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 600 ? null : name });
       }
-      t.diagnostic(`PASS AIT-302 ${evidenceCommit} ${width}-${theme}-${locale}: ${samples.length} statuses; <=2 lines; no separator at line edges; controls shift 0 px`);
+      const pass = `PASS AIT-302 ${head} ${width}-${theme}-${locale}: ${samples.length} statuses; <=2 lines; no separator at line edges; controls shift 0 px`;
+      passLines.push(pass); t.diagnostic(pass);
     }
   }
-  if (evidence) await writeFile(join(evidence, widths[0] < 600 ? 'ait302-checks.json' : 'ait302-desktop-checks.json'), JSON.stringify({ ticket: 'AIT-302', head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
+  if (evidence) await writeFile(join(evidence, widths[0] < 600 ? 'ait302-checks.json' : 'ait302-desktop-checks.json'), JSON.stringify({ ticket: 'AIT-302', head, testedCommit: evidenceCommit, capture: 'viewport', reducedMotion: true, passLines, checks }, null, 2));
 }
 
 test('AIT-302: phone header voice statuses and fixed controls', { timeout: 360_000 }, t => checkPhoneVoiceHeader(t, [320, 360, 390]));
