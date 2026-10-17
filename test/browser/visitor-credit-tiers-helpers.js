@@ -469,6 +469,7 @@ export async function visitorCreditMatrix(t, locales) {
       });
       assert.deepEqual(calm, { questionReadable: true, answersRest: true, pauseDisabled: true, neutral: true });
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).color), theme === 'dark' ? 'rgb(79, 189, 181)' : 'rgb(14, 111, 108)', 'the host-limit upgrade link keeps the approved START teal');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).backgroundColor), 'rgba(0, 0, 0, 0)', 'the host-limit primary stays a text link in both themes');
       passLines.push({ locale, theme, width, state: 'run-out', displacementPx: unchanged(liveBefore, await boxes(page, liveFixed), `${label}/run-out`), pass: true }); await shot('run-out');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
     }
