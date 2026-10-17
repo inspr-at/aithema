@@ -456,7 +456,10 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       assert.equal(selection.failed, false, 'AIT-294: model switch is acknowledged without a save error');
       assert.equal(selection.model, model === 'fixed' ? 'mock' : 'mock/deep', 'AIT-294: geometry follows the acknowledged model');
       // Re-select the active preset to show its consequence line without changing the model.
-      await shadow(page, c => c.shadowRoot.querySelector('.preset-option[data-preset="best"]').click());
+      await shadow(page, c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+        c.shadowRoot.querySelector('.preset-option[data-preset="best"]').click();
+      });
       await settle();
       await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
       await page.mouse.move(-1, -1); await settle();
