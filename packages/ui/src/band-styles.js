@@ -67,7 +67,7 @@ export const bandStyles = `
     position:absolute; top:44px; left:-48px; right:auto; width:calc(100% + 192px); max-width:none; height:36px;
     display:flex; flex-wrap:wrap; align-content:center; justify-content:center; column-gap:.35em;
     padding:3px 8px; border:0; border-radius:0; background:none; box-shadow:none;
-    font-size:12px; line-height:1.25; text-align:center; white-space:normal; text-wrap:initial;
+    font-size:10px; line-height:1.25; text-align:center; white-space:normal; text-wrap:initial;
   }
   .audio-rail .voice-state:empty { display:none; }
   .voice-state .consent-line-copy { display:contents; }

@@ -361,13 +361,14 @@ async function checkPhoneVoiceHeader(t, widths) {
             for (const rect of narrow.getClientRects()) if (rect.width && rect.height) record(rect, narrow.dataset.copy);
           }
           return { lines: [...lines.values()].map(parts => parts.sort((a, b) => a.x - b.x)
-              .map((p, i, row) => (i && p.x - row[i - 1].right > 1 ? ' ' : '') + p.text).join('')), short: narrow?.dataset.copy, text: status.textContent,
+              .map((p, i, row) => (i && p.x - row[i - 1].right > 1 ? ' ' : '') + p.text).join('')), short: narrow?.dataset.copy, text: status.textContent, font: getComputedStyle(status).fontSize, captionFont: getComputedStyle(root.querySelector('.voice-caption')).fontSize,
             boxes: ['.band', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-output', '.voice-playback', '.pause', '.voice-input', '.voice-start', '.conversations-toggle', '.settings-open'].map(selector => {
               const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
             }) };
         }, sample);
         const label = `${width}-${theme}-${locale}-${sample.id}`;
         if (width < 600) {
+          assert.equal(geometry.font, geometry.captionFont, `${label}: existing phone type scale`);
           assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
           assert.ok(geometry.lines.length > 0 && geometry.lines.length <= 2, `${label}: at most 2 lines ${JSON.stringify(geometry.lines)}`);
           assert.ok(geometry.lines.every(line => !/^·|·$/u.test(line.trim())), `${label}: no dangling separator`);
