@@ -299,8 +299,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
   .composer-out[data-host-limit] .composer-out__bar { position:relative; min-height:90px; transform:translateY(10px); }
   .composer-out[data-host-limit] .composer-out__steps { display:grid; visibility:hidden; }
-  /* Retain the old action's wrapped height too, including three-line Linux labels. */
-  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); order:1; flex:none; visibility:hidden; box-sizing:border-box; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
+  /* The normal action slot also measures its hidden export (icon + 8 px gap). */
+  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-export-measure); order:1; flex:none; visibility:hidden; box-sizing:border-box; width:max-content; min-width:132px; min-height:44px; padding-left:22px; font-size:13.5px; line-height:1.25; white-space:nowrap; }
   .composer-out[data-host-limit] .composer-out__actions { position:absolute; inset-inline:0; bottom:0; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:0; }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }

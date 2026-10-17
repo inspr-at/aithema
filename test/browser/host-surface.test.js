@@ -637,16 +637,10 @@ async function postRelease297(page, t, legalHTML) {
       const stable = () => inShadow(page, c => ['.composer-shell', '.question-card', '.band', '.display-foot', '.settings-open'].map(selector => {
         const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
       }));
-      const inspect = () => inShadow(page, c => ['form.composer', '.composer-out', '.composer-out__title', '.composer-out__body', '.composer-out__bar', '.composer-out__steps', '.composer-out__upgrade', '.composer-reason', '.composer-feedback'].map(selector => {
-        const n = c.shadowRoot.querySelector(selector), b = n.getBoundingClientRect(), s = getComputedStyle(n);
-        return { selector, height:b.height, width:b.width, text:n.textContent, display:s.display, rows:s.gridTemplateRows, font:s.font, before:getComputedStyle(n, '::before').content };
-      }));
       const before = await stable();
-      const debugBefore = width === 320 && locale === 'de' && theme === 'light' && variant === 'upgrade' ? await inspect() : null;
       await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }));
       await settleEvidenceFrame(page);
       const after = await stable(), label = `${locale}/${theme}/${width}/${variant}`;
-      if (debugBefore) t.diagnostic(JSON.stringify({ before:debugBefore, after:await inspect() }));
       assert.deepEqual(after, before, `${label}: zero layout shift on host-limit entry`);
       const state = await inShadow(page, c => {
         const r = c.shadowRoot, selectors = ['.composer-out__upgrade', '.composer-out__export'];
