@@ -426,6 +426,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* Reserve two notice lines so availability changes keep the Export row in place. */
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
+/* Readiness already draws the entry divider; keep the section's box stable. */
+.analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }
 .analysis-content section.summary { padding-top:0; border-top:0; } .analysis-content section.summary h3 { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }

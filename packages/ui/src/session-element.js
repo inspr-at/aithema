@@ -475,7 +475,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -1470,8 +1470,11 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.readiness').toggleAttribute('inert', locked);
     root.querySelector('.notice').hidden = locked;
     const u = this.#session.understanding, stale = u.inputRevision !== inputRevision(this.#session);
-    // Sections appear with the first assessment; empty lists then say so quietly (D15).
+    // Assessments reveal only populated summary/signals; hidden sections own no grid space.
     for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
+    const summary = u.summary.trim();
+    root.querySelector('.summary').hidden ||= !summary;
+    root.querySelector('.signals-section').hidden ||= !u.signals.length;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
     const scale = root.querySelector('.scale');
     const readiness = u.readinessAssessed ? [
@@ -1562,11 +1565,9 @@ export class AithemaSession extends HTMLElement {
     } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
-    root.querySelector('.summary-text').textContent = u.summary;
-    for (const [selector, items] of [['.signals', u.signals]]) {
-      reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
-        value => element('li', undefined, value === null ? 'none-yet' : undefined), (node, value) => setText(node, value ?? copy.noneYet));
-    }
+    root.querySelector('.summary-text').textContent = summary ? u.summary : '';
+    reconcile(root.querySelector('.signals'), textKeys(u.signals),
+      () => element('li'), (row, value) => setText(row, value));
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);
