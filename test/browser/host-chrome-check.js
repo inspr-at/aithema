@@ -185,9 +185,13 @@ export async function hostChromeCheck(t) {
           const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
           return { open: r.querySelector('.band').dataset.aithemaRevealState === 'open',
             overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth),
+            targets: [...r.querySelectorAll('.aithema-reveal__link')].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
             parts: [...r.querySelectorAll('.aithema-reveal__wordmark, .aithema-reveal__version, .aithema-reveal__link')].map(box) };
         });
         assert.equal(reveal.open, true); assert.equal(reveal.overflowPx, 0, `320px open reveal: ${JSON.stringify(reveal)}`);
+        assert.ok(reveal.targets.every(([w, h]) => w >= 44 && h >= 44), '320px reveal keeps 44px link targets');
+        const links = reveal.parts.slice(1, -1);
+        assert.ok(links.every(b => b[1] === links[0][1] && b[1] > reveal.parts[0][3]), `320px reveal links retain one row below the wordmark: ${JSON.stringify(reveal)}`);
         for (const [i, a] of reveal.parts.entries()) for (const b of reveal.parts.slice(i + 1))
           assert.ok(a[2] <= b[0] || a[0] >= b[2] || a[3] <= b[1] || a[1] >= b[3], `320px reveal items intersect: ${JSON.stringify(reveal)}`);
         checks.push({ pass: true, label: '320-open-reveal', ...reveal });

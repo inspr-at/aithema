@@ -67,10 +67,15 @@ const css = `
   .aithema-reveal__link:first-of-type .aithema-reveal__subtitle { white-space:nowrap; }
 }
 @media(max-width:599px) {
-  .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:minmax(0,1fr) max-content; gap:6px 12px; white-space:nowrap; }
-  .aithema-reveal__wordmark { grid-column:1; }
-  .aithema-reveal__version { grid-column:2; }
+  .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:max-content max-content minmax(0,1fr); gap:6px 12px; white-space:nowrap; }
   .aithema-reveal__subtitle { display:none; }
+}
+/* Three named links retain one row and 44px targets at the 320px host floor.
+   Omit only decorative external-link glyphs before reducing readable type. */
+@media(max-width:359px) {
+  .aithema-reveal-band > .aithema-reveal__row { column-gap:8px; }
+  .aithema-reveal__link { min-width:44px; }
+  .aithema-reveal__title svg { display:none; }
 }
 `;
 
