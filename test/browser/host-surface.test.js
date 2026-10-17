@@ -624,19 +624,31 @@ async function postRelease297(browserPage, t, legalHTML) {
     const height = width < 600 ? 844 : 1000;
     await browserPage.setViewport({ width: Math.ceil(width), height });
     await browserPage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
-    let page = browserPage, frameElement;
+    let page = browserPage, capturePage = browserPage, frameElement;
     if (!Number.isInteger(width)) {
       // CDP viewport widths are integers. A real fractional iframe viewport
       // exercises media queries at 388.5 CSS px without rounding to 389.
-      const handle = await browserPage.evaluateHandle(({ width, height }) => {
-        const frame = document.createElement('iframe'); frame.src = location.href;
+      // The shipped demo forbids child frames. A separate test wrapper embeds
+      // that unchanged demo, rather than disabling its CSP in the real page.
+      capturePage = await browserPage.browser().newPage();
+      await capturePage.setViewport({ width: Math.ceil(width), height });
+      await capturePage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+      const wrapperURL = new URL('/ait297-fractional-wrapper', browserPage.url()).href;
+      await capturePage.setRequestInterception(true);
+      capturePage.on('request', request => {
+        if (request.url() === wrapperURL) void request.respond({ status: 200, contentType: 'text/html', body: '<!doctype html><html><head><title>Fractional viewport fixture</title></head><body style="margin:0"></body></html>' });
+        else void request.continue();
+      });
+      await capturePage.goto(wrapperURL);
+      const handle = await capturePage.evaluateHandle(({ width, height, appURL }) => {
+        const frame = document.createElement('iframe'); frame.src = appURL;
         frame.style.cssText = `position:fixed;inset:0;border:0;z-index:99999;width:${width}px;height:${height}px`;
         document.body.append(frame); return frame;
-      }, { width, height });
+      }, { width, height, appURL: browserPage.url() });
       frameElement = handle.asElement(); page = await frameElement.contentFrame();
       await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
       // The frame shares its parent's pointer; all DOM work stays in the frame.
-      page.mouse = browserPage.mouse;
+      page.mouse = capturePage.mouse;
       assert.equal(await page.evaluate(() => matchMedia('(width: 388.5px)').matches), true, 'exact fractional CSS viewport');
       assert.equal(await page.evaluate(() => matchMedia('(width < 389px)').matches), true, 'fractional viewport selects the stacked range');
     }
@@ -703,7 +715,7 @@ async function postRelease297(browserPage, t, legalHTML) {
       if (evidence && variant === 'upgrade') {
         await mkdir(evidence, { recursive: true });
         await settleEvidenceFrame(page);
-        await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+        await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
         // Axe is explicit remote evidence only; never add audits to CI workloads.
         if (!process.env.CI) {
           if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
@@ -716,7 +728,7 @@ async function postRelease297(browserPage, t, legalHTML) {
         }
       }
     }
-    if (frameElement) await frameElement.evaluate(frame => frame.remove());
+    if (frameElement) await capturePage.close();
   }
   assert.equal(checks.length, 48);
   assert.equal(fractionalChecks.length, 12);
