@@ -16,3 +16,7 @@ test('AIT-276: classic scrollbars and wider actions reserve the mounted rail on 
 import { compactFooterCheck } from './compact-footer-check.js';
 test('AIT-299: hidden footer labels restore full fit without moving controls under the pointer',
   { timeout: 90_000 }, compactFooterCheck);
+
+// Reuse the AIT-299 fixture and every existing held-state/0px assertion with legal content.
+test('AIT-301: host legal links remain visible through compact footer pointer and focus holds',
+  { timeout: 90_000 }, t => compactFooterCheck(t, { legal: true }));
