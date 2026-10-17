@@ -102,7 +102,9 @@ export async function compactFooterCheck(t) {
     await page.evaluate(() => document.querySelector('aithema-session').shadowRoot.querySelector('.engine-info').focus());
     await heldShot(`${name}-focus-held`);
     await settleEvidenceFrame(page);
-    if (width < 600) continue; // Phones use their separate fixed footer frame.
+    // Below 1100px CSS hides the AI label even in full mode, making full and
+    // identity equivalent. The partial-expansion case needs distinct modes.
+    if (width < 1100) continue;
     await page.evaluate(() => {
       const root = document.querySelector('aithema-session').shadowRoot;
       window.partialAI = root.querySelector('.ai-notice__label');
