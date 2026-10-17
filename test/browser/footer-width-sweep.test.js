@@ -103,6 +103,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
       browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, locale),
         env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
       const page = await browser.newPage(), errors = [];
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewport({ width: 1100, height: 900 });
       await page.evaluateOnNewDocument(locale => {
@@ -178,7 +179,11 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await settle(page);
         const measurement = await geometry(page); assertFits(measurement, `HEAD ${evidenceCommit} ${locale}/${width}/${theme}/viewport`);
         const file = `ait164-fix2-footer-${locale}-${theme}-${width}.png`;
-        if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+        if (evidence) {
+          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+          await page.mouse.move(-1, -1); await settle(page);
+          await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+        }
         shots.push({ head: evidenceCommit, locale, width, theme, file, captures: 'viewport', ...measurement, pass: true });
       }
       assert.deepEqual(errors, [], locale); summaries.push(summary);
