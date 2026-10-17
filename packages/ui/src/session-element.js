@@ -150,6 +150,7 @@ export class AithemaSession extends HTMLElement {
     this.#journal = voiceJournal(tabStorage(), session.id);
     this.#mount();
     this.setAttribute('data-aithema-mounted', '');
+    this.#syncRailFit();
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#orphan = this.#endOrphanedCall();
     if (this.isConnected) { this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); }
@@ -1407,7 +1408,9 @@ export class AithemaSession extends HTMLElement {
   // change either measurement and therefore cannot oscillate.
   #syncRailFit() {
     const root = this.shadowRoot, band = root.querySelector('.band');
-    if (!band?.querySelector('.audio-rail')) return;
+    // The host stylesheet hides unmounted components. A zero-width measurement
+    // must not select a second row that would flash before the first visible fit.
+    if (!band?.querySelector('.audio-rail') || !band.clientWidth) return;
     const style = this.ownerDocument.defaultView.getComputedStyle(band);
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
     const railTrack = tracks.length === 3 ? tracks[1] : 0;
