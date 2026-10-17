@@ -125,7 +125,10 @@ export class AudioRail {
     range.selectNodeContents(label);
     // Include every rendered line and any inline consent action. Measure their
     // actual position: held-call copy can borrow the adjacent pause cell.
-    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+    const narrow = this.root.ownerDocument.defaultView?.matchMedia?.('(max-width:599px)').matches && label.querySelector('.consent-narrow');
+    const action = narrow && label.querySelector('.consent-action');
+    const rects = (narrow ? [...narrow.getClientRects(), ...(action?.getClientRects() ?? [])] : [...range.getClientRects()])
+      .filter(rect => rect.width > 0);
     const bounds = wave.getBoundingClientRect();
     const left = rects.length ? Math.min(...rects.map(rect => rect.left)) : bounds.left + bounds.width / 2;
     const right = rects.length ? Math.max(...rects.map(rect => rect.right)) : left;
