@@ -26,6 +26,7 @@ export function identityView(state, now) {
   const paused = state.manualPaused || state.visibilityPaused;
   const expired = state.expired || state.expiresAt !== null && now >= state.expiresAt;
   return { status: state.status, role: state.role, roles: [...state.roles], address: state.address,
+    ...(state.roleWithdrawalRevision !== undefined ? { roleWithdrawalRevision: state.roleWithdrawalRevision, roleConsentRevision: state.roleConsentRevision ?? 0 } : {}),
     verificationRevision: state.verificationRevision, delivery: state.delivery, expired,
     verificationRequired: state.verificationRequired === true,
     confirmationAttemptsRemaining: Math.max(0, (state.policy.maxConfirmationAttempts ?? IDENTITY_POLICY.maxConfirmationAttempts) - (state.confirmationAttempts ?? 0)),
@@ -113,6 +114,11 @@ export function reduceIdentity(state, event) {
     case 'role':
       if (event.role !== null && !next.roles.includes(event.role)) throw new TypeError('Unknown actor role');
       next.role = event.role;
+      if (event.withdrawalRevision !== undefined) {
+        if (!time(event.withdrawalRevision)) throw new TypeError('Invalid role withdrawal revision');
+        next.roleWithdrawalRevision = event.withdrawalRevision;
+        next.roleConsentRevision = event.consentRevision ?? 0;
+      }
       break;
     case 'pause':
       if (!['manual', 'visibility'].includes(event.origin) || typeof event.paused !== 'boolean') throw new TypeError('Invalid identity pause');

@@ -3,6 +3,13 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  actorRole: {
+    label: 'Rolle', inferred: 'abgeleitet', why: 'So eingeschätzt:', chosen: 'Von Ihnen gewählt.',
+    unset: 'noch offen', notAssessed: 'Noch nicht eingeschätzt.',
+    hint: 'Wird beim Auswählen gespeichert.', saving: 'Wird gespeichert …',
+    error: 'Konnte nicht gespeichert werden', retry: 'Erneut versuchen',
+    stale: 'Die Rolle wurde inzwischen geändert; aktualisiert.', saved: 'Gespeichert.', close: 'Schließen', processing: 'KI-Verarbeitung',
+  },
   clarify: {
     action: 'Jetzt klären', asking: 'Wird gefragt …', chosen: 'Gewählt', asked: 'Gefragt', clarifies: 'Klärt:',
     failed: 'Antwort fehlgeschlagen', failedShort: 'Fehlgeschlagen', retry: 'Erneut versuchen',

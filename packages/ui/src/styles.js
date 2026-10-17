@@ -239,10 +239,17 @@ svg { display:block; flex:none; }
 .workspace[data-concept-layout="image"] .concept-rail .concept-activity { display:grid !important; grid-area:1/2; align-self:center; max-height:44px; gap:0; }
 .workspace[data-concept-layout="image"] .drafts-reason-reserve { display:none; }
 .workspace[data-concept-layout="image"] .concept-rail .concept-request { grid-area:1/2; align-self:center; margin-left:0; }
-.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { grid-template-columns:22px minmax(0,1fr) auto; }
+/* Inline content keeps the priced action immediately after the separator and wraps as one button. */
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { display:block; align-content:center; font-size:.8125rem; line-height:1.4; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-scene { display:none; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail .concept-activity { display:inline !important; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:"${reasonSeparator}"; }
-.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { grid-area:1/3; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { white-space:normal; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { display:inline-block; position:relative; min-height:0; padding:0; white-space:nowrap; vertical-align:baseline; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request::after { content:''; position:absolute; inset:50% 0 auto; height:44px; transform:translateY(-50%); }
+@media(600px < width <= 64rem) {
+  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity::after { content:''; display:block; }
+}
 .workspace[data-concept-layout="image"] .concept-access:is([data-state="ready"],[data-state="gone"],[data-state="none"],[data-state="empty"]) .concept-rail { visibility:hidden; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="gen"] .concept-activity { visibility:hidden; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="ready"] .concept-preview-slot { visibility:visible; }
@@ -276,11 +283,7 @@ svg { display:block; flex:none; }
   .workspace[data-concept-layout="image"] :is(.concept-backdrop,.concept-backdrop-hint) { display:none; }
   .workspace[data-concept-layout="image"] .concept-thread { container-type:normal; }
   .workspace[data-concept-layout="image"] .concept-bottom { position:static; width:auto; align-self:center; margin-left:66px; }
-  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { grid-template-columns:22px minmax(0,1fr); }
-  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity { align-self:start; }
-  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:none; }
-  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { font-size:13px; line-height:17px; }
-  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { grid-area:1/2; align-self:stretch; min-height:44px; padding:17px 0 0; font-size:13px; line-height:22px; }
+  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] :is(.concept-activity-text,.concept-request) { font-size:13px; line-height:17px; }
 }
 :host([motion="off"]) :is(.concept-backdrop,.concept-preview) img { transition:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }
@@ -368,9 +371,18 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
 .upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 .upload-retry-actions { flex:none; }
-.upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; }
+.upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; overflow:visible; }
 .upload-retry-copy .consent-line-copy { min-width:0; max-height:1.25em; overflow-y:auto; }
 .upload-retry-copy .consent-action { flex:none; }
+/* AIT-274's status markup, with warning ink confined to the failure sentence. */
+:is(.composer-reason,.concept-activity-text) .question-status { display:inline-flex; align-items:center; gap:7px; height:auto; vertical-align:baseline; }
+:is(.composer-reason,.concept-activity-text) .question-status svg { flex:none; width:14px; height:14px; align-self:center; }
+:is(.composer-reason,.concept-activity-text) .warning, :is(.composer-reason,.concept-activity-text) .warning .question-why { color:var(--aithema-warning); }
+.composer-reason .question-status { white-space:nowrap; }
+.composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
+@media(hover:none), (pointer:coarse) {
+  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
+}
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
 .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
@@ -426,6 +438,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* Reserve two notice lines so availability changes keep the Export row in place. */
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
+/* Readiness already draws the entry divider; keep the section's box stable. */
+.analysis-content > section:nth-child(1 of section:not([hidden])) { border-top-color:transparent; }
 .analysis-content section.summary { padding-top:0; border-top:0; } .analysis-content section.summary h3 { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }

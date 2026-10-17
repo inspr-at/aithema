@@ -1069,3 +1069,62 @@ removed in the next release. Hosts cannot enroll providers as the simulator.
 | `./reasoning` | Device adapter and ElevenLabs facade operation scopes. |
 | `./reply-opener` | ElevenLabs facade opener delivery. |
 | `./chat-completions` | Device adapter chat protocol. |
+
+## Actor role choice (AIT-281)
+
+The host owns the role labels and the optional `account` slot content. The module
+owns only the four `ACTOR_ROLES` ids (`private`, `company`, `representative`,
+`agency`), the authenticated command and the presentation mechanics. There are
+no default or example role labels in the product.
+
+Enable the server capability with `host.identity.chooseRole = true`. In the
+component's `configure` options, supply `host.actorRole.labels`, a map from locale
+(`de` / `en`) to a complete map from those four ids to host-owned label strings.
+All four current-language labels and the server capability are required; when
+either is missing, there is no role control. Labels are inserted as text. The
+footer reserves the widest supplied label in the current language, including
+the inferred marker, across all command states.
+
+Use the existing light-DOM `slot="account"` for the host's account content. When
+the role control is available, that slot appears only in the desktop popover;
+when absent, no account line appears. The phone role sheet has no account line.
+No address, verification claim or account label is invented by the module. The
+phone gear opens the role section and an entry to the existing AI processing
+settings. On desktop, the role trigger follows the AI notice in the left footer
+group. Missing capability hides the role section; the phone sheet retains its
+AI processing entry.
+
+`GET /api/sessions/:id/identity` returns an owner-only `roleChoice` projection:
+`{ available, roles, role, source, reasoning, revision }`. `source` is `chosen`
+or `inferred`; `role` may be null before a usable inference or choice exists.
+The session snapshot includes the same projection when the capability is enabled.
+`revision` is the current durable session sequence; unrelated durable events can
+also make a previously displayed list stale. Account content and role labels
+are never accepted in this command or exposed through a new public endpoint.
+
+Send `POST /api/sessions/:id/identity/role` with
+`{ role, baseRevision, clientEventId }`, using the existing owner cookie or
+`x-aithema-session-token`. `role` must be one of the offered ids;
+`baseRevision` must be the nonnegative integer from the projection;
+`clientEventId` must contain 1–128 ASCII letters, digits, `_` or `-`. The server
+checks ownership before capability, parsing or state changes. It atomically
+persists the choice, its private receipt and its identity event. A successful
+response is `{ roleChoice, replayed }`. Repeating the same id and role returns
+the current projection without another event, including after a process restart.
+Reusing an id for another role returns HTTP 409 `role-event-conflict`.
+
+A stale base returns HTTP 409 `role-conflict` with the refreshed `roleChoice`;
+it makes no role change. Missing capability returns HTTP 503 `role-unavailable`;
+invalid bodies return HTTP 400. A conversation accepts up to 500 unique role
+commands, then returns HTTP 409 `role-command-limit`. A choice has no paid or
+external effect and does not require address collection. It wins over later AI
+inference. Withdrawal, consent reset, erasure and conversation reset forget the
+choice; stored role content uses the existing erasable actor-content class,
+separately from verification facts. Private role receipts clear with that content.
+
+The UI keeps the acknowledged footer value during saving, restores the previous
+checked role after an error, and refreshes the list after a stale response. A
+network retry retains its client event id. Arrow keys move focus without writing;
+Space, Enter or a pointer selection commits, including confirmation of the checked
+inferred role. Escape returns focus to the trigger; outside clicks and Tab-out
+close the desktop popover. A phone save keeps the sheet open with its saved notice.

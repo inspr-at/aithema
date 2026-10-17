@@ -5,6 +5,7 @@ import { applyEvent, createSession, inputRevision, reduceUnderstanding } from '@
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { AI_NOTICE } from '../../core/src/ai-notice.js';
+import { bandStyles } from '../src/band-styles.js';
 import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
 import { entranceStyles } from '../src/entrance-styles.js';
@@ -93,14 +94,30 @@ test('unsolicited live renders keep focused summaries and keyed aside items in p
   assert.ok([...root.querySelectorAll('.features li')].every((row, i) => row === features[i]) && features.length > 0, 'feature rows keep their nodes');
   assert.match(root.querySelector('.features').textContent, /Conversation paused/);
 });
-test('empty aside lists say so quietly once assessed and stay hidden before', () => {
-  const c = setup(), root = c.shadowRoot;
-  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden), 'nothing to show before the first assessment');
-  turn(c, 't1', 'SAP');
-  const data = understanding(c); data.openQuestions = []; data.signals = [];
-  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data });
-  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => !n.hidden));
-  assert.equal(root.querySelector('.questions').textContent, en.noneYet); assert.equal(root.querySelector('.signals').textContent, en.noneYet);
+test('AIT-288: empty summary/signals render no section or placeholder before or after assessment', () => {
+  for (const copy of [en, de]) for (const summary of ['', '  \n ']) {
+    const c = setup({ copy }), root = c.shadowRoot;
+    assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
+    turn(c, 't1', 'SAP'); reply(c, 'a1');
+    const data = understanding(c); Object.assign(data, { summary, signals: [], openQuestions: [] });
+    c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data });
+    const summarySection = root.querySelector('.summary'), signals = root.querySelector('.signals');
+    assert.equal(summarySection.hidden, true, 'empty summary has no frame, heading or space');
+    assert.equal(signals.closest('section').hidden, true, 'empty signals have no frame, heading or space');
+    assert.equal(root.querySelector('.summary-text').textContent, '');
+    assert.equal(signals.children.length, 0, 'no none-yet ghost row or bullet');
+    assert.equal(root.querySelector('.questions').textContent, copy.noneYet, 'no open questions still shows the localized none-yet placeholder');
+    for (const selector of ['.questions', '.missing', '.cleared']) {
+      assert.equal(root.querySelector(selector).closest('section').hidden, false, `${selector} is visible after assessment even with empty summary/signals`);
+    }
+    const populated = { ...data, summary: 'Known context', signals: ['Known signal'] };
+    c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: populated });
+    assert.equal(summarySection.hidden, false); assert.equal(signals.closest('section').hidden, false);
+    assert.equal(signals.textContent, 'Known signal');
+    c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data });
+    assert.equal(summarySection.hidden, true); assert.equal(signals.closest('section').hidden, true);
+    assert.equal(signals.children.length, 0, 'removed content leaves no stale row');
+  }
 });
 test('partial assistant turns are replaced by final; stale fragments and duplicate events are ignored', () => {
   const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session);
@@ -1334,4 +1351,17 @@ for (const copy of [de, en]) test(`AIT-280 ${copy.display.locale}: successful tu
   assert.equal(live.textContent, '', 'typing after expiry never announces');
   c.configure({ copy, session: c.session });
   await send(); assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved, 'new configuration resets the burst');
+});
+
+test('AIT-286: shared failure sentence uses warning ink; composer consent keeps the action style and a coarse 44px target', () => {
+  assert.match(styles, /:is\(\.composer-reason,\.concept-activity-text\) \.warning[^}]*color:var\(--aithema-warning\)/u);
+  assert.ok(styles.includes('@media(hover:none), (pointer:coarse) {\n  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }'));
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' }, analysis: { available: true } } };
+  const c = setup({ session }), root = c.shadowRoot;
+  const action = root.querySelector('.composer-reason .consent-action');
+  assert.equal(action.tagName, 'BUTTON'); assert.equal(action.type, 'button');
+  assert.match(bandStyles, /\.consent-action,[^{]+\{[^}]+text-decoration:underline/u);
+  for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface])
+    assert.ok(contrast(tokens.warning, background) >= 4.5, `${theme}: warning ink AA on ${background}`);
 });

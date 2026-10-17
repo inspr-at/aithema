@@ -106,6 +106,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
       if (current.seq === session.seq) return { ...publicSession, ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
+        ...(host?.identity?.chooseRole === true ? { roleChoice: hostHandlers.roleChoice(id) } : {}),
         operations: operations(current), openQuestionItems: openQuestionItems(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
         ...(pluginRuntime.visualsBound ? { visualsBound: pluginRuntime.visualsBound() } : {}),
         conceptCost: pluginRuntime.imageQuote(current), ...(pluginRuntime.describe ? { engine: pluginRuntime.describe(current) } : {}) };

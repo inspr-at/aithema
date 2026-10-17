@@ -1,5 +1,5 @@
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
-import { ConceptView } from './concept-view.js';
+import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
@@ -17,6 +17,7 @@ import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
 import { voiceTranscriptTransition } from './voice-transcript.js';
 import { styles } from './styles.js';
+import { actorRoleStyles } from './actor-role-styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
@@ -69,11 +70,11 @@ const CLARIFY_ICONS = Object.fromEntries(Object.entries({
   ask: '<path d="M14 7.7a5.7 5.7 0 0 1-8.3 5.1L2.2 13.8l1-3.3A5.7 5.7 0 1 1 14 7.7z"/>',
   spin: '<circle cx="8" cy="8" r="6" stroke-opacity=".22"/><path d="M14 8a6 6 0 0 0-6-6"/>',
   check: '<path d="m3.2 8.6 3 3 6.6-7.2"/>',
-  warn: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.9v3.6M8 11.1v.05"/>',
   pause: '<path d="M5 3v10M11 3v10" stroke-width="2.4"/>',
   consent: '<path d="M8 1.8 3 3.7v3.9c0 3 2.1 5.2 5 6.6 2.9-1.4 5-3.6 5-6.6V3.7z"/>',
   clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/>',
 }).map(([name, paths]) => [name, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="${name === 'spin' ? 'clarify-spin' : ''}">${paths}</svg>`]));
+CLARIFY_ICONS.warn = WARNING_ICON;
 const NONE = '\u0000none';
 function reconnectDelay(signal) {
   if (signal.aborted) return Promise.resolve();
@@ -447,7 +448,7 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${actorRoleStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
       <header class="toolbar band"><div class="band-identity"><div class="band-orb"></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>${this.#voiceBound ? '<div class="audio-rail"></div>' : ''}<div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
@@ -475,7 +476,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
+          <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -484,8 +485,8 @@ export class AithemaSession extends HTMLElement {
       <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
       <footer class="display-foot"><div class="display-foot__row">
-        <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-label="Aithema 2026.10" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span>${this.#voiceBound ? '<span class="ai-notice__voice"></span>' : ''}</button>
-          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><div class="version-details"><div id="build-info"></div><p class="host-version" hidden><span class="host-version__label"></span><span class="host-version__value"></span></p></div><p class="phone-status"><span class="phone-status__label"></span></p><div class="host-foot" hidden><slot name="footer"></slot></div></div></div>
+        <div class="footer-left"><div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-label="Aithema 2026.10" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span>${this.#voiceBound ? '<span class="ai-notice__voice"></span>' : ''}</button>
+          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><div class="version-details"><div id="build-info"></div><p class="host-version" hidden><span class="host-version__label"></span><span class="host-version__value"></span></p></div><p class="phone-status"><span class="phone-status__label"></span></p><div class="host-foot" hidden><slot name="footer"></slot></div></div></div></div>
         <div class="host-credits" data-footer-popup hidden><button class="host-credits__button" type="button" aria-expanded="false" aria-controls="credits-popup"><span class="host-credits__stack"><span class="host-credits__text"><strong class="host-credits__amount"><span class="host-credits__value"></span></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span>
           <span class="host-credits__low" aria-hidden="true"><span class="host-credits__low-full"></span><span class="host-credits__low-short"></span></span>
           <span class="host-credits__measure" aria-hidden="true"><strong class="host-credits__measure-amount"></strong><span class="host-credits__measure-total"></span><span class="host-credits__measure-unit"></span></span>
@@ -507,7 +508,9 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.promise__lead').textContent = this.#copy.entrance?.lead ?? '';
     root.querySelector('.send .visually-hidden').textContent = this.#copy.send;
     root.querySelector('.settings-open span').textContent = this.#copy.settings.open; root.querySelector('.settings-open').title = this.#copy.settings.open;
-    root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
+    root.querySelector('.settings-open').addEventListener('click', event => {
+      if (!this.#host?.openRoleSettings(event.currentTarget)) this.openSettings(event.currentTarget);
+    });
     this.#timer = new ConnectionTimer(root.querySelector('.connection-timer'));
     this.#footerMedia = this.ownerDocument.defaultView?.matchMedia?.('(width < 600px)');
     this.#footerListener = () => (this.#footerMedia?.matches ? root.querySelector('.phone-status') : root.querySelector('.status')).append(this.#timer.element);
@@ -697,7 +700,7 @@ export class AithemaSession extends HTMLElement {
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
-      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
+      openSettings: (opener, options) => options?.processing ? this.openSettings(opener) : this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
       streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
@@ -1312,6 +1315,8 @@ export class AithemaSession extends HTMLElement {
           verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
       }
+      if (this.#sendFailed && text.available && !this.#rail?.moved)
+        paintFailureLine(reason.querySelector('.upload-retry-copy') ?? reason, copy.failed, this.#retryFiles.length ? reasonSeparator : '');
       if (reason.hasAttribute('data-shortcut') && words) {
         const parts = copy.shortcut.split('{key}'), modifier = node('kbd', '', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');
@@ -1470,8 +1475,11 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.readiness').toggleAttribute('inert', locked);
     root.querySelector('.notice').hidden = locked;
     const u = this.#session.understanding, stale = u.inputRevision !== inputRevision(this.#session);
-    // Sections appear with the first assessment; empty lists then say so quietly (D15).
+    // Assessments reveal only populated summary/signals; hidden sections own no grid space.
     for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
+    const summary = u.summary.trim();
+    root.querySelector('.summary').hidden ||= !summary;
+    root.querySelector('.signals-section').hidden ||= !u.signals.length;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
     const scale = root.querySelector('.scale');
     const readiness = u.readinessAssessed ? [
@@ -1562,11 +1570,9 @@ export class AithemaSession extends HTMLElement {
     } else if (overviewRetry.parentNode === notice) notice.after(overviewRetry);
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
-    root.querySelector('.summary-text').textContent = u.summary;
-    for (const [selector, items] of [['.signals', u.signals]]) {
-      reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
-        value => element('li', undefined, value === null ? 'none-yet' : undefined), (node, value) => setText(node, value ?? copy.noneYet));
-    }
+    root.querySelector('.summary-text').textContent = summary ? u.summary : '';
+    reconcile(root.querySelector('.signals'), textKeys(u.signals),
+      () => element('li'), (row, value) => setText(row, value));
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);

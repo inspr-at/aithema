@@ -302,6 +302,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
       assert.equal(actualState,({gen:'gen',gone:'gone',err:'err',none:'none'})[state]??'ready',`${state}: real presentation state`);
       if(state!=='focus')await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
       if(state!=='hover')await page.mouse.move(-10,-10);
+      await settle();
       assert.deepEqual(await boxes(),baseline,`${locale}/${width}/${theme}/${state}: 0 px`);
       const pass=`PASS ${locale}/${width}/${theme}/${state}: 0 px`;passes.push(pass);
       if(evidence){const file=locale+'-'+width+'-'+theme+'-'+state+'.png';await page.screenshot({path:join(evidence,file),fullPage:false,captureBeyondViewport:false});shots.push({file,head,theme,locale,state,width,pass});}
@@ -328,6 +329,25 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await page.mouse.move(-10,-10);
     await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('concept-b')));await capture('replace');
     await page.evaluate(()=>window.state({phase:'failed'}));await capture('err');
+    // Reuse this error state/page: the sentence and priced button are adjacent inline boxes.
+    const failure = await page.evaluate(() => {
+      const r = document.querySelector('aithema-session').shadowRoot, text = r.querySelector('.concept-activity-text');
+      const button = r.querySelector('.concept-request'), warning = text.querySelector('.warning');
+      const range = document.createRange(); range.selectNodeContents(text);
+      const sentence = range.getBoundingClientRect(), action = button.getBoundingClientRect();
+      return { icon: Boolean(warning?.querySelector('svg')), color: getComputedStyle(warning).color,
+        warningInk: getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-warning').trim(),
+        wrap: getComputedStyle(button).whiteSpace, adjacent: text.parentElement.nextElementSibling === button,
+        gap: action.left - sentence.right, nextLine: action.top >= sentence.bottom - 1,
+        withinSlot: action.bottom <= r.querySelector('.concept-access').getBoundingClientRect().bottom + .01,
+        buttonHeight: action.height, lineHeight: parseFloat(getComputedStyle(button).lineHeight) };
+    });
+    assert.equal(failure.icon, true); assert.equal(failure.wrap, 'nowrap'); assert.equal(failure.adjacent, true);
+    assert.ok(failure.buttonHeight <= failure.lineHeight + 1, 'priced button stays one line');
+    assert.equal(failure.withinSlot, true, 'wrapped action stays inside its reserved 44px row');
+    if (width === 1440) assert.ok(failure.gap >= 0 && failure.gap < 20, 'action directly follows separator');
+    if (width === 1024 && locale === 'de') assert.equal(failure.nextLine, true, 'wrap after separator at 1024');
+    passes.push(`PASS AIT-286 ${locale}/${width}/${theme}: warning glyph, adjacent atomic priced action; 0 px`);
     await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.receive({seq:c.session.seq+1,type:'turn.withdrawn',data:{turnId:'source',at:new Date().toISOString()}});});
     // The real withdrawal also removes its transcript source. Preserve the same
     // transcript fixture for the geometry comparison while testing redaction.
