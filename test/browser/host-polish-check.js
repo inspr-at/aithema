@@ -15,7 +15,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-280');
+  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-280-r2');
   const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
@@ -31,7 +31,11 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     window.fetch = async (url, init = {}) => {
       const path = new URL(url, location.href).pathname;
       if (path.endsWith('/features')) return Response.json({});
-      if (/\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
+      if (/\/api\/sessions\/[^/]+$/u.test(path)) {
+        const session = c.session;
+        if (window.polish280Verdict) session.featureMatrix.best.text = window.polish280Verdict;
+        return Response.json(session);
+      }
       if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
         init.signal?.addEventListener('abort', () => controller.close(), { once: true });
       } }));
@@ -103,7 +107,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
         a.style.cssText = 'display:inline-flex;align-items:center;min-height:44px;padding:0 8px;color:inherit;text-decoration:underline;text-underline-offset:3px'; legal.append(a);
       }
       c.append(legal);
-      window.polish280State = ''; window.polish280Observer?.disconnect();
+      window.polish280State = ''; window.polish280Verdict = null; window.polish280Observer?.disconnect();
       c.setAttribute('motion', 'off'); c.configure({ copy, session });
       window.polish280Announcements = [];
       const live = c.shadowRoot.querySelector('.composer-saved-announcement');
@@ -155,6 +159,21 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       assert.equal(legal.oneLine, true, `${label}: short legal links stay on one line`);
       assert.equal(legal.withinViewport, true);
       await shot(label, theme, 'entrance');
+      // Hold the unmeasured CSS state: initial invalidates the custom property until the first measurement.
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 24 } });
+      await shadow(page, c => c.shadowRoot.querySelector('.workspace').style.setProperty('--phone-footer', 'initial', 'important'));
+      await settle();
+      const preMeasure = await shadow(page, c => parseFloat(getComputedStyle(c.shadowRoot.querySelector('.workspace')).paddingBottom));
+      assert.equal(preMeasure, 81, 'pre-measure fallback includes the 24px safe area exactly once');
+      await shot(label, theme, 'entrance-pre-measure-24px');
+      await shadow(page, c => c.shadowRoot.querySelector('.workspace').style.removeProperty('--phone-footer'));
+      await settle();
+      const measured = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return [parseFloat(getComputedStyle(r.querySelector('.workspace')).paddingBottom), r.querySelector('.display-foot').getBoundingClientRect().height];
+      });
+      assert.equal(measured[0], measured[1], 'measured reservation already contains the inset');
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 0 } }); await settle();
       await shadow(page, c => c.openSettings());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.preset-option[data-preset="custom"]').getAttribute('aria-disabled') === 'true');
       const settings = await shadow(page, c => ['eu', 'custom'].map(preset => {
@@ -268,12 +287,54 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
         else assert.equal(result.notice, noticeBefore);
         assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: ${state} shifts composer/Send 0 px`);
         await shot(label, theme, state === 'failure' ? 'send-failure' : `saved-${state}`);
+        if (state === 'failure') {
+          const { result: component } = await cdp.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session")' });
+          const { privateProperties } = await cdp.send('Runtime.getProperties', { objectId: component.objectId });
+          await cdp.send('Runtime.callFunctionOn', { objectId: privateProperties.find(p => p.name === '#retryFiles').value.objectId,
+            functionDeclaration: 'function() { this.push(new File(["x"], "retained.txt")); }' });
+          await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations })); await settle();
+          const retained = await shadow(page, c => {
+            const r = c.shadowRoot, line = r.querySelector('.composer-reason');
+            return { text: line.textContent, actions: ['.upload-retry', '.upload-discard'].map(selector => {
+              const n = line.querySelector(selector), b = n.getBoundingClientRect();
+              return n.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n;
+            }), visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved') };
+          });
+          assert.equal(retained.text, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+          assert.deepEqual(retained.actions, [true, true]); assert.equal(retained.visibleSaved, false);
+          assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure with retained upload shifts 0 px`);
+          await shot(label, theme, 'failure-retained-upload');
+          await shadow(page, c => c.shadowRoot.querySelector('.upload-discard').click());
+          await shadow(page, c => {
+            window.polish280Verdict = { available: false, reason: 'current processing consent required' };
+            c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+          });
+          await until(page, () => Boolean(document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .consent-action')));
+          await settle();
+          const consent = await shadow(page, c => {
+            const r = c.shadowRoot, n = r.querySelector('.composer-reason .consent-action'), b = n.getBoundingClientRect();
+            return { text: r.querySelector('.composer-reason').textContent, sendDisabled: r.querySelector('.send').disabled,
+              actionHit: r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n,
+              visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved') };
+          });
+          assert.equal(consent.text, `${copy.featureConsent.text}\u00a0· ${copy.featureConsent.action}`);
+          assert.equal(consent.sendDisabled, true); assert.equal(consent.actionHit, true); assert.equal(consent.visibleSaved, false);
+          assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure then consent shifts 0 px`);
+          await shot(label, theme, 'failure-then-consent');
+          await shadow(page, c => {
+            window.polish280Verdict = { available: true };
+            c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+          });
+          await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled);
+          assert.notEqual(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.failed);
+          result.retained = retained; result.consent = consent; result.recovered = true;
+        }
         stateChecks.push({ state, ...result, shiftPx: 0 });
       }
       await configure(locale, 'live', true);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').checkVisibility()), true);
       await shot(label, theme, 'visuals-on');
-      checks.push({ label, theme, pass: true, clearance, legal, saved, announcement, stateChecks, expiryChecked, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
+      checks.push({ label, theme, pass: true, clearance, legal, saved, announcement, stateChecks, expiryChecked, preMeasure, measured, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
     }
     if (touch) {
       // Height-only changes use the same page and do not add screenshot or server cost.
@@ -293,14 +354,16 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
         checks.push({ label: `de-${width}x${height}-${theme}`, theme, pass: true, footerClear: true, safeArea });
       }
       await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 0 } });
-      passLines.push(`AIT-280 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights at 390/1280 with 24px safe area; ${evidence ? 108 : 0} viewport captures.`);
+      passLines.push(`AIT-280 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights at 390/1280 with 24px safe area; ${evidence ? 144 : 0} viewport captures.`);
     }
   }
   assert.deepEqual(problems, []); assert.equal(checks.length, 18 * themes.length);
-  if (evidence) assert.equal(shots.length, 108 * themes.length);
+  if (evidence) assert.equal(shots.length, 144 * themes.length);
   passLines.push('AIT-266 PASS: visuals absent/present; DE/EN, 1440/1280x860/390, touch/mouse.',
     'AIT-266 PASS: Mac/other keycaps; touch hint hidden; inline Saved 1600ms; composer/Send 0 px; 44 px Send.',
     'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all tested heights.');
+  passLines.push('AIT-280 r2 PASS: blocking consent supersedes failure; Send recovers without stale failure; retained retry/discard stay visible; all transitions 0 px.',
+    'AIT-280 r2 PASS: pre-measure fallback 81px at 24px inset; measured reservation equals footer height with no second inset.');
   passLines.push('AIT-280 PASS: polite live-region reads count 1 for two saves within 10s; no typing announcements; text clears on hide.',
     'AIT-280 PASS: upload notice, retry and pause win visually; saved confirmation remains assistive-only; failure replaces hint/notice.',
     'AIT-280 PASS: composer/Send shift 0 px in every new state; short host legal links stay on one line at 390px.');
