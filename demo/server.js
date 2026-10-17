@@ -229,7 +229,7 @@ async function handle(request, context) {
   }
   const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|consent-copy\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|admin-copy\.js|post-json\.js|reason-text\.js|utility-icons\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/server\/src\/dev\/local-voice-manifest\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|consent-copy\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|admin-copy\.js|post-json\.js|license-label\.js|reason-text\.js|utility-icons\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/server\/src\/dev\/local-voice-manifest\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
