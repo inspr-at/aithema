@@ -4,6 +4,7 @@ import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { createMockReasoning, inputRevision, openQuestionItems, pendingQuestionFocus, PluginError } from '@inspr/aithema-core';
 import { mockConsent, testToken, ownedRequest, unzip } from '../../../test/helpers.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
+import { buildVoiceReplyRequest } from '../src/voice-handlers.js';
 import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
 function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = false, output, assessmentQuestions } = {}) {
@@ -224,6 +225,15 @@ test('focus instruction echoes never reach replies, event replay, transcript or 
 test('AIT-263 Low: a published assessment removes pending focus from snapshots and voice context', async t => {
   const hold = held(), f = fixture(t, { hold, assessmentQuestions: ['What is the budget?'] });
   assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
+  const stream = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${f.session.id}/events?after=${f.storage.get(f.session.id).seq}`));
+  const reader = stream.body.getReader(), events = [];
+  const reading = (async () => { for (;;) { const value = await reader.read(); if (value.done) return;
+    for (const block of new TextDecoder().decode(value.value).split('\n\n')) {
+      const data = block.split('\n').find(line => line.startsWith('data:'));
+      if (data) events.push(JSON.parse(data.slice(5)));
+    }
+  } })();
+  t.after(async () => { await reader.cancel(); await reading; });
   const before = f.storage.get(f.session.id);
   const { contentRef, hash, ...assessment } = before.understanding;
   f.storage.append(f.session.id, 'understanding.updated', { ...assessment, draft: true }, inputRevision(before));
@@ -232,7 +242,17 @@ test('AIT-263 Low: a published assessment removes pending focus from snapshots a
   assert.equal(session.focusedQuestion, null);
   assert.equal(session.questionFocus, null);
   const response = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${session.id}`));
-  assert.equal((await response.json()).focusedQuestion, null);
-  hold.resolve(); await f.handlers.idle();
-  console.log('AIT-263 LOW PASS: removed pending question cleared before voice/snapshot publication');
+  const snapshot = await response.json();
+  assert.equal(snapshot.focusedQuestion, null); assert.equal(snapshot.questionFocus, null);
+  const voice = buildVoiceReplyRequest({ session: snapshot, messages: [], call: { callId: 'test-call', providerSessionId: 'test-voice' } });
+  assert.equal(JSON.stringify(voice).includes('When should it launch?'), false, 'removed focus never reaches voice context');
+  hold.resolve(); await f.handlers.idle(); await new Promise(resolve => setImmediate(resolve));
+  const failures = events.filter(event => event.type === 'lane.failed' && event.data.reason === 'focused-question-removed');
+  assert.equal(failures.length, 1, 'real handler emits the documented removal failure exactly once');
+  assert.equal(failures[0].data.lane, 'reaction'); assert.equal(failures[0].data.retryable, false);
+  assert.equal(failures[0].data.inputRevision, inputRevision(session));
+  assert.equal(JSON.stringify(failures[0]).includes('When should it launch?'), false, 'failure does not name the removed question');
+  assert.ok(events.indexOf(failures[0]) < events.findIndex(event => event.type === 'question.focused' && event.data.question === null), 'failure precedes clearing the focus');
+  assert.equal(f.storage.get(session.id).transcript.some(turn => turn.focusRequestId), false);
+  console.log('AIT-274 REMOVAL PASS: real handler emitted focused-question-removed once before clearing; snapshot and voice context clean; no late reply');
 });

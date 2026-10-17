@@ -71,9 +71,48 @@ for (const locale of ['de', 'en']) test(`clarify ${locale}: rest → requesting 
   assert.equal(f.root.querySelectorAll('.clarify-meta').length, 1);
   console.log(`AIT-274 STATE PASS ${locale}: stable action/focus; one request; requesting/selected/asked announcements once`);
 });
+async function firstReply(f) {
+  f.post(() => Response.json(f.accept(), { status: 202 }));
+  await f.c.focusQuestion(f.c.openQuestionItems[1].id);
+  f.event('turn.final', { id: 'first-reply', role: 'assistant', content: 'Who approves invoices?',
+    focusRequestId: 'focus-1', inputRevision: inputRevision(f.c.session) });
+  f.lane();
+  assert.equal(f.rows()[1].dataset.state, 'asked');
+}
+for (const locale of ['de', 'en']) test(`second request in the same revision ${locale}: clicked row requests and retains focus`, async t => {
+  const f = fixture(t, locale); await firstReply(f);
+  const pending = Promise.withResolvers(); f.post(() => pending.promise);
+  const action = f.button(0); action.focus();
+  const request = f.c.focusQuestion(f.c.openQuestionItems[0].id);
+  assert.equal(f.rows()[0].dataset.state, 'requesting');
+  assert.equal(f.button(0), action); assert.equal(f.root.activeElement, action);
+  assert.equal(f.rows()[1].dataset.state, 'asked');
+  assert.equal(f.rows()[2].dataset.state, 'disabled');
+  const item = f.c.openQuestionItems[0];
+  pending.resolve(Response.json({ accepted: true, event: { seq: f.c.session.seq + 1, type: 'question.focused', data: {
+    ...item, questionId: item.id, requestId: 'focus-2', chosenBy: 'user', inputRevision: inputRevision(f.c.session),
+  } } }, { status: 202 }));
+  await request;
+  assert.equal(f.rows()[0].dataset.state, 'requesting');
+  f.event('turn.final', { id: 'second-reply', role: 'assistant', content: 'Which accounting system?',
+    focusRequestId: 'focus-2', inputRevision: inputRevision(f.c.session) });
+  f.lane(); assert.equal(f.rows()[0].dataset.state, 'asked');
+  console.log(`AIT-274 SECOND REQUEST PASS ${locale}: clicked row requesting; completed focus retained as asked`);
+});
+for (const reason of ['paused', 'consent-required']) test(`second request refused ${reason}: current row shows reason and way out`, async t => {
+  const f = fixture(t); await firstReply(f);
+  f.post(() => Response.json({ error: 'focus-refused', reason }, { status: 409 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason });
+  assert.equal(f.rows()[0].dataset.state, 'refused');
+  assert.match(f.rows()[0].textContent, new RegExp(reason === 'paused' ? en.clarify.paused : en.clarify.consent));
+  assert.equal(f.button(0).textContent, reason === 'paused' ? en.resume : en.clarify.review);
+  assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
+  assert.equal(f.rows()[1].dataset.state, 'asked');
+  console.log(`AIT-274 SECOND REFUSAL PASS ${reason}: current row refused with enabled way out`);
+});
 test('duplicate backend reply-in-flight is requesting, not a failure', async t => {
   const f = fixture(t);
-  f.post(() => Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }));
+  f.post(() => { f.lane(['reaction']); return Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }); });
   await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), { reason: 'reply-in-flight' });
   f.lane(['reaction']);
   assert.equal(f.rows()[1].dataset.state, 'requesting');
@@ -164,4 +203,40 @@ test('AIT-263 Low: removed focus is never passed to the active voice adapter', a
   f.event('understanding.updated', understanding); await tick();
   assert.equal(f.c.session.focusedQuestion, 'Who approves invoices?', 'the later automatic focus event has not arrived yet');
   assert.equal(contexts.at(-1).focusedQuestion, null, 'the intermediate voice update already excludes the removed question');
+});
+
+for (const finish of ['listening', 'ended', 'before-refusal']) test(`voice-busy refusal resolves to rest (${finish}) without new input`, async t => {
+  const f = fixture(t), events = voiceEvents(); let callId;
+  const session = f.c.session; session.featureMatrix.best.voice = { available: true };
+  f.c.configure({ session, copy: en, voiceClient: { manifest, async start(request) {
+    callId = request.callId;
+    return { callId, providerSessionId: 'busy-voice', events, async setInput() {}, async setOutput() {},
+      async updateContext() {}, async close() { events.end(); return { closureConfirmed: true }; } };
+  } } });
+  t.after(() => f.c.configure({ session: createSession(), copy: en }));
+  f.root.querySelector('.voice-start').click(); await tick();
+  events.push({ type: 'speaking', callId }); await tick();
+  const pending = Promise.withResolvers(); f.post(() => pending.promise);
+  const request = f.c.focusQuestion(f.c.openQuestionItems[0].id);
+  const rejected = assert.rejects(request, { reason: 'reply-in-flight' });
+  if (finish === 'before-refusal') { events.push({ type: 'listening', callId }); await tick(); }
+  pending.resolve(Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }));
+  await rejected;
+  if (finish !== 'before-refusal') {
+    assert.equal(f.rows()[0].dataset.state, 'requesting');
+    f.lane(); assert.equal(f.rows()[0].dataset.state, 'requesting', 'idle reaction status cannot release a speaking reply');
+    events.push({ type: finish, callId, ...(finish === 'ended' ? { reason: 'closed' } : {}) }); await tick();
+  }
+  assert.equal(f.rows()[0].dataset.state, 'rest');
+  assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
+  assert.ok(f.rows().every(row => row.dataset.state === 'rest'));
+  assert.equal(f.c.session.transcript.filter(turn => turn.role === 'user').length, 1);
+  console.log(`AIT-274 VOICE BUSY PASS ${finish}: returned to rest; action available without new input`);
+});
+test('final reply-in-flight refusal with no running reply returns to rest immediately', async t => {
+  const f = fixture(t);
+  f.post(() => Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }));
+  await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[0].id), { reason: 'reply-in-flight' });
+  assert.equal(f.rows()[0].dataset.state, 'rest');
+  assert.equal(f.button(0).getAttribute('aria-disabled'), 'false');
 });
