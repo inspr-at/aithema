@@ -1,7 +1,7 @@
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { after, test } from 'node:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
@@ -27,19 +27,43 @@ async function setViewport(page, viewport) {
   });
 }
 
-async function fixture(t, touch = true) {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-tick-followups-'));
+// Share the host across every test. A page is reused while device capabilities
+// match; desktop's native fine pointer still needs its own launch configuration.
+let host, currentFixture, cleanup;
+after(() => cleanup?.());
+async function hostForFile() {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-pause-phone-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const hostConfig = await fetch(new URL('/demo/config', demo.url)).then(response => response.json());
+  cleanup = async () => { await currentFixture?.browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); };
+  return { demo, hostConfig: await fetch(new URL('/demo/config', demo.url)).then(response => response.json()) };
+}
+async function fixture(t, touch = true) {
+  const { demo, hostConfig } = await (host ??= hostForFile());
+  if (currentFixture?.touch === touch) {
+    const { page, browser } = currentFixture;
+    await page.goto('about:blank');
+    const session = await page.createCDPSession();
+    try { await session.send('Storage.clearDataForOrigin', { origin: new URL(demo.url).origin, storageTypes: 'all' }); }
+    finally { await session.detach(); }
+    const cookies = await browser.cookies();
+    if (cookies.length) await browser.browser().defaultBrowserContext().deleteCookie(...cookies);
+    page.holdSnapshot = null; page.reloadSession = null; page.replaySessionId = null;
+    await setViewport(page, { width: 800, height: 600 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await shadow(page, c => { globalThis.tickSeed = c.session; });
+    return page;
+  }
+  await currentFixture?.browser.close();
   const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
     // Preserve real desktop fine-pointer media capabilities; switching fixture
     // modes replaces Chrome, while serial fixtures in the same mode reuse it.
     '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
   ] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage();
+  currentFixture = { touch, browser, page };
   page.phoneTouch = touch;
   if (touch) await page.setViewport({ width: 800, height: 600, hasTouch: true, isMobile: false });
   else await setViewport(page, { width: 800, height: 600 });
@@ -74,18 +98,18 @@ async function fixture(t, touch = true) {
   await shadow(page, c => { globalThis.tickSeed = c.session; });
   return page;
 }
-async function scene(page, locale, theme, width) {
+async function scene(page, locale, theme, width, { reset = true, ready = true } = {}) {
   await setViewport(page, { width, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
-  await page.evaluate(async locale => {
+  await page.evaluate(async ({ locale, reset }) => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
     session.locale = locale;
-    c.configure({ copy, session, host: { library: true }, voiceClient: {} });
+    if (reset) c.configure({ copy, session, host: { library: true }, voiceClient: {} });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     scrollTo(0, 0);
-  }, locale);
-  await frame(page);
+  }, { locale, reset });
+  if (ready) await frame(page);
 }
 async function evidence(finding, page, label, values) {
   const root = process.env.AITHEMA_EVIDENCE_DIR;
@@ -98,7 +122,7 @@ async function evidence(finding, page, label, values) {
 
 async function voiceScene(page, locale, theme, width) {
   page.replaySessionId = await shadow(page, c => c.session.id);
-  await scene(page, locale, theme, width);
+  await scene(page, locale, theme, width, { reset: false, ready: false });
   await page.evaluate(async locale => {
     const { [locale]: pauseCopy } = await import(`/packages/ui/src/i18n/${locale}.js`); globalThis.pauseCopy = pauseCopy;
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
@@ -694,6 +718,8 @@ async function recoveryRowMetrics(page) {
     const actions = r.querySelector('.voice-reply-actions'), row = rect(actions), parent = actions.parentElement;
     const text = parent.querySelector('.turn-text'), first = [...r.querySelectorAll('ol .turn')].find(n => n.getBoundingClientRect().bottom > shell.getBoundingClientRect().top);
     return { row, parent: parent.className, turnId: parent.dataset.id ?? null,
+      audioAvailable: globalThis.tickRail.notices.audioAvailable(),
+      clientReplayAvailable: typeof globalThis.tickVoiceClient.replayReply === 'function',
       emptySpaceAbovePx: text ? row.top - text.getBoundingClientRect().bottom : null,
       controls: [...actions.querySelectorAll('button')].map(n => ({ ...rect(n), hidden: n.hidden, border: getComputedStyle(n).borderWidth, background: getComputedStyle(n).backgroundColor })),
       first: first ? { id: first.dataset.id, top: rect(first).top } : null,
@@ -708,6 +734,8 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
     const page = await fixture(t, width === 390);
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
     for (const position of width === 390 ? ['following', 'scrolled-up', 'near-bottom'] : ['following', 'scrolled-up', 'near-bottom-9', 'near-bottom-20', 'near-bottom-43']) await t.test(`${locale}-${theme}-${position}`, async t => {
+      // Replay methods are installed later in each position. Start with a fresh
+      // client so the clear and action-row stages retain text-only coverage.
       await voiceScene(page, locale, theme, width);
       await page.evaluate(async () => {
         const { createPageReplay } = await import('/packages/ui/src/page-replay.js');
@@ -734,6 +762,8 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
         globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.content, lastReplyTurnId: reply.id });
       }); await frame(page);
       const sentence = await recoveryRowMetrics(page), label = `${locale}-${theme}-${width}-${position}`;
+      assert.equal(sentence.audioAvailable, false, `${label}-clear remains text-only`);
+      assert.equal(sentence.clientReplayAvailable, false, `${label}-clear has no replay client`);
       if (!following) assert.deepEqual(sentence.first, before.first, 'notice add: first visible bubble shifts 0px');
       if (following) for (const b of sentence.controls) {
         assert.ok(b.top >= 0 && b.bottom <= 900, 'sentence controls fully visible in viewport');
@@ -745,6 +775,8 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       const beforeClear = await recoveryRowMetrics(page);
       await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
       const row = await recoveryRowMetrics(page);
+      assert.equal(row.audioAvailable, false, `${label}-action-row remains text-only`);
+      assert.equal(row.clientReplayAvailable, false, `${label}-action-row has no replay client`);
       assert.equal(row.sentence, '');
       assert.equal(row.turnId, 'row-47', 'controls are the last assistant bubble action row');
       assert.equal(row.emptySpaceAbovePx, 0, 'no empty line above the action row');

@@ -2,6 +2,7 @@ import { activeTurns } from '../../core/src/session.js';
 import { fill, setText } from './dom.js';
 import { formatCredits } from './display.js';
 import { icon } from './icons.js';
+import { guardConceptControls } from './concept-guards.js';
 
 export const EMAIL_ASK_IDLE_MS = 1500;
 export const lowCredit = credits => credits?.exhausted !== true && credits?.balance?.owner?.availableMicro > 0 &&
@@ -142,7 +143,8 @@ export class EmailAsk {
     this.gate.dataset.step = this.step; this.gate.dataset.why = this.state.why ?? 'turn5';
     this.gate.inert = !open; this.gate.setAttribute('aria-hidden', String(!open));
     const assessment = this.root.querySelector('.analysis-content'); assessment.inert = open && desktop;
-    for (const selector of ['.transcript-shell', '.concept-bar']) this.root.querySelector(selector).inert = open && !desktop;
+    this.root.querySelector('.transcript-shell').inert = open && !desktop;
+    guardConceptControls(this.root);
     const form = this.root.querySelector('form.composer'), shell = this.root.querySelector('.composer-shell');
     form.inert = open && !desktop || shell.hasAttribute('data-used-up');
     this.root.querySelector('.qcard').inert = open && !desktop || shell.hasAttribute('data-used-up');

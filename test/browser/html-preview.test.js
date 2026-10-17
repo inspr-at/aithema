@@ -10,6 +10,7 @@ import { HTML_PREVIEW_HOST_CSP, inspectHTML } from '@inspr/aithema-core';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
 // Set AITHEMA_EVIDENCE_DIR to keep screenshots of the sample click-dummy (wide light/dark, phone).
 const root = new URL('../../', import.meta.url).pathname;
+const isCI = Boolean(process.env.CI);
 const dummy = await readFile(join(root, 'test/fixtures/click-dummy.html'), 'utf8');
 import { browserPath } from '../../scripts/install-test-browser.js';
 const declaration = `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_HOST_CSP}">`;
@@ -79,7 +80,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   t.after(async () => { await browser?.close(); server.closeAllConnections(); server.close(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH },
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    args: process.platform === 'linux' && isCI ? ['--no-sandbox'] : [] });
   t.diagnostic(`Browser: ${await browser.version()}`);
   const page = await browser.newPage(); await page.setViewport({ width: 1280, height: 1000 });
   // Missing policy fails visibly before any generated content can execute.
@@ -214,4 +215,192 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     t.diagnostic(`${hostPath} CSP evidence: ${JSON.stringify(await page.evaluate(() => window.violations.filter(v => v.directive === 'frame-src')))}`);
   }
   t.diagnostic(`navigation and destination-script requests: ${JSON.stringify(hits)} (ZERO)`);
+});
+
+// AIT-282 stays in this small existing shard workload: one page, state changes
+// in place, and the expensive screenshot matrix only in explicit evidence mode.
+test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN', { timeout: 180_000 }, async t => {
+  const { writeFile } = await import('node:fs/promises');
+  const evidence = isCI ? undefined : process.env.AITHEMA_EVIDENCE_DIR;
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-backdrop-'));
+  const pageHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{margin:0;background:#f7f5ef} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
+    </style></head><body><aithema-session></aithema-session><script type="module">
+    import '/packages/ui/src/session-element.js';
+    import { createSession } from '/packages/core/src/session.js';
+    import { ConceptView } from '/packages/ui/src/concept-view.js';
+    const update=ConceptView.prototype.update;
+    ConceptView.prototype.update=function(session){window.conceptView=this;return update.call(this,session);};
+    const c = document.querySelector('aithema-session');
+    const canvas = document.createElement('canvas');canvas.width=1600;canvas.height=900;
+    const ctx=canvas.getContext('2d'); ctx.fillStyle='#f4f2ec';ctx.fillRect(0,0,1600,900);
+    ctx.fillStyle='#d6e8e5';ctx.fillRect(0,0,250,900);
+    for(let i=0;i<8;i++){ctx.fillStyle='#91aaa9';ctx.fillRect(35,80+i*85,160,18);}
+    for(let i=0;i<4;i++){ctx.fillStyle='#fff';ctx.fillRect(285+i*322,120,290,150);ctx.fillStyle='#1d3c54';ctx.fillRect(310+i*322,165,140,24);}
+    ctx.fillStyle='#fff';ctx.fillRect(285,310,820,520);ctx.fillRect(1130,310,430,520);
+    for(let i=0;i<11;i++){ctx.fillStyle='#14918c';ctx.fillRect(315+i*69,740-(i%4)*65,42,90+(i%4)*65);}
+    for(let i=0;i<7;i++){ctx.fillStyle='#c4cdd4';ctx.fillRect(1160,350+i*65,340,18);}
+    const bytes=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    window.artifactReads=[];window.posts=[];const nativeFetch=fetch.bind(window);
+    window.fetch=async (url,options={})=>{
+      const path=new URL(url,location.href).pathname;
+      if(path.endsWith('/image')){window.artifactReads.push({path,token:new Headers(options.headers).get('x-aithema-session-token'),cache:options.cache});return new Response(bytes,{headers:{'content-type':'image/png'}});}
+      if(path.endsWith('/events')) return new Response(new ReadableStream({start(controller){options.signal?.addEventListener('abort',()=>controller.close(),{once:true});}}));
+      if(path.startsWith('/api/')){if(options.body)window.posts.push({path,body:JSON.parse(options.body)});return Response.json(c.session??{});}
+      return nativeFetch(url,options);
+    };
+    window.conceptItem=id=>({id,mediaType:'image/png',width:1600,height:900,turnIds:['source'],referenceIds:[],archived:false,feedback:{vote:'clear',chips:[]},provenance:{origin:'ai-generated',generator:{provider:'local-demo-fake'}}});
+    window.seed=async (locale,bound=true)=>{
+      const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
+      const session=createSession({demo:true});session.id='backdrop-owner';session.locale=locale;
+      session.settings.origin='chosen';session.settings.visuals='auto';session.visualsBound=bound;session.conceptVisualKind=bound?'image':undefined;session.conceptCost={maxMicro:30000};
+      session.featureMatrix={best:Object.fromEntries(['text','analysis','images'].map(k=>[k,{available:true}]))};
+      session.transcript=[{id:'source',role:'user',content:locale==='de'?'Etwa 400 Rechnungen im Monat, wir sind zu dritt.':'About 400 invoices a month, there are three of us.'},
+        {id:'reply',role:'assistant',content:locale==='de'?'Bei 400 Rechnungen im Monat lohnt sich ein Blick auf die Freigabe. Soll ich skizzieren, wie der Abgleich aussehen könnte?':'At 400 invoices a month, approval is worth a look. Shall I sketch what reconciliation could look like?'}];
+      session.inputRevision=1;session.concepts=[];session.conceptStatus={phase:'idle'};
+      c.configure({session,copy,sessionToken:'fixture-owner'});document.documentElement.lang=locale;
+    };
+    window.state=(status,artifact)=>c.receive({seq:c.session.seq+1,type:'concept.state',data:{intent:c.session.conceptIntent,status,...(artifact?{artifact}: {})}});
+    window.ready=true;
+    </script></body></html>`;
+  const server = createServer(async (req, res) => {
+    const path = new URL(req.url, 'http://localhost').pathname;
+    if (path === '/') { res.writeHead(200, { 'content-type':'text/html' }); return res.end(pageHTML); }
+    if (!/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.(?:js|json)$/u.test(path)) { res.writeHead(404); return res.end(); }
+    try { res.writeHead(200, { 'content-type':path.endsWith('.json')?'application/json':'text/javascript' }); res.end(await readFile(join(root, path))); }
+    catch { res.writeHead(404); res.end(); }
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
+  t.after(async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true}); });
+  const page = await browser.newPage(), errors = [], shots = [], passes = [], guardShots = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.waitForFunction(() => window.ready, {timeout:5000}).catch(cause => { throw new Error(`Backdrop fixture startup: ${JSON.stringify(errors)}`, {cause}); });
+  const head = /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'local';
+  if (evidence) await mkdir(evidence,{recursive:true});
+  const settle = () => page.evaluate(async () => {
+    await document.fonts.ready;
+    const root=document.querySelector('aithema-session').shadowRoot;
+    await Promise.all(root.getAnimations({subtree:true}).filter(a=>a.effect?.getComputedTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));
+    await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);
+  });
+  const boxes = () => page.evaluate(() => {
+    const root=document.querySelector('aithema-session').shadowRoot;
+    return ['.concept-thread','.transcript-shell','.composer-shell','.composer-dock','.turn','.display-foot'].map(s=>{
+      const r=root.querySelector(s).getBoundingClientRect();return [s,r.x,r.y,r.width,r.height];
+    });
+  });
+  for (const locale of ['de','en']) for (const width of [1440,1024,390]) for (const theme of evidence?['light','dark']:['light']) {
+    await page.setViewport({width,height:900});
+    await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'no-preference'}]);
+    await page.evaluate(async ({locale,theme})=>{await window.seed(locale);document.querySelector('aithema-session').setAttribute('theme',theme);scrollTo(0,0);},{locale,theme});
+    await settle(); const baseline = await boxes();
+    const capture = async state => {
+      await settle();
+      const actualState=await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-access').dataset.state);
+      assert.equal(actualState,({gen:'gen',gone:'gone',err:'err',none:'none'})[state]??'ready',`${state}: real presentation state`);
+      if(state!=='focus')await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
+      if(state!=='hover')await page.mouse.move(-10,-10);
+      assert.deepEqual(await boxes(),baseline,`${locale}/${width}/${theme}/${state}: 0 px`);
+      const pass=`PASS ${locale}/${width}/${theme}/${state}: 0 px`;passes.push(pass);
+      if(evidence){const file=locale+'-'+width+'-'+theme+'-'+state+'.png';await page.screenshot({path:join(evidence,file),fullPage:false,captureBeyondViewport:false});shots.push({file,head,theme,locale,state,width,pass});}
+    };
+    await page.evaluate(()=>window.state({phase:'pending',startedAt:Date.now(),estimateMs:40000})); await capture('gen');
+    await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('concept-a')));
+    await page.waitForFunction(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')?.complete);await capture('ready');
+    const style=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot;return {opacity:getComputedStyle(root.querySelector('.concept-backdrop img[data-on]')).opacity,display:getComputedStyle(root.querySelector('.concept-backdrop')).display,phone:root.querySelector('.concept-access').closest('.composer-dock')!==null,slot:root.querySelector('.concept-access').getBoundingClientRect().height};});
+    assert.equal(style.slot,44);assert.equal(style.phone,width===390);
+    assert.equal(width===390?style.display:style.opacity,width===390?'none':theme==='dark'?'0.14':'0.18');
+    await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-preview').focus({preventScroll:true}));await capture('focus');
+    if(width>600){assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).opacity),'0.35');}
+    await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
+    // Find actual free space, then send a real pointer. A bubble/control is never
+    // a candidate, and the complete hint rectangle must also be exposed.
+    const point=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,b=root.querySelector('.concept-backdrop').getBoundingClientRect(),hint=root.querySelector('.concept-backdrop-hint');hint.textContent=root.querySelector('.concept-preview').getAttribute('aria-label');const w=hint.offsetWidth,h=hint.offsetHeight;const free=(x,y)=>{if(x<b.left||x>b.right||y<b.top||y>b.bottom)return false;const n=root.elementFromPoint(x,y);return Boolean(n&&!n.closest('.turn,button,a,input,textarea,select,.concept-bottom'));};for(let y=b.top+20;y<b.bottom-20;y+=8)for(let x=b.left+20;x<b.right-20;x+=8){if(!free(x,y))continue;for(const [dx,dy] of [[14,18],[14,-h-12],[-w-14,18],[-w-14,-h-12]]){let fits=true;for(let yy=y+dy-8;yy<=y+dy+h+8;yy+=4)for(let xx=x+dx-8;xx<=x+dx+w+8;xx+=4)if(!free(xx,yy))fits=false;if(fits)return {x,y};}}return null;});
+    if(width>600){assert.ok(point,'free backdrop space exists');await page.mouse.move(point.x,point.y);}
+    await capture('hover');
+    if(width>600){
+      const hintSafe=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,hint=root.querySelector('.concept-backdrop-hint');if(!hint.hasAttribute('data-show'))return false;const h=hint.getBoundingClientRect();return [...root.querySelectorAll('.turn,button')].every(n=>{const b=n.getBoundingClientRect();return h.right<=b.left||h.left>=b.right||h.bottom<=b.top||h.top>=b.bottom;});});
+      assert.equal(hintSafe,true,'hover hint is visible entirely on exposed space');
+    }
+    if(width>600){await page.mouse.click(point.x,point.y);assert.equal(await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open),true);await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-close').click());}
+    await page.mouse.move(-10,-10);
+    await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('concept-b')));await capture('replace');
+    await page.evaluate(()=>window.state({phase:'failed'}));await capture('err');
+    await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.receive({seq:c.session.seq+1,type:'turn.withdrawn',data:{turnId:'source',at:new Date().toISOString()}});});
+    // The real withdrawal also removes its transcript source. Preserve the same
+    // transcript fixture for the geometry comparison while testing redaction.
+    await page.evaluate(()=>{const c=document.querySelector('aithema-session'),r=c.shadowRoot;window.withdrawnCheck=r.querySelectorAll('.concept-backdrop img[src],.concept-preview img[src]').length;});
+    assert.equal(await page.evaluate(()=>window.withdrawnCheck),0);
+    // Use the public renderer update for the withdrawn presentation without
+    // changing the conversation's independent transcript geometry.
+    await page.evaluate(async locale=>{await window.seed(locale);window.state({phase:'ready'},window.conceptItem('withdrawn'));},locale);
+    await page.waitForFunction(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]'));
+    await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.receive({seq:c.session.seq+1,type:'concept.archived',data:{artifactId:'withdrawn'}});});await capture('gone');
+    await page.evaluate(async locale=>{await window.seed(locale);const c=document.querySelector('aithema-session');window.state({phase:'idle'});window.conceptView.update({...c.session,visualsBound:false});},locale);await capture('none');
+    await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.setAttribute('motion','off');window.state({phase:'pending',startedAt:Date.now(),estimateMs:40000});});
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-scene i')).animationName),'none');
+    await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('reduce')));await capture('reduced-motion');
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
+    await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
+    await page.evaluate(()=>{document.querySelector('aithema-session').removeAttribute('motion');window.state({phase:'ready'},window.conceptItem('reduce-system'));});await settle();
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
+    assert.deepEqual(errors,[]);
+    // Round-3 screenshots are evidence only; guard coverage lives in units and
+    // adds no states or browser work to the nearly full CI bins.
+    if(evidence && width===390){
+      const captureGuard=async state=>{
+        await settle();
+        await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
+        await page.mouse.move(-10,-10);
+        const file=locale+'-'+width+'-'+theme+'-'+state+'.png';
+        await page.screenshot({path:join(evidence,file),fullPage:false,captureBeyondViewport:false});
+        guardShots.push({file,head,theme,locale,state,width});
+      };
+      await page.evaluate(async locale=>{
+        const {EmailAsk}=await import('/packages/ui/src/email-ask.js');
+        const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
+        const c=document.querySelector('aithema-session');
+        const email={canCollect:true,address:'',delivery:false,numbers:{email:'1,500',confirmed:'2,000'},paintNotice(){}};
+        window.evidenceAsk=new EmailAsk({root:c.shadowRoot,copy,verification:{email},session:()=>c.session,streaming:()=>false,request:async()=>({ok:false})});
+        window.evidenceAsk.credits={balance:{owner:{availableMicro:6550000,limitMicro:10000000}},tiers:{next:'emailGiven',delta:5000000}};
+        window.evidenceAsk.open=true;window.evidenceAsk.paint();
+      },locale);
+      await captureGuard('email-ask-ready');
+      await page.evaluate(()=>window.evidenceAsk.destroy());
+      await page.evaluate(async locale=>{
+        await window.seed(locale);const c=document.querySelector('aithema-session');
+        const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
+        c.configure({copy,session:{...c.session,transcript:[],concepts:[window.conceptItem('not-live')],conceptStatus:{phase:'ready'}},sessionToken:'fixture-owner'});
+        c.setAttribute('motion','off');
+      },locale);
+      await captureGuard('not-live');
+    }
+  }
+  for(const width of [800,390]) {
+  await page.setViewport({width,height:900});
+  for (const bound of [false,true]) {
+    await page.evaluate(async bound=>{
+      await window.seed('en',bound);
+      const c=document.querySelector('aithema-session');
+      const {inputRevision}=await import('/packages/core/src/session.js');
+      c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'card',role:'assistant',content:'Which system do you use?',question_short:'Which system?',
+        options:[{text:'An API',likely:true}],inputRevision:inputRevision(c.session)}});
+    },bound);
+    await settle();
+    const junction=await page.evaluate(()=>{const r=document.querySelector('aithema-session').shadowRoot,c=r.querySelector('.qcard').getBoundingClientRect(),input=r.querySelector('.composer-shell').getBoundingClientRect(),row=r.querySelector('.concept-phone-slot').getBoundingClientRect();return {gap:input.top-c.bottom,clear:row.bottom<=c.top+.01,row:row.height,thread:getComputedStyle(r.querySelector('.concept-thread')).display};});
+    assert.equal(junction.gap,0,'question card stays joined to composer');
+    assert.equal(junction.row,bound&&width===390?44:0,'phone row appears only for bound images on phones');
+    if(bound&&width===390)assert.equal(junction.clear,true,'concept row stays above the question card');
+    if(!bound)assert.equal(junction.thread,'contents','unbound transcript keeps its original grid participation');
+    const hit=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,input=root.querySelector('textarea');input.scrollIntoView({block:'center'});const r=input.getBoundingClientRect();return root.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.tagName;});
+    assert.equal(hit,'TEXTAREA',`${width}/${bound}: transcript cannot cover the input hit target`);
+  }
+  }
+  assert.equal(await page.evaluate(()=>window.posts.length),0,'all reads and state fixtures are free');
+  const reads=await page.evaluate(()=>window.artifactReads);
+  assert.ok(reads.length>0);assert.ok(reads.every(r=>r.path.startsWith('/api/sessions/backdrop-owner/concepts/')&&r.token==='fixture-owner'&&r.cache==='no-store'));
+  if(evidence)await writeFile(join(evidence,'checks.json'),JSON.stringify({head,shots,guardShots,passes,security:['PASS authenticated active-conversation loader only','PASS immediate withdrawal redaction','PASS no generation calls'],errors},null,2));
+  console.log(`PASS AIT-282: ${passes.length} state comparisons, 0 px; authenticated bytes and immediate revocation`);
 });

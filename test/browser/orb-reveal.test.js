@@ -3,17 +3,38 @@
 // AITHEMA_EVIDENCE_DIR receives frames, a timeline manifest and 50ms rendered-pixel exit samples.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
-import { test } from 'node:test';
-import puppeteer from './launch.js';
+import { after, test } from 'node:test';
+import { browserForFile } from './shared-browser.js';
 
 const repo = resolve(fileURLToPath(new URL('../../', import.meta.url))), wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-import { browserPath } from '../../scripts/install-test-browser.js';
+// One fixture host, browser and primary page for all serial scenarios. The
+// keyboard lifecycle proof still creates its explicit background-tab probe.
+let fileHost, fileBrowser, primaryPage, closeHost;
+after(async () => { await fileBrowser?.close(); await closeHost?.(); });
+const orbBrowser = async () => fileBrowser ??= await browserForFile();
+async function pageForFile(browser) {
+  primaryPage ??= await browser.newPage();
+  await primaryPage.bringToFront();
+  await primaryPage.goto('about:blank');
+  primaryPage.removeAllListeners('pageerror');
+  await primaryPage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  return primaryPage;
+}
+const server = () => fileHost ??= createFileServer();
+// Capture the same rendered 1x1 PNG through CDP, without Puppeteer's general
+// screenshot viewport/setup work. Pixel values and live timestamps stay intact.
+async function pixel(page, clip) {
+  page.pixelSession ??= await page.createCDPSession();
+  const { data } = await page.pixelSession.send('Page.captureScreenshot', {
+    format: 'png', fromSurface: true, captureBeyondViewport: false, clip: { ...clip, scale: 1 },
+  });
+  return rgb(Buffer.from(data, 'base64'));
+}
 
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><style>
 :root { --paper:#fbf7ef; --surface:#fffcf8; --teal:#0e6f6c; --ink:#102b42; --muted:#496477; --line:rgba(16,43,66,.13); --display:Georgia,"Iowan Old Style","Palatino Linotype",serif; --ui:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SF Mono",Menlo,monospace; color-scheme:light; }
@@ -56,7 +77,7 @@ window.fixture={orb,reveal,band,controls,copy}; window.ready=true;
 if(params.has('component')) { await import('/packages/ui/src/session-element.js'); const {createSession}=await import('/packages/core/src/session.js'); const element=document.createElement('aithema-session'); element.configure({copy,session:createSession({locale,demo:true})}); document.getElementById('component').append(element); window.component=element; }
 </script></body></html>`;
 
-async function server(t) {
+async function createFileServer() {
   const host = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://fixture').pathname;
     if (path === '/') { res.setHeader('Content-Type', 'text/html'); res.end(fixture); return; }
@@ -64,7 +85,7 @@ async function server(t) {
     if (!path.startsWith('/packages/') || !file.startsWith(repo + sep) || !(file.endsWith('.js') || path === '/packages/ui/src/versioning/display.json')) { res.writeHead(404).end(); return; }
     try { res.setHeader('Content-Type', file.endsWith('.json') ? 'application/json' : 'text/javascript'); res.end(await readFile(file)); } catch { res.writeHead(404).end(); }
   });
-  host.listen(0, '127.0.0.1'); await once(host, 'listening'); t.after(() => new Promise(resolve => host.close(resolve)));
+  host.listen(0, '127.0.0.1'); await once(host, 'listening'); closeHost = () => new Promise(resolve => host.close(resolve));
   return `http://127.0.0.1:${host.address().port}`;
 }
 
@@ -211,10 +232,8 @@ async function assertCalmUnderline(page, label) {
 }
 
 test('AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect', { timeout: 60_000 }, async t => {
-  const url = await server(t), browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
-    env: { PATH: process.env.PATH }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(() => browser.close());
-  const page = await browser.newPage(); await page.setViewport({ width: 1440, height: 900 });
+  const url = await server(t), browser = await orbBrowser();
+  const page = await pageForFile(browser); await page.setViewport({ width: 1440, height: 900 });
   await page.goto(`${url}/?locale=en&theme=light`); await page.waitForFunction(() => window.ready);
   assert.equal(await page.$eval('.aithema-reveal__glass', node => getComputedStyle(node).opacity), '0', 'the closed backdrop is established before opening');
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -234,11 +253,9 @@ test('AIT-153: contrast waits for delayed entry and still rejects a settled cont
 });
 
 for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: ${locale}, light/dark, 1440/1024/390`, { timeout: 240_000 }, async t => {
-  const url = await server(t), evidence = process.env.AITHEMA_EVIDENCE_DIR, executablePath = await browserPath();
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-orb-'));
-  const browser = await puppeteer.launch({ executablePath, headless: true, userDataDir: directory, env: { PATH:process.env.PATH }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(() => browser.close()); if (evidence) await mkdir(evidence, {recursive:true});
-  const page = await browser.newPage(), problems = [], colours = [], frames = [], metrics = [], client = await page.createCDPSession();
+  const url = await server(t), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const browser = await orbBrowser(); if (evidence) await mkdir(evidence, {recursive:true});
+  const page = await pageForFile(browser), problems = [], colours = [], frames = [], metrics = [], client = await page.createCDPSession();
   page.on('pageerror', error => problems.push(error.message)); page.setDefaultTimeout(30_000);
   for (const theme of ['light','dark']) for (const width of [1440,1024,390]) {
     const label = `${locale}-${theme}-${width}`; await page.setViewport({width,height:width===390?844:900,deviceScaleFactor:1});
@@ -247,7 +264,7 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     const shot = async (name, ms) => { if(evidence) await page.screenshot({path:join(evidence,`${label}-${name}.png`),clip:{x:0,y:0,width,height:240}}); frames.push({label,name,animation_ms:ms}); };
     const baseline = await layout(page); assert.equal(await page.$eval('.orb', node => node.getBoundingClientRect().width),40);
     const edgePoint = await page.$eval('#band', node => ({ x: Math.floor(node.getBoundingClientRect().width / 2), y: Math.round(node.getBoundingClientRect().bottom - parseFloat(getComputedStyle(node, '::after').bottom) + 1), width: 1, height: 1 }));
-    const belowHairline = rgb(Buffer.from(await page.screenshot({ clip: edgePoint })));
+    const belowHairline = await pixel(page, edgePoint);
     await page.evaluate(() => { const turn=window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0]; turn.pause(); turn.currentTime=0; }); await shot('orb-rest',0);
     await page.evaluate(() => { window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0].currentTime=2450; }); await shot('orb-turning',2450);
     await page.evaluate(() => { window.fixture.orb.setVoice('speaking'); window.fixture.orb.setEnergy(.7); window.fixture.orb.element.getAnimations({subtree:true}).forEach(a=>{if(a.animationName?.startsWith('aithema-glass')) {a.pause();a.currentTime=1200;}}); }); await shot('orb-speaking',1200);
@@ -268,17 +285,31 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     if(width<600) { assert.ok(anchors.every(n=>n.subtitleDisplay==='none'&&n.titleRect.contentHeight<=n.titleRect.lineHeight+.5&&n.titleRect.right<=width),label+' mobile titles only'); assert.ok(anchors.every(n=>Math.abs(n.titleRect.y-anchors[0].titleRect.y)<=.5&&n.titleRect.y>wordmarkBox.bottom),label+' one link row under wordmark'); assert.ok(versionBox.top<anchors[0].titleRect.y&&versionBox.right>=anchors.at(-1).titleRect.right,label+' version at top right'); }
     const edge=await page.evaluate(()=>{const {band}=window.fixture,fx=band.querySelector('.aithema-reveal__fx'),b=band.getBoundingClientRect();return {hairlineBottom:b.bottom-parseFloat(getComputedStyle(band,'::after').bottom),glassClipBottom:fx.getBoundingClientRect().bottom};});
     assert.ok(Math.abs(edge.hairlineBottom-edge.glassClipBottom)<=.5,label+' glass ends at hairline');
-    assert.deepEqual(rgb(Buffer.from(await page.screenshot({clip:edgePoint}))),belowHairline,label+' no glass below hairline');
+    assert.deepEqual(await pixel(page, edgePoint),belowHairline,label+' no glass below hairline');
     if(evidence) { const crop={x:Math.max(0,Math.floor(width/2)-120),y:edge.hairlineBottom-8,width:Math.min(width,240),height:16,scale:3}; const {data}=await client.send('Page.captureScreenshot',{format:'png',clip:crop}); await writeFile(join(evidence,`${label}-glass-bottom-edge-3x.png`),Buffer.from(data,'base64')); }
     const contrast=await renderedTextContrast(page,label); metrics.push({label,edge,anchors,wordmark:wordmarkBox,version:versionBox,text_contrast:contrast});
     const bandHeight=await page.$eval('#band',n=>n.getBoundingClientRect().height); assert.ok(anchors.every(n=>n.rect.bottom<=bandHeight),label+' links stay inside');
     // Hold cleanup while advancing genuine CSS transitions in 50ms steps. Every sample is a rendered pixel,
     // not an inferred CSS colour; animation time is independent of screenshot/remote-host latency.
     await page.evaluate(()=>{ const native=window.setTimeout; window.setTimeout=(fn)=>{window.exitCleanup=fn;return 0;}; window.fixture.reveal.close(); window.setTimeout=native; }); await freeze(page);
-    const overlapSamples=[];
-    for(let ms=0;ms<=300;ms+=10) { await seek(page,ms); const sample={ms,...await exitOpacities(page)}; assertExitOverlap(sample,label); overlapSamples.push(sample); }
+    // Paused animation seeks update computed opacity synchronously. Read every
+    // original 10ms point in-page; the 50ms rendered-PNG sweep below still waits
+    // for the compositor after each seek, with every original sample retained.
+    const overlapSamples = await page.evaluate(() => {
+      const { band, controls } = window.fixture, samples = [];
+      for (let ms = 0; ms <= 300; ms += 10) {
+        window.timeline.forEach(animation => { animation.currentTime = ms; });
+        samples.push({ ms,
+          brand_row_opacity: Number(getComputedStyle(band.querySelector('.aithema-reveal__row')).opacity),
+          control_opacities: controls.map(node => Number(getComputedStyle(node).opacity)),
+          proxy_opacities: [...band.querySelectorAll('.aithema-reveal__proxy')].map(node => Number(getComputedStyle(node).opacity)),
+        });
+      }
+      return samples;
+    });
+    for (const sample of overlapSamples) assertExitOverlap(sample, label);
     const samples=[], samplePoint={x:width-8,y:bandHeight-10,width:1,height:1};
-    for(let ms=0;ms<=900;ms+=50) { await seek(page,ms); const pixel=rgb(Buffer.from(await page.screenshot({clip:samplePoint}))); const opacity=await page.$eval('.aithema-reveal__glass',n=>Number(getComputedStyle(n).opacity)); const sample={ms,rgb:pixel,glass_opacity:opacity,...await exitOpacities(page)}; assertExitOverlap(sample,label); samples.push(sample); if([0,150,300,450,700,900].includes(ms)) await shot(`exit-${ms}ms`,ms); }
+    for(let ms=0;ms<=900;ms+=50) { await seek(page,ms); const rgbSample=await pixel(page, samplePoint); const opacity=await page.$eval('.aithema-reveal__glass',n=>Number(getComputedStyle(n).opacity)); const sample={ms,rgb:rgbSample,glass_opacity:opacity,...await exitOpacities(page)}; assertExitOverlap(sample,label); samples.push(sample); if([0,150,300,450,700,900].includes(ms)) await shot(`exit-${ms}ms`,ms); }
     colours.push({label,source:'rendered 1x1 PNG pixels and computed brand/control opacities',clock:'paused CSS timeline advanced in exactly 50ms steps; overlap also checked every 10ms through 300ms',point:samplePoint,control_labels:await page.evaluate(()=>window.fixture.controls.map(n=>n.getAttribute('aria-label')||n.textContent)),overlap_samples:overlapSamples,samples});
     if(evidence) await writeFile(join(evidence,`exit-colour-samples-${locale}.json`),JSON.stringify(colours,null,2)+'\n');
     assertMonotonicRgb(samples,label);
@@ -304,8 +335,8 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
 });
 
 test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab and existing component', {timeout:90_000}, async t=>{
-  const url=await server(t), browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
-  const page=await browser.newPage(), problems=[]; page.on('pageerror',error=>problems.push(error.message));
+  const url=await server(t), browser=await orbBrowser();
+  const page=await pageForFile(browser), problems=[]; page.on('pageerror',error=>problems.push(error.message));
   await page.setViewport({width:1440,height:900}); await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
   await page.goto(`${url}/?locale=en&theme=light&component=1`); await page.waitForFunction(()=>window.ready&&window.component?.shadowRoot); await wait(250);
   assert.equal(await page.$eval('.orb',n=>n.dataset.orbMotion),'off'); assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealMotion),'off');
@@ -323,12 +354,13 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
   // Headless Chrome may keep background pages visible; when it does, exercise its lifecycle via CDP.
   const client=await page.createCDPSession();await client.send('Page.setWebLifecycleState',{state:'frozen'});await client.send('Page.setWebLifecycleState',{state:'active'});await page.bringToFront();
   assert.deepEqual(problems,[]);
+  await other.close();
 });
 
 test('AIT-140: early leave holds the circle; live exit colour samples every 50ms', {timeout:60_000}, async t=>{
   const url=await server(t), evidence=process.env.AITHEMA_EVIDENCE_DIR;
-  const browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
-  const page=await browser.newPage(), records=[];
+  const browser=await orbBrowser();
+  const page=await pageForFile(browser), records=[];
   for(const theme of ['light','dark']) for(const width of [1440,390]) {
     await page.setViewport({width,height:900,deviceScaleFactor:1}); await page.goto(`${url}/?locale=de&theme=${theme}`); await page.waitForFunction(()=>window.ready); await wait(100);
     await page.evaluate(()=>window.fixture.orb.element.focus()); await wait(140);
@@ -342,8 +374,8 @@ test('AIT-140: early leave holds the circle; live exit colour samples every 50ms
     const start=performance.now(); await page.evaluate(()=>window.fixture.reveal.close()); const samples=[];
     for(let ms=0;ms<=900;ms+=50) {
       await wait(Math.max(0,start+ms-performance.now()));
-      const before=performance.now(), pixel=rgb(Buffer.from(await page.screenshot({clip:point}))), after=performance.now();
-      const sample={scheduled_ms:ms,capture_start_ms:Math.round(before-start),capture_end_ms:Math.round(after-start),rgb:pixel,...await exitOpacities(page)}; assertExitOverlap(sample,`${theme}-${width} live`); samples.push(sample);
+      const before=performance.now(), rgbSample=await pixel(page, point), after=performance.now();
+      const sample={scheduled_ms:ms,capture_start_ms:Math.round(before-start),capture_end_ms:Math.round(after-start),rgb:rgbSample,...await exitOpacities(page)}; assertExitOverlap(sample,`${theme}-${width} live`); samples.push(sample);
     }
     records.push({theme,width,clock:'live, unfrozen CSS and ordinary exit cleanup; 50ms schedule with actual capture times',point,circle,samples});
     if(evidence) await writeFile(join(evidence,'exit-colour-samples-live.json'),JSON.stringify(records,null,2)+'\n');
