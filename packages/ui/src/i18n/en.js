@@ -574,6 +574,7 @@ export const en = {
   // START src/lib/consent-items.ts:16,18 ids; src/lib/i18n.ts consentCopy.en.
   // Item copy matches the demo server; introductory terms belong to each host.
   featureConsent: { text: 'Messages need your consent', uploads: 'Files need your consent', images: 'Images need your consent', html: 'Drafts need your consent', voice: 'Voice needs your consent', analysis: 'The overview needs your consent',
+    textActionReason: 'messages need your consent',
     actionNarrow: 'Review', textReview: 'Review consent',
     textNarrow: 'Consent needed',
     action: 'Give consent…', save: 'Save consent', withdraw: 'Withdraw and end conversation' },

@@ -646,7 +646,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         : getComputedStyle(child).display === 'none' ? '' : visibleText(child)).join('');
       const narrow = innerWidth <= 340;
       return { text: visibleText(line), expected: `${narrow ? copy.featureConsent.textNarrow : copy.featureConsent.text}\u00a0· ${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}`,
-        expectedName: `${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}: ${copy.featureConsent.text}`,
+        expectedName: `${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}: ${copy.featureConsent.textActionReason}`,
         underlined: getComputedStyle(action).textDecorationLine.includes('underline'),
         lineCount: Math.round(ink.height / lineHeight), fontSize, target,
         overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
@@ -724,7 +724,12 @@ test('AIT-290 round 4: overview label has no slot, matching section gap DE/EN 14
       c.configure({ copy, session });
     });
     await frame(page);
-    await shadow(page, c => { const panel = c.shadowRoot.querySelector('.analysis-content'); panel.scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }); });
+    await shadow(page, c => {
+      c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
+      const top = c.shadowRoot.querySelector('.understanding').getBoundingClientRect().top;
+      // Leave the overview below the sticky host header in viewport evidence.
+      scrollTo(0, innerWidth <= 640 ? Math.max(0, scrollY + top - 90) : 0);
+    });
     await frame(page);
     const overviewSelectors = ['.understanding', '.notice', '.summary', '.summary-text', '.understanding > .foot', '.composer', '.send'];
     const overviewBefore = await boxes(page, overviewSelectors);
@@ -733,12 +738,13 @@ test('AIT-290 round 4: overview label has no slot, matching section gap DE/EN 14
       const summary = r.querySelector('.summary-text').getBoundingClientRect();
       const divider = r.querySelector('.readiness').getBoundingClientRect();
       const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
-      return { summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
+      return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
         noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
         regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
     });
     assert.equal(overview.noticeVisible, false, 'completed overview has no visible current-assessment label');
     assert.equal(overview.summaryVisible, true);
+    assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
     assert.equal(overview.noticeOutOfFlow, true);
     assert.ok(Math.abs(overview.summaryGap - overview.nextHeadingGap) <= 2, `${locale}/${width}: divider-to-summary gap equals next divider-to-heading gap ±2px: ${JSON.stringify(overview)}`);
     const ax = await page.accessibility.snapshot({ interestingOnly: false });
