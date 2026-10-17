@@ -774,7 +774,8 @@ test('AIT-290 round 3: cached final consent stays reachable; other composer stat
       session.transcript.push({ id: 'cached-reply', role: 'assistant', content: 'Wer schreibt die Angebote?', inputRevision: revision });
       Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: revision,
         summary: 'Das Team verliert Zeit beim Schreiben von Angeboten.', signals: ['Angebote werden von Hand geschrieben'] });
-      c.configure({ session });
+      const { de } = await import('/packages/ui/src/i18n/de.js');
+      c.configure({ copy: de, session });
       c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' });
     });
     await frame(page);
@@ -794,11 +795,12 @@ test('AIT-290 round 3: cached final consent stays reachable; other composer stat
   }
   for (const width of [320, 340, 390]) for (const state of ['enabled', 'paused', 'purpose', 'unavailable']) {
     await scene(page, 'de', 'light', width, []);
-    await shadow(page, (c, state) => {
+    await shadow(page, async (c, state) => {
       const session = structuredClone(c.session);
       session.paused = state === 'paused' || state === 'purpose'; session.pauseReason = state === 'purpose' ? 'purpose' : null;
       if (state === 'unavailable') session.featureMatrix.best.text = { available: false, reason: 'budget exhausted' };
-      c.configure({ session });
+      const { de } = await import('/packages/ui/src/i18n/de.js');
+      c.configure({ copy: de, session });
     }, state);
     const { current, main } = await mainComposerComparison(page);
     assert.deepEqual(current, main, `${width}/${state}: non-consent composer and Attach/Send differ from main by 0 px`);

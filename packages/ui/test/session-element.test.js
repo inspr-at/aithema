@@ -1401,7 +1401,7 @@ test('AIT-290: a paused cached final overview keeps the missing-consent opener v
   const session = structuredClone(c.session);
   session.paused = true; session.pauseReason = null;
   session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
-  c.configure({ session });
+  c.configure({ copy: en, session });
   const notice = c.shadowRoot.querySelector('.notice');
   assert.equal(notice.hasAttribute('data-current'), false);
   assert.equal(notice.hidden, false);
