@@ -215,3 +215,19 @@ test('AIT-281: unavailable phone settings retain only AI processing, with no rol
   assert.equal(f.root.querySelector('.actor-trigger').hidden, true);
   assert.ok(f.actor.sheet.querySelector('.actor-processing'));
 });
+
+
+test('AIT-294: a tablet footer that drops Rolle opens the existing settings sheet', async t => {
+  window.innerWidth = 768;
+  const f = fixture(t), footer = document.createElement('footer');
+  footer.className = 'display-foot'; f.root.append(footer);
+  for (const fit of ['full', 'identity', 'timer']) {
+    footer.dataset.fit = fit;
+    assert.equal(f.actor.openSheet(f.root.querySelector('.gear')), false);
+  }
+  footer.dataset.fit = 'role';
+  assert.equal(f.actor.openSheet(f.root.querySelector('.gear')), true);
+  assert.equal(f.actor.sheet.open, true); assert.equal(f.actor.popover.hidden, true);
+  f.actor.closeSheet();
+  assert.equal(f.root.activeElement, f.root.querySelector('.gear'));
+});

@@ -120,7 +120,7 @@ export class ActorRole {
     void this.load();
   }
   close(focus = false) { this.popover.hidden = true; this.#trigger.setAttribute('aria-expanded', 'false'); if (focus && this.available) this.#trigger.focus(); }
-  #phone() { return this.#root.ownerDocument.defaultView.matchMedia('(max-width: 599px)').matches; }
+  #phone() { return this.#root.querySelector('.display-foot')?.dataset.fit === 'role' || this.#root.ownerDocument.defaultView.matchMedia('(max-width: 599px)').matches; }
   openSheet(opener) {
     if (!this.#phone()) return false;
     this.close(); this.#opener = opener; this.#paint(); this.sheet.showModal(); void this.load(); return true;

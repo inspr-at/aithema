@@ -315,7 +315,8 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
         if (state !== 'unavailable') {
           surfaceBaseline ??= measured.surface;
           assert.deepEqual(measured.surface, surfaceBaseline, `${width}/${theme}/${locale}/${state}: surface/rows shifted`);
-          assert.ok(measured.rowHeights.every(height => height === (width === 390 ? 50 : 44)));
+          assert.ok(measured.rowHeights.every(height => height === (width === 390 ? 50 : 44)),
+            `${width}/${theme}/${locale}/${state}: role row heights ${JSON.stringify(measured.rowHeights)}`);
           assert.equal(measured.open, true);
           assert.equal(measured.triggerVisible, width !== 390);
           assert.equal(measured.valueWeight, state === 'null' ? '400' : '500');
