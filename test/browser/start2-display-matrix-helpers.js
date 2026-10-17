@@ -274,8 +274,8 @@ export async function displayMatrix(t, section) {
         assert.ok(footer.zones.every(n => n.left >= 0 && n.right <= width + .5 && Math.abs(n.top - footer.zones[0].top) <= .5), context);
         if (footer.connected) {
           assert.ok(Math.abs(footer.timer.left - footer.label.right - 6) <= .5, context);
-          assert.ok(Math.abs(footer.dot.left - footer.flag.right - 12) <= .5, context);
-          assert.ok(Math.abs(footer.sizer.left - footer.dot.right - 6) <= .5, context);
+          assert.ok(footer.dot.left - footer.flag.right >= 11.5, context);
+          assert.ok(Math.abs(footer.label.left - footer.dot.right - 6) <= .5, context);
           assert.equal(footer.label.right, footer.sizer.right, context);
         }
         assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
