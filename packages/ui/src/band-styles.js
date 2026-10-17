@@ -255,9 +255,7 @@ slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit !importan
 .conversations-toggle > svg:last-child { display:block; width:10px; height:10px; color:var(--aithema-muted); }
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 .footer-right { grid-column:3; min-width:0; }
-.display-foot .footer-left { width:max-content; }
 .display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
-.display-foot:has(.host-credits[hidden]) .display-foot__row { grid-template-columns:minmax(0,1fr) auto auto; }
 .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
 .host-legal { display:flex; align-items:center; min-width:0; margin-left:10px; font:inherit; color:inherit; }
 slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
@@ -329,6 +327,8 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 /* Preserve the product identity; measured host content yields before legal,
    the preset flag or the named connection dot. Phones keep their AIT-281 frame. */
 @media(min-width:600px) {
+  .display-foot .footer-left { width:max-content; }
+  .display-foot:has(.host-credits[hidden]) .display-foot__row { grid-template-columns:minmax(0,1fr) auto auto; }
   .display-foot .display-version { display:inline; }
   .display-foot .ai-notice__short { display:none; }
   .display-foot .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:inline; }
