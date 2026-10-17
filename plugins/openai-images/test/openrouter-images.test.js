@@ -84,6 +84,26 @@ test('gateway bindings require exact host/model pairs and matching baseUrl, with
   }
 });
 
+for (const [mode, model, endpoint] of [
+  ['direct', 'gpt-image-2', 'https://api.openai.com/v1'],
+  ['gateway', 'openai/gpt-image-2', 'https://openrouter.ai/api/v1'],
+]) for (const [field, value] of [['search', '?fixture=1'], ['hash', '#fixture'], ['username', 'fixture-user'], ['password', 'fixture-pass']]) {
+  test(`${mode} rejects endpoint ${field} at admission before secret resolution or dispatch`, () => {
+    let secrets = 0, requests = 0;
+    for (const base of [endpoint, 'http://127.0.0.1:1234/v1', 'http://localhost:1234/v1', 'http://[::1]:1234/v1']) {
+      const url = new URL(base); url[field] = value;
+      const admitted = binding({ model, endpoint: url.href });
+      for (const override of [{}, { baseUrl: url.href }]) {
+        assert.throws(() => createOpenAIImages({ binding: admitted, ...override,
+          resolveSecret() { secrets++; return 'fixture-only'; },
+          fetchImpl() { requests++; return Response.json(payload()); },
+        }), { name: 'TypeError', message: /endpoint/iu }, url.href);
+      }
+    }
+    assert.equal(secrets, 0); assert.equal(requests, 0);
+  });
+}
+
 test('routing attribution is optional, validated and never sent in the JSON or direct-mode headers', async () => {
   for (const routing of [{}, { title: 'Host' }, { referer: 'https://host.example.test' }]) {
     const f = fake({ admitted: binding({ routing }) }); await f.plugin.generate(spec, '', options());
