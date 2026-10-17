@@ -1280,6 +1280,11 @@ for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: platform shor
 for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: no bound visuals hides the rail; configured/off visuals retain their UI`, () => {
   const c = setup({ copy });
   assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, true);
+  const noDrafts = c.session;
+  noDrafts.featureMatrix.eu = { html: { available: false, reason: 'preset not configured' } };
+  noDrafts.featureMatrix.custom = { images: { available: false, reason: 'preset not configured' } };
+  c.configure({ copy, session: noDrafts });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, true);
   for (const verdict of [{ available: true }, { available: false, reason: 'visuals off' }, { available: false, reason: 'current processing consent required' }]) {
     const session = c.session; session.featureMatrix.best.html = verdict;
     c.configure({ copy, session });

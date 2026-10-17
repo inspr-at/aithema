@@ -182,7 +182,7 @@ svg { display:block; flex:none; }
 /* One grid for the line: scene, state, the thumbnail once there is a concept, and Request at the right edge, so the
    thumbnail arriving narrows the state's column and never moves Request. */
  .concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.5rem; min-height:44px; }
-.concept-bar:has(.concept-rail[hidden]):has(.concept-preview:disabled):not(:has(.voice-notices:not(:empty))) { display:none; }
+.concept-bar[data-no-drafts]:not(:has(.voice-notices:not(:empty))) { display:none; }
 .concept-rail { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; column-gap:.65rem; min-height:44px; }
 .concept-scene { grid-area:1/1; width:22px; height:22px; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
 .concept-scene i { background:var(--aithema-line-strong); border-radius:2px; }

@@ -6,9 +6,9 @@ export const questionCardStyles = `
 .composer-dock { position:relative; min-width:0; }
 .phone-dock-backdrop { display:none; }
 /* Without a visual rail, the transcript and composer own the two remaining rows. */
-.workspace[data-stage="live"] .conversation:has(> .concept-bar:has(.concept-rail[hidden]):has(.concept-preview:disabled):not(:has(.voice-notices:not(:empty)))) { grid-template-rows:minmax(0,1fr) auto; }
+.workspace[data-stage="live"] .conversation:has(> .concept-bar[data-no-drafts]):not(:has(> .concept-bar > .voice-notices:not(:empty))) { grid-template-rows:minmax(0,1fr) auto; }
 @media(max-width:600px) {
-  .workspace[data-stage="live"] .conversation:has(> .concept-bar:has(.concept-rail[hidden]):has(.concept-preview:disabled):not(:has(.voice-notices:not(:empty)))) { grid-template-rows:minmax(0,1fr); }
+  .workspace[data-stage="live"] .conversation:has(> .concept-bar[data-no-drafts]):not(:has(> .concept-bar > .voice-notices:not(:empty))) { grid-template-rows:minmax(0,1fr); }
 }
 /* Tick L2: keep the same composer slot over the footer. The overview remains
    in the page below the bounded transcript; scrolling it never loses input. */
