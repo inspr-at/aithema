@@ -465,7 +465,11 @@ test('AIT-295: library delete completes host erase before retirement', async t =
   const f = fixture(t), session = await (await f.call('/api/library', { title: 'Ordered cleanup' })).json();
   const entered = deferred(), finish = deferred(), order = [];
   const erased = f.host.erased.bind(f.host), retired = f.host.retired.bind(f.host);
+  let eraseCalls = 0;
   t.mock.method(f.host, 'erased', async info => {
+    // The demo library calls erased again after its core erase callback.
+    // Hold that second call; retired also replays erased idempotently.
+    if (++eraseCalls !== 2) return erased(info);
     order.push('erase started'); entered.resolve(); await finish.promise;
     await erased(info); order.push('erase finished');
   });

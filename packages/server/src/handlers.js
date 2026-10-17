@@ -671,13 +671,22 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   const retiring = new Set();
   async function retainedHandle(request, context) {
-    const match = /^\/api\/(?:sessions|library)\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
+    const path = new URL(request.url).pathname;
+    const match = /^\/api\/(?:sessions|library)\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(path);
+    const erasureReleases = [];
     let release;
     if (match) {
-      try { storage.authorize(match[1], ownership.token(request)); storage.touch(match[1]); release = storage.hold(match[1]); }
-      catch (error) { if (!(error instanceof NotFoundError)) throw error; }
+      try {
+        storage.authorize(match[1], ownership.token(request)); storage.touch(match[1]); release = storage.hold(match[1]);
+        // A library port may perform more host cleanup after its erase callback.
+        if (request.method === 'POST' && /\/(erase|delete|reset)$/u.test(path)) erasureReleases.push(storage.holdErasedRetirement(match[1]));
+      } catch (error) { if (!(error instanceof NotFoundError)) throw error; }
+    } else if (request.method === 'POST' && path === '/api/visitor/erase') {
+      const ownerToken = ownership.token(request);
+      if (ownerToken) for (const id of storage.ownedIds(ownerToken)) erasureReleases.push(storage.holdErasedRetirement(id));
     }
-    try { return await handle(request, context); } finally { release?.(); }
+    try { return await handle(request, context); }
+    finally { for (const finish of erasureReleases) finish(); release?.(); }
   }
   return { handle: retainedHandle,
     buildVoiceReplyRequest: (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, hostPrompt, purposePolicy,
