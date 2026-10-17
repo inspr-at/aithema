@@ -1,6 +1,6 @@
 {
   "seconds": 50.703,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings. AIT-283 round-2 remeasurement: successful PR #251 CI run 39001400566, head 78466ae367, observed 46.855165671s for the current workload; scripts/browser-shards.js retains a 58.57s provisional floor. PR observations are diagnostic only and are not imported into the main-only rolling samples.",
   "timing": {
     "schema": 1,
     "window": 20,

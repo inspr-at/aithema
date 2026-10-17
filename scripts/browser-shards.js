@@ -50,6 +50,17 @@ browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 28.544);
 
+// AIT-283 round 2: successful PR CI 39001400566, head 78466ae367,
+// remeasured the changed display workloads. Follow AIT-276's provisional
+// floor pattern without importing PR samples into the trusted main history.
+// Each floor is observed top-level test work plus the 25% warmup margin;
+// retain it until rolling main measurements catch up with this workload.
+for (const [file, seconds] of Object.entries({
+  'test/browser/start2-display.test.js': 185.675, // observed 148.539947409s
+  'test/browser/start2-display-continuity.test.js': 58.570, // observed 46.855165671s
+  'test/browser/start2-display-matrix.test.js': 65.560, // observed 52.447183619s
+})) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;
