@@ -294,7 +294,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
   .composer-out__bar { font-size:13px; gap:10px; }
-  .composer-out[data-host-limit] .composer-out__bar { min-height:4.05em; }
+  .composer-out[data-host-limit] .composer-out__bar { min-height:calc(4.05em + 2px); }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }

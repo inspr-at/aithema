@@ -495,7 +495,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
           const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
         };
         const upgrade = r.querySelector('.composer-out__upgrade'), link = r.querySelector('.composer-out__export');
-        return { boxes: ['.composer-shell', '.question-card', '.composer-out__bar', '.composer-out__actions', '.composer-out__export', '.band', '.pause'].map(box),
+        return { boxes: ['.composer-shell', '.question-card', '.composer-out__bar', '.composer-out__actions', '.composer-out__export', '.band', '.settings-open'].map(box),
           primary: upgrade.getAttribute('aria-hidden') === 'false', export: getComputedStyle(link).visibility,
           heights: [upgrade, link].map(n => n.getBoundingClientRect().height),
           sameRow: Math.abs(upgrade.getBoundingClientRect().y - link.getBoundingClientRect().y) < 1,
