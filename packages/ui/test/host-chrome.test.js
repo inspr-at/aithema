@@ -151,3 +151,18 @@ for (const locale of ['de', 'en']) for (const source of ['host', 'budget']) {
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'limits' } }); check();
   });
 }
+
+for (const locale of ['de', 'en']) for (const voice of [false, true]) {
+  test(`AIT-283: first footer paint reserves transport labels, ${locale}/voice=${voice}`, () => {
+    const copy = { en, de }[locale], c = configure(locale, voice ? { voiceClient: {} } : {});
+    const r = c.shadowRoot, status = r.querySelector('.status');
+    assert.equal(status.querySelector('.status__label').textContent, copy.connecting);
+    const reserved = [...status.querySelectorAll('.status__sizer > span')].map(n => n.textContent);
+    for (const words of [copy.connecting, copy.connected, copy.reconnecting, ...(voice ? [copy.paused, copy.voiceInAnotherTab] : [])]) {
+      assert.ok(reserved.includes(words), 'transport and bound-voice labels have a permanent width reservation');
+    }
+    assert.equal(status.querySelector('.status__sizer').getAttribute('aria-hidden'), 'true');
+    assert.equal(r.querySelector('.engine-info').disabled, false);
+    assert.equal(r.querySelector('.ai-notice').disabled, false);
+  });
+}

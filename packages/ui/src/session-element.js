@@ -651,8 +651,10 @@ export class AithemaSession extends HTMLElement {
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
-    // Reserve the longest steady status in this locale; action messages use the existing popup.
-    reconcile(status.querySelector('.status__sizer'), (this.#voiceBound ? [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab] : [this.#copy.connected]).map(words => [words, words]),
+    // Transport can settle or reconnect while a footer control is under the pointer.
+    // Reserve every transport label from the first paint; action messages use the popup.
+    const transport = [this.#copy.connecting, this.#copy.connected, this.#copy.reconnecting];
+    reconcile(status.querySelector('.status__sizer'), (this.#voiceBound ? [...transport, this.#copy.paused, this.#copy.voiceInAnotherTab] : transport).map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
     // Keep the same live message node, anchored to the dock while it is a toast.
     // The footer's sizer still reserves its steady status width.
