@@ -168,7 +168,8 @@ test('AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic', 
     const label = `${locale}-${theme}-${width}-reconciling`;
     if (width === 390) assert.ok(view.labelWidth >= view.signalWidth + 44, `${label}: label can use the empty pause reservation: ${JSON.stringify(view)}`);
     assert.ok(view.lines <= 2, `${label}: at most two lines: ${JSON.stringify(view)}`);
-    assert.ok(view.textRight <= view.micLeft, `${label}: label never covers mic`);
+    if (width >= 600) assert.ok(view.textRight <= view.micLeft, `${label}: label never covers mic`);
+    else assert.ok(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').getBoundingClientRect().top >= c.shadowRoot.querySelector('.voice-input').getBoundingClientRect().bottom), `${label}: status below mic`);
     assert.ok(view.textBottom < view.bandBottom, `${label}: label clears hairline`);
     assert.deepEqual(await boxes(page, railBoxes), before, `${label}: mic and all rail cells shift 0 px`);
     const values = { ...view, shiftPx: 0 }; await evidence('F4', page, label, values); t.diagnostic(`PASS F4 ${label}: ${JSON.stringify(values)}`);
@@ -191,8 +192,10 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
         overflowWrap: style.overflowWrap, wordBreak: style.wordBreak, hyphens: style.hyphens, railText: n.textContent };
     });
     const label = `${locale}-${theme}-${width}-voice-failure`;
-    assert.equal(view.popoverWidth, Math.min(280, width - 32), `${label}: popover width`);
-    assert.ok(view.left >= 16 && view.right <= width - 16, `${label}: inset 16 px: ${JSON.stringify(view)}`);
+    if (width >= 600) assert.equal(view.popoverWidth, Math.min(280, width - 32), `${label}: popover width`);
+    else assert.ok(view.lines <= 2, `${label}: narrow failure is at most two lines`);
+    if (width >= 600) assert.ok(view.left >= 16 && view.right <= width - 16, `${label}: inset 16 px: ${JSON.stringify(view)}`);
+    else assert.ok(view.left >= 0 && view.right <= width, `${label}: narrow status stays in viewport`);
     assert.equal(view.overflowWrap, 'normal'); assert.equal(view.wordBreak, 'normal'); assert.equal(view.hyphens, 'auto');
     assert.equal(view.overlapPx, 0, `${label}: first bubble clear`);
     assert.deepEqual(await boxes(page, railBoxes), before, `${label}: 0 px shift`);

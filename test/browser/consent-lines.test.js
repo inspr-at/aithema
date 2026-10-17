@@ -978,7 +978,8 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
       const lines = Object.fromEntries(['text', 'html', 'voice', 'analysis'].map(feature => {
         const selector = { text: '.composer-reason', html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
-        const element = c.shadowRoot.querySelector(selector), line = element.innerText;
+        const element = c.shadowRoot.querySelector(selector), narrow = feature === 'voice' && innerWidth < 600;
+        const line = narrow ? `${element.querySelector('.consent-narrow').dataset.copy} ${element.querySelector('.consent-action').textContent}` : element.innerText;
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), glyphs = [];
         while (walker.nextNode()) {
           const text = walker.currentNode;
@@ -996,14 +997,18 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
           else if (glyph.left < start.left) Object.assign(start, glyph);
         }
         if (!starts.length || starts.some(start => start.glyph === '·')) throw new Error(`${feature}: separator starts a line`);
-        if (line !== `${copy.featureConsent[feature]}\u00a0· ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
+        if (narrow) {
+          if (line !== `${copy.featureConsent.textNarrow} ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
+        } else if (line !== `${copy.featureConsent[feature]}\u00a0· ${copy.featureConsent.action}`) throw new Error(`${feature}: ${line}`);
         return [feature, line];
       }));
-      const label = c.shadowRoot.querySelector('.voice-state .consent-line-copy').firstChild;
+      if (innerWidth >= 600) {
+      const label = c.shadowRoot.querySelector('.voice-state .consent-wide').firstChild;
       const dot = label.textContent.indexOf('·'), range = document.createRange();
       range.setStart(label, dot - 2); range.setEnd(label, dot - 1); const letterBox = range.getBoundingClientRect();
       range.setStart(label, dot); range.setEnd(label, dot + 1); const dotBox = range.getBoundingClientRect();
       if (letterBox.y !== dotBox.y || dotBox.x < letterBox.right) throw new Error('Rail separator starts a line');
+      }
       const r = c.shadowRoot;
       r.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
       return { lines, separatorStartsLine: false, locale: document.documentElement.lang, font: getComputedStyle(c).getPropertyValue('--aithema-font').trim() };

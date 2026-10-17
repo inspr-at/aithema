@@ -356,7 +356,8 @@ export async function displayMatrix(t, section) {
           assert.ok(Math.abs(gap - 16) <= .5, `8px clear space plus 8px fade beside the widest line: ${JSON.stringify(label)}`);
           assert.ok(Math.abs(gap - single.gaps[i]) <= 2, 'one-line and wrapped text have the same gap (±2px)');
         }
-        assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
+        if (width >= 600) assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
+        else { const rail = (await boxes(page, ['.audio-rail']))[0]; assert.ok(Math.abs(label.x + label.width / 2 - rail[0] - rail[2] / 2) <= .5, 'phone status is centred below the controls'); }
         assert.ok(label.lines <= 2.05, `${width}/${theme}/${locale}: at most two lines ${JSON.stringify(label)}`);
         if (width >= 600) assert.ok(label.width <= label.waveWidth / 2 + .5, 'the wide status label uses at most half the wave');
         assert.notEqual(label.overflow, 'ellipsis'); assert.ok(label.scrollHeight <= label.clientHeight + 1, 'the full consent text stays readable');

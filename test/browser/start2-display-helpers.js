@@ -31,8 +31,15 @@ const layoutBoxes = (page, selectors) => shadow(page, (c, selectors) => selector
 const statusGeometry = page => shadow(page, c => {
   const n = c.shadowRoot.querySelector('.voice-state'), wave = c.shadowRoot.querySelector('.voice-wave');
   const b = n.getBoundingClientRect(), w = wave.getBoundingClientRect(), style = getComputedStyle(n);
-  const range = document.createRange(); range.selectNodeContents(n);
-  const lines = [...range.getClientRects()].map(r => ({ x: r.x, y: r.y, width: r.width, height: r.height }));
+  const range = document.createRange(), walker = document.createTreeWalker(n, NodeFilter.SHOW_TEXT), rects = [];
+  while (walker.nextNode()) {
+    const parent = walker.currentNode.parentElement, css = getComputedStyle(parent);
+    if (css.display === 'none' || css.clipPath !== 'none') continue;
+    range.selectNodeContents(walker.currentNode); rects.push(...range.getClientRects());
+  }
+  const narrow = n.querySelector('.consent-narrow');
+  if (narrow && getComputedStyle(narrow).display !== 'none') rects.push(...narrow.getClientRects());
+  const lines = rects.filter(r => r.width > 0).map(r => ({ x: r.x, y: r.y, width: r.width, height: r.height }));
   const widest = lines.reduce((a, r) => r.width > a.width ? r : a), half = parseFloat(getComputedStyle(wave).getPropertyValue('--voice-label-half'));
   const center = w.x + w.width / 2 + parseFloat(getComputedStyle(wave).getPropertyValue('--voice-label-center'));
   const textBox = { x: Math.min(...lines.map(r => r.x)), y: Math.min(...lines.map(r => r.y)),

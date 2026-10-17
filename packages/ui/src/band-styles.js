@@ -61,14 +61,15 @@ export const bandStyles = `
 .voice-state .consent-narrow::before { content:attr(data-copy); }
 @media(width < 600px) {
   /* A permanent two-line row below the 44px controls also fits at 320px. */
-  .voice-signal { position:static; height:80px; }
+  .voice-signal { height:44px; }
   .voice-wave { align-self:start; margin-top:7px; }
   .audio-rail .voice-state, .audio-rail[data-message] .voice-state {
-    position:absolute; top:44px; left:0; right:0; width:auto; max-width:100%; height:36px;
+    position:absolute; top:44px; left:-48px; right:auto; width:calc(100% + 192px); max-width:none; height:36px;
     display:flex; flex-wrap:wrap; align-content:center; justify-content:center; column-gap:.35em;
     padding:3px 8px; border:0; border-radius:0; background:none; box-shadow:none;
     font-size:12px; line-height:1.25; text-align:center; white-space:normal; text-wrap:initial;
   }
+  .audio-rail .voice-state:empty { display:none; }
   .voice-state .consent-line-copy { display:contents; }
   /* Keep the full sentence in the accessibility tree and the live region. */
   .voice-state .consent-wide { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

@@ -17,8 +17,9 @@ export const featureConsentText = (copy, feature) => copy.featureConsent[feature
 /** Visual narrow copy stays out of the live text; wide remains the full AT sentence. */
 export function paintNarrowText(label, text, textNarrow) {
   if (!label.querySelector('.consent-wide')) {
-    const narrow = node('span', 'consent-narrow'); narrow.setAttribute('aria-hidden', 'true');
-    label.replaceChildren(node('span', 'consent-wide'), narrow);
+    const wide = label.ownerDocument.createElement('span'), narrow = label.ownerDocument.createElement('span');
+    wide.className = 'consent-wide'; narrow.className = 'consent-narrow'; narrow.setAttribute('aria-hidden', 'true');
+    label.replaceChildren(wide, narrow);
   }
   setText(label.querySelector('.consent-wide'), text);
   label.querySelector('.consent-narrow').dataset.copy = textNarrow;
