@@ -179,6 +179,20 @@ export async function hostChromeCheck(t) {
       for (const b of fit.others) assert.ok(fit.rail.right <= b.left || fit.rail.left >= b.right || fit.rail.bottom <= b.top || fit.rail.top >= b.bottom,
         `${brandMode}/${width}: rail intersects brand/action ${JSON.stringify(fit)}`);
       checks.push({ pass: true, label: `${brandMode}-${width}-rail-fit`, ...fit });
+      if (width === 320 && brandMode === 'start') {
+        await page.focus('aithema-session >>> .band-orb [role="button"]'); await settle();
+        const reveal = await shadow(page, c => {
+          const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
+          return { open: r.querySelector('.band').dataset.aithemaRevealState === 'open',
+            overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth),
+            parts: [...r.querySelectorAll('.aithema-reveal__wordmark, .aithema-reveal__version, .aithema-reveal__link')].map(box) };
+        });
+        assert.equal(reveal.open, true); assert.equal(reveal.overflowPx, 0, `320px open reveal: ${JSON.stringify(reveal)}`);
+        for (const [i, a] of reveal.parts.entries()) for (const b of reveal.parts.slice(i + 1))
+          assert.ok(a[2] <= b[0] || a[0] >= b[2] || a[3] <= b[1] || a[1] >= b[3], `320px reveal items intersect: ${JSON.stringify(reveal)}`);
+        checks.push({ pass: true, label: '320-open-reveal', ...reveal });
+        await page.keyboard.press('Escape'); await settle();
+      }
     }
     await page.setViewport({ width: 700, height: 1000 }); await settle(); await shot(`de-light-700-voice-${brandMode}`);
   }

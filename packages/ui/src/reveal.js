@@ -67,7 +67,9 @@ const css = `
   .aithema-reveal__link:first-of-type .aithema-reveal__subtitle { white-space:nowrap; }
 }
 @media(max-width:599px) {
-  .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:max-content max-content minmax(0,1fr); gap:6px 12px; white-space:nowrap; }
+  .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:minmax(0,1fr) max-content; gap:6px 12px; white-space:nowrap; }
+  .aithema-reveal__wordmark { grid-column:1; }
+  .aithema-reveal__version { grid-column:2; }
   .aithema-reveal__subtitle { display:none; }
 }
 `;
