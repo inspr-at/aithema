@@ -422,8 +422,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   });
   browser = await launch(directory, 'terminal-profile');
   const page = await browser.newPage(), problems = [];
-  await preparePage(page, ['en'], problems);
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await preparePage(page, ['de'], problems);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url); await shadow(page, '.composer');
   const original = await inShadow(page, c => c.session);
   // Reuse a single page/browser for this state-only matrix. The server's actual
