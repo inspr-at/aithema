@@ -161,7 +161,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-shell[data-used-up] .composer-out { visibility:visible; opacity:1; }
 .composer-out__title { display:grid; font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
 /* Measure the no-upgrade title before it replaces the shorter credit title. */
-.composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; }
+.composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; min-width:0; white-space:nowrap; }
 .composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__body > span { grid-area:1/1; }
@@ -317,7 +317,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .m-save,.m-cancel { margin-top:.3rem; } .m-msg { font-size:.75rem; }
 }
 /* Only the host-limit state reserves stacked actions on narrow phones. */
-@media(width < 389px) { .composer-out[data-host-limit] .composer-out__bar { min-height:90px; } }
+@media(width < 389px) {
+  .composer-out[data-host-limit] .composer-out__bar { min-height:90px; }
+  .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
+}
 @media(389px <= width <= 600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
   .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }

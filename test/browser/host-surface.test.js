@@ -647,6 +647,7 @@ async function postRelease297(browserPage, t, legalHTML) {
       await inShadow(page, (c, { legalHTML, theme, labels }) => {
         c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme; document.documentElement.lang = c.session.locale;
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
         c.insertAdjacentHTML('beforeend', legalHTML);
         c.querySelector('#demo-legal').setAttribute('aria-label', labels.legal);
         c.querySelector('#demo-license').textContent = labels.license;
@@ -703,6 +704,7 @@ async function postRelease297(browserPage, t, legalHTML) {
         await settleEvidenceFrame(page);
         await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
         // Axe is explicit remote evidence only; never add audits to CI workloads.
+        if (!process.env.CI) {
         if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
         const audit = await page.evaluate(async () => {
           const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
@@ -710,6 +712,7 @@ async function postRelease297(browserPage, t, legalHTML) {
         });
         audits.push({ head: evidenceCommit, locale, theme, width, ...audit });
         assert.deepEqual(audit.violations.filter(rule => ['serious', 'critical'].includes(rule.impact)), [], `${label}: axe serious/critical findings`);
+        }
       }
     }
     if (frameElement) await frameElement.evaluate(frame => frame.remove());
