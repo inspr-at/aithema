@@ -42,8 +42,10 @@ export class SQLiteStorage {
     }
     try {
     this.activityOrigin = new AsyncLocalStorage();
+    this.erasingRetirements = new Map();
     this.db = new DatabaseSync(path);
     this.db.function('retention_activity', () => this.countsAsActivity() ? 1 : 0);
+    this.db.function('retirement_ready', id => this.erasingRetirements.has(id) ? 0 : 1);
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -125,14 +127,15 @@ export class SQLiteStorage {
           reserved_micro INTEGER NOT NULL, uncertain_micro INTEGER NOT NULL, breached INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS credit_guard_session ON owner_credit_guards(json_extract(record,'$.sessionId'));
         CREATE INDEX IF NOT EXISTS content_session ON content(session_id);
-        CREATE INDEX IF NOT EXISTS lifecycle_session ON voice_lifecycle_calls(session_id);`);
+        CREATE INDEX IF NOT EXISTS lifecycle_session ON voice_lifecycle_calls(session_id);
+        CREATE INDEX IF NOT EXISTS sessions_erased ON sessions(id) WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL;`);
       const pendingColumns = this.db.prepare('PRAGMA table_info(retirement_pending)').all();
-      for (const [name, type] of [['owner_hash', 'TEXT'], ['attempts', 'INTEGER NOT NULL DEFAULT 0'], ['retry_at', 'INTEGER NOT NULL DEFAULT 0']]) {
+      for (const [name, type] of [['owner_hash', 'TEXT'], ['attempts', 'INTEGER NOT NULL DEFAULT 0'], ['retry_at', 'INTEGER NOT NULL DEFAULT 0'], ['wait_for_billing', 'INTEGER NOT NULL DEFAULT 0']]) {
         if (!pendingColumns.some(column => column.name === name)) this.db.exec(`ALTER TABLE retirement_pending ADD COLUMN ${name} ${type}`);
       }
       this.db.exec(`UPDATE retirement_pending SET owner_hash=(SELECT json_extract(snapshot,'$.ownerHash') FROM sessions WHERE id=session_id) WHERE owner_hash IS NULL;
         CREATE INDEX IF NOT EXISTS retirement_retry ON retirement_pending(retry_at,session_id);`);
-      // Only the migration visits historical snapshots. Sweeps never read tombstones.
+      // Only the initial live-set migration visits historical event timestamps.
       if (!exists) this.db.exec(`INSERT INTO session_retention(session_id,last_activity)
         SELECT id, COALESCE((SELECT MAX(CAST((julianday(json_extract(event,'$.at'))-2440587.5)*86400000 AS INTEGER))
           FROM events WHERE session_id=sessions.id), CAST((julianday('now')-2440587.5)*86400000 AS INTEGER))
@@ -145,8 +148,18 @@ export class SQLiteStorage {
         CREATE TRIGGER retention_event AFTER INSERT ON events WHEN retention_activity()=1 BEGIN
           UPDATE session_retention SET last_activity=MAX(last_activity,CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)) WHERE session_id=NEW.session_id; END;
         CREATE TRIGGER IF NOT EXISTS retention_erase AFTER UPDATE ON sessions WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL BEGIN
-          DELETE FROM session_retention WHERE session_id=NEW.id; END;`);
+          DELETE FROM session_retention WHERE session_id=NEW.id; END;
+        DROP TRIGGER IF EXISTS retirement_erase;
+        CREATE TRIGGER retirement_erase AFTER UPDATE ON sessions
+          WHEN json_extract(NEW.snapshot,'$.tombstone') IS NOT NULL AND retirement_ready(NEW.id)=1 BEGIN
+          INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing)
+            VALUES (NEW.id,json_extract(NEW.snapshot,'$.ownerHash'),1); END;`);
     });
+    // New tombstones queue through the trigger. Revisit at most one indexed page
+    // of older tombstones per sweep; restart may safely revisit already queued IDs.
+    this.erasedRetirementCursor = '';
+    this.erasedRetirementEnd = this.db.prepare(`SELECT id FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL
+      ORDER BY id DESC LIMIT 1`).get()?.id ?? '';
   }
   /** Activity rule: direct storage calls are host activity; system scopes never
    * renew retention, including events and async work spawned inside that scope.
@@ -176,8 +189,39 @@ export class SQLiteStorage {
     return this.db.prepare('SELECT session_id FROM session_retention WHERE busy=0 AND last_activity<? ORDER BY last_activity,session_id LIMIT ?')
       .all(before, limit).map(row => row.session_id);
   }
+  /** Queue after async erase hooks finish. A crash leaves an indexed tombstone
+   * for startup backfill; nested/operator retries also hide any existing queue. */
+  holdErasedRetirement(id) {
+    this.erasingRetirements.set(id, (this.erasingRetirements.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = this.erasingRetirements.get(id) - 1;
+      if (remaining) { this.erasingRetirements.set(id, remaining); return; }
+      this.erasingRetirements.delete(id);
+      this.db.prepare(`INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing)
+        SELECT id,json_extract(snapshot,'$.ownerHash'),1 FROM sessions
+        WHERE id=? AND json_extract(snapshot,'$.tombstone') IS NOT NULL`).run(id);
+    };
+  }
+  queueErasedRetirements(limit) {
+    const rows = this.transaction(() => {
+      const rows = this.db.prepare(`SELECT id,json_extract(snapshot,'$.ownerHash') AS owner_hash FROM sessions
+        WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL AND id>? AND id<=? AND retirement_ready(id)=1 ORDER BY id LIMIT ?`)
+        .all(this.erasedRetirementCursor, this.erasedRetirementEnd, limit);
+      const queue = this.db.prepare('INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash,wait_for_billing) VALUES (?,?,1)');
+      for (const row of rows) queue.run(row.id, row.owner_hash);
+      return rows;
+    });
+    if (rows.length) this.erasedRetirementCursor = rows.at(-1).id;
+  }
+  hasErasedRetirementBacklog() {
+    return Boolean(this.db.prepare(`SELECT 1 FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL
+      AND id>? AND id<=? LIMIT 1`).get(this.erasedRetirementCursor, this.erasedRetirementEnd));
+  }
   pendingRetirements(limit, now = Date.now()) {
-    return this.db.prepare('SELECT session_id FROM retirement_pending WHERE retry_at<=? ORDER BY retry_at,session_id LIMIT ?').all(now, limit).map(row => row.session_id);
+    return this.db.prepare('SELECT session_id FROM retirement_pending WHERE retry_at<=? AND retirement_ready(session_id)=1 ORDER BY retry_at,session_id LIMIT ?').all(now, limit).map(row => row.session_id);
   }
   retirementOwnerHash(id) {
     return this.db.prepare('SELECT owner_hash FROM retirement_pending WHERE session_id=?').get(id)?.owner_hash;
@@ -204,10 +248,26 @@ export class SQLiteStorage {
     for (const name of tables) visit(name);
     return order;
   }
+  /** Visitor-erased sessions wait only for active work or a scheduled cost retry.
+   * Live retirement, including its durable retries, keeps the mainline contract. */
+  assertRetirementSettled(id) {
+    if (!this.db.prepare('SELECT wait_for_billing FROM retirement_pending WHERE session_id=?').get(id)?.wait_for_billing) return;
+    const tables = new Set(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
+    if (!tables.has('budget_attempts')) return;
+    if (this.db.prepare(`SELECT 1 FROM budget_attempts WHERE session_id=? AND (
+      state!='settled' OR json_extract(provider_cost_json,'$.retryAt') IS NOT NULL) LIMIT 1`)
+      .get(id)) throw new ConflictError('Retirement billing unsettled');
+    if (tables.has('spend_reservations')) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS spend_retirement_attempt ON spend_reservations(attempt_id)');
+      if (this.db.prepare(`SELECT 1 FROM spend_reservations WHERE actual_micro IS NULL AND state IN ('reserved','dispatched') AND attempt_id IN
+        (SELECT attempt_id FROM budget_attempts WHERE session_id=?) LIMIT 1`).get(id)) throw new ConflictError('Retirement spend unsettled');
+    }
+  }
   /** Only a tombstone claimed by retire can lose its append-only journal. */
   purgeRetired(id) {
     this.#invalidationTransaction(() => {
       if (!this.get(id).tombstone || !this.db.prepare('SELECT 1 FROM retirement_pending WHERE session_id=?').get(id)) throw new ConflictError('Retirement not claimed');
+      this.assertRetirementSettled(id);
       const tables = new Set(this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
       const has = name => tables.has(name);
       if (has('ui_render_claims')) this.db.prepare(`INSERT INTO retired_ui_renders
