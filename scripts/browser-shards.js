@@ -76,6 +76,13 @@ browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
 browserTestWeights['test/browser/start2-display.test.js'] = Math.max(
   browserTestWeights['test/browser/start2-display.test.js'], 221.814);
 
+// AIT-290: all 29 consent tests passed in PR #262 CI 39014917676 and
+// 39015342356 (heads aff955f108 / 3c84d426f6). Sum of nearest-rank per-test
+// p95 across those two file executions: 112.589432365s; 25% margin: 140.737s.
+// Keep this floor until rolling main reflects the expanded narrow matrix.
+browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
+  browserTestWeights['test/browser/consent-lines.test.js'], 140.737);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;
