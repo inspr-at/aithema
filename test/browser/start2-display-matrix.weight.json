@@ -1,32 +1,20 @@
 {
-  "seconds": 65.412,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings. AIT-283 round-2 remeasurement: successful PR #251 CI run 39001400566, head 78466ae367, observed 52.447183619s for the current workload; scripts/browser-shards.js retains a 65.56s provisional floor. PR observations are diagnostic only and are not imported into the main-only rolling samples.",
+  "seconds": 65.325,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "8f6dc38e762c32160816a640fd2f99b1a5484d1076ff48564e8849ab5507f92b",
+    "workload": "9702fd70853aca8ef546356bea6e4058e229458f672402b1cbfe7b0eaf07e521",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:46.515Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:50.422Z",
         "tests": [
           {
             "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 52.239848288000005
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:33.605Z",
-        "tests": [
-          {
-            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 52.328573751
+            "seconds": 52.259123262
           }
         ]
       }

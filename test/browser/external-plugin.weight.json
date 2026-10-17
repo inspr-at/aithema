@@ -1,6 +1,6 @@
 {
   "seconds": 2.691,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1, 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -27,6 +27,18 @@
           {
             "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
             "seconds": 2.060276207
+          }
+        ]
+      },
+      {
+        "runId": "39009665180",
+        "attempt": 1,
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:46.081Z",
+        "tests": [
+          {
+            "name": "AIT-200: an external package supplies replies, overview, cost receipts and its own consent item through host configuration",
+            "seconds": 1.654048601
           }
         ]
       }
