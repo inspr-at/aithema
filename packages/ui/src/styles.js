@@ -284,7 +284,9 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 @media(hover:none), (pointer:coarse) { .composer-reason[data-shortcut] { position:absolute; visibility:hidden; width:0; overflow:hidden; } }
 @media(prefers-reduced-motion:reduce) { .composer-reason, .composer-saved { transition:none; } }
 /* Leave paint room for the shared action's 3px underline offset inside the scroll port. */
-.composer-reason:has(.upload-discard) { max-height:44px; line-height:1.25; padding-bottom:3px; }
+.composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
+.upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.upload-retry-actions { flex:none; }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
 .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }

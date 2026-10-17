@@ -1063,6 +1063,8 @@ export class AithemaSession extends HTMLElement {
         send.dataset.command = paused ? 'resume' : 'send';
       }
       send.disabled = paused ? this.#composerResuming : this.#sending || !text.available;
+      // A blocking verdict supersedes the failed attempt, including after it becomes available again.
+      if (!text.available || this.#rail?.moved) this.#sendFailed = false;
       const reason = root.querySelector('.composer-reason');
       reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length && !this.#sendFailed);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -1076,16 +1078,18 @@ export class AithemaSession extends HTMLElement {
       reason.setAttribute('aria-live', showSaved ? 'off' : 'polite');
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
-      const words = this.#sendFailed ? copy.failed : this.#composerPaused ? '' : this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
-      if (this.#retryFiles.length && !this.#sendFailed) {
+      const words = this.#composerPaused ? '' : !text.available || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
+        : this.#uploadNotice || copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
+      if (this.#retryFiles.length) {
         const refusal = this.#retryRefusal();
         if (!reason.querySelector('.upload-discard')) {
           const label = node('span'), discard = reasonAction('', () => {
             this.#retryFiles = []; this.#uploadNotice = ''; this.#render('composer');
           });
-          label.id = 'upload-retry-reason'; discard.classList.add('upload-discard');
+          label.id = 'upload-retry-reason'; label.classList.add('upload-retry-copy'); discard.classList.add('upload-discard');
           discard.setAttribute('aria-describedby', label.id);
-          reason.replaceChildren(label, discard);
+          const actions = node('span', 'upload-retry-actions'); actions.append(discard);
+          reason.replaceChildren(label, actions);
         }
         let action = reason.querySelector('.upload-retry');
         const discard = reason.querySelector('.upload-discard');
@@ -1095,15 +1099,18 @@ export class AithemaSession extends HTMLElement {
           action.classList.add('upload-retry'); action.setAttribute('aria-describedby', 'upload-retry-reason');
           // Buttons form atomic inline boxes; keep the following separator in the same no-wrap span.
           const joined = node('span'); joined.style.whiteSpace = 'nowrap';
-          joined.append(action, document.createTextNode(reasonSeparator)); reason.insertBefore(joined, discard);
+          joined.append(action, document.createTextNode(reasonSeparator)); discard.before(joined);
         }
-        const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
-        setText(reason.querySelector('span'), `${facts}${reasonSeparator}`);
+        // Failure replaces the notice, never the retained selection's actions. Consent keeps its opener too.
+        const facts = !text.available && !paused || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
+          : refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
+        paintConsentLine(reason.querySelector('.upload-retry-copy'), { copy, feature: 'text', text: `${facts}${reasonSeparator}`,
+          verdict: text, open: opener => this.#dialog.openConsent('text', opener) });
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else {
         paintConsentLine(reason, { copy, feature: 'text', text: words,
-          verdict: this.#sendFailed || this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
+          verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
       }
       if (reason.hasAttribute('data-shortcut') && words) {
@@ -1111,7 +1118,7 @@ export class AithemaSession extends HTMLElement {
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');
         reason.replaceChildren(parts[0] ?? '', modifier, suffix[0], enter, suffix.slice(1).join('Enter'));
       }
-      reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
+      reason.title = text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
