@@ -8,6 +8,7 @@ import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithem
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
+import { HostSurface } from '../src/host-surface.js';
 const window = new Window({ url: 'http://localhost/' });
 // Dispose pending DOM tasks after all component assertions, as in session-element.test.js.
 const dumpHandles = process.env.AITHEMA_UNIT_HANDLES === '1'
@@ -1590,32 +1591,81 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
   });
 }
 
-for (const copy of [de, en]) for (const toastFirst of [false, true]) {
-  test(`AIT-292 ${copy.display.locale}: duplicate limit toast ${toastFirst ? 'before' : 'after'} the composer block announces once`, async t => {
-    const limit = copy.hostSurface.credits.ended['one-hour'], message = `${limit.title} ${limit.body}`;
-    const pending = Promise.withResolvers();
-    const { c, root } = setup(t, { copy: { ...copy, reasoningFailed: message }, host: { credits: true },
-      routes: { 'POST /retry': () => pending.promise } });
+// Exercise the durable end-event path with shipped copy, without manufacturing
+// a matching action failure. Observe inserted text only: removals are not speech.
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-292 r2 ${copy.display.locale}/${reason}: real end events use only the composer announcement`, async t => {
+    const { c, root } = setup(t, { copy, host: { credits: true } });
     await tick(8); userTurn(c);
-    const announcements = [];
+    const limit = copy.hostSurface.credits.ended[reason], message = `${limit.title} ${limit.body}`, announcements = [];
     const observer = new window.MutationObserver(records => {
-      for (const record of records) if ([...record.addedNodes].some(node => node.textContent === message)) announcements.push(record.target.className);
+      for (const record of records) for (const node of record.addedNodes) {
+        if (node.textContent === message) announcements.push(record.target.className);
+      }
     });
-    for (const selector of ['.status__label', '.credit-announcement']) observer.observe(root.querySelector(selector), { childList: true });
+    for (const selector of ['.status__label', '.status__live', '.credit-announcement']) observer.observe(root.querySelector(selector), { childList: true });
     t.after(() => observer.disconnect());
-    // A pending action can report its refusal on either side of the durable limit event.
-    root.querySelector('.retry').click();
-    if (toastFirst) { pending.resolve(Response.json({}, { status: 503 })); await tick(8); }
-    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } });
-    if (!toastFirst) pending.resolve(Response.json({}, { status: 503 }));
-    await tick(8);
-    assert.equal(root.querySelector('.composer-out__body').textContent, limit.body);
-    assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null, 'no duplicate toast remains');
-    assert.equal(announcements.length, 1, `one polite announcement across both paths: ${announcements.join(', ')}`);
-    c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason: 'one-hour' } });
-    await tick(8); assert.equal(announcements.length, 1, 'repeat events stay quiet');
+    for (const type of ['credits.limit-reached', 'conversation.end-requested', 'credits.limit-reached']) {
+      c.receive({ seq: c.session.seq + 1, type, data: { reason } }); await tick(8);
+      assert.equal(root.querySelector('.composer-out__body').textContent, limit.body);
+      assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null, 'no end-reason toast');
+    }
+    assert.deepEqual(announcements, ['credit-announcement sr-only'], 'exactly one polite block announcement');
+    assert.equal(root.querySelector('.credit-announcement').getAttribute('aria-live'), 'polite');
+  });
+  test(`AIT-292 r2 ${copy.display.locale}/${reason}: host end-event source never sends a status toast`, async t => {
+    const { c, root } = setup(t, { copy, host: {} }); await tick(8);
+    const statuses = [];
+    // HostSurface's status callback is the source of the old ended-copy toast.
+    // Even a host without an onCredits callback must not emit that toast.
+    const host = new HostSurface({ root, copy, options: {}, baseUrl: '', session: () => c.session, status: text => statuses.push(text) });
+    t.after(() => host.destroy());
+    for (const type of ['credits.limit-reached', 'conversation.end-requested']) host.receive({ type, data: { reason } });
+    assert.equal(host.endReason, reason);
+    assert.deepEqual(statuses, [], 'end reasons belong to the composer, never the status channel');
   });
 }
+
+for (const copy of [de, en]) test(`AIT-292 r2 ${copy.display.locale}: recovery permits the same limit announcement again`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { c, root } = setup(t, { copy, host: { credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance, exhausted: false, limitSlot: null }),
+  } }); await tick(8); userTurn(c);
+  const announcement = root.querySelector('.credit-announcement'), messages = [];
+  const observer = new window.MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) if (node.textContent) messages.push(node.textContent);
+  });
+  observer.observe(announcement, { childList: true }); t.after(() => observer.disconnect());
+  const end = () => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  end(); await tick(8);
+  // A normal failed action shows a real status; successful work clears it.
+  root.querySelector('.retry').click(); await tick(8);
+  c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(announcement.textContent, '', 'recovery clears announcement history');
+  end(); await tick(8);
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0], messages[1], 'the repeated limit copy is announced again after recovery');
+});
+
+for (const failure of ['http', 'network']) test(`AIT-292 r2: ${failure} credits poll failure does not request features`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let failed = false;
+  const { c, root, calls } = setup(t, { host: { credits: true }, session: {
+    featureMatrix: { best: { text: { available: false, reason: 'budget denied' } } },
+  }, routes: {
+    'GET /credits': () => {
+      if (failed) { if (failure === 'network') throw new Error('offline'); return Response.json({}, { status: 503 }); }
+      return Response.json({ balance, exhausted: true, limitSlot: null });
+    },
+  } }); await tick(12); userTurn(c);
+  const reads = path => calls.filter(call => call.path === path).length;
+  const creditReads = reads('/credits'), featureReads = reads('');
+  failed = true; t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(reads('/credits'), creditReads + 1, 'the exhausted wallet was polled');
+  assert.equal(reads(''), featureReads, 'a failed receipt cannot justify a feature request');
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false', 'acknowledged exhaustion stays visible');
+});
 
 for (const copy of [de, en]) for (const failure of ['http', 'network']) {
   test(`AIT-292 ${copy.display.locale}: restored host-limit announces once after ${failure} credits failure`, async t => {
