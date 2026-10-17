@@ -316,7 +316,7 @@ export class AithemaSession extends HTMLElement {
             <p class="host-credits__next"></p><a class="credits-email" href="#email"></a>
             <span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
-          <span class="status" role="status"><span class="status__sizer" aria-hidden="true"></span><span class="status__label"></span><time class="connection-timer">0:00</time></span><div class="host-legal" hidden><slot name="legal"></slot></div></div></div></footer></div>
+          <span class="status" role="status" aria-live="off"><span class="status__dot" role="img"></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><span class="status__label" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" hidden><slot name="legal"></slot></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#follow && !this.#onTranscript,
@@ -651,8 +651,11 @@ export class AithemaSession extends HTMLElement {
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
-    // Reserve the longest steady status in this locale; action messages use the existing popup.
-    reconcile(status.querySelector('.status__sizer'), (this.#voiceBound ? [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab] : [this.#copy.connected]).map(words => [words, words]),
+    // Reserve only short labels, measured in the current font and language.
+    const states = ['connecting', 'connected', 'reconnecting', ...(this.#voiceBound ? ['paused', 'voiceInAnotherTab'] : [])];
+    const labels = this.#copy.connectionLabels;
+    const key = states.find(key => this.#copy[key] === words);
+    reconcile(status.querySelector('.status__sizer'), states.map(key => [key, labels[key]]),
       words => node('span', '', words), (span, words) => setText(span, words));
     // Keep the same live message node, anchored to the dock while it is a toast.
     // The footer's sizer still reserves its steady status width.
@@ -661,7 +664,13 @@ export class AithemaSession extends HTMLElement {
     const parent = toast ? root.querySelector('.composer-dock') : status;
     if (label.parentNode !== parent) parent.append(label);
     if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
-    setText(label, words); status.title = words;
+    label.setAttribute('aria-hidden', String(!toast));
+    setText(label, key && !message ? labels[key] : words); status.title = words;
+    // One stable polite node changes only when the full message changes.
+    setText(status.querySelector('.status__live'), toast ? this.#connection || this.#copy.connecting : words);
+    const dot = status.querySelector('.status__dot');
+    dot.setAttribute('aria-label', key && !message ? words : this.#connection || this.#copy.connecting);
+    dot.dataset.state = connected ? 'connected' : 'connecting';
     setText(root.querySelector('.phone-status__label'), this.#connection || this.#copy.connecting);
     status.toggleAttribute('data-connected', connected);
     status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice));
@@ -2290,7 +2299,7 @@ export class AithemaSession extends HTMLElement {
     while (!signal.aborted) {
       let reader;
       try {
-        this.#connectionStatus(this.#copy.connecting);
+        this.#connectionStatus(attempt ? this.#copy.reconnecting : this.#copy.connecting);
         const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/events`, {
           signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
         });

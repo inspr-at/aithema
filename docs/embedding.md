@@ -435,6 +435,10 @@ Legal links in `slot="legal"` stand at the right of the footer bar on the entran
 and in conversation. `slot="footer"` stays in the info popup. On phones (under
 600 px), the connection timer moves into that popup to leave room for legal links.
 The approved full AI label and connection status remain visible at 1024 px.
+The connection label reserves the widest short label in the current language,
+with the full description in its tooltip and a polite live region. The status dot
+and timer stay in place when the connection changes. At 700–899 px only hosts
+with visible credits hide the label; the named status dot stays visible.
 Credit-enabled hosts retain compact balance details below 1100 px; phone footers
 use the short AI label, retain its marker and omit the decorative credit track.
 Host-owned legal navigation should use quiet underlined links with 44 px targets;

@@ -136,7 +136,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         if (['old-tab', 'takeback-other-tab'].includes(name)) {
           const copy = { de, en }[locale];
           assert.equal(presentation.label, copy.voiceMoved); assert.equal(presentation.resumeLabel, copy.voiceTakeover);
-          assert.equal(presentation.resumeTooltip, copy.voiceTakeover); assert.equal(presentation.footerLabel, copy.voiceInAnotherTab);
+          assert.equal(presentation.resumeTooltip, copy.voiceTakeover); assert.equal(presentation.footerLabel, copy.connectionLabels.voiceInAnotherTab);
           assert.equal(presentation.resumeDisabled, false); assert.equal(presentation.resumeCursor, 'pointer');
           const oldTab = await shadow(target, c => ({
             composerHint: c.shadowRoot.querySelector('.composer-reason').textContent,

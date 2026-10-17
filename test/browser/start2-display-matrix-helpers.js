@@ -264,7 +264,7 @@ export async function displayMatrix(t, section) {
           const weight = s => Number(getComputedStyle(root.querySelector(s)).fontWeight);
           const timer = root.querySelector('.connection-timer'), style = getComputedStyle(timer);
           const digits = document.createRange(); digits.selectNodeContents(timer);
-          return { zones: ['.ai-notice', '.host-credits', '.footer-right'].map(rect), flag: rect('.engine__flag'), label: rect('.status__label'),
+          return { zones: ['.ai-notice', '.host-credits', '.footer-right'].map(rect), flag: rect('.engine__flag'), dot: rect('.status__dot'), sizer: rect('.status__sizer'), label: rect('.status__label'),
             digits: digits.getBoundingClientRect().left, timer: rect('.connection-timer'), align: style.textAlign, numeric: style.fontVariantNumeric,
             amount: weight('.host-credits__amount'), total: weight('.host-credits__total'), unit: weight('.host-credits__unit'),
             voice: visible('.ai-notice__voice'), short: visible('.ai-notice__short'), legal: !root.querySelector('.host-legal').hidden, connected: visible('.status__label') };
@@ -272,7 +272,12 @@ export async function displayMatrix(t, section) {
         const context = `${width}/${theme}/${locale}: ${JSON.stringify(footer)}`;
         assert.ok(footer.zones[1].left - footer.zones[0].right >= (width < 600 && footer.legal ? 7.5 : 23.5) && footer.zones[2].left - footer.zones[1].right >= (width < 600 && footer.legal ? 7.5 : 23.5), context);
         assert.ok(footer.zones.every(n => n.left >= 0 && n.right <= width + .5 && Math.abs(n.top - footer.zones[0].top) <= .5), context);
-        if (footer.connected) { assert.ok(Math.abs(footer.timer.left - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
+        if (footer.connected) {
+          assert.ok(Math.abs(footer.timer.left - footer.label.right - 6) <= .5, context);
+          assert.ok(Math.abs(footer.dot.left - footer.flag.right - 12) <= .5, context);
+          assert.ok(Math.abs(footer.sizer.left - footer.dot.right - 6) <= .5, context);
+          assert.equal(footer.label.right, footer.sizer.right, context);
+        }
         assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
         assert.ok(footer.amount >= 600); assert.equal(footer.total, 400); assert.equal(footer.unit, 400);
         assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 680);
