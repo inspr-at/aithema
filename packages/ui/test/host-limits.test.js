@@ -185,7 +185,8 @@ test('AIT-299: an unchanged post-limit visitor balance cannot recover an operato
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); let reads = 0;
   const { c, root } = a2Setup(t, { privacy: false, creditsRead: async read => {
     const receipt = await read().json();
-    return Response.json({ ...receipt, reconciling: ++reads > 1 });
+    reads++;
+    return Response.json({ ...receipt, reconciling: reads > 1, tiers: { ...receipt.tiers, canConfirm: reads > 1 } });
   } });
   await waitForText(root.querySelector('.host-credits__measure-amount'), '2,400');
   const announcement = root.querySelector('.credit-announcement'), changes = [];
