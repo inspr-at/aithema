@@ -228,6 +228,9 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     </style></head><body><aithema-session></aithema-session><script type="module">
     import '/packages/ui/src/session-element.js';
     import { createSession } from '/packages/core/src/session.js';
+    import { ConceptView } from '/packages/ui/src/concept-view.js';
+    const update=ConceptView.prototype.update;
+    ConceptView.prototype.update=function(session){window.conceptView=this;return update.call(this,session);};
     const c = document.querySelector('aithema-session');
     const canvas = document.createElement('canvas');canvas.width=1600;canvas.height=900;
     const ctx=canvas.getContext('2d'); ctx.fillStyle='#f4f2ec';ctx.fillRect(0,0,1600,900);
@@ -333,8 +336,8 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await page.evaluate(async locale=>{await window.seed(locale);window.state({phase:'ready'},window.conceptItem('withdrawn'));},locale);
     await page.waitForFunction(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]'));
     await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.receive({seq:c.session.seq+1,type:'concept.archived',data:{artifactId:'withdrawn'}});});await capture('gone');
-    await page.evaluate(async locale=>{await window.seed(locale);const c=document.querySelector('aithema-session');c.session.visualsBound=false;window.state({phase:'idle'});},locale);await capture('none');
-    await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.session.visualsBound=true;c.setAttribute('motion','off');window.state({phase:'pending',startedAt:Date.now(),estimateMs:40000});});
+    await page.evaluate(async locale=>{await window.seed(locale);const c=document.querySelector('aithema-session');window.state({phase:'idle'});window.conceptView.update({...c.session,visualsBound:false});},locale);await capture('none');
+    await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.setAttribute('motion','off');window.state({phase:'pending',startedAt:Date.now(),estimateMs:40000});});
     assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-scene i')).animationName),'none');
     await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('reduce')));await capture('reduced-motion');
     assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
@@ -350,7 +353,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
       const c=document.querySelector('aithema-session');
       const {inputRevision}=await import('/packages/core/src/session.js');
       c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'card',role:'assistant',content:'Which system do you use?',question_short:'Which system?',
-        options:[{text:'An API',likely:true,reason:'Existing integration'}],inputRevision:inputRevision(c.session)}});
+        options:[{text:'An API',likely:true}],inputRevision:inputRevision(c.session)}});
     },bound);
     await settle();
     const junction=await page.evaluate(()=>{const r=document.querySelector('aithema-session').shadowRoot,c=r.querySelector('.qcard').getBoundingClientRect(),input=r.querySelector('.composer-shell').getBoundingClientRect(),row=r.querySelector('.concept-phone-slot').getBoundingClientRect();return {gap:input.top-c.bottom,clear:row.bottom<=c.top+.01,row:row.height,thread:getComputedStyle(r.querySelector('.concept-thread')).display};});

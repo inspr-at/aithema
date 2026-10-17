@@ -5,7 +5,7 @@ import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { creditCost } from '../src/display.js';
-import { conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
+import { ConceptView, conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -517,12 +517,14 @@ test('AIT-282: an old conversation response cannot paint a new conversation, eve
   assert.equal(new Headers(read.options.headers).get('x-aithema-session-token'),'second-owner');
 });
 test('AIT-282: initially unbound hosts keep the existing layout, while an image conversation keeps its reservation through none', t => {
+  let view; const update=ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype,'update',function(session){view=this;return update.call(this,session);});
   const {c,root}=setup(t,{concepts:[],session:{visualsBound:false}});
   assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'unbound');
   assert.equal(root.querySelector('.concept-bar').hasAttribute('data-no-drafts'),true);
-  c.session.visualsBound=true;conceptState(c,{phase:'pending',startedAt:Date.now(),estimateMs:40000});
+  view.update({...c.session,visualsBound:true,conceptStatus:{phase:'pending',startedAt:Date.now(),estimateMs:40000}});
   assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
-  c.session.visualsBound=false;conceptState(c,{phase:'idle'});
+  view.update({...c.session,visualsBound:false,conceptStatus:{phase:'idle'}});
   assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
   assert.equal(root.querySelector('.concept-access').dataset.state,'none');
 });
