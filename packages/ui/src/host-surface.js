@@ -256,8 +256,9 @@ export class HostSurface {
       const slot = this.#credits?.limitSlot;
       // A positive visitor balance alone says nothing about the operator budget.
       // Recovery requires an improved allowance or a previously exhausted/held balance.
+      const allowanceRaised = this.#credits?.balance?.owner?.limitMicro > previous?.balance?.owner?.limitMicro;
       const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0 &&
-        (allowanceChanged || previous?.exhausted === true || previous?.balance?.owner?.availableMicro === 0);
+        (allowanceRaised || previous?.exhausted === true || previous?.balance?.owner?.availableMicro === 0);
       // An earlier receipt cannot recover a limit announced after its request.
       const currentLimit = limitGeneration === this.#limitGeneration;
       if (currentLimit && this.#ended === 'host-limit' && recovered) this.#ended = null;

@@ -193,7 +193,8 @@ export class PhoneComposerViewport {
       // A compact label can change natural width without changing its visible
       // zone. Preserve equal-geometry caching, and release a pending fit only
       // after a resting pointer or keyboard focus leaves the footer controls.
-      const protectedFooter = footer.matches(':hover') || footer.contains(root.activeElement);
+      const footerFocused = root.ownerDocument.activeElement === root.host && footer.contains(root.activeElement);
+      const protectedFooter = footer.matches(':hover') || footerFocused;
       if (this.footerFitKey !== fitKey() && (this.footerFitKey === undefined || !protectedFooter)) {
         fitFooter(footer); this.footerFitKey = fitKey();
       }
