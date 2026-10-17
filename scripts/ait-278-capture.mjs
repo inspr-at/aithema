@@ -52,7 +52,10 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
   const report = { mainHead, captureHead: /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], startedAt: new Date().toISOString(),
     runner: 'mbp2606', capture: 'viewport', reducedMotion: true, fonts: 'Chrome baseline UI/display stacks pinned', blurredControls: true,
     fixtureSources: ['start2-display.test.js (265/267/270)', 'host-surface.test.js (261)', 'packages/ui/test/settings.test.js (262/271)', 'host-chrome-check.js', 'host-polish-check.js', 'clarify-now.test.js', 'html-preview.test.js (282)', 'footer-width-sweep.test.js (281)'],
-    shots: [], items: [], unreachable: [], errors: [] };
+    shots: [], items: [], unreachable: [
+      { item: 'Integration-a', state: '390 footer role', reason: 'Main hides .actor-role below 600px (packages/ui/src/actor-role-styles.js:76); noch offen is captured at 1440.' },
+      { item: 'Integration-a', state: '390 large concept backdrop', reason: 'Main hides the large backdrop on phones (packages/ui/src/styles.js:283); the ready composer thumbnail is captured instead.' },
+    ], errors: [] };
   const save = () => writeFile(join(out, 'checks.json'), JSON.stringify(report, null, 2) + '\n');
   report.gaugeKeyCount = await gaugeTable(); await save();
   const directory = await mkdtemp(join(tmpdir(), 'aithema-278-'));
@@ -131,6 +134,7 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
       if (consent) s.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
       s.visualsBound = concept; s.conceptVisualKind = concept ? 'image' : undefined; s.conceptCost = { maxMicro: 30000 };
       s.concepts = []; s.conceptStatus = { phase: 'idle' };
+      for (const turn of s.transcript) if (turn.role === 'assistant') turn.inputRevision = inputRevision(s);
       s.operations = { inputRevision: inputRevision(s), running: [], failures: [], lastFailure: null };
       if (live) Object.assign(s.understanding, { readinessAssessed: true, draft: false, inputRevision: inputRevision(s),
         summary: locale === 'de' ? 'Drei Personen gleichen rund 400 Rechnungen im Monat von Hand ab; die Freigabe dauert oft eine Woche.' : 'Three people reconcile about 400 invoices a month by hand; approval often takes a week.',
@@ -274,8 +278,22 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.actor-trigger .actor-value').textContent), 'noch offen');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-access').dataset.state), 'ready');
       assert.equal(await shadow(page, c => c.querySelectorAll('[slot="legal"] a').length), 2);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.understanding').dataset.overview), 'current');
       await shot('integration-a', 'overview-concept-ready');
-      if (cfg.width === 390) await shot('integration-a', 'overview-three-items', { target: '.understanding' });
+      if (cfg.width === 390) {
+        await shadow(page, c => {
+          const r = c.shadowRoot, aside = r.querySelector('.understanding'), pane = r.querySelector('.analysis-content'), questions = r.querySelector('.open-questions');
+          aside.scrollIntoView({ block: 'start', behavior: 'instant' });
+          scrollBy({ top: aside.getBoundingClientRect().top - r.querySelector('.band').getBoundingClientRect().bottom - 12, behavior: 'instant' });
+          pane.scrollTop += questions.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8;
+        });
+        await shot('integration-a', 'overview-three-items');
+        const visible = await shadow(page, c => {
+          const r = c.shadowRoot, pane = r.querySelector('.analysis-content').getBoundingClientRect();
+          return [...r.querySelectorAll('.clarify-action')].filter(n => { const b = n.getBoundingClientRect(); return b.top >= pane.top && b.bottom <= Math.min(pane.bottom, innerHeight); }).length;
+        });
+        assert.equal(visible, 3, 'all three phone clarify actions visible after scrolling overview');
+      }
       await shadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.value = 'Bitte helfen Sie uns bei der Freigabe.'; c.shadowRoot.querySelector('form').requestSubmit(); });
       await until(page, expected => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === expected, de.failed);
       const { result: component } = await cdp.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session")' });
@@ -285,9 +303,10 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
       await cdp.send('Runtime.releaseObject', { objectId: component.objectId });
       await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
       assert.ok(await shadow(page, c => c.shadowRoot.querySelector('.upload-retry') && c.shadowRoot.querySelector('.upload-discard')));
-      await shot('integration-b', 'send-failure-retained-upload', { target: '.composer' });
+      await page.evaluate(() => scrollTo({ top: 0, behavior: 'instant' }));
+      await shot('integration-b', 'send-failure-retained-upload');
     }
-    return 'PASS: one conversation combines 3 Jetzt klären actions, ready concept, noch offen role, connected/legal; send failure keeps retained upload retry/discard.';
+    return 'PASS: one conversation combines 3 Jetzt klären actions, current overview, ready concept, noch offen desktop role, connected/legal; phone overview scrolled to expose all 3 actions; send failure keeps retained upload retry/discard.';
   });
   await item('Integration-c', async () => {
     for (const theme of ['light', 'dark']) {
