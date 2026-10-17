@@ -33,7 +33,11 @@
     "reason": "Linux headless Chrome sandbox selection"
   },
   "test/browser/composed-qualification.test.js": {
-    "reads": ["CI", "CI", "CI"],
+    "reads": [
+      "CI",
+      "CI",
+      "CI"
+    ],
     "reason": "Linux Chrome sandbox selection for actual command-line coverage and the hermetic qualification CLI child, including the pre-dispatch output-device probe"
   },
   "test/browser/credit-hold.test.js": {
@@ -85,15 +89,6 @@
   },
   "test/browser/operator-login.test.js": {
     "reads": [
-      "CI",
-      "CI"
-    ],
-    "reason": "Linux headless Chrome sandbox selection"
-  },
-  "test/browser/orb-reveal.test.js": {
-    "reads": [
-      "CI",
-      "CI",
       "CI",
       "CI"
     ],
