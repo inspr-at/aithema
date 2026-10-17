@@ -32,7 +32,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       return [locale, firstMessage];
     })));
   const stop = new AbortController(), listeners = new Set();
-  let timer, inFlight, backoff = 30_000, costs, running = false, repairMode = false, repairPatchAt;
+  let timer, inFlight, backoff = 30_000, costs, running = false, repairMode = false, repairPatchAt, repairSnapshot;
   let rejections = [], lastRepairAt = -Infinity;
   let unwatch = () => {};
   let availability = { state: 'starting', disabledReason: null, transient: false };
@@ -67,7 +67,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     if (changed) log({ event: 'voice-availability', from, to, reason });
   };
   const retryLater = () => {
-    // +/-20% jitter, with the actual delay also bounded by ten minutes.
+    // +/-20% jitter, capped at ten minutes before the repair write cooldown.
     const delay = Math.max(Math.min(600_000, Math.round(backoff * (0.8 + random() * 0.4))),
       // Even a failed/ambiguous PATCH consumes the repair write budget. Read/API
       // recovery uses the existing single timer, never a second retry loop.
@@ -88,9 +88,12 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
         beforeSecretPatch: repairMode ? () => { lastRepairAt = repairPatchAt = now(); } : undefined });
       if (stop.signal.aborted) return;
       repairMode = false; backoff = 30_000;
-      // Healthy repair keeps the published runtime: recovery listeners add the
-      // voice plugin and must not add it twice to an already available registry.
-      if (availability.state === 'available') return;
+      // A secret-only repair restores the already prepared runtime, even after
+      // a transient outage. Recovery listeners would register its plugin twice.
+      if (repairSnapshot) {
+        const prepared = repairSnapshot; repairSnapshot = undefined;
+        transition('available', null, prepared); return;
+      }
       const binding = qualifyBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
         endpoint, accountRef, secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
         maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds, minRunwaySeconds,
@@ -123,8 +126,9 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     rejections = []; lastRepairAt = time;
     const deleted = storage.db.prepare('DELETE FROM host_voice_secret_hashes WHERE name=?').run(facadeSecretName);
     if (!deleted.changes) return;
-    repairMode = true; repairPatchAt = undefined;
-    try { log({ event: 'voice-secret-repair', name: facadeSecretName }); } catch { /* Diagnostics cannot block repair. */ }
+    repairMode = true; repairPatchAt = undefined; repairSnapshot = availability;
+    try { Promise.resolve(log({ event: 'voice-secret-repair', name: facadeSecretName })).catch(() => {}); }
+    catch { /* Diagnostics cannot block repair. */ }
     inFlight = attempt();
   });
   return host;

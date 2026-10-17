@@ -63,7 +63,8 @@ async function fixture(t) {
 }
 
 test('AIT-226 same-id value drift repairs in process once, restores calls and retains only SHA-256', async t => {
-  const f = await fixture(t), original = f.receipt();
+  const f = await fixture(t), original = f.receipt(), binding = f.host.binding;
+  f.host.onAvailable(() => assert.fail('secret repair must retain the prepared runtime'));
   f.drift();
   for (let i = 0; i < 2; i++) {
     assert.equal((await f.request()).status, 401); await flush();
@@ -75,7 +76,7 @@ test('AIT-226 same-id value drift repairs in process once, restores calls and re
   assert.equal(f.patches.length, 1); assert.ok(f.patches[0].currentValue);
   gate.resolve(); await flush();
   assert.equal((await f.request(undefined, false)).status, 200);
-  assert.deepEqual(f.receipt(), original);
+  assert.deepEqual(f.receipt(), original); assert.equal(f.host.binding, binding);
   assert.ok(f.receipt()[0].value_hash === createHash('sha256').update('fixture-current-callback-value').digest('hex'));
   assert.deepEqual(f.repairs(), [{ event: 'voice-secret-repair', name: 'aithema-start2-facade' }]);
   f.assertPrivate();
@@ -108,14 +109,15 @@ test('AIT-226 flood permits one idempotent PATCH per window, with fresh threshol
 });
 
 test('AIT-226 failed PATCH uses existing recovery without retrying writes inside the cooldown', async t => {
-  const f = await fixture(t); f.drift(); f.failPatch(true);
+  const f = await fixture(t), binding = f.host.binding; f.drift(); f.failPatch(true);
+  f.host.onAvailable(() => assert.fail('repair retry must restore the prepared runtime'));
   for (let i = 0; i < 3; i++) await f.request();
   await flush(); assert.equal(f.patches.length, 1); assert.deepEqual(f.receipt(), []);
   assert.equal(f.host.transient, true);
   for (let i = 0; i < 100; i++) await f.request();
   t.mock.timers.tick(WINDOW - 1); await flush(); assert.equal(f.patches.length, 1);
   f.failPatch(false); t.mock.timers.tick(1); await flush();
-  assert.equal(f.patches.length, 2); assert.ok(f.host.binding);
+  assert.equal(f.patches.length, 2); assert.equal(f.host.binding, binding);
   assert.equal((await f.request(undefined, false)).status, 200);
   assert.equal(f.repairs().length, 1); f.assertPrivate();
 });
