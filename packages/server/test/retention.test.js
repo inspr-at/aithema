@@ -100,9 +100,11 @@ test('last activity uses server events and authorized reads, strict cutoff, and 
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
 });
 
-test('expiry skips tombstones and retirement processes only a bounded indexed batch', async t => {
+test('expiry skips tombstones and live retirement skips deferred erased sessions', async t => {
   const { storage, handlers } = fixture(t);
   for (let i = 0; i < 1000; i++) storage.erase(storage.create().id);
+  // Deferred erased sessions must not enter the live candidate query.
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=?').run(Number.MAX_SAFE_INTEGER);
   const live = storage.create({ ownerToken: testToken }); age(storage, live.id);
   let reads = 0; const get = storage.get.bind(storage);
   storage.get = id => { reads++; return get(id); };
@@ -110,7 +112,7 @@ test('expiry skips tombstones and retirement processes only a bounded indexed ba
   await handlers.expire(2);
   assert.ok(reads <= 3, `expire hydrated ${reads} sessions`);
   reads = 0;
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: true });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
   assert.ok(reads < 15, `retire hydrated ${reads} sessions`);
   const plan = storage.db.prepare('EXPLAIN QUERY PLAN SELECT session_id FROM session_retention WHERE busy=0 AND last_activity<? ORDER BY last_activity,session_id LIMIT ?').all(2, 2);
   assert.ok(plan.some(row => /SEARCH.*retention_idle/.test(row.detail)), JSON.stringify(plan));
@@ -183,8 +185,6 @@ test('retirement removes accounting links while preserving deployment spend and 
   const reservation = spend.reserve(100, { attemptId: 'attempt', provider: 'private-provider' });
   spend.record(reservation, { generationId: 'private-generation', chargedMicro: 101 });
   spend.settle(reservation, 101);
-  const claim = ledger.claim('attempt'); claim.consume();
-  ledger.settle(claim.claimId, { attemptId: 'attempt', outcome: 'completed', chargedMicro: 101, usage: { inputTokens: 1, outputTokens: 1 } });
   voice.reserve({ attemptId: 'voice-attempt', sessionId: s.id, callId: 'call', maxMilliseconds: 60_000 });
   renders.consume('render-attempt', s.id, () => {});
   const spentBefore = spend.snapshot({ includeBreachReason: true }), voiceBefore = voice.snapshot();
@@ -216,7 +216,7 @@ test('AIT-295: open budget and spend reservations retain billing rows and back o
   assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
   assert.throws(() => storage.purgeRetired(session.id), /billing unsettled/);
   ledger.settle(claim.claimId, { attemptId: 'pending', outcome: 'completed', chargedMicro: 40, usage: { inputTokens: 1, outputTokens: 1 } });
-  spend.uncertain(reservation);
+  // The spend dispatch is still active after its budget receipt commits.
   storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
   assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
   assert.throws(() => storage.purgeRetired(session.id), /spend unsettled/);
@@ -235,7 +235,7 @@ test('AIT-295: open budget and spend reservations retain billing rows and back o
 test('AIT-295: uncertain and estimated provider receipts remain reconcilable until final acknowledgement', async t => {
   const { storage, handlers } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
   ledger.admit({ attemptId: 'receipt', sessionId: session.id, lane: 'reaction', maxMicro: 100,
-    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { generationId: 'gen-retention' } });
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { generationId: 'gen-retention', retryAt: Date.now() + 60_000 } });
   const claim = ledger.claim('receipt'); claim.consume();
   ledger.settle(claim.claimId, { attemptId: 'receipt', outcome: 'uncertain' });
   storage.erase(session.id);
@@ -276,25 +276,72 @@ test('AIT-295: existing tombstones migrate in bounded pages without resetting pe
   assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 1, failed: 0, more: false });
 });
 
-test('AIT-295: uncertain voice billing and duration estimates delay retirement until a final receipt', async t => {
-  const { storage, handlers } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
-  ledger.admit({ attemptId: 'voice', sessionId: session.id, lane: 'voice', maxMicro: 100,
-    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
-  const claim = ledger.claim('voice'); claim.consume();
-  ledger.settleVoice(claim.claimId, { attemptId: 'voice', outcome: 'uncertain' });
-  storage.erase(session.id);
-  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
-  const receipt = { providerSessionId: 'voice-provider', closureConfirmed: true, usage: {
-    providerSeconds: 1, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 40, visitorMicro: 0,
-  } };
-  ledger.reconcileVoice('voice', { ...receipt, usage: { ...receipt.usage, costEstimated: true } });
-  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
-  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
-  ledger.reconcileVoice('voice', receipt);
-  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
-  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
-  assert.throws(() => storage.get(session.id), /not found/i);
-});
+for (const state of ['live', 'erased']) for (const receipt of ['terminal estimate', 'uncertain without cost lookup', 'uncertain without provider record', 'voice estimate', 'uncertain voice']) {
+  test(`AIT-295: ${state} ${receipt} retires with conservative spend totals`, async t => {
+    const { storage, handlers } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+    const spend = createSpendCap({ storage, account: 'terminal', capMicro: 100 });
+    ledger.admit({ attemptId: 'terminal', sessionId: session.id, lane: receipt.includes('voice') ? 'voice' : 'reaction', maxMicro: 100,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+      ...(!receipt.includes('voice') && receipt !== 'uncertain without provider record'
+        ? { providerCost: { plugin: 'no-cost-lookup', generationId: 'terminal-generation' } } : {}) });
+    const claim = ledger.claim('terminal'); claim.consume();
+    const reservation = spend.reserve(100, { attemptId: 'terminal' }); spend.dispatch(reservation); spend.uncertain(reservation);
+    if (receipt.includes('voice')) {
+      ledger.settleVoice(claim.claimId, { attemptId: 'terminal', outcome: receipt === 'uncertain voice' ? 'uncertain' : 'completed',
+        closureConfirmed: true, usage: { providerSeconds: 1, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 1,
+          upstreamMicro: 40, visitorMicro: 0, costEstimated: true } });
+    } else {
+      ledger.settle(claim.claimId, { attemptId: 'terminal', outcome: 'uncertain' });
+      if (receipt === 'terminal estimate') {
+        ledger.reconcileCost('terminal', { chargedMicro: 50, generationId: 'terminal-generation', estimated: true });
+        ledger.acknowledgeCost('terminal', null, 3);
+      }
+    }
+    if (state === 'erased') storage.erase(session.id);
+    else age(storage, session.id);
+    const total = spend.snapshot();
+    assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
+    assert.throws(() => storage.get(session.id), /not found/i);
+    assert.deepEqual(spend.snapshot(), total);
+    assert.deepEqual({ ...storage.db.prepare('SELECT * FROM retired_spend WHERE account=?').get('terminal') },
+      { account: 'terminal', spent_micro: 0, reserved_micro: 0, uncertain_micro: 100, breached: 0 });
+    assert.equal(ledger.get('terminal'), undefined);
+    assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 0, more: false }, 'terminal receipts cannot fail every sweep');
+  });
+}
+
+for (const via of ['erase route', 'operator erase', 'visitor erase', 'operator retry']) {
+  test(`AIT-295: ${via} finishes the erase hook before queuing and retiring`, async t => {
+    const storage = new SQLiteStorage(), session = storage.create({ ownerToken: testToken }), order = [];
+    let finishErase, started;
+    const entered = new Promise(resolve => { started = resolve; });
+    const barrier = new Promise(resolve => { finishErase = resolve; });
+    const host = {
+      async erased() { order.push('erase started'); started(); await barrier; order.push('erase finished'); },
+      retired() { order.push('retired'); },
+      eraseVisitorForOwnerHash() { order.push('visitor erased'); },
+    };
+    const handlers = createHandlers({ storage, consent: mockConsent, host });
+    const sweeper = createHandlers({ storage, consent: mockConsent, host });
+    t.after(async () => { finishErase(); await handlers.close(); await sweeper.close(); storage.close(); });
+    if (via === 'operator retry') storage.erase(session.id);
+    const erasing = via === 'erase route'
+      ? handlers.handle(request(`${session.id}/erase`, { method: 'POST' }))
+      : handlers.eraseSession({ sessionId: session.id, visitor: via === 'visitor erase' });
+    await entered;
+    assert.deepEqual(storage.pendingRetirements(10), [], 'erase in flight is not eligible');
+    if (via !== 'operator retry') assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM retirement_pending').get().n, 0);
+    assert.deepEqual(await sweeper.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
+    assert.deepEqual(order, ['erase started']);
+    assert.ok(storage.get(session.id).tombstone);
+    finishErase();
+    const result = await erasing;
+    if (via === 'erase route') assert.equal(result.status, 200);
+    assert.deepEqual(storage.pendingRetirements(10), [session.id]);
+    assert.deepEqual(await sweeper.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+    assert.deepEqual(order, ['erase started', 'erase finished', ...(via === 'visitor erase' ? ['visitor erased'] : []), 'retired']);
+  });
+}
 
 test('unauthorized reads cannot renew another session retention deadline', async t => {
   const { storage, handlers } = fixture(t), s = storage.create({ ownerToken: 'another-owner' }); age(storage, s.id);
