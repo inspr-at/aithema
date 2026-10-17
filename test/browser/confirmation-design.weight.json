@@ -1,32 +1,20 @@
 {
-  "seconds": 52.683,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 50.193,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "e669d5d4253bcbc5507f27edee5069fc737d05bfca5be3ac9c5aa8a0dc366a96",
+    "workload": "552aed0918a05f906b4dd74efc49607a937588afabe083168d329a7fbe638b1f",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:41.549Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:46.081Z",
         "tests": [
           {
             "name": "C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero shift and progressive form",
-            "seconds": 40.147713922
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:37.823Z",
-        "tests": [
-          {
-            "name": "C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero shift and progressive form",
-            "seconds": 42.145417858
+            "seconds": 40.153295487
           }
         ]
       }

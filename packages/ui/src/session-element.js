@@ -497,7 +497,7 @@ export class AithemaSession extends HTMLElement {
             <p class="host-credits__next"></p><a class="credits-email" href="#email"></a>
             <span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
-          <span class="status" role="status" aria-live="off"><span class="status__dot" role="img"></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><span class="status__label" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" hidden><slot name="legal"></slot></div></div></div></footer></div>
+          <span class="status" role="status" aria-live="off"><span class="status__group"><span class="status__dot" role="img"></span><span class="status__label" aria-hidden="true"></span><span class="status__placeholder" aria-hidden="true" hidden></span></span><span class="status__live visually-hidden" role="status" aria-live="polite" aria-atomic="true"></span><span class="status__sizer" aria-hidden="true"></span><time class="connection-timer">0:00</time></span><div class="host-legal" hidden><slot name="legal"></slot></div></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       followsTranscript: () => this.#follow && !this.#onTranscript,
@@ -846,10 +846,13 @@ export class AithemaSession extends HTMLElement {
     reconcile(status.querySelector('.status__sizer'), states.map(key => [key, labels[key]]),
       words => node('span', '', words), (span, words) => setText(span, words));
     // Keep the same live message node, anchored to the dock while it is a toast.
-    // The footer's sizer still reserves its steady status width.
+    // Keep the short label's own box as well as the footer's steady-width sizer.
     const label = root.querySelector('.status__label'), message = !this.#rail?.moved && Boolean(this.#notice);
     const toast = message && root.querySelector('.workspace').dataset.stage === 'live';
-    const parent = toast ? root.querySelector('.composer-dock') : status;
+    const placeholder = status.querySelector('.status__placeholder');
+    const connectionKey = states.find(key => this.#copy[key] === this.#connection) || 'connecting';
+    setText(placeholder, labels[connectionKey]); placeholder.hidden = !message;
+    const parent = toast ? root.querySelector('.composer-dock') : status.querySelector('.status__group');
     if (label.parentNode !== parent) parent.append(label);
     if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
     label.setAttribute('aria-hidden', String(!toast));

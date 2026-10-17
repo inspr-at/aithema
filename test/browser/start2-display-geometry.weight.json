@@ -1,32 +1,28 @@
 {
-  "seconds": 59.072,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings. AIT-283 round-2 remeasurement: successful PR #251 CI run 39001400566, head 78466ae367, observed 86.911961002s for the current workload; scripts/browser-shards.js retains a 110.564s provisional floor. PR observations are diagnostic only and are not imported into the main-only rolling samples.",
+  "seconds": 89.478,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "227acca6adc894426b97ae21d32970249ae319ba699245d55b314274f5ef5178",
+    "workload": "0644c346d60340713b7634b237de2c31e9755f118937f92f03d271fe0bfee797",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:42.008Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:46.140Z",
         "tests": [
           {
             "name": "AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages",
-            "seconds": 37.162466794
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:36.430Z",
-        "tests": [
+            "seconds": 37.913761881999996
+          },
           {
-            "name": "AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes and languages",
-            "seconds": 47.256411357
+            "name": "AIT-210: header and rail reserve first-paint geometry before upgrade and fonts settle",
+            "seconds": 22.803656615
+          },
+          {
+            "name": "AIT-276: classic scrollbars and wider actions reserve the mounted rail on first paint",
+            "seconds": 10.863884458000001
           }
         ]
       }

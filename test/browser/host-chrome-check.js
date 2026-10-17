@@ -349,6 +349,7 @@ export async function hostChromeCheck(t) {
     const nativeFetch = window.fetch;
     window.fetch = (url, init = {}) => {
       const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/retry')) return Promise.resolve(Response.json({}, { status: 503 }));
       if (path.endsWith('/credits')) return Promise.resolve(Response.json({
         balance: { owner: { availableMicro: 6_550_000, limitMicro: 10_000_000, committedMicro: 3_450_000 } }, limitSlot: null,
       }));
@@ -361,10 +362,26 @@ export async function hostChromeCheck(t) {
       });
     };
   });
-  const connectionBoxes = () => shadow(page, c => ['.status__dot', '.connection-timer'].map(selector => {
-    const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
-  }));
-  for (const locale of ['de', 'en']) for (const theme of fullMatrix ? ['light', 'dark'] : ['light']) for (const credits of [false, true]) {
+  const connectionBoxes = () => shadow(page, c => {
+    const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const dot = r.querySelector('.status__dot'), label = r.querySelector('.status__label');
+    const token = dot.dataset.state === 'connected' ? '--aithema-accent' : '--aithema-warning';
+    const probe = document.createElement('span'); probe.style.cssText = `position:absolute;width:4.5ch;color:var(${token})`;
+    r.querySelector('.status').append(probe);
+    const expectedColor = getComputedStyle(probe).color, maxShiftPx = probe.getBoundingClientRect().width; probe.remove();
+    const d = box(dot), l = box(label), reserved = box(r.querySelector('.status__sizer'));
+    return { dot: d, label: l, timer: box(r.querySelector('.connection-timer')),
+      links: [...c.querySelectorAll('[slot="legal"] a')].map(box),
+      gap: l[0] - d[0] - d[2], labelRight: l[0] + l[2], reservedRight: reserved[0] + reserved[2],
+      color: getComputedStyle(dot).backgroundColor, expectedColor, token, maxShiftPx };
+  });
+  const checkConnection = (metric, context) => {
+    assert.equal(metric.gap, 6, `${context}: dot/label retain the designed 6 px gap`);
+    assert.equal(metric.labelRight, metric.reservedRight, `${context}: group ends at the reserved slot's right edge`);
+    assert.equal(metric.color, metric.expectedColor, `${context}: dot uses ${metric.token}`);
+  };
+  // Cover both palettes in the existing CI iterations, without adding pages or states.
+  for (const locale of ['de', 'en']) for (const theme of fullMatrix ? ['light', 'dark'] : [locale === 'de' ? 'dark' : 'light']) for (const credits of [false, true]) {
     await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', theme);
     await shadow(page, () => { window.footerAttempt = 0; window.reconnectFooter = null; });
     await scene({ locale, credits });
@@ -372,7 +389,8 @@ export async function hostChromeCheck(t) {
     await shadow(page, () => window.footerStream.close());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status__dot').dataset.state === 'connecting');
     const prefix = `ait283-${locale}-${theme}-${credits ? 'credits' : 'no-credits'}`;
-    const before = await connectionBoxes(); await shot(`${prefix}-1440-reconnecting`);
+    const before = await connectionBoxes(); checkConnection(before, `${prefix}/reconnecting`);
+    await shot(`${prefix}-1440-reconnecting`);
     for (const width of fullMatrix ? [700, 800, 899, 900, 960, 1023, 1024, 390] : [700, 800, 899, 900, 960, 1023]) {
       await page.setViewport({ width, height: width < 600 ? 844 : 1000 }); await settle();
       const metric = await shadow(page, c => {
@@ -410,13 +428,60 @@ export async function hostChromeCheck(t) {
     await shadow(page, () => window.reconnectFooter());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
     await settle();
-    assert.deepEqual(await connectionBoxes(), before, `${prefix}: reconnect→connected dot/timer displacement 0 px`);
-    checks.push({ label: `${prefix}-1440-transition`, dotShiftPx: 0, timerShiftPx: 0, before, after: await connectionBoxes() });
+    const after = await connectionBoxes(); checkConnection(after, `${prefix}/connected`);
+    assert.deepEqual(after.timer, before.timer, `${prefix}: reconnect→connected timer displacement 0 px`);
+    assert.deepEqual(after.links, before.links, `${prefix}: reconnect→connected links displacement 0 px`);
+    const dotShiftPx = after.dot[0] - before.dot[0], labelShiftPx = after.label[0] - before.label[0];
+    assert.equal(dotShiftPx, labelShiftPx, `${prefix}: dot moves with its label`);
+    assert.ok(Math.abs(dotShiftPx) <= before.maxShiftPx, `${prefix}: dot/label move at most 4.5ch`);
+    assert.deepEqual(after.dot.slice(1), before.dot.slice(1), `${prefix}: dot keeps its vertical position and size`);
+    checks.push({ label: `${prefix}-1440-transition`, dotShiftPx, labelShiftPx, timerShiftPx: 0, linksShiftPx: 0, before, after });
     for (const width of fullMatrix ? [1440, 1024, 390, 800] : []) {
       await page.setViewport({ width, height: width < 600 ? 844 : 1000 }); await shot(`${prefix}-${width}-connected`);
     }
+    // AIT-285 Tick (b): reuse this connected page for both message anchors.
+    await page.setViewport({ width: 1440, height: 1000 }); await settle();
+    const connected = await connectionBoxes();
+    for (const stage of ['ready', 'live']) {
+      await shadow(page, (c, stage) => {
+        c.shadowRoot.querySelector('.workspace').dataset.stage = stage;
+        // A local rejected retry exercises the real notice/toast paint path.
+        c.shadowRoot.querySelector('.retry').click();
+      }, stage);
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-message'));
+      await settle();
+      const message = await connectionBoxes(), context = `${prefix}/${stage === 'live' ? 'toast' : 'notice'}`;
+      assert.deepEqual(message.dot, connected.dot, `${context}: connected dot displacement 0 px`);
+      assert.deepEqual(message.timer, connected.timer, `${context}: connected timer displacement 0 px`);
+      const a11y = await shadow(page, c => {
+        const r = c.shadowRoot, label = r.querySelector('.status__label');
+        return { inDock: label.parentElement.matches('.composer-dock'), role: label.getAttribute('role'),
+          hidden: label.getAttribute('aria-hidden'), live: r.querySelector('.status__live').textContent,
+          dotName: r.querySelector('.status__dot').getAttribute('aria-label'), message: label.textContent };
+      });
+      assert.equal(a11y.inDock, stage === 'live', `${context}: actual message anchor`);
+      assert.equal(a11y.role, stage === 'live' ? 'status' : null);
+      assert.equal(a11y.hidden, String(stage !== 'live'));
+      assert.equal(a11y.live, stage === 'live' ? a11y.dotName : a11y.message, `${context}: existing announcement text`);
+      const placeholder = await shadow(page, c => {
+        const n = c.shadowRoot.querySelector('.status__placeholder');
+        return { visibility: getComputedStyle(n).visibility, hidden: n.getAttribute('aria-hidden'),
+          width: n.getBoundingClientRect().width, text: n.textContent };
+      });
+      assert.equal(placeholder.visibility, 'hidden', `${context}: short label box stays in flow`);
+      assert.equal(placeholder.width, connected.label[2]);
+      assert.equal(placeholder.hidden, 'true', `${context}: retained label cannot be announced twice`);
+      const { result } = await accessibility.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".status__placeholder")' });
+      const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+      const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+      await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+      assert.equal(nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored, true, `${context}: hidden label excluded from accessibility tree`);
+      checks.push({ label: context, dotShiftPx: 0, timerShiftPx: 0 });
+    }
   }
-  console.log('AIT-283 PASS: DE/EN reconnect→connected dot/timer 0 px; 700/800/899 labels hidden only with credits, named dot visible; 900/960/1023 longest short labels with credits fit; reservation equals longest short label.');
+  console.log('AIT-285 PASS: DE/EN reconnect→connected timer/links 0 px; dot/label gap 6 px, move together ≤ 4.5ch; light/dark token colours.');
+  console.log('AIT-285 PASS: DE/EN connected notice/toast dot and timer displacement 0 px; existing accessible announcements preserved.');
+  console.log('AIT-283 PASS: 700/800/899 labels hidden only with credits, named dot visible; 900/960/1023 longest short labels with credits fit; reservation equals longest short label.');
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: AIT-283 DE/EN reconnect→connected dot/timer 0 px; tablet labels hidden only with credits; named dot visible; 900–1023 px no overflow; short-label reservation exact', 'PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: Tick resume uses primary teal and medium weight; paused copy stays muted; 44 px controls', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: AIT-285 DE/EN reconnect→connected timer/links 0 px; dot/label gap 6 px, move together at most 4.5ch; light/dark token colours; AIT-283 tablet labels hidden only with credits; named dot visible; 900–1023 px no overflow; short-label reservation exact', 'PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: Tick resume uses primary teal and medium weight; paused copy stays muted; 44 px controls', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
 }
