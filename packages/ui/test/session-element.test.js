@@ -862,7 +862,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
-    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-label'), `${en.featureConsent.text}. ${en.featureConsent.textReview}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-label'), `${en.featureConsent.text}. ${en.featureConsent.action} (${en.featureConsent.textReview})`);
     assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent\u00a0· Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
@@ -880,7 +880,7 @@ test('the German bundle covers every English key and renders the component in Ge
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.send').textContent, 'Senden');
   assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
-    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-label'), `${de.featureConsent.text}. ${de.featureConsent.textReview}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-label'), `${de.featureConsent.text}. ${de.featureConsent.action} (${de.featureConsent.textReview})`);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
 test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {
@@ -1375,8 +1375,8 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
 
 
 test('AIT-290: consent opener keeps its full name and node across repaints, then clears when available', () => {
-  for (const [copy, name] of [[de, 'Nachrichten brauchen Ihre Einwilligung. Einwilligung ansehen'],
-    [en, 'Messages need your consent. Review consent']]) {
+  for (const [copy, name] of [[de, 'Nachrichten brauchen Ihre Einwilligung. Einwilligen… (Einwilligung ansehen)'],
+    [en, 'Messages need your consent. Give consent… (Review consent)']]) {
     const line = document.createElement('small'); line.className = 'composer-reason';
     let opened;
     const options = { copy, feature: 'text', verdict: { available: false, rawReason: 'current processing consent required' }, open: action => { opened = action; } };
@@ -1392,4 +1392,20 @@ test('AIT-290: consent opener keeps its full name and node across repaints, then
     assert.equal(line.dataset.consentFeature, undefined);
     assert.equal(line.textContent, 'Ready');
   }
+});
+
+
+test('AIT-290: a paused cached final overview keeps the missing-consent opener visible', () => {
+  const c = setup(); turn(c, 'project', 'SAP'); reply(c, 'reply');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const session = structuredClone(c.session);
+  session.paused = true; session.pauseReason = null;
+  session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+  c.configure({ session });
+  const notice = c.shadowRoot.querySelector('.notice');
+  assert.equal(notice.hasAttribute('data-current'), false);
+  assert.equal(notice.hidden, false);
+  assert.equal(notice.querySelector('.notice-text').dataset.consentFeature, 'analysis');
+  assert.equal(notice.querySelector('button').textContent, en.featureConsent.action);
+  assert.equal(notice.querySelector('button').disabled, false);
 });

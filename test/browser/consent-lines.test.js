@@ -646,7 +646,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         : getComputedStyle(child).display === 'none' ? '' : visibleText(child)).join('');
       const narrow = innerWidth <= 340;
       return { text: visibleText(line), expected: `${narrow ? copy.featureConsent.textNarrow : copy.featureConsent.text}\u00a0· ${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}`,
-        accessibleName: action.getAttribute('aria-label'), expectedName: `${copy.featureConsent.text}. ${copy.featureConsent.textReview}`,
+        accessibleName: action.getAttribute('aria-label'), expectedName: `${copy.featureConsent.text}. ${copy.featureConsent.action} (${copy.featureConsent.textReview})`,
         underlined: getComputedStyle(action).textDecorationLine.includes('underline'),
         lineCount: Math.round(ink.height / lineHeight), fontSize, target,
         overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
@@ -657,6 +657,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     });
     assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
     assert.equal(state.accessibleName, state.expectedName); assert.equal(state.underlined, true);
+    assert.ok(state.accessibleName.toLocaleLowerCase(locale).includes(state.action.toLocaleLowerCase(locale)), 'accessible name contains the visible action at every width');
     const tree = await page.accessibility.snapshot({ interestingOnly: false });
     const findButton = n => n.role === 'button' && n.name === state.expectedName || n.children?.some(findButton);
     assert.ok(findButton(tree), `${locale}/${width}: full consent sentence is the accessible button name`);
@@ -733,6 +734,118 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
       }
       if (locale === 'de') await capture215(t, page, 'de-light-1440-overview-no-label', { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
     }
+  }
+});
+
+
+// The r2 composer changes are the only delta from main in this CSS block.
+// Disable those rules temporarily to compare actual boxes and computed targets.
+async function mainComposerComparison(page) {
+  return shadow(page, c => {
+    const r = c.shadowRoot, style = [...r.querySelectorAll('style')].find(n => n.textContent.includes('.composer-actions {'));
+    const measure = () => ({
+      boxes: ['.composer', '.composer-actions', '.attach', '.send', '.composer-reason'].map(selector => {
+        const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      }),
+      actions: [...r.querySelectorAll('.composer-reason button')].map(n => {
+        const b = n.getBoundingClientRect(), target = getComputedStyle(n, '::after');
+        return { text: n.textContent, box: [b.x, b.y, b.width, b.height],
+          fontSize: getComputedStyle(n).fontSize, target: [target.left, target.width, target.height] };
+      }),
+    });
+    const current = measure(), original = style.textContent;
+    style.textContent = original.split('\n').filter(line =>
+      !line.includes('.composer-reason[data-consent-feature="text"]') &&
+      !line.includes('.composer-actions:has(.composer-reason[data-consent-feature="text"])')).join('\n');
+    const main = measure(); style.textContent = original;
+    return { current, main };
+  });
+}
+
+test('AIT-290 round 3: cached final consent stays reachable; other composer states match main; large text wraps', async t => {
+  const page = await fixture(t);
+  for (const width of [1440, 390]) {
+    await scene(page, 'de', 'light', width, ['analysis']);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const session = structuredClone(c.session), revision = inputRevision(session);
+      session.paused = true; session.pauseReason = null;
+      session.operations = { inputRevision: revision, running: [], failures: [] };
+      session.transcript.push({ id: 'cached-reply', role: 'assistant', content: 'Wer schreibt die Angebote?', inputRevision: revision });
+      Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: revision,
+        summary: 'Das Team verliert Zeit beim Schreiben von Angeboten.', signals: ['Angebote werden von Hand geschrieben'] });
+      c.configure({ session });
+      c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' });
+    });
+    await frame(page);
+    const state = await shadow(page, c => {
+      const r = c.shadowRoot, notice = r.querySelector('.notice'), action = notice.querySelector('button');
+      action.focus();
+      return { current: notice.hasAttribute('data-current'), visible: action.checkVisibility({ visibilityProperty: true }),
+        keyboardReachable: r.activeElement === action, text: notice.textContent, summaryVisible: !r.querySelector('.summary').hidden };
+    });
+    assert.equal(state.current, false); assert.equal(state.visible, true); assert.equal(state.keyboardReachable, true);
+    assert.equal(state.summaryVisible, true);
+    await capture215(t, page, `de-light-${width}-paused-cached-final-consent`, { width, ...state });
+    await page.locator('aithema-session >>> .notice button').click();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.value), 'models-international');
+    await page.keyboard.press('Escape');
+  }
+  for (const width of [320, 340, 390]) for (const state of ['enabled', 'paused', 'purpose', 'unavailable']) {
+    await scene(page, 'de', 'light', width, []);
+    await shadow(page, (c, state) => {
+      const session = structuredClone(c.session);
+      session.paused = state === 'paused' || state === 'purpose'; session.pauseReason = state === 'purpose' ? 'purpose' : null;
+      if (state === 'unavailable') session.featureMatrix.best.text = { available: false, reason: 'budget exhausted' };
+      c.configure({ session });
+    }, state);
+    const { current, main } = await mainComposerComparison(page);
+    assert.deepEqual(current, main, `${width}/${state}: non-consent composer and Attach/Send differ from main by 0 px`);
+    t.diagnostic(`PASS AIT-290 ${width}/${state}: composer and Attach/Send 0 px versus main`);
+  }
+  for (const locale of ['de', 'en']) for (const width of [320, 340, 390]) {
+    await scene(page, locale, 'light', width, ['text']);
+    const enlarged = await shadow(page, c => {
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason');
+      // Text-only enlargement is stricter than page zoom for this fixed viewport.
+      const ordinary = parseFloat(getComputedStyle(line).fontSize);
+      line.style.fontSize = `${ordinary * 2}px`;
+      const range = document.createRange(); range.selectNodeContents(line);
+      const ink = range.getBoundingClientRect(), box = line.getBoundingClientRect(), send = r.querySelector('.send').getBoundingClientRect();
+      const action = line.querySelector('button'), button = action.getBoundingClientRect(), pseudo = getComputedStyle(action, '::after');
+      const targetRight = button.left + parseFloat(pseudo.width);
+      return { wraps: box.height > ordinary * 2 * 1.3 + 1, fits: ink.right <= box.right + 1 && ink.bottom <= box.bottom + 1,
+        overlapSend: Math.max(0, targetRight - send.left), whiteSpace: getComputedStyle(line).whiteSpace };
+    });
+    assert.equal(enlarged.whiteSpace, 'normal'); assert.equal(enlarged.wraps, true);
+    assert.equal(enlarged.fits, true, JSON.stringify(enlarged)); assert.equal(enlarged.overlapSend, 0);
+    t.diagnostic(`PASS AIT-290 ${locale}/${width}: 200% text wraps, no Send overlap`);
+  }
+  await scene(page, 'de', 'light', 390, []);
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window), schedule = window.setTimeout.bind(window);
+    window.setTimeout = (callback, delay, ...args) => schedule(callback, new Error().stack.includes('#waitForUploadRetry') ? 0 : delay, ...args);
+    window.fetch = (url, options = {}) => String(url).endsWith('/uploads')
+      ? Promise.resolve(options.method === 'POST'
+        ? Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '1' } })
+        : new Response(null, { status: 503 })) : original(url, options);
+    const c = document.querySelector('aithema-session'), input = c.shadowRoot.querySelector('.attach-input');
+    const transfer = new DataTransfer(); transfer.items.add(new File(['Angebote'], 'angebote.txt', { type: 'text/plain' }));
+    input.files = transfer.files; input.dispatchEvent(new Event('change'));
+  });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.upload-retry'));
+  await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+  const upload = await mainComposerComparison(page);
+  assert.deepEqual(upload.current, upload.main, 'real retained-upload retry row unchanged versus main');
+  assert.equal(upload.current.actions[0].text, 'Erneut versuchen');
+  assert.equal(upload.current.actions[0].target[2], '24px', 'fine-pointer retry keeps its original target');
+  await capture215(t, page, 'de-light-390-upload-retry', { ...upload, layoutShiftPx: 0 });
+  // The same retained row at narrow widths must also preserve Attach and Send.
+  for (const width of [320, 340]) {
+    await page.setViewport({ width, height: 900 }); await frame(page);
+    const { current, main } = await mainComposerComparison(page);
+    assert.deepEqual(current, main, `${width}/upload retry: 0 px versus main`);
   }
 });
 

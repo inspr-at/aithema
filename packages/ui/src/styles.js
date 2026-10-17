@@ -379,18 +379,17 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 :is(.composer-reason,.concept-activity-text) .question-status svg { flex:none; width:14px; height:14px; align-self:center; }
 :is(.composer-reason,.concept-activity-text) .warning, :is(.composer-reason,.concept-activity-text) .warning .question-why { color:var(--aithema-warning); }
 .composer-reason .question-status { white-space:nowrap; }
-.composer-reason:has(.consent-action) { font-size:max(12px,.72rem); }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
+.composer-reason[data-consent-feature="text"] { font-size:max(12px,.72rem); max-height:none; overflow:visible; }
 .consent-narrow { display:none; }
 @media(max-width:340px) {
-  /* Reclaim inner padding for the 44px controls and the full narrow sentence. */
-  .composer-actions { gap:0; margin-inline:-.5rem; }
-  .composer-reason[data-consent-feature="text"] { white-space:nowrap; }
-  .composer-reason .consent-wide { display:none; }
-  .composer-reason .consent-narrow { display:inline; }
+  /* Reclaim only gaps: Attach and Send keep their normal positions. */
+  .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
+  .composer-reason[data-consent-feature="text"] .consent-wide { display:none; }
+  .composer-reason[data-consent-feature="text"] .consent-narrow { display:inline; }
 }
 /* Keep the 44px target inside its text column, clear of Attach and Send. */
-.composer-reason .consent-action::after { left:0; width:max(100%,44px); height:max(100%,44px); }
+.composer-reason[data-consent-feature="text"] > .consent-action::after { left:0; width:max(100%,44px); height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
   .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
 }

@@ -38,7 +38,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${reasonSeparator}`);
     setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
     setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
-    action.setAttribute('aria-label', `${featureConsentText(copy, feature)}. ${copy.featureConsent.textReview}`);
+    action.setAttribute('aria-label', `${featureConsentText(copy, feature)}. ${copy.featureConsent.action} (${copy.featureConsent.textReview})`);
   } else {
     setText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`);
     setText(action, copy.featureConsent.action);

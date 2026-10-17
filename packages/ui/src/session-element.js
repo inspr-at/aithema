@@ -1556,11 +1556,11 @@ export class AithemaSession extends HTMLElement {
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
     // Keep the notice slot so pending/current/stale transitions displace nothing.
-    notice.toggleAttribute('data-current', overviewText === copy.final);
-    if (!this.#host?.usedUp) paintConsentLine(root.querySelector('.notice-text'), {
+    const blocked = !this.#host?.usedUp && paintConsentLine(root.querySelector('.notice-text'), {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
+    notice.toggleAttribute('data-current', !blocked && overviewText === copy.final);
     overviewRetry.hidden = itemRetry || !failedOverview || replyFailed;
     overviewRetry.disabled = !analysis.available || Boolean(running);
     setText(overviewRetry, failedOverview && !replyFailed ? copy.understandingRetry : '');
