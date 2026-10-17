@@ -2,6 +2,12 @@ import { reasonSeparator } from '../consent-line.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  actorRole: {
+    label: 'Role', inferred: 'inferred', why: 'How we read it:', chosen: 'Chosen by you.',
+    hint: 'Saved as soon as you choose.', saving: 'Saving …',
+    error: 'Could not be saved', retry: 'Try again',
+    stale: 'The role was changed in the meantime; refreshed.', saved: 'Saved.', close: 'Close', processing: 'AI processing',
+  },
   clarify: {
     action: 'Clarify now', asking: 'Asking …', chosen: 'Chosen', asked: 'Asked', clarifies: 'Clarifies:',
     failed: 'Reply failed', failedShort: 'Reply failed', retry: 'Retry',

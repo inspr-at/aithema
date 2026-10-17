@@ -266,6 +266,10 @@ export class SQLiteStorage {
     if (session.actor?.contentRef) {
       const record = this.getRecord(id, session.actor.contentRef); session.actor = record.erased ? null : record.data;
     } else if (!session.actor) session.actor = session.understanding.actor ?? null;
+    if (session.identity?.role && session.identity.roleWithdrawalRevision === session.withdrawalRevision &&
+        (session.identity.roleConsentRevision ?? 0) === (session.conversationConsentRevision ?? session.consentRevision)) {
+      session.actor = { type: session.identity.role, evidence: 'selected', reasoning: null };
+    }
     if ('focusedQuestionRef' in session) session.focusedQuestion = null;
     if (session.focusedQuestionRef) {
       const record = this.getRecord(id, session.focusedQuestionRef.contentRef);
@@ -477,7 +481,11 @@ export class SQLiteStorage {
   }
   #hydrateData(id, data) {
     const record = data.contentRef ? this.getRecord(id, data.contentRef) : null;
-    const hydrated = !record ? data : record.erased ? { ...data, erased: true, withdrawn: true } : { ...data, ...record.data };
+    let hydrated = !record ? data : record.erased ? { ...data, erased: true, withdrawn: true } : { ...data, ...record.data };
+    if (hydrated.roleRef) {
+      const { roleRef, ...identity } = hydrated, choice = this.getRecord(id, roleRef);
+      hydrated = { ...identity, ...(choice.erased ? { role: null } : choice.data) };
+    }
     return hydrated.role ? withAITextOrigin(hydrated) : hydrated;
   }
   #hydrateEvent(event) {
@@ -492,6 +500,14 @@ export class SQLiteStorage {
     if (['identity.state', 'verification.requested', 'library.state'].includes(type)) {
       const retained = type === 'identity.state' ? { identified: data.identified ?? (data.status === 'verified') } : {};
       if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash, ...retained };
+      // Role choices share actor erasure, independently of verification/address
+      // facts. Neither the event journal nor identity content retains the value.
+      if (type === 'identity.state' && data.role && data.roleWithdrawalRevision !== undefined) {
+        const { role, roleWithdrawalRevision, roleConsentRevision, ...identity } = data;
+        const roleRef = `${id}:role:${seq}`, bytes = JSON.stringify({ role, roleWithdrawalRevision, roleConsentRevision });
+        this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(roleRef, id, 'actor', bytes, hash(bytes), new Date().toISOString());
+        data = { ...identity, role: null, roleRef };
+      }
       const bytes = JSON.stringify(data), contentRef = `${id}:host:${seq}`;
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'host', bytes, hash(bytes), new Date().toISOString());
       return { contentRef, hash: hash(bytes), ...retained };
@@ -567,7 +583,7 @@ export class SQLiteStorage {
         : old.understanding;
     }
     // Selected actor reasoning is content too; inferred actor lives with understanding.
-    if (session.actor?.evidence === 'selected') {
+    if (session.actor?.evidence === 'selected' && !session.identity?.role) {
       const old = JSON.parse(this.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(session.id).snapshot);
       if (old.actor?.contentRef) metadata.actor = old.actor;
       else {
@@ -820,6 +836,14 @@ export class SQLiteStorage {
   }
   #invalidate(id, turnId, all = false, concepts = true) {
     const at = new Date().toISOString(), target = this.get(id).transcript.find(t => t.id === turnId && t.role === 'user');
+    const hostState = this.hostState(id);
+    if (hostState?.identity?.roleWithdrawalRevision !== undefined) {
+      hostState.identity.role = null;
+      delete hostState.identity.roleWithdrawalRevision; delete hostState.identity.roleConsentRevision;
+      delete hostState.roleCommands;
+      this.db.prepare('UPDATE host_states SET record=? WHERE session_id=?').run(JSON.stringify(hostState), id);
+    }
+
     // Erase only artifacts whose frozen dependency set contains this source.
     // Metadata and archived history unrelated to the source remain available.
     if (concepts) for (const row of this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND tombstone IS NULL').all(id)) {

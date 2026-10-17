@@ -320,3 +320,18 @@ test('identity rejects malformed configuration, addresses, events and time', () 
   assert.throws(() => step(step(s, 'tick', {}, 10).state, 'tick', {}, 9));
   assert.throws(() => identityView(s, -1));
 });
+
+test('AIT-281: a chosen actor wins over new inference and clears on withdrawal, erase and consent reset', () => {
+  const chosen = reduceIdentity(createIdentity(), { type: 'role', role: 'agency', withdrawalRevision: 0, consentRevision: 0, now: 0 });
+  let session = applyEvent(createSession(), { type: 'identity.state', data: identityView(chosen.state, 0), seq: 1 });
+  assert.deepEqual(session.actor, { type: 'agency', evidence: 'selected', reasoning: null });
+  session = applyEvent(session, { type: 'understanding.updated', data: { actor: { type: 'company', evidence: 'inferred', reasoning: 'fixture' } }, seq: 2 });
+  assert.equal(session.actor.type, 'agency');
+  for (const [type, data] of [['turn.withdrawn', { turnId: 'fixture' }], ['session.erased', {}], ['consent.revised', { granted: false }]]) {
+    const cleared = applyEvent(session, { type, data, seq: 3 });
+    assert.equal(cleared.actor, null, type);
+    assert.notEqual(cleared.identity?.role, 'agency', type);
+  }
+  assert.equal(createSession().actor, null, 'a reset conversation carries no choice');
+  assert.equal(chosen.state.role, 'agency');
+});
