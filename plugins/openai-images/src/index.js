@@ -1,4 +1,4 @@
-import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, PluginError, isUIArtifact, imageInfo, MAX_IMAGE_BYTES, validateUIReferences } from '@inspr/aithema-core';
+import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, PluginError, isUIArtifact, imageInfo, MAX_IMAGE_BYTES, validateUIReferences, usdCostMicro, providerUsage } from '@inspr/aithema-core';
 import { decodeImage, imageArtifact } from './image-artifact.js';
 // Wire contract: https://developers.openai.com/api/reference/resources/images/methods/generate
 // Edits use private multipart bytes as in START providers/openai-image.ts.
@@ -12,6 +12,11 @@ export const manifest = deepFreeze({ id: 'openai-images', version: '0.0.0', apiV
     efforts: ['none'], languages: ['en', 'de'], germanQuality: 'unverified', formats: ['image/png', 'image/webp'],
     processingLocations: ['unverified'], qualification: 'unverified', expiresAt: null,
     evidence: ['https://developers.openai.com/api/docs/models/gpt-image-2'],
+    cost: { unit: 'token', inputMicro: null, outputMicro: null, reviewedAt: null } },
+  { id: 'openai/gpt-image-2', operations: ['generate', 'edit'], streaming: false, structured: false,
+    efforts: ['none'], languages: ['en', 'de'], germanQuality: 'unverified', formats: ['image/png', 'image/webp'],
+    processingLocations: ['unverified'], qualification: 'unverified', expiresAt: null,
+    evidence: ['https://openrouter.ai/openai/gpt-image-2'],
     cost: { unit: 'token', inputMicro: null, outputMicro: null, reviewedAt: null } }] });
 function abortable(promise, signal) {
   let abort;
@@ -46,18 +51,29 @@ function fieldsFor(spec, feedback) {
 }
 export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch } = {}) {
   binding = createBinding(binding);
-  if (binding.plugin !== manifest.id || binding.model !== 'gpt-image-2' || binding.effort !== 'none') throw new TypeError('OpenAI Images binding requires gpt-image-2');
+  if (binding.plugin !== manifest.id || !['gpt-image-2', 'openai/gpt-image-2'].includes(binding.model) || binding.effort !== 'none') throw new TypeError('OpenAI Images binding requires gpt-image-2 or openai/gpt-image-2 and effort none');
   const base = new URL(baseUrl ?? binding.endpoint);
   if (base.href !== new URL(binding.endpoint).href) throw new TypeError('Image base URL must match the admitted binding');
-  if (base.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)) throw new TypeError('HTTP is for loopback fixtures only');
-  const endpoint = operation => `${base.href.replace(/\/$/u, '')}/images/${operation === 'edit' ? 'edits' : 'generations'}`;
+  if (base.search || base.hash || base.username || base.password) throw new TypeError('Image endpoint must not contain a query, fragment or credentials');
+  const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname), gateway = binding.model === 'openai/gpt-image-2';
+  if (base.protocol === 'http:' && !loopback) throw new TypeError('HTTP is for loopback fixtures only');
+  if (!loopback && (base.origin !== (gateway ? 'https://openrouter.ai' : 'https://api.openai.com') ||
+    base.pathname.replace(/\/$/u, '') !== (gateway ? '/api/v1' : '/v1'))) throw new TypeError('Image endpoint must match the admitted model route');
+  const attribution = {};
+  if (gateway) for (const [field, header] of [['referer', 'http-referer'], ['title', 'x-title']]) {
+    const value = binding.routing?.[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !value.trim() || /[^\t\x20-\x7e\x80-\xff]/u.test(value)) throw new TypeError('Invalid image routing attribution');
+    attribution[header] = value;
+  }
+  const endpoint = operation => `${base.href.replace(/\/$/u, '')}/images${gateway ? '' : `/${operation === 'edit' ? 'edits' : 'generations'}`}`;
   const configured = () => { const key = resolveSecret(binding.secretRef); return typeof key === 'string' && key.length > 0 && !/[\r\n]/u.test(key) ? key : null; };
   async function run(operation, spec, feedback, options, artifact) {
     const scope = operationScope(options); let invocation, completed = false, reporting;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
     try {
-      invocation = await beginInvocation(scoped);
+      invocation = await beginInvocation(scoped, { authoritativeCost: gateway, retainUncertainUsage: gateway });
       checkLifetime();
       const key = configured(); if (!key) throw new PluginError('auth');
       const references = [...validateUIReferences(spec?.references)];
@@ -71,7 +87,12 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       const fields = { model: binding.model, ...fieldsFor(spec, feedback) };
       const wireOperation = references.length ? 'edit' : 'generate';
       let body, headers = { authorization: `Bearer ${key}` };
-      if (references.length) {
+      if (gateway) {
+        headers = { ...headers, 'content-type': 'application/json', ...attribution };
+        body = JSON.stringify({ ...fields, ...(references.length ? { input_references: references.map(reference => ({
+          type: 'image_url', image_url: { url: `data:${reference.mediaType};base64,${Buffer.from(reference.bytes).toString('base64')}` },
+        })) } : {}) });
+      } else if (references.length) {
         body = new FormData(); for (const [key, value] of Object.entries(fields)) body.append(key, String(value));
         for (const [index, reference] of references.entries()) {
           const extension = reference.mediaType === 'image/jpeg' ? 'jpg' : reference.mediaType.split('/')[1];
@@ -89,11 +110,15 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       let payload;
       try { payload = JSON.parse((await readBytes(response, scope.signal, 18 * 1024 * 1024)).toString('utf8')); }
       catch (error) { if (error instanceof PluginError || scope.signal.aborted) throw error; throw new PluginError('invalid-output'); }
-      invocation.usage(usageOf(payload?.usage));
+      invocation.usage(usageOf(payload?.usage) ?? (gateway ? providerUsage(payload?.usage) : null));
+      if (gateway) invocation.cost(usdCostMicro(payload?.usage?.cost));
       if (!Array.isArray(payload?.data) || payload.data.length !== 1) throw new PluginError('invalid-output');
       const item = payload.data[0]; let bytes;
       if (item?.b64_json !== undefined) bytes = decodeImage(item.b64_json);
       else if (typeof item?.url === 'string') {
+        // START's gateway contract returns inline bytes. Do not expand its trust
+        // boundary to a second download origin, even if direct-mode origins exist.
+        if (gateway) throw new PluginError('invalid-output');
         // Explicit private host allowlist; no API key, cookies or redirects on downloads.
         let url; try { url = new URL(item.url); } catch { throw new PluginError('invalid-output'); }
         if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol) ||
@@ -105,13 +130,15 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
         bytes = new Uint8Array(await readBytes(download, scope.signal, MAX_IMAGE_BYTES));
       } else throw new PluginError('invalid-output');
       checkLifetime();
-      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation: wireOperation });
+      if (gateway && !['image/png', 'image/webp'].includes(imageInfo(bytes).mediaType)) throw new PluginError('invalid-output');
+      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation: wireOperation,
+        ...(gateway ? { provider: 'openrouter' } : {}) });
       checkLifetime();
       completed = true; return result;
     } catch (error) { throw normalizedError(error, scope.signal); }
     finally { try { if (invocation) await invocation.finish(completed); if (reporting) await reporting; } finally { scope.dispose(); } }
   }
-  return { id: manifest.id, manifest, binding, billable: true, label: 'OpenAI Images — gpt-image-2',
+  return { id: manifest.id, manifest, binding, billable: true, label: `OpenAI Images${gateway ? ' via OpenRouter' : ''} — gpt-image-2`,
     bind: next => createOpenAIImages({ binding: next, resolveSecret, fetchImpl }),
     generate: (spec, feedback, options) => run('generate', spec, feedback, options),
     edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),

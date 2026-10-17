@@ -757,6 +757,74 @@ not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
 
+### OpenRouter image bindings
+
+`createOpenAIImages` also accepts the `openai/gpt-image-2` model on
+`https://openrouter.ai/api/v1`. The admitted binding selects the route: direct
+OpenAI uses `gpt-image-2` on `https://api.openai.com/v1`. Mixed model/endpoint
+pairs and other hosts are refused (loopback endpoints are for offline fixtures).
+`baseUrl`, if supplied, must still match the binding endpoint.
+
+The host can reuse its existing OpenRouter key through `secretRef`; keep its
+resolver server-private. Attribution uses `routing.referer` and `routing.title`
+as optional `http-referer` and `x-title` headers. Neither is a credential.
+
+```js
+const imageRoute = {
+  plugin: 'openai-images', model: 'openai/gpt-image-2', effort: 'none',
+  endpoint: 'https://openrouter.ai/api/v1',
+  accountRef: host.openRouterAccountRef,
+  secretRef: host.existingOpenRouterSecretRef,
+  routing: { referer: 'https://start.example.test', title: 'START concept images' },
+  maxMicro: host.imageCallCeilingMicro, maxTokens: host.imageTokenCeiling,
+  rates: host.conservativeImageRates,
+};
+const imageBinding = {
+  ...imageRoute,
+  legal: {
+    approved: host.imageLegalApproval,
+    purpose: host.imageProcessingPurpose,
+    recipient: 'OpenRouter, Inc.', processors: ['OpenAI'],
+    countries: host.verifiedRecipientCountries,
+    processingCountries: host.verifiedProcessingCountries,
+    training: host.verifiedImageTrainingPolicy,
+    retention: host.verifiedImageRetention,
+    dataCategories: host.imageDataCategories,
+    consentVersion: host.imageConsentVersion,
+    evidence: {
+      qualified: host.imageAccountQualified,
+      accountRef: imageRoute.accountRef, secretRef: imageRoute.secretRef,
+      endpoint: imageRoute.endpoint, model: imageRoute.model, routing: imageRoute.routing,
+      verifiedAt: host.imageEvidenceVerifiedAt, expiresAt: host.imageEvidenceExpiresAt,
+    },
+  },
+};
+const images = createOpenAIImages({ binding: imageBinding, resolveSecret: host.resolveSecret });
+```
+
+These host fields require actual account evidence; the adapter supplies no legal
+defaults. `countries` describes recipient seats, while `processingCountries`
+describes guaranteed processing locations. Both recipient and upstream processor
+must appear in consent: `processingScope(imageBinding, 'generate')` (and `'edit'`)
+includes `recipients: ['OpenRouter, Inc.']` and `upstreamProcessors: ['OpenAI']`.
+Prompt and reference-image transfers must be covered by the host's current grant.
+The public model qualification remains `unverified`.
+
+Gateway generate and edit send JSON to `/images`. References are private bytes
+encoded as data URLs in `input_references`, at most nine images of at most 12 MiB
+each, including the previous artifact first on edit. Output must be inline
+`data[0].b64_json` containing PNG or WebP. Gateway URL-only results are refused:
+START v1 used inline bytes, and supporting downloads would add another transfer
+origin to that contract. Direct mode retains its multipart edits and private
+download-origin allowlist.
+
+OpenRouter `usage.cost` is authoritative USD spend, rounded up once to microUSD
+and reported as `chargedMicro`, independent of token-rate estimates. Missing or
+invalid cost settles as `uncertain`, retaining any known token usage and the
+host's reservation rather than implying a free image. Provenance identifies
+provider `openrouter`, model `openai/gpt-image-2`; the label identifies the route.
+No paid qualification call is part of this adapter's offline tests.
+
 ### Mail copy and privacy links
 
 The SMTP plugin accepts `copy: { en: { ... }, de: { ... } }`. Each supplied
