@@ -1,6 +1,6 @@
 # Aithema 2026.10
 
-Version **261017100846.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261017133413.0.0**. Licensed under **AGPL-3.0-only**.
 
 Second October release: host integration, enforced conversation limits, clearer settings and privacy evidence, role selection, and “Jetzt klären” build on the first October release.
 
@@ -35,6 +35,8 @@ Second October release: host integration, enforced conversation limits, clearer 
   conversation shows that its role is not set.
 - **Footer status (AIT-283/285):** connection labels, dot and timer keep their
   positions through status changes, notices and toasts.
+- **Tablet and phone layout (AIT-294):** legal links and Send stay visible on
+  tablets with a voice header; send-failure messages read fully on phones.
 - **Host polish (AIT-266/280/286):** clearer saved feedback, accessible controls
   and consistent send/concept failure actions, including touch targets.
 - **First paint (AIT-276):** reserved scrollbar space prevents a width jump
@@ -57,7 +59,7 @@ Second October release: host integration, enforced conversation limits, clearer 
 - **EU bindings and consent:** hosts using `eu` must supply qualified
   `legal.processingCountries` alongside `legal.countries`. Editable consent
   requires the authoritative port's `describe(sessionId)` contract. See the
-  [embedding guide](https://github.com/inspr-at/aithema/blob/v261017100846.0.0/docs/embedding.md)
+  [embedding guide](https://github.com/inspr-at/aithema/blob/v261017133413.0.0/docs/embedding.md)
   for these contracts and the `data-aithema-privacy` legal-link marker.
 
 Composed voice and its generic core component helpers remain source-only proof
@@ -85,10 +87,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261017100846.0.0` into a clean directory:
+Download the assets for `v261017133413.0.0` into a clean directory:
 
 ```sh
-gh release download v261017100846.0.0 --repo inspr-at/aithema
+gh release download v261017133413.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -111,7 +113,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261017100846.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261017133413.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -141,6 +143,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017100846.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017133413.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.

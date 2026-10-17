@@ -2,7 +2,7 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261017100846.0.0",
+  "version": "261017133413.0.0",
   "release_channel": "stable",
   "release_sequence": 13,
   "migration": {
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-278 round-3 candidate preparation after AIT-290/291; replaces unpublished 261017073156.0.0 for changed outputs under reserveVersion; sequence 13 retained; no tag or publication authorization"
+  "reservation_purpose": "AIT-278 round-4 candidate preparation after AIT-294; replaces unpublished 261017100846.0.0 for changed outputs under reserveVersion; sequence 13 retained; no tag or publication authorization"
 }

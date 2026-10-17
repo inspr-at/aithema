@@ -52,7 +52,7 @@ build has the same digests.
 
 ## Second October candidate (AIT-278 / START-545)
 
-The round-3 reserved coordinate is `261017100846.0.0`, stable sequence 13. Markus's
+The round-4 reserved coordinate is `261017133413.0.0`, stable sequence 13. Markus's
 Desk `74ae723c` (2026-10-17) authorizes preparation; OPS publishes only after
 Tick's consolidated QA under Markus's Desk go. The marketing name remains
 **Aithema 2026.10** (LEAD, 2026-10-17); the exact coordinate is printed below the
@@ -62,24 +62,25 @@ The approved shared presentation source is still
 `bd0a13816f728ad91c36d849f88168bcac4fdc6e`; `presentation.json` and the complete
 offline bundle retain their existing pins and Aithema overrides.
 
-Round 3 replaces the unpublished reservation `261017073156.0.0`: the
+Round 4 replaces the unpublished round-3 reservation `261017100846.0.0`: the
 `reserveVersion` rule in `packages/server/src/release-version.js` requires a new
 source reservation for changed outputs. The published history still ends at
 sequence 12, so this candidate retains sequence 13 and the existing migration
 anchor. The tag gate in `release/gate.mjs` requires the exact reserved coordinate;
 the round-6 final-head evidence step below does not reserve again.
 
-Run a candidate only after PRs #263 (AIT-291) and #262 (AIT-290) both report
-`MERGED`, and after `git merge --signoff origin/main` and committing the work.
+Run a candidate only after PR #265 (AIT-294), following merged PRs #263
+(AIT-291) and #262 (AIT-290), reports `MERGED`, and after
+`git merge --signoff origin/main` and committing the work.
 On mbp2607, use the assigned `remote-browser.sh` with
-`EVIDENCE_OUT="$PWD/dist/ait278-r3-checkpoint"` and arguments
+`EVIDENCE_OUT="$PWD/dist/ait278-r4-checkpoint"` and arguments
 `"$PWD" unit --test-concurrency=2 test/release-candidate.test.js test/release-workflow.test.js test/calver.test.js test/version-presentation.test.js`.
 The candidate test runs `npm run release:candidate -- <retained dir>` on
 mbp2606; the script copies the complete retained directory back. Commit that
 run's `candidate/candidate-evidence.json` as `release/evidence.json`. Then repeat
 the candidate test on the final committed head with
-`EVIDENCE_OUT="$PWD/dist/ait278-r3-final"`, retaining
-`dist/ait278-r3-final/candidate/` without another evidence-only commit. Its manifest
+`EVIDENCE_OUT="$PWD/dist/ait278-r4-final"`, retaining
+`dist/ait278-r4-final/candidate/` without another evidence-only commit. Its manifest
 and evidence must both bind the handed-over head. Retain the complete directory
 in owner storage; the PR's Linux artifacts remain separate qualification bytes.
 
@@ -99,7 +100,7 @@ the tag push. These commands are a handoff, not builder authorization to run the
 
 ```sh
 set -eu
-export FINAL_CANDIDATE=/absolute/owner-storage/ait278-r3-final/candidate
+export FINAL_CANDIDATE=/absolute/owner-storage/ait278-r4-final/candidate
 RELEASE_HEAD=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").source.commit')
 RELEASE_VERSION=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").version')
 RELEASE_TAG="v$RELEASE_VERSION"
