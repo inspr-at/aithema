@@ -631,12 +631,14 @@ async function postRelease297(browserPage, t, legalHTML) {
       // The shipped demo forbids child frames. A separate test wrapper embeds
       // that unchanged demo, rather than disabling its CSP in the real page.
       capturePage = await browserPage.browser().newPage();
-      await capturePage.setViewport({ width: Math.ceil(width), height });
+      // A 2x wrapper gives Chrome an integral physical width (777 px)
+      // while preserving the exact 388.5 px media-query viewport.
+      await capturePage.setViewport({ width: width * 2, height: height * 2 });
       await capturePage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
       const wrapperURL = new URL('/ait297-fractional-wrapper', browserPage.url()).href;
       await capturePage.setRequestInterception(true);
       capturePage.on('request', request => {
-        if (request.url() === wrapperURL) void request.respond({ status: 200, contentType: 'text/html', body: '<!doctype html><html><head><title>Fractional viewport fixture</title></head><body style="margin:0"></body></html>' });
+        if (request.url() === wrapperURL) void request.respond({ status: 200, contentType: 'text/html', body: '<!doctype html><html style="zoom:2"><head><title>Fractional viewport fixture</title></head><body style="margin:0"></body></html>' });
         else void request.continue();
       });
       await capturePage.goto(wrapperURL);
