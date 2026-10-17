@@ -457,6 +457,8 @@ export async function visitorCreditMatrix(t, locales) {
       });
       await settle(page);
       // F7: the 600ms ending phrase is transient. Capture the stable post-hangup state under its own name.
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-out__title').textContent),
+        locale === 'de' ? 'Hier sind gerade keine Gespräche möglich.' : 'Conversations are not available here right now.', 'AIT-291 host-limit title keeps the reserved composer geometry');
       const capturedRailText = await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent);
       assert.equal(capturedRailText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up', `${label}: F7 after-hangup-used-up capture matches its label`);
       passLines.push({ locale, theme, width, state: 'after-hangup-used-up', displacementPx: endingDisplacement, railText: capturedRailText, pass: true }); await shot('after-hangup-used-up');

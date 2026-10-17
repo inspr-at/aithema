@@ -466,8 +466,10 @@ export class AithemaSession extends HTMLElement {
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
-          <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
-            <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
+          <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title" style="grid-area:1/1"></p><p class="composer-out__body" style="grid-area:2/1"></p>
+            <div class="composer-out__measure" aria-hidden="true" style="grid-area:1/1;display:grid;visibility:hidden">${['one-hour', 'session', 'voiceVisitor', 'host-limit'].map(reason => `<p class="composer-out__title" data-limit-title="${reason}" style="grid-area:1/1"></p>`).join('')}</div>
+            <div class="composer-out__measure" aria-hidden="true" style="grid-area:2/1;display:grid;visibility:hidden">${['one-hour', 'session', 'voiceVisitor', 'host-limit'].map(reason => `<p class="composer-out__body" data-limit-body="${reason}" style="grid-area:1/1"></p>`).join('')}</div>
+            <div class="composer-out__bar" style="grid-area:3/1"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
                 <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
         <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
@@ -1336,6 +1338,9 @@ export class AithemaSession extends HTMLElement {
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
+      // Reserve every reason's wrapped copy before exhaustion, so a live call ending moves no controls.
+      for (const node of out.querySelectorAll('[data-limit-title]')) setText(node, credits.ended[node.dataset.limitTitle].title);
+      for (const node of out.querySelectorAll('[data-limit-body]')) setText(node, credits.ended[node.dataset.limitBody].body);
       const limit = this.#host?.limitCopy ?? u;
       const next = this.#host?.endReason ? null : this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
