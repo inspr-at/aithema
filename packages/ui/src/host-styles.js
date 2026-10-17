@@ -161,7 +161,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-shell[data-used-up] .composer-out { visibility:visible; opacity:1; }
 .composer-out__title { display:grid; font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
 /* Measure the no-upgrade title before it replaces the shorter credit title. */
-.composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; min-width:0; white-space:nowrap; }
+.composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; min-width:0; white-space:nowrap; overflow:hidden; }
 .composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__body > span { grid-area:1/1; }
