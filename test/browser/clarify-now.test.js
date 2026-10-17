@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { shadow, until, evidenceCommit } from './start2-display-helpers.js';
 import { startChild } from '../helpers.js';
+import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
 
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
@@ -50,7 +51,7 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
   for (const locale of ['de', 'en']) for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], [390, 'light']]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     for (const state of states) {
-      await shadow(page, async (c, locale, theme, state) => {
+      await shadow(page, async (c, locale, theme, state, manifest) => {
         const { createSession, inputRevision } = await import('/packages/core/src/session.js');
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const session = createSession({ demo: true, locale });
@@ -68,7 +69,6 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
         let voiceEvents, voiceCallId;
         if (state === 'voice-busy-resolved') {
           const { voiceEvents: createEvents } = await import('/packages/core/src/live-voice.js');
-          const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
           voiceEvents = createEvents(); session.featureMatrix.best.voice = { available: true };
           c.configure({ session, copy, voiceClient: { manifest, async start(request) {
             voiceCallId = request.callId;
@@ -132,7 +132,7 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
             }
           });
         };
-      }, locale, theme, state);
+      }, locale, theme, state, voiceManifest);
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
       await settle(page); const before = await geometry(page);
       await page.evaluate(state => window.clarifyState(state), state);
