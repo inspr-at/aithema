@@ -160,8 +160,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-shell[data-used-up] .composer { visibility:hidden; opacity:0; }
 .composer-shell[data-used-up] .composer-out { visibility:visible; opacity:1; }
 .composer-out__title { font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
-.composer-out__body { font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
-.composer-out__body { display:grid; }
+.composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__body > span,.composer-out__body::before,.composer-out__body::after { grid-area:1/1; }
 .composer-out__body::before { content:attr(data-budget-body); visibility:hidden; }
 .composer-out__body::after { content:attr(data-upgrade-body); visibility:hidden; }

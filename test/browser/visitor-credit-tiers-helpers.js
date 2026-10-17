@@ -71,7 +71,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     };
     for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
     if (privacy) { const legal = document.createElement('nav'); legal.slot = 'legal'; const link = document.createElement('a'); link.setAttribute('data-aithema-privacy', ''); link.href = '/privacy?locale=' + locale; legal.append(link); c.append(legal); }
-    const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity();
+    const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity(); session.credits = null;
     delete session.voiceLifecycle;
     if (waitingCall) session.voiceLifecycle = { callId: 'fixture-waiting-call', providerSessionId: 'fixture-waiting-provider', state: 'waiting' };
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };

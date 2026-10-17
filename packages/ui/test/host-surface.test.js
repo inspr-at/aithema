@@ -1497,7 +1497,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
     test(`AIT-291 ${locale}: ${reason}, text verdict ${textAvailable}, final copy and one announcement`, async t => {
       const { c, root } = setup(t, { copy, host: { credits: true, verification: true }, voiceClient: {},
         session: { featureMatrix: { best: { text: { available: textAvailable }, voice: { available: true } } } },
-        routes: { 'GET /credits': () => Response.json({ balance, tiers: { current: 'anonymous', next: 'emailGiven',
+        routes: { 'GET /credits': () => Response.json({ balance, tiers: { current: 'anonymous', next: reason === 'host-limit' ? null : 'emailGiven',
           delta: 1_000_000, allowancesMicro: { anonymous: 5_000_000, emailGiven: 6_000_000 } } }) } });
       await tick(8); userTurn(c);
       const statusBefore = root.querySelector('.status__label').textContent;
@@ -1584,7 +1584,8 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
       upgrade.click(); await tick(6);
       assert.equal(root.querySelector('dialog.settings').open, true);
       assert.equal(root.querySelector('[data-tab="general"]').getAttribute('aria-selected'), 'true');
-      assert.equal(root.activeElement?.id, 'email-input');
+      if (next === 'give') assert.equal(root.activeElement?.id, 'email-input');
+      else assert.ok(root.activeElement?.classList.contains('verify-entry'), 'confirmation entry receives focus');
     }
   });
 }
