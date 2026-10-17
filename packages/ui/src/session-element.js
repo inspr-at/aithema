@@ -93,7 +93,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
+  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #announcedNotice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
   #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
@@ -158,7 +158,7 @@ export class AithemaSession extends HTMLElement {
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
-    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
+    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#announcedNotice = ''; this.#connection = '';
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false;
@@ -861,6 +861,7 @@ export class AithemaSession extends HTMLElement {
     setText(placeholder, labels[connectionKey]); placeholder.hidden = !message;
     const parent = toast ? root.querySelector('.composer-dock') : status.querySelector('.status__group');
     if (label.parentNode !== parent) parent.append(label);
+    if (toast) this.#announcedNotice = this.#notice;
     if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
     label.setAttribute('aria-hidden', String(!toast));
     setText(label, key && !message ? labels[key] : words); status.title = words;
@@ -1014,8 +1015,8 @@ export class AithemaSession extends HTMLElement {
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
     const announcement = this.#host.limitCopy.announce;
-    if (this.#limitNotice(this.#notice) && this.shadowRoot.querySelector('.status__label').getAttribute('role') === 'status') {
-      this.#creditAnnounced = announcement;
+    if (this.#limitNotice(this.#announcedNotice)) {
+      this.#creditAnnounced = announcement; this.#announcedNotice = '';
     }
     if (usedUp && !this.#creditEnding && announcement && this.#creditAnnounced !== announcement) {
       this.#creditAnnounced = announcement; setText(this.shadowRoot.querySelector('.credit-announcement'), announcement);
