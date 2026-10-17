@@ -1,3 +1,4 @@
+import { paintConsentLine } from '../src/consent-line.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
@@ -1373,7 +1374,22 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
 });
 
 
-test('AIT-290: composer consent keeps the 12px floor and confines its 44px target to the action width', () => {
-  assert.match(styles, /\.composer-reason:has\(\.consent-action\) \{ font-size:max\(12px,\.72rem\); \}/u);
-  assert.match(styles, /\.composer-reason \.consent-action::after \{ left:0; width:100%; height:max\(100%,44px\); \}/u);
+test('AIT-290: consent opener keeps its full name and node across repaints, then clears when available', () => {
+  for (const [copy, name] of [[de, 'Nachrichten brauchen Ihre Einwilligung. Einwilligung ansehen'],
+    [en, 'Messages need your consent. Review consent']]) {
+    const line = document.createElement('small'); line.className = 'composer-reason';
+    let opened;
+    const options = { copy, feature: 'text', verdict: { available: false, rawReason: 'current processing consent required' }, open: action => { opened = action; } };
+    assert.equal(paintConsentLine(line, options), true);
+    const action = line.querySelector('button');
+    assert.equal(action.getAttribute('aria-label'), name);
+    assert.equal(line.querySelector('.consent-line-copy').id, action.getAttribute('aria-describedby'));
+    paintConsentLine(line, options);
+    assert.equal(line.querySelector('button'), action, 'live repaint preserves the opener');
+    action.click(); assert.equal(opened, action, 'same action opens consent');
+    assert.equal(paintConsentLine(line, { ...options, verdict: { available: true }, text: 'Ready' }), false);
+    assert.equal(line.querySelector('button'), null);
+    assert.equal(line.dataset.consentFeature, undefined);
+    assert.equal(line.textContent, 'Ready');
+  }
 });
