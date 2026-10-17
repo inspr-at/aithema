@@ -88,6 +88,7 @@ export async function scrollbarFirstPaintCheck(t) {
     assert.deepEqual(mounted.band, initial.band, `${name}: band box moves 0 px`);
     assert.deepEqual(mounted.rail, initial.rail, `${name}: rail box moves 0 px`);
     assert.equal(mounted.row, initial.row, `${name}: rail row stays reserved`);
+    assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
     for (const frame of mounted.frames) {
       assert.deepEqual(frame.band, initial.band, `${name}: band stays stable through mount`);
       assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);

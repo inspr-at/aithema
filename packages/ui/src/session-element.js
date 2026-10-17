@@ -1424,7 +1424,10 @@ export class AithemaSession extends HTMLElement {
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       - root.querySelector('.band-identity').getBoundingClientRect().width
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
-    band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < 208);
+    // The render-blocking shell query reserves the same content-width budget.
+    // Honour its conservative row even when the actual brand is shorter.
+    const reserved = style.getPropertyValue('--aithema-header-rail-row').trim() === '2';
+    band.toggleAttribute('data-rail-row', reserved || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < 208);
   }
   #observePanes() {
     this.#paneObserver?.disconnect();
