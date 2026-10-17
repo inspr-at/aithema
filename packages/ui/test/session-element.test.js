@@ -105,6 +105,10 @@ test('AIT-288: empty summary/signals render no section or placeholder before or 
     assert.equal(signals.closest('section').hidden, true, 'empty signals have no frame, heading or space');
     assert.equal(root.querySelector('.summary-text').textContent, '');
     assert.equal(signals.children.length, 0, 'no none-yet ghost row or bullet');
+    assert.equal(root.querySelector('.questions').textContent, copy.noneYet, 'no open questions still shows the localized none-yet placeholder');
+    for (const selector of ['.questions', '.missing', '.cleared']) {
+      assert.equal(root.querySelector(selector).closest('section').hidden, false, `${selector} is visible after assessment even with empty summary/signals`);
+    }
     const populated = { ...data, summary: 'Known context', signals: ['Known signal'] };
     c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: populated });
     assert.equal(summarySection.hidden, false); assert.equal(signals.closest('section').hidden, false);
