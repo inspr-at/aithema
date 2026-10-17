@@ -1088,7 +1088,7 @@ export class AithemaSession extends HTMLElement {
             this.#retryFiles = []; this.#uploadNotice = ''; this.#render('composer');
           });
           label.classList.add('upload-retry-copy'); label.tabIndex = 0; discard.classList.add('upload-discard');
-          discard.setAttribute('aria-describedby', label.id);
+          discard.setAttribute('aria-describedby', 'upload-retry-reason');
           const actions = node('span', 'upload-retry-actions'); actions.append(discard);
           delete reason.dataset.consentFeature;
           reason.replaceChildren(label, actions);
@@ -1106,8 +1106,11 @@ export class AithemaSession extends HTMLElement {
         // Failure replaces the notice, never the retained selection's actions. Consent keeps its opener too.
         const facts = !text.available && !this.#session.paused || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
           : refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
-        paintConsentLine(reason.querySelector('.upload-retry-copy'), { copy, feature: 'text', text: `${facts}${reasonSeparator}`,
+        const retryLabel = reason.querySelector('.upload-retry-copy');
+        paintConsentLine(retryLabel, { copy, feature: 'text', text: `${facts}${reasonSeparator}`,
           verdict: text, open: opener => this.#dialog.openConsent('text', opener) });
+        const consentCopy = retryLabel.querySelector('.consent-line-copy');
+        if (consentCopy) consentCopy.tabIndex = 0; else retryLabel.tabIndex = 0;
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else {
