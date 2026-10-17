@@ -15,7 +15,10 @@ async function measure(label, args, trace) {
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   const ms = Math.round(performance.now() - started);
   console.log(`${label}: exit=${code}, wall_ms=${ms}`);
-  if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${label}.log`), output);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${label}.log`), output);
+    await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${label}.json`), JSON.stringify({ label, code, wall_ms: ms }));
+  }
   assert.equal(code, 0, output.slice(-12000));
 }
 for (const mode of ['baseline', 'default', 'trace']) test(`AIT-299 watchdog cost ${mode}`, { timeout: 240_000 }, async () => {
@@ -24,13 +27,17 @@ for (const mode of ['baseline', 'default', 'trace']) test(`AIT-299 watchdog cost
   await measure(`${mode}-host`, [...args, ...files], mode === 'trace');
   // Identical scope before and after; omit the new red-before regressions only.
   const command = JSON.parse(await (await import('node:fs/promises')).readFile('package.json', 'utf8')).scripts.test;
+  const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
+  childEnv.AITHEMA_UNIT_TRACE_HANDLES = mode === 'trace' ? '1' : '';
   const child = spawn('/bin/sh', ['-c', `${command} --test-skip-pattern=AIT-299`], {
-    env: { ...process.env, NODE_TEST_CONTEXT: '', AITHEMA_UNIT_TRACE_HANDLES: mode === 'trace' ? '1' : '' }, stdio: ['ignore', 'pipe', 'pipe'],
+    env: childEnv, stdio: ['ignore', 'pipe', 'pipe'],
   });
   const started = performance.now(); let output = '';
   child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
   const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-  console.log(`${mode}-full: exit=${code}, wall_ms=${Math.round(performance.now() - started)}`);
+  const ms = Math.round(performance.now() - started);
+  console.log(`${mode}-full: exit=${code}, wall_ms=${ms}`);
+  if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${mode}-full.json`), JSON.stringify({ label: `${mode}-full`, code, wall_ms: ms }));
   if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${mode}-full.log`), output);
   assert.equal(code, 0, output.slice(-12000));
 });
