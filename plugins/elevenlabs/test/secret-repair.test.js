@@ -204,7 +204,7 @@ test('AIT-279 orphan sweep retains a call while repair is off and reconciles it 
   const { attemptId } = ledger.admit({ sessionId: session.id, lane: 'voice', maxMicro: 50_000,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
   const claim = ledger.claim(attemptId); claim.consume();
-  const terminal = { providerSessionId: 'fixture-conversation', outcome: 'uncertain', closureConfirmed: false,
+  const terminal = { attemptId, providerSessionId: 'fixture-conversation', outcome: 'uncertain', closureConfirmed: false,
     chargedMicro: 50_000, usage: null };
   ledger.settleVoice(claim.claimId, terminal);
   f.storage.saveVoiceCall(session.id, { callId: 'orphan-call', providerSessionId: terminal.providerSessionId,
