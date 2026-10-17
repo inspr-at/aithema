@@ -1599,7 +1599,7 @@ for (const copy of [de, en]) for (const toastFirst of [false, true]) {
     await tick(8); userTurn(c);
     const announcements = [];
     const observer = new window.MutationObserver(records => {
-      for (const record of records) if (record.target.textContent === message) announcements.push(record.target);
+      for (const record of records) if ([...record.addedNodes].some(node => node.textContent === message)) announcements.push(record.target.className);
     });
     for (const selector of ['.status__label', '.credit-announcement']) observer.observe(root.querySelector(selector), { childList: true });
     t.after(() => observer.disconnect());
@@ -1611,7 +1611,7 @@ for (const copy of [de, en]) for (const toastFirst of [false, true]) {
     await tick(8);
     assert.equal(root.querySelector('.composer-out__body').textContent, limit.body);
     assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null, 'no duplicate toast remains');
-    assert.equal(announcements.length, 1, 'one polite announcement across both paths');
+    assert.equal(announcements.length, 1, `one polite announcement across both paths: ${announcements.join(', ')}`);
     c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason: 'one-hour' } });
     await tick(8); assert.equal(announcements.length, 1, 'repeat events stay quiet');
   });
