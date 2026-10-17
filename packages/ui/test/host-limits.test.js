@@ -256,8 +256,9 @@ test('AIT-299 r3: an explicit exhausted receipt recognises operator-budget recov
   t.after(() => surface.destroy()); surface.connect(); await ack.promise;
   surface.receive({ type: 'credits.limit-reached', data: { reason: 'host-limit' } });
   assert.equal(surface.endReason, 'host-limit'); assert.equal(surface.usedUp, true);
-  exhausted = false; ack = Promise.withResolvers();
+  exhausted = false;
   surface.receive({ type: 'turn.final', data: { role: 'assistant' } });
+  ack = Promise.withResolvers();
   t.mock.timers.tick(301); await ack.promise;
   assert.equal(surface.endReason, null, 'exhausted true-to-false is an authoritative recovery signal');
   assert.equal(surface.usedUp, false);
