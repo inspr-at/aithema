@@ -224,7 +224,6 @@ test('focus instruction echoes never reach replies, event replay, transcript or 
 // Exercise the handler publication path, rather than appending an assessment directly.
 test('AIT-263 Low: a published assessment removes pending focus from snapshots and voice context', async t => {
   const hold = held(), f = fixture(t, { hold, assessmentQuestions: ['What is the budget?'] });
-  assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
   const stream = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${f.session.id}/events?after=${f.storage.get(f.session.id).seq}`));
   const reader = stream.body.getReader(), events = [];
   const reading = (async () => { for (;;) { const value = await reader.read(); if (value.done) return;
@@ -234,6 +233,7 @@ test('AIT-263 Low: a published assessment removes pending focus from snapshots a
     }
   } })();
   t.after(async () => { await reader.cancel(); await reading; });
+  assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
   const before = f.storage.get(f.session.id);
   const { contentRef, hash, ...assessment } = before.understanding;
   f.storage.append(f.session.id, 'understanding.updated', { ...assessment, draft: true }, inputRevision(before));

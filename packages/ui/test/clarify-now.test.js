@@ -80,7 +80,7 @@ async function firstReply(f) {
   assert.equal(f.rows()[1].dataset.state, 'asked');
 }
 for (const locale of ['de', 'en']) test(`second request in the same revision ${locale}: clicked row requests and retains focus`, async t => {
-  const f = fixture(t, locale); await firstReply(f);
+  const f = fixture(t, locale); document.body.append(f.c); await firstReply(f);
   const pending = Promise.withResolvers(); f.post(() => pending.promise);
   const action = f.button(0); action.focus();
   const request = f.c.focusQuestion(f.c.openQuestionItems[0].id);
