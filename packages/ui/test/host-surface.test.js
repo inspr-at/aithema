@@ -1518,6 +1518,8 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
       if (reason === 'one-hour') {
         const label = locale === 'de' ? 'Zeit abgelaufen' : 'Time up';
         assert.equal(root.querySelector('.voice-state').textContent, label);
+        assert.equal(root.querySelector('.composer-reason').textContent, label);
+        assert.equal(root.querySelector('.pause').title, label);
         for (const size of ['full', 'short']) assert.equal(root.querySelector(`.host-credits__used-up-${size}`).textContent, label);
       }
       if (reason === 'voiceVisitor') {

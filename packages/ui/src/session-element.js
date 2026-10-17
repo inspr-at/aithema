@@ -1009,7 +1009,8 @@ export class AithemaSession extends HTMLElement {
   #hasLiveCall() { return Boolean(this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting'); }
   #feature(feature, visitor = false, { ignorePause = false } = {}) {
     const preset = this.#session.processingPreset ?? 'best';
-    if (this.#host?.usedUp && preset !== 'device') return { available: false, reason: this.#copy.voiceStates.usedUp, rawReason: 'host-limit' };
+    if (this.#host?.usedUp && preset !== 'device') return { available: false,
+      reason: this.#copy.voiceStates[this.#host.endReason === 'one-hour' ? 'timeExpired' : 'usedUp'], rawReason: 'host-limit' };
     // Held voice commands need the server verdict too: a local pause must not hide
     // a budget or consent refusal behind the explicit take-back exception.
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
@@ -1218,7 +1219,7 @@ export class AithemaSession extends HTMLElement {
       pause.disabled = false; delete pause.dataset.voiceCommand;
     }
     if (this.#host?.usedUp || rail?.allowanceDenied) {
-      pause.disabled = true; pause.title = this.#copy.voiceStates.usedUp;
+      pause.disabled = true; pause.title = this.#copy.voiceStates[this.#host?.endReason === 'one-hour' ? 'timeExpired' : 'usedUp'];
     }
   }
   #paint(part) {

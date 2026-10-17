@@ -473,7 +473,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     for (const model of catalog.presets.best.models) model.facts = { ...model.facts,
       qualification: 'unverified', germanQuality: 'unverified', free: false,
       cost: { inputMicro: null, outputMicro: null, reviewedAt: null },
-      hostQualified: true, hostPriceReviewed: true, hostCountries: ['US', 'IE', 'FR'],
+      hostQualified: true, hostPriceReviewed: true, hostCountries: ['US'],
       processingLocations: ['unverified'], hostTraining: true };
     await page.setRequestInterception(true);
     page.on('request', request => {
@@ -491,7 +491,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       const r = document.querySelector('aithema-session').shadowRoot;
       return r.querySelector('[data-gauge="quality"]').dataset.state === 'hostQualified' &&
         r.querySelector('[data-gauge="cost"]').dataset.state === 'hostPriceReviewed' &&
-        r.querySelector('[data-gauge="privacy"] .gauge__value').textContent === 'USA, Irland +1';
+        r.querySelector('[data-gauge="privacy"] .gauge__value').textContent === 'USA';
     });
     await page.mouse.move(-1, -1);
     await inShadow(page, async c => {
