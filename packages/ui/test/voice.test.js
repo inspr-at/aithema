@@ -1243,7 +1243,12 @@ test('AIT-235: an already saved typed echo removes its hypothesis without duplic
 });
 
 for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header status has a <=22 character narrow form; wide and AT keep the full sentence`, async t => {
-  const { voiceStatusCases } = await import('../../../test/voice-status-cases.js');
+  const { voiceStatusCases, voiceMessageKeys } = await import('../../../test/voice-status-cases.js');
+  assert.deepEqual(Object.keys(copy.voiceStatesNarrow).sort(), Object.keys(copy.voiceStates).sort());
+  assert.deepEqual(Object.keys(copy.voiceMessagesNarrow).sort(), [...voiceMessageKeys].sort());
+  for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.values(copy.voiceMessagesNarrow), ...Object.values(copy.voiceReasonsNarrow)]) {
+    assert.ok(short && [...short].length <= 22, `bounded localized short form: ${short}`);
+  }
   const { rail, root } = fixture(t), status = root.querySelector('.voice-state');
   rail.copy = copy;
   for (const sample of voiceStatusCases(copy)) {

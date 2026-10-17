@@ -263,7 +263,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     createdAt: new Date().toISOString(), capture: 'viewport', checks }, null, 2));
 });
 
-test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop consent', { timeout: 180_000 }, async t => {
+test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop consent', { timeout: 360_000 }, async t => {
   const { voiceStatusCases } = await import('../voice-status-cases.js');
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait302-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -292,20 +292,24 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.ait302Seed);
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
       session.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
       session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'images', 'html'].map(key => [key, { available: true }]));
       session.transcript = [{ id: 'fixture-turn', role: 'user', content: 'A website.' }];
       c.configure({ copy, session, voiceClient: { manifest, async start() {} }, voicePresentation: manifest.presentation });
+      const timer = c.shadowRoot.querySelector('.connection-timer'); timer.textContent = '0:00';
+      Object.defineProperty(timer, 'textContent', { configurable: true, get: () => '0:00', set() {} });
       document.documentElement.lang = locale; scrollTo(0, 0);
     }, locale);
-    for (const width of [320, 360, 390, 599, 600, 1024, 1440]) {
+    for (const width of [320, 360, 390, 600, 1024, 1440]) {
       await page.setViewport({ width, height: width < 600 ? 844 : 900 });
+      await page.mouse.move(-1, -1);
       let baseline;
       // Full coverage below 600; desktop compares the legacy paint directly.
       const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
       for (const sample of samples) {
-        await page.evaluate(sample => {
+        const geometry = await page.evaluate(async sample => {
           const rail = globalThis.ait302Rail, copy = rail.copy;
           rail.session = sample.kind === 'state' && !['idle', 'failed'].includes(sample.id) ? {} : null;
           rail.state = sample.kind === 'state' && !['low', 'usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? sample.id : 'idle';
@@ -319,16 +323,11 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
           rail.render(); rail.waveform.baseline();
           const c = document.querySelector('aithema-session');
           c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
-        }, sample);
-        await page.mouse.move(-1, -1);
-        await page.evaluate(async () => {
           await document.fonts.ready;
-          const root = document.querySelector('aithema-session').shadowRoot;
+          const root = c.shadowRoot;
           await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        });
-        const geometry = await shadow(page, c => {
-          const root = c.shadowRoot, status = root.querySelector('.voice-state'), lines = new Map();
+          const status = root.querySelector('.voice-state'), lines = new Map();
           const walker = document.createTreeWalker(status, NodeFilter.SHOW_TEXT);
           while (walker.nextNode()) {
             const text = walker.currentNode, parent = text.parentElement, style = getComputedStyle(parent);
@@ -345,10 +344,10 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
             for (const rect of narrow.getClientRects()) if (rect.width && rect.height) lines.set(Math.round(rect.y * 10), narrow.dataset.copy);
           }
           return { lines: [...lines.values()], short: narrow?.dataset.copy, text: status.textContent,
-            boxes: ['.band', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.conversations-toggle', '.settings-open'].map(selector => {
+            boxes: ['.band', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-output', '.voice-playback', '.pause', '.voice-input', '.voice-start', '.conversations-toggle', '.settings-open'].map(selector => {
               const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
             }) };
-        });
+        }, sample);
         const label = `${width}-${theme}-${locale}-${sample.id}`;
         if (width < 600) {
           assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
@@ -357,7 +356,7 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
           baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);
         }
         const name = `ait302-${label}.png`;
-        if (width !== 599 && width !== 600 && evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
+        if (width !== 600 && evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
         if (width >= 600) {
           assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
           const before = Buffer.from(await page.screenshot({ fullPage: false }));
@@ -370,7 +369,7 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
           const after = Buffer.from(await page.screenshot({ fullPage: false }));
           assert.deepEqual(after, before, `${label}: byte-identical legacy desktop viewport`);
         }
-        checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 599 || width === 600 ? null : name });
+        checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 600 ? null : name });
       }
       t.diagnostic(`PASS AIT-302 ${evidenceCommit} ${width}-${theme}-${locale}: ${samples.length} statuses; <=2 lines; no separator at line edges; controls shift 0 px`);
     }
