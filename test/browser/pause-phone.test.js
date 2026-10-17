@@ -1,7 +1,7 @@
 // AIT-188: Tick's binding follow-ups. Viewport evidence only, remote runner only.
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { after, test } from 'node:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
@@ -27,19 +27,42 @@ async function setViewport(page, viewport) {
   });
 }
 
-async function fixture(t, touch = true) {
-  const directory = await mkdtemp(join(tmpdir(), 'aithema-tick-followups-'));
+// Share the host across every test. A page is reused while device capabilities
+// match; desktop's native fine pointer still needs its own launch configuration.
+let host, currentFixture;
+async function hostForFile() {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-pause-phone-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  const hostConfig = await fetch(new URL('/demo/config', demo.url)).then(response => response.json());
+  after(async () => { await currentFixture?.browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  return { demo, hostConfig: await fetch(new URL('/demo/config', demo.url)).then(response => response.json()) };
+}
+async function fixture(t, touch = true) {
+  const { demo, hostConfig } = await (host ??= hostForFile());
+  if (currentFixture?.touch === touch) {
+    const { page, browser } = currentFixture;
+    await page.goto('about:blank');
+    const session = await page.createCDPSession();
+    try { await session.send('Storage.clearDataForOrigin', { origin: new URL(demo.url).origin, storageTypes: 'all' }); }
+    finally { await session.detach(); }
+    const cookies = await browser.cookies();
+    if (cookies.length) await browser.browser().defaultBrowserContext().deleteCookie(...cookies);
+    page.holdSnapshot = null; page.reloadSession = null; page.replaySessionId = null;
+    await setViewport(page, { width: 800, height: 600 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await shadow(page, c => { globalThis.tickSeed = c.session; });
+    return page;
+  }
+  await currentFixture?.browser.close();
   const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
     // Preserve real desktop fine-pointer media capabilities; switching fixture
     // modes replaces Chrome, while serial fixtures in the same mode reuse it.
     '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2,maxTouchPoints=0',
   ] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage();
+  currentFixture = { touch, browser, page };
   page.phoneTouch = touch;
   if (touch) await page.setViewport({ width: 800, height: 600, hasTouch: true, isMobile: false });
   else await setViewport(page, { width: 800, height: 600 });
