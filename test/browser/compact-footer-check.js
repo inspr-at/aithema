@@ -108,10 +108,12 @@ export async function compactFooterCheck(t) {
   await page.evaluate(() => window.focusButton.focus());
   await page.setViewport({ width: 1100, height: 1000 }); await frames();
   const narrowed = await fitState();
-  assert.equal(narrowed.focused, true); assert.notEqual(narrowed.fit, 'full'); assert.equal(narrowed.clear, true, 'held focus cannot defer a corrective resize refit');
+  assert.equal(narrowed.focused, true);
   await page.setViewport({ width: 1440, height: 1000 }); await frames();
   await page.evaluate(() => { window.focusLabel.textContent = 'A deliberately long host label '.repeat(20); }); await frames();
   const overflow = await fitState();
+  console.log(`AIT-299 focus-held states: ${JSON.stringify({ narrowed, overflow })}`);
+  assert.notEqual(narrowed.fit, 'full'); assert.equal(narrowed.clear, true, 'held focus cannot defer a corrective resize refit');
   assert.equal(overflow.focused, true); assert.notEqual(overflow.fit, 'full');
   assert.equal(overflow.clear, true, 'growing copy compacts immediately with footer focus held');
   await page.keyboard.press('Escape'); await frames();

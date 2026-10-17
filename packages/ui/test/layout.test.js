@@ -184,7 +184,7 @@ test('AIT-299: a footer refit reads shadow focus only when its host owns documen
 
 // A real shadow owner keeps held keyboard focus observable; only geometry is modeled.
 function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short') {
-  const window = new Window(); t.after(() => window.happyDOM.close());
+  const window = new Window();
   const host = window.document.createElement('div'); window.document.body.append(host);
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
@@ -206,7 +206,7 @@ function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short') {
     return { width: size, height: 0, left, right: left + size };
   });
   t.mock.method(window.HTMLElement.prototype, 'getClientRects', function () { return [this.getBoundingClientRect()]; });
-  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  const viewport = new PhoneComposerViewport(root); t.after(async () => { viewport.destroy(); await window.happyDOM.close(); });
   return { window, root, footer, label, button, viewport, narrow: () => { width = 200; }, hover: on => { hover = on; },
     counts: () => ({ reads, probeReads }), resetCounts: () => { reads = 0; probeReads = 0; } };
 }
