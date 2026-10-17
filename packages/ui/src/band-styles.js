@@ -48,12 +48,16 @@ export const bandStyles = `
 .voice-signal:has(.voice-state:empty):has(.voice-caption:empty) .voice-wave { mask-image:none; visibility:visible; }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
-.voice-state { max-width:50%; text-wrap:balance; }
+.voice-state { max-width:100%; white-space:nowrap; overflow-wrap:normal; word-break:normal; }
+/* At 600px the CI baseline's longest DE status needs 306px of the 314px signal. */
+@media(600px <= width < 640px) { .voice-state { padding-inline:2px; } }
+/* Preserve the accepted phone label reservation, with whole-word wrapping. */
+@media(width < 600px) { .voice-state { white-space:normal; text-wrap:balance; } }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
-  left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
+  left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
 .header-actions > .settings-open { flex:none; }
@@ -316,6 +320,33 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) { padding-inline:4px; }
+}
+/* Tablet input ends above the measured footer, including the extra rail row.
+   The overview remains scrollable below this bounded conversation. */
+@media(600px < width < 960px) {
+  .workspace[data-stage="live"] .conversation { min-height:0;
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,90px) - var(--phone-footer,57px) - 24px); }
+  .workspace[data-stage="live"] :is(.concept-thread,.transcript-shell) { min-height:0; height:auto; }
+}
+/* Preserve the product identity; measured host content yields before legal,
+   the preset flag or the named connection dot. Phones keep their AIT-281 frame. */
+@media(min-width:600px) {
+  .display-foot .footer-left { width:max-content; }
+  .display-foot:has(.host-credits[hidden]) .display-foot__row { grid-template-columns:minmax(0,1fr) auto auto; }
+  .display-foot .display-version { display:inline; }
+  .display-foot .ai-notice__short { display:none; }
+  .display-foot .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:inline; }
+  .display-foot[data-fit]:not([data-fit="full"]) .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:none; }
+  .display-foot:is([data-fit="timer"],[data-fit="role"]) .footer-right > .status { grid-template-columns:6px auto; }
+  .display-foot:is([data-fit="timer"],[data-fit="role"]) .status .connection-timer { display:none; }
+  .display-foot[data-fit="role"] .actor-role { display:none; }
+  .display-foot[data-fit="role"] .footer-left { gap:0; }
+  .display-foot[data-fit="role"] .host-credits__track { width:12px; }
+}
+/* Apply the baseline drop synchronously at the breakpoint; a compact marker
+   from a phone must not survive the first desktop frame after resizing. */
+@media(600px <= width < ${FOOTER_WIDTHS.voice}px) {
+  .display-foot .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:none; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }

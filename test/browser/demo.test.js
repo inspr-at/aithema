@@ -328,14 +328,25 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 400), 'no horizontal overflow at 400 px');
         const done = await shadowRect(page, 'dialog.settings .done');
         assert.ok(done.y + done.height <= 800 && done.width > 0, 'Done stays reachable');
+        assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.settings-overview').checkVisibility()), false,
+          'AIT-294: phone gauges have no painted or hoverable footprint');
+        const settleSettingsViewport = () => page.evaluate(async () => {
+          await document.fonts.ready;
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
         const targets = 'dialog.settings :is(.preset-option, .select__button, .gauge, .done, [role=tab])';
         for (const selector of ['.preset-option[data-preset="eu"]', '.preset-option[data-preset="device"]', '[data-select="voice"] .select__button', '[data-gauge="privacy"]']) {
+          // Tick AIT-294 hides gauges below 600px; retain their hover assertion on the tablet boundary.
+          if (selector === '[data-gauge="privacy"]') {
+            await page.setViewport({ width: 600, height: 800 }); await settleSettingsViewport();
+          }
           // Scroll first, so only the hover itself is measured.
           await page.$eval('aithema-session', (c, selector) => c.shadowRoot.querySelector(`dialog.settings ${selector}`).scrollIntoView({ block: 'center' }), selector);
           const before = await shadowRects(page, targets);
           await page.hover(`aithema-session >>> dialog.settings ${selector}`);
           assert.deepEqual(await shadowRects(page, targets), before, `hovering ${selector} moves no control`);
         }
+        await page.setViewport({ width: 400, height: 800 }); await settleSettingsViewport();
         assert.notEqual(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.context-message').textContent), '', 'hover explains in the help line');
         assert.deepEqual(await shadowRect(page, '.workspace', { document: true }), workspace, 'the open dialog shifts nothing behind it');
         // AIT-118: the selected tab shows a check in a slot every tab keeps, so selection never rests on colour alone,
@@ -1721,6 +1732,13 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.setViewport({ width: 1440, height: 1000 });
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
+      const footerState = () => inShadow(page, c => {
+        const r = c.shadowRoot, row = r.querySelector('.display-foot__row');
+        return { fit:r.querySelector('.display-foot').dataset.fit, width:innerWidth, rowWidth:row.clientWidth, scrollWidth:row.scrollWidth,
+          zones:[...row.children].map(n => { const b=n.getBoundingClientRect(); return [n.className,n.hidden,b.left,b.right]; }),
+          voice:Boolean(r.querySelector('.ai-notice__voice')) };
+      });
+      const beforeFooter = await footerState();
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
         page.click('aithema-session >>> .ready__consent')]);
@@ -1732,7 +1750,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer after consent');
+      sameBox(before.line, await box(page, '.ai-notice'), `notice under the pointer after consent ${JSON.stringify({ before:beforeFooter, after:await footerState() })}`);
       sameBox(before.start, await box(page, '.ready__start'), 'the ready card\'s Start after consent');
       await rest(page, '.ready__start');
       sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start');

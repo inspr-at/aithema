@@ -1,12 +1,16 @@
 // Keep the existing viewport reservation; the shell query below additionally
 // budgets the content width lost to classic scrollbars and host action columns.
 export const voiceSingleRowMinWidth = 768;
+// Four 44px controls + four 8px gaps + the longest DE/EN status at 12px,
+// including its padding and room for baseline font differences. Share this
+// content floor with the pre-upgrade shell; the mounted fit also measures text.
+export const voiceRailMinWidth = 544;
 
 // Emit this into the host's render-blocking CSS after firstPaintStyles when
 // overriding geometry. Query conditions cannot resolve CSS custom properties.
 // The shell and header must have the same inline size; brandWidth is an upper
 // bound, so copy/fonts never change the reserved row. The extra pixel covers
-// grid-track rounding before the measured 208px floor is reached.
+// grid-track rounding before the status-inclusive rail floor is reached.
 export function headerRailReservation({
   selector = '.aithema-shell > :is(aithema-session,.aithema-first-paint)',
   actionsWidth = '216px', gutter = 'clamp(1.25rem,4vw,3.5rem)', brandWidth = '27vw',
@@ -14,7 +18,7 @@ export function headerRailReservation({
   return `
 ${selector} { --aithema-header-rail-height:90px; --aithema-header-rail-tracks:60px;
   --aithema-header-rail-row:1; --aithema-header-rail-column:2; }
-@container aithema-shell (width < calc(54px + ${gutter} + ${brandWidth} + ${actionsWidth} + 48px + 209px)) {
+@container aithema-shell (width < calc(54px + ${gutter} + ${brandWidth} + ${actionsWidth} + 48px + ${voiceRailMinWidth + 1}px)) {
   ${selector} { --aithema-header-rail-height:150px; --aithema-header-rail-tracks:60px 48px;
     --aithema-header-rail-row:2; --aithema-header-rail-column:1 / -1; }
 }
