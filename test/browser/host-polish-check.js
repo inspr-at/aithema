@@ -230,6 +230,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       const stateChecks = [];
       for (const state of ['upload-notice', 'retry', 'pause', 'failure']) {
         await configure(locale, 'live');
+        const geometry = await boxes(page, ['.composer', '.send']);
         if (state === 'upload-notice' || state === 'failure') {
           await shadow(page, c => {
             const transfer = new DataTransfer(); transfer.items.add(new File(['x'], 'blocked.exe'));
@@ -246,7 +247,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
         }
         await settle();
-        const geometry = await boxes(page, ['.composer', '.send']);
+        assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: entering ${state} shifts composer/Send 0 px`);
         const noticeBefore = await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
         const result = await shadow(page, async (c, state) => {
           window.polish280State = state;
