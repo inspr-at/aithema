@@ -165,8 +165,11 @@ export async function hostChromeCheck(t) {
         const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, width: b.width }; };
         const rail = box(r.querySelector('.audio-rail'));
         const others = [r.querySelector('.band-identity'), ...r.querySelectorAll('.header-actions, .header-actions button, .host-account')].map(box);
-        return { rail, others, row: r.querySelector('.band').hasAttribute('data-rail-row'),
-          pageOverflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth),
+        const pageOverflowPx = Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth);
+        const overflowElements = pageOverflowPx ? [...document.querySelectorAll('*'), ...r.querySelectorAll('*')]
+          .filter(n => n.getBoundingClientRect().right > innerWidth && n.checkVisibility())
+          .map(n => ({ name: n.className || n.localName, parent: n.parentElement?.className, ...box(n), overflowX: getComputedStyle(n).overflowX, text: n.textContent.trim().slice(0, 60) })) : [];
+        return { rail, others, row: r.querySelector('.band').hasAttribute('data-rail-row'), pageOverflowPx, overflowElements,
           railOverflowPx: Math.max(0, rail.right - innerWidth, -rail.left) };
       });
       assert.ok(fit.rail.width >= 208, `${brandMode}/${width}: rail minimum 208 px`);
