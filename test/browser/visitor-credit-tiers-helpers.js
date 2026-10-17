@@ -288,7 +288,7 @@ export async function visitorCreditMatrix(t, locales) {
       uiChecks.push({ locale, theme, width, state: 'unrated-vials', pass: true, ...vial, markContrast, hatchContrast,
         displacementPx: unchanged(vialBefore, await boxes(page, gaugeFixed), `${label}/unrated-vials`) });
       await ait292Capture('unrated-vials');
-      await click(page, 'dialog.settings [data-tab="general"]'); await settle(page);
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
       const before = await boxes(page, fixed);
       const check = async state => { await settle(page); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
       await check('no-email');
