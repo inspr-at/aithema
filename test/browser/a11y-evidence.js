@@ -162,6 +162,15 @@ export async function auditMainSurfaces(t, evidence) {
       for (const state of ['consent', 'paused', 'no-text']) {
         await configure(locale, theme, state);
         await audit('conversation', state, locale, theme, width, true);
+        if (state === 'consent') {
+          const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
+          const expected = await page.evaluate(async locale => {
+            const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+            return `${copy.featureConsent.action}: ${copy.featureConsent.textActionReason}`;
+          }, locale);
+          assert.equal((await page.accessibility.snapshot({ root: opener })).name, expected, 'responsive consent button keeps its complete label-first name');
+          await opener.dispose();
+        }
       }
       await configure(locale, theme, 'live-voice');
       await audit('conversation', 'voice-rail', locale, theme, width);
@@ -264,6 +273,7 @@ export async function auditMainSurfaces(t, evidence) {
       await audit('consent', 'page', locale, theme, width, true);
     }
     assert.deepEqual(errors, []);
+    assert.equal(runs.length, 264, 'all eight surfaces, image/draft and voice variants retain the full evidence matrix');
     const passLines = [`PASS: ${runs.length} WCAG 2.2 AA evidence scenes, DE/EN, 1440/390, light/dark; no provider calls`, 'PASS: evidence only; CI never imports or runs axe; viewport shots, reduced motion, pinned component fonts, blurred controls'];
     await writeFile(join(evidence, 'a11y-checks.json'), JSON.stringify({ head: evidenceCommit, tags, passLines, shots, manual }, null, 2));
     for (const line of passLines) console.log(`AIT-293 ${line}`);

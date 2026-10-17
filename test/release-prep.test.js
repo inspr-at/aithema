@@ -180,6 +180,9 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
     import { manifest as reasoningManifest } from '@inspr/aithema-plugin-openrouter';
     import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images';
     import { readFileSync } from 'node:fs';
+    import assert from 'node:assert/strict';
+    import { createRequire } from 'node:module';
+    assert.throws(() => createRequire(import.meta.url).resolve('axe-core'), { code: 'MODULE_NOT_FOUND' });
     const runtime = JSON.parse(readFileSync('release/runtime.json'));
     if ([createMockReasoning().manifest, createLocalHTML().manifest, createLocalImages().manifest, reasoningManifest, imageManifest].some(manifest => manifest.version !== runtime.version || manifest.apiVersion !== '^1.0.0')) throw new Error('Public plugin version mapping drift');
     const storage = new SQLiteStorage(':memory:');
