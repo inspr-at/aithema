@@ -1,6 +1,6 @@
 {
   "seconds": 12.129,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings. AIT-281: successful PR #257 CI shard 2/6, run 39009238280, head be9de77ee1, observed 13.469106049s for the footer sweep and 20.030139096s for the complete 84-case role matrix with screenshots (33.499245145s total). scripts/browser-shards.js retains a 41.875s floor including the 25% warmup margin. PR samples are diagnostic only; trusted main rolling history is unchanged.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -13,7 +13,7 @@
         "observedAt": "2026-10-16T13:57:42.008Z",
         "tests": [
           {
-            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "name": "AIT-164: footer width sweep 600\u20131100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
             "seconds": 9.093761234
           }
         ]
@@ -25,7 +25,7 @@
         "observedAt": "2026-10-16T14:09:37.823Z",
         "tests": [
           {
-            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "name": "AIT-164: footer width sweep 600\u20131100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
             "seconds": 9.702587831999999
           }
         ]

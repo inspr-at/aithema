@@ -122,7 +122,6 @@ test('AIT-281: account content is exclusively the host slot and returns on capab
   assert.equal(f.root.querySelector('slot[name=account]').parentNode.className, 'host-account');
 });
 
-
 test('AIT-281: clicking the checked inferred radio makes a durable choice', async t => {
   const f = fixture(t); f.actor.open(); await tick();
   f.actor.popover.querySelector('input[value=company]').click();
@@ -130,6 +129,17 @@ test('AIT-281: clicking the checked inferred radio makes a durable choice', asyn
   assert.equal(f.actor.element.dataset.phase, 'saving');
   f.pending.resolve({ ok: true, body: { roleChoice: { ...initial, source: 'chosen', revision: 5 } } }); await tick();
   assert.equal(f.root.querySelector('.actor-trigger .actor-spark').hidden, true);
-    assert.ok([...f.root.querySelectorAll('.actor-reservation .actor-spark')].every(marker => !marker.hidden), 'every reservation keeps its marker width');
+  assert.ok([...f.root.querySelectorAll('.actor-reservation .actor-spark')].every(marker => !marker.hidden), 'every reservation keeps its marker width');
   assert.equal(f.actor.popover.hidden, true);
+});
+
+
+test('AIT-281: unavailable phone settings retain only AI processing, with no role section', async t => {
+  const f = fixture(t), media = window.matchMedia; window.matchMedia = () => ({ matches: true }); t.after(() => { window.matchMedia = media; });
+  f.view({ ...initial, available: false }); f.actor.set({ ...initial, available: false });
+  assert.equal(f.actor.openSheet(f.root.querySelector('.gear')), true); await tick();
+  assert.equal(f.actor.sheet.open, true);
+  assert.equal(f.actor.sheet.querySelector('.actor-sheet-section').hidden, true);
+  assert.equal(f.root.querySelector('.actor-trigger').hidden, true);
+  assert.ok(f.actor.sheet.querySelector('.actor-processing'));
 });

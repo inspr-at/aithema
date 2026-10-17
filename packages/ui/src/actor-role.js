@@ -122,7 +122,7 @@ export class ActorRole {
   close(focus = false) { this.popover.hidden = true; this.#trigger.setAttribute('aria-expanded', 'false'); if (focus && this.available) this.#trigger.focus(); }
   #phone() { return this.#root.ownerDocument.defaultView.matchMedia('(max-width: 599px)').matches; }
   openSheet(opener) {
-    if (!this.available || !this.#phone()) return false;
+    if (!this.#phone()) return false;
     this.close(); this.#opener = opener; this.#paint(); this.sheet.showModal(); void this.load(); return true;
   }
   closeSheet() { this.sheet.close(); this.#opener?.focus(); }
@@ -159,7 +159,8 @@ export class ActorRole {
     this.element.dataset.phase = this.#phase;
     this.#trigger.hidden = !this.available;
     this.element.toggleAttribute('data-unavailable', !this.available);
-    if (!this.available) { this.close(); if (this.sheet.open) this.closeSheet(); }
+    this.sheet.querySelector('.actor-sheet-section').hidden = !this.available;
+    if (!this.available) this.close();
     const c = this.#copy.actorRole, labels = this.#labels();
     setText(this.sheet.querySelector('.actor-processing button'), this.#copy.presets[this.#session().processingPreset] ?? this.#copy.settings.open);
     setText(this.element.querySelector('.actor-key'), c.label+': ');

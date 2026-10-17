@@ -258,7 +258,7 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
           c.configure({ session, copy, host: { actorRole: { labels } } });
           document.documentElement.lang = locale; document.documentElement.dataset.theme = theme; c.setAttribute('theme', theme);
           const root = c.shadowRoot;
-          if (state !== 'unavailable') {
+          if (state !== 'unavailable' || width === 390) {
             root.querySelector(width === 390 ? '.settings-open' : '.actor-trigger').click();
             await Promise.resolve();
             if (['saving', 'error', 'stale', 'saved'].includes(state)) {
@@ -307,7 +307,7 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
           if (state === 'error') assert.equal(measured.checked, 'company');
           if (state === 'stale') assert.equal(measured.checked, 'representative');
           if (state === 'saved') assert.equal(measured.checked, 'agency');
-        } else { assert.equal(measured.triggerVisible, false); assert.equal(measured.open, false); }
+        } else { assert.equal(measured.triggerVisible, false); assert.equal(measured.open, width === 390); }
         const line = `PASS ${width} ${theme} ${locale} ${state}: page/footer/surface/rows 0px; account=none`;
         pass.push(line);
         if (evidence) {
@@ -315,7 +315,7 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
           await page.mouse.move(-1, -1); await settle(page);
           const name = `role-${width}-${theme}-${locale}-${state}.png`;
           await page.screenshot({ path: join(evidence, name), fullPage: false });
-          shots.push({ file: name, head: evidenceCommit, width, theme, locale, state, surface: state === 'unavailable' ? 'none' : width === 390 ? 'sheet' : 'popover', account: 'none', viewport: true, reducedMotion: true, blurred: true, pass: line });
+          shots.push({ file: name, head: evidenceCommit, width, theme, locale, state, surface: width === 390 ? 'sheet' : state === 'unavailable' ? 'none' : 'popover', account: 'none', viewport: true, reducedMotion: true, blurred: true, pass: line });
         }
       }
     }

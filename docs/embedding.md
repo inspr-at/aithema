@@ -1091,7 +1091,8 @@ when absent, no account line appears. The phone role sheet has no account line.
 No address, verification claim or account label is invented by the module. The
 phone gear opens the role section and an entry to the existing AI processing
 settings. On desktop, the role trigger follows the AI notice in the left footer
-group. Missing capability leaves the existing settings entry available.
+group. Missing capability hides the role section; the phone sheet retains its
+AI processing entry.
 
 `GET /api/sessions/:id/identity` returns an owner-only `roleChoice` projection:
 `{ available, roles, role, source, reasoning, revision }`. `source` is `chosen`

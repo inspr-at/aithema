@@ -55,11 +55,12 @@ for (const [file, seconds] of Object.entries({
   'test/browser/start2-display-matrix.test.js': 65.560, // observed 52.447183619s
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
-// AIT-281: mbp2606 head fb558988f3, existing footer sweep 6.911011167s
-// plus the single-page 84-case role matrix 4.123058916s; retain a 25% floor
-// until successful PR CI remeasurement and then rolling main history replace it.
+// AIT-281: successful PR #257 CI shard 2/6, run 39009238280, head
+// be9de77ee1: footer sweep 13.469106049s + complete 84-case role matrix
+// with viewport evidence 20.030139096s = 33.499245145s. Keep the 25%
+// warmup floor until rolling main history reflects the expanded workload.
 browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
-  browserTestWeights['test/browser/footer-width-sweep.test.js'], 13.793);
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 41.875);
 
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
