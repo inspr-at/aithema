@@ -30,6 +30,8 @@ for (const via of ['erase route', 'storage erase']) test(`AIT-295: ${via} is ful
   if (via === 'erase route') assert.equal((await handlers.handle(request(`${session.id}/erase`, { method: 'POST' }))).status, 200);
   else storage.erase(session.id);
   assert.ok(storage.get(session.id).tombstone);
+  assert.deepEqual(storage.pendingRetirements(10), [session.id], 'erase queues retirement in the tombstone transaction');
+  assert.equal(storage.retirementOwnerHash(session.id), session.ownerHash);
   assert.equal(storage.db.prepare('SELECT bytes FROM uploads WHERE session_id=?').get(session.id).bytes, null);
   const day = 24 * 60 * 60 * 1000, sweepAt = Date.now() + day + 1;
   assert.deepEqual(await handlers.retire({ before: sweepAt - day, limit: 1 }), { retired: 1, failed: 0, more: false });
@@ -272,6 +274,26 @@ test('AIT-295: existing tombstones migrate in bounded pages without resetting pe
   assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 0, failed: 0, more: false });
   storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
   assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 1, failed: 0, more: false });
+});
+
+test('AIT-295: uncertain voice billing and duration estimates delay retirement until a final receipt', async t => {
+  const { storage, handlers } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  ledger.admit({ attemptId: 'voice', sessionId: session.id, lane: 'voice', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim('voice'); claim.consume();
+  ledger.settleVoice(claim.claimId, { attemptId: 'voice', outcome: 'uncertain' });
+  storage.erase(session.id);
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  const receipt = { providerSessionId: 'voice-provider', closureConfirmed: true, usage: {
+    providerSeconds: 1, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 40, visitorMicro: 0,
+  } };
+  ledger.reconcileVoice('voice', { ...receipt, usage: { ...receipt.usage, costEstimated: true } });
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  ledger.reconcileVoice('voice', receipt);
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.throws(() => storage.get(session.id), /not found/i);
 });
 
 test('unauthorized reads cannot renew another session retention deadline', async t => {
