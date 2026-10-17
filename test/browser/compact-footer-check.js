@@ -131,11 +131,12 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
       const footer = document.querySelector('aithema-session').shadowRoot.querySelector('.display-foot');
       return { fit: footer.dataset.fit, labelHidden: !window.footerLabel.getClientRects().length, boxes: window.footerBoxes() };
     });
+    if (legal) console.log(`AIT-301 before: ${JSON.stringify(before)}`);
+    await legalState(width, theme, locale, 'before');
     if (width >= 600) {
       assert.notEqual(before.fit, 'full', `${name}: long copy requires compact mode`);
       assert.equal(before.labelHidden, true, `${name}: the changed label is hidden by compact fit`);
     }
-    await legalState(width, theme, locale, 'before');
     if (evidence) await page.screenshot({ path: join(evidence, `${name}-before.png`), fullPage: false, captureBeyondViewport: false });
     // Hold the preset control under a real stationary pointer during the mutation.
     const [x, y, w, h] = before.boxes[3]; await page.mouse.move(x + w / 2, y + h / 2);
