@@ -96,7 +96,7 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 .demo-license-id { white-space:nowrap; }
 /* The prefix can wrap above the atomic identifier; both targets keep one row. */
 @media(max-width:600px) {
-  #demo-legal { gap:0; }
+  #demo-legal { gap:8px; }
   #demo-license { flex-shrink:0; width:min-content; }
   #demo-legal a { min-height:max(44px,4lh); }
 }
