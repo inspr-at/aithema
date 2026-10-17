@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, ConnectionTimer, footerMode, fitFooter, ConversationFold } from '../src/layout.js';
+import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, ConnectionTimer, footerMode, fitFooter, PhoneComposerViewport, ConversationFold } from '../src/layout.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 import { palette } from '../src/styles.js';
@@ -108,4 +108,29 @@ test('round-2 band, strip and footer text tokens retain 4.5:1 contrast in both t
 
 test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/EN', () => {
   for (const copy of [de, en]) assert.match(copy.placeholder, /\u00a0…$/u);
+});
+
+
+test('AIT-298: same-width footer text mutations keep the fit cache; changed zone width refits', async t => {
+  const window = new Window();
+  t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><span>0:01</span><span>Connected</span></div></footer></div>`;
+  const footer = root.querySelector('footer'), zone = footer.querySelector('span');
+  let width = 40;
+  zone.getBoundingClientRect = () => ({ width, left: 0, right: width });
+  zone.getClientRects = () => [zone.getBoundingClientRect()];
+  const viewport = new PhoneComposerViewport(root);
+  t.after(() => viewport.destroy());
+  const changes = [], observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(footer, { attributes: true, attributeFilter: ['data-fit'] });
+  t.after(() => observer.disconnect());
+  zone.textContent = '0:02';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes.length, 0, 'a timer tick with the same geometry does not refit');
+  width = 80; zone.textContent = 'Longer text';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(changes.length > 0, 'text that changes a zone width must refit');
 });

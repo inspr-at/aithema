@@ -109,6 +109,18 @@ test('a live pending update that disables the focused Regenerate keeps focus in 
     c.remove();
   }
 });
+test('AIT-298: reject withdrawal timer is cancelled when its fixture disconnects', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const timeouts = t.mock.method(globalThis, 'setTimeout');
+  const clears = t.mock.method(globalThis, 'clearTimeout');
+  const { c, root } = setup(t);
+  root.querySelector('.concept-tab').click(); await tick();
+  root.querySelector('.concept-reject').click(); await tick();
+  const withdrawal = timeouts.mock.calls.find(call => call.arguments[1] === 4000);
+  assert.ok(withdrawal, 'reject schedules the withdrawal notice expiry');
+  c.remove();
+  assert.ok(clears.mock.calls.some(call => call.arguments[0] === withdrawal.result), 'disconnect cancels the withdrawal callback before another fixture owns focus');
+});
 test('reject archives the exact item and returns to conversation without a paid request', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-reject').click(); await tick();
