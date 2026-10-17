@@ -281,7 +281,6 @@ svg { display:block; flex:none; }
   .workspace[data-concept-layout="image"] .concept-thread { container-type:normal; }
   .workspace[data-concept-layout="image"] .concept-bottom { position:static; width:auto; align-self:center; margin-left:66px; }
   .workspace[data-concept-layout="image"] .concept-access[data-state="err"] :is(.concept-activity-text,.concept-request) { font-size:13px; line-height:17px; }
-
 }
 :host([motion="off"]) :is(.concept-backdrop,.concept-preview) img { transition:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }

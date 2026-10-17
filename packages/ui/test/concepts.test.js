@@ -11,6 +11,7 @@ import { EmailAsk } from '../src/email-ask.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }
@@ -604,7 +605,7 @@ for (const copy of [de, en]) test(`AIT-286 ${copy.display.locale}: access failur
   const button = root.querySelector('.concept-request');
   conceptState(c, { phase: 'failed' });
   const text = root.querySelector('.concept-activity-text');
-  assert.equal(text.querySelector('.question-status.warning svg').outerHTML, WARNING_ICON);
+  assert.equal(text.querySelector('.question-status.warning svg').outerHTML, warningFixture.firstChild.outerHTML);
   assert.equal(text.querySelector('.question-why').textContent, copy.conceptBackdropFailed);
   assert.equal(text.parentElement.nextElementSibling, button);
   assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-rail \{ display:block;/u);

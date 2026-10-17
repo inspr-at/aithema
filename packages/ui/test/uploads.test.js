@@ -12,6 +12,7 @@ const { FormData: NodeFormData, File: NodeFile } = globalThis;
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
 // Component tests build files and forms the way the page does: with the window's own classes.
 globalThis.FormData = window.FormData;
@@ -659,7 +660,7 @@ for (const copy of [de, en]) for (const notice of [false, true])
     const submit = async () => { root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(); };
     root.querySelector('textarea').value = 'Hello'; await submit();
     assert.equal(root.querySelector('.composer-reason').textContent, copy.failed);
-    assert.equal(root.querySelector('.composer-reason .warning svg').outerHTML, WARNING_ICON);
+    assert.equal(root.querySelector('.composer-reason .warning svg').outerHTML, warningFixture.firstChild.outerHTML);
     assert.equal(root.querySelector('.composer-reason .warning .question-why').textContent, copy.failed.split('. ')[0] + '.');
     assert.equal(root.querySelector('.composer-reason').hasAttribute('data-shortcut'), false);
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
@@ -729,7 +730,7 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
     const line = root.querySelector('.composer-reason');
     assert.equal(line.textContent, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
-    assert.equal(line.querySelector('.upload-retry-copy .warning svg').outerHTML, WARNING_ICON);
+    assert.equal(line.querySelector('.upload-retry-copy .warning svg').outerHTML, warningFixture.firstChild.outerHTML);
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
     assert.ok(line.querySelector('.upload-retry')); assert.ok(line.querySelector('.upload-discard'));
