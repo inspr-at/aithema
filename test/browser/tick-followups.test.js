@@ -41,18 +41,18 @@ const settle = page => shadow(page, async c => {
     .map(a => a.finished.catch(() => {})));
   await new Promise(resolve => requestAnimationFrame(resolve));
 });
-async function scene(page, locale, theme, width) {
+async function scene(page, locale, theme, width, { reset = true, ready = true } = {}) {
   await page.setViewport({ width, height: width < 600 ? 844 : 900 }); await page.select('#theme', theme);
-  await page.evaluate(async locale => {
+  await page.evaluate(async ({ locale, reset }) => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
     session.locale = locale;
-    c.configure({ copy, session, host: { library: true } });
+    if (reset) c.configure({ copy, session, host: { library: true } });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     scrollTo(0, 0);
-  }, locale);
-  await settle(page);
+  }, { locale, reset });
+  if (ready) await settle(page);
 }
 async function evidence(finding, page, label, values) {
   const root = process.env.AITHEMA_EVIDENCE_DIR;
@@ -69,7 +69,7 @@ async function evidence(finding, page, label, values) {
 test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 120_000 }, async t => {
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark', 'system']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 460, 479, 480, 500, 550, 1024, 1440]) {
-    await scene(page, locale, theme, width);
+    await scene(page, locale, theme, width, { reset: width === 390 });
     const selectors = ['.band', '.conversations-toggle', '.host-account', '.settings-open'];
     const before = await boxes(page, selectors);
     const metrics = await shadow(page, c => {
@@ -92,7 +92,7 @@ test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 1
 });
 
 async function voiceScene(page, locale, theme, width) {
-  await scene(page, locale, theme, width);
+  await scene(page, locale, theme, width, { reset: false, ready: false });
   await page.evaluate(async locale => {
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
     if (!globalThis.tickRailHook) {

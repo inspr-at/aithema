@@ -98,18 +98,18 @@ async function fixture(t, touch = true) {
   await shadow(page, c => { globalThis.tickSeed = c.session; });
   return page;
 }
-async function scene(page, locale, theme, width) {
+async function scene(page, locale, theme, width, { reset = true, ready = true } = {}) {
   await setViewport(page, { width, height: width === 393 ? 852 : width < 600 ? 844 : 900 }); await page.select('#theme', theme);
-  await page.evaluate(async locale => {
+  await page.evaluate(async ({ locale, reset }) => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
     session.locale = locale;
-    c.configure({ copy, session, host: { library: true }, voiceClient: {} });
+    if (reset) c.configure({ copy, session, host: { library: true }, voiceClient: {} });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     scrollTo(0, 0);
-  }, locale);
-  await frame(page);
+  }, { locale, reset });
+  if (ready) await frame(page);
 }
 async function evidence(finding, page, label, values) {
   const root = process.env.AITHEMA_EVIDENCE_DIR;
@@ -122,7 +122,7 @@ async function evidence(finding, page, label, values) {
 
 async function voiceScene(page, locale, theme, width) {
   page.replaySessionId = await shadow(page, c => c.session.id);
-  await scene(page, locale, theme, width);
+  await scene(page, locale, theme, width, { reset: false, ready: false });
   await page.evaluate(async locale => {
     const { [locale]: pauseCopy } = await import(`/packages/ui/src/i18n/${locale}.js`); globalThis.pauseCopy = pauseCopy;
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
