@@ -43,7 +43,10 @@ export async function scrollbarFirstPaintCheck(t) {
       const band = mounted ? c.shadowRoot.querySelector('.band') : document.querySelector('.aithema-first-paint');
       const rail = band.querySelector('.audio-rail'), b = band.getBoundingClientRect(), r = rail.getBoundingClientRect();
       return { band: [b.x, b.y, b.width, b.height], rail: [r.x, r.y, r.width, r.height], row: getComputedStyle(rail).gridRowStart,
-        scrollbar: innerWidth - document.documentElement.clientWidth };
+        scrollbar: innerWidth - document.documentElement.clientWidth,
+        fit: mounted ? { tracks: getComputedStyle(band).gridTemplateColumns, padding: getComputedStyle(band).padding,
+          brand: band.querySelector('.band-identity').getBoundingClientRect().width, actions: band.querySelector('.header-actions').getBoundingClientRect().width,
+          reserved: getComputedStyle(band).getPropertyValue('--aithema-header-rail-row'), measuredRow: band.hasAttribute('data-rail-row') } : null };
     };
   });
   const cases = [216, 280].flatMap(actions => [760, 768, 780, 790, 800].map(width => ({ actions, width, locale: 'de', theme: 'light', classic: true })));
@@ -85,7 +88,7 @@ export async function scrollbarFirstPaintCheck(t) {
     await settleEvidenceFrame(page);
     const mounted = await page.evaluate(() => { cancelAnimationFrame(window.scrollbarFrame); return { ...window.bandGeometry(), frames: window.scrollbarFrames }; });
     if (capture) await page.screenshot({ path: join(evidence, `${name}-mounted.png`), fullPage: false, captureBeyondViewport: false });
-    assert.deepEqual(mounted.band, initial.band, `${name}: band box moves 0 px`);
+    assert.deepEqual(mounted.band, initial.band, `${name}: band box moves 0 px: ${JSON.stringify(mounted.fit)}`);
     assert.deepEqual(mounted.rail, initial.rail, `${name}: rail box moves 0 px`);
     assert.equal(mounted.row, initial.row, `${name}: rail row stays reserved`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
@@ -94,7 +97,8 @@ export async function scrollbarFirstPaintCheck(t) {
       assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);
     }
     if (!classic) assert.equal(mounted.band[3], width < 600 ? 124 : width < 768 ? 150 : 90, `${name}: existing default host geometry`);
-    checks.push({ head: evidenceCommit, ...scene, initial, mounted, pass: true, shiftPx: 0 });
+    checks.push({ head: evidenceCommit, ...scene, initial, mounted, pass: true, shiftPx: 0,
+      shots: capture ? ['first-paint', 'mounted'].map(phase => ({ file: `${name}-${phase}.png`, phase, head: evidenceCommit, theme, locale })) : [] });
     console.log(`AIT-276 PASS ${name}: classic=${initial.scrollbar}px; band/rail boxes and row ${mounted.row}, every startup frame 0 px`);
   }
   assert.deepEqual(errors, []);
