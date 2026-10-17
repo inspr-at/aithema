@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
+import { fullMatrix } from './matrix-coverage.js';
 import { shadow, until, boxes, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -19,7 +20,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
   // CI already requests light artifacts; preserve its cost while remote evidence adds dark.
-  const themes = evidence && !process.env.CI ? ['light', 'dark'] : ['light'];
+  const themes = evidence && fullMatrix ? ['light', 'dark'] : ['light'];
   page.on('pageerror', error => problems.push(error.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
