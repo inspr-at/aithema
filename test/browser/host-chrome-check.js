@@ -180,7 +180,7 @@ export async function hostChromeCheck(t) {
         `${brandMode}/${width}: rail intersects brand/action ${JSON.stringify(fit)}`);
       checks.push({ pass: true, label: `${brandMode}-${width}-rail-fit`, ...fit });
       if ([320, 360].includes(width) && brandMode === 'start') {
-        await page.focus('aithema-session >>> .band-orb [role="button"]'); await settle();
+        await page.click('aithema-session >>> .band-orb [role="button"]'); await settle();
         const reveal = await shadow(page, c => {
           const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
           const overflowPx = Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth);
@@ -192,7 +192,7 @@ export async function hostChromeCheck(t) {
             titles: [...r.querySelectorAll('.aithema-reveal__title')].map(box),
             parts: [...r.querySelectorAll('.aithema-reveal__wordmark, .aithema-reveal__version, .aithema-reveal__link')].map(box) };
         });
-        assert.equal(reveal.open, true); assert.equal(reveal.overflowPx, 0, `${width}px open reveal: ${JSON.stringify(reveal)}`);
+        assert.equal(reveal.open, true, `${width}px reveal opens by activation`); assert.equal(reveal.overflowPx, 0, `${width}px open reveal: ${JSON.stringify(reveal)}`);
         assert.ok(reveal.targets.every(([w, h]) => w >= 44 && h >= 44), `${width}px reveal keeps 44px link targets`);
         const links = reveal.parts.slice(1, -1);
         assert.ok(links.every(b => b[1] === links[0][1] && b[1] > reveal.parts[0][3]), `${width}px reveal links retain one row below the wordmark: ${JSON.stringify(reveal)}`);
