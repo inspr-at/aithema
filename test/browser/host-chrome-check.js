@@ -183,8 +183,11 @@ export async function hostChromeCheck(t) {
         await page.focus('aithema-session >>> .band-orb [role="button"]'); await settle();
         const reveal = await shadow(page, c => {
           const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
-          return { open: r.querySelector('.band').dataset.aithemaRevealState === 'open',
-            overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth),
+          const overflowPx = Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth);
+          return { open: r.querySelector('.band').dataset.aithemaRevealState === 'open', overflowPx,
+            overflowElements: overflowPx ? [...document.querySelectorAll('*'), ...r.querySelectorAll('*')]
+              .filter(n => n.getBoundingClientRect().right > innerWidth && n.checkVisibility())
+              .map(n => ({ name: n.className || n.localName, box: box(n), opacity: getComputedStyle(n).opacity, transform: getComputedStyle(n).transform })) : [],
             targets: [...r.querySelectorAll('.aithema-reveal__link')].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
             parts: [...r.querySelectorAll('.aithema-reveal__wordmark, .aithema-reveal__version, .aithema-reveal__link')].map(box) };
         });
