@@ -349,6 +349,7 @@ export async function hostChromeCheck(t) {
     const nativeFetch = window.fetch;
     window.fetch = (url, init = {}) => {
       const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/retry')) return Promise.resolve(Response.json({}, { status: 503 }));
       if (path.endsWith('/credits')) return Promise.resolve(Response.json({
         balance: { owner: { availableMicro: 6_550_000, limitMicro: 10_000_000, committedMicro: 3_450_000 } }, limitSlot: null,
       }));
@@ -438,8 +439,35 @@ export async function hostChromeCheck(t) {
     for (const width of fullMatrix ? [1440, 1024, 390, 800] : []) {
       await page.setViewport({ width, height: width < 600 ? 844 : 1000 }); await shot(`${prefix}-${width}-connected`);
     }
+    // AIT-285 Tick (b): reuse this connected page for both message anchors.
+    await page.setViewport({ width: 1440, height: 1000 }); await settle();
+    const connected = await connectionBoxes();
+    for (const stage of ['ready', 'live']) {
+      await shadow(page, (c, stage) => {
+        c.shadowRoot.querySelector('.workspace').dataset.stage = stage;
+        // A local rejected retry exercises the real notice/toast paint path.
+        c.shadowRoot.querySelector('.retry').click();
+      }, stage);
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-message'));
+      await settle();
+      const message = await connectionBoxes(), context = `${prefix}/${stage === 'live' ? 'toast' : 'notice'}`;
+      assert.deepEqual(message.dot, connected.dot, `${context}: connected dot displacement 0 px`);
+      assert.deepEqual(message.timer, connected.timer, `${context}: connected timer displacement 0 px`);
+      const a11y = await shadow(page, c => {
+        const r = c.shadowRoot, label = r.querySelector('.status__label');
+        return { inDock: label.parentElement.matches('.composer-dock'), role: label.getAttribute('role'),
+          hidden: label.getAttribute('aria-hidden'), live: r.querySelector('.status__live').textContent,
+          dotName: r.querySelector('.status__dot').getAttribute('aria-label'), message: label.textContent };
+      });
+      assert.equal(a11y.inDock, stage === 'live', `${context}: actual message anchor`);
+      assert.equal(a11y.role, stage === 'live' ? 'status' : null);
+      assert.equal(a11y.hidden, String(stage !== 'live'));
+      assert.equal(a11y.live, stage === 'live' ? a11y.dotName : a11y.message, `${context}: existing announcement text`);
+      checks.push({ label: context, dotShiftPx: 0, timerShiftPx: 0 });
+    }
   }
   console.log('AIT-285 PASS: DE/EN reconnect→connected timer/links 0 px; dot/label gap 6 px, move together ≤ 4.5ch; light/dark token colours.');
+  console.log('AIT-285 PASS: DE/EN connected notice/toast dot and timer displacement 0 px; existing accessible announcements preserved.');
   console.log('AIT-283 PASS: 700/800/899 labels hidden only with credits, named dot visible; 900/960/1023 longest short labels with credits fit; reservation equals longest short label.');
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: AIT-285 DE/EN reconnect→connected timer/links 0 px; dot/label gap 6 px, move together at most 4.5ch; light/dark token colours; AIT-283 tablet labels hidden only with credits; named dot visible; 900–1023 px no overflow; short-label reservation exact', 'PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: Tick resume uses primary teal and medium weight; paused copy stays muted; 44 px controls', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
