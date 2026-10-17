@@ -14,6 +14,16 @@ export function reasonAction(label, activate) {
 /** The C1 sentence shared by visible statuses, AT descriptions and hover/focus help. */
 export const featureConsentText = (copy, feature) => copy.featureConsent[feature === 'transcription' ? 'voice' : feature];
 
+/** Visual narrow copy stays out of the live text; wide remains the full AT sentence. */
+export function paintNarrowText(label, text, textNarrow) {
+  if (!label.querySelector('.consent-wide')) {
+    const narrow = node('span', 'consent-narrow'); narrow.setAttribute('aria-hidden', 'true');
+    label.replaceChildren(node('span', 'consent-wide'), narrow);
+  }
+  setText(label.querySelector('.consent-wide'), text);
+  label.querySelector('.consent-narrow').dataset.copy = textNarrow;
+}
+
 /** Stable status node and quiet action; its surrounding slot owns the geometry. */
 export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
   const blocked = !verdict.available && isConsentReason(verdict.rawReason ?? verdict.reason);
@@ -44,6 +54,9 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     const requirement = copy.featureConsent.textActionReason ?? featureConsentText(copy, feature);
     action.querySelector('.consent-wide').setAttribute('aria-label', `${copy.featureConsent.action}: ${requirement}`);
     action.querySelector('.consent-narrow').setAttribute('aria-label', `${copy.featureConsent.actionNarrow}: ${requirement}`);
+  } else if (feature === 'voice' && line.classList.contains('voice-state')) {
+    paintNarrowText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`, copy.featureConsent.textNarrow);
+    setText(action, copy.featureConsent.action);
   } else {
     setText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`);
     setText(action, copy.featureConsent.action);

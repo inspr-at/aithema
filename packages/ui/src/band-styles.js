@@ -51,13 +51,30 @@ export const bandStyles = `
 .voice-state { max-width:100%; white-space:nowrap; overflow-wrap:normal; word-break:normal; }
 /* At 600px the CI baseline's longest DE status needs 306px of the 314px signal. */
 @media(600px <= width < 640px) { .voice-state { padding-inline:2px; } }
-/* Preserve the accepted phone label reservation, with whole-word wrapping. */
-@media(width < 600px) { .voice-state { white-space:normal; text-wrap:balance; } }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; }
+/* Reuse the consent variants without adding short copy to polite announcements. */
+.voice-state .consent-narrow { display:none; }
+.voice-state .consent-narrow::before { content:attr(data-copy); }
+@media(width < 600px) {
+  /* A permanent two-line row below the 44px controls also fits at 320px. */
+  .voice-signal { position:static; height:80px; }
+  .voice-wave { align-self:start; margin-top:7px; }
+  .audio-rail .voice-state, .audio-rail[data-message] .voice-state {
+    position:absolute; top:44px; left:0; right:0; width:auto; max-width:100%; height:36px;
+    display:flex; flex-wrap:wrap; align-content:center; justify-content:center; column-gap:.35em;
+    padding:3px 8px; border:0; border-radius:0; background:none; box-shadow:none;
+    font-size:12px; line-height:1.25; text-align:center; white-space:normal; text-wrap:initial;
+  }
+  .voice-state .consent-line-copy { display:contents; }
+  /* Keep the full sentence in the accessibility tree and the live region. */
+  .voice-state .consent-wide { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .voice-state .consent-narrow { display:inline-block; white-space:nowrap; }
+  .voice-state .consent-action { flex:none; white-space:nowrap; }
+}
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
 .header-actions > .settings-open { flex:none; }

@@ -1266,7 +1266,7 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     const expected = sample.full + (sample.kind === 'consent' ? '\u00a0· ' : '');
     assert.equal(full.textContent, expected, `${sample.id}: >=600px output unchanged`);
     assert.equal(status.getAttribute('aria-label'), sample.full, `${sample.id}: accessible name`);
-    assert.equal(status.getAttribute('aria-live'), 'polite');
+    assert.equal(status.getAttribute('aria-live'), rail.usedUp() ? 'off' : 'polite', 'existing single exhaustion announcement is preserved');
     assert.equal(status.textContent, expected + (sample.kind === 'consent' ? copy.featureConsent.action : ''), `${sample.id}: live announcement keeps full text`);
     if (sample.kind === 'consent') assert.equal(status.querySelector('.consent-action').textContent, copy.featureConsent.action);
   }

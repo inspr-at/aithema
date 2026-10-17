@@ -1,5 +1,6 @@
 import { isConsentReason } from '../../core/src/settings.js';
-import { featureConsentText, paintConsentLine } from './consent-line.js';
+import { featureConsentText, paintConsentLine, paintNarrowText } from './consent-line.js';
+import { narrowVoiceStatus } from './voice-status.js';
 import { icon } from './icons.js';
 import { setText } from './dom.js';
 import { Waveform } from './waveform.js';
@@ -193,6 +194,10 @@ export class AudioRail {
     const low = !usedUp && !this.error && active && ['listening', 'speaking', 'thinking'].includes(state) && this.lowCredit?.();
     this.root.querySelector('.voice-state').classList.toggle('low', Boolean(low));
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
+    const status = this.root.querySelector('.voice-state');
+    const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
+    if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, narrowVoiceStatus(c, sentence));
+    status.setAttribute('aria-label', sentence);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };
