@@ -25,7 +25,7 @@ const geometry = page => shadow(page, c => [
 test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-clarify-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage(), errors = [], passes = [], shots = [];
+  const browser = await browserForFile(), page = await browser.newPage(), errors = [], passes = [], shots = [], overviewDiagnostics = [];
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   page.on('pageerror', error => errors.push(error.message));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -48,9 +48,9 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
     };
   });
   const states = ['rest', 'requesting', 'selected', 'asked', 'stale', 'retry', 'refused-paused', 'refused-consent', 'refused-deadline', 'second-requesting', 'second-refused-paused', 'voice-busy-resolved'];
-  for (const locale of ['de', 'en']) for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], [390, 'light']]) {
+  for (const locale of ['de', 'en']) for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], ...(evidence ? [[1024, 'dark']] : []), [390, 'light'], ...(evidence ? [[390, 'dark']] : [])]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
-    for (const state of states) {
+    for (const state of (theme === 'dark' && width !== 1440 ? ['rest', 'selected', 'stale'] : states)) {
       await shadow(page, async (c, locale, theme, state, manifest) => {
         const { createSession, inputRevision } = await import('/packages/core/src/session.js');
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -164,29 +164,87 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
       if (['selected', 'asked'].includes(state)) { assert.equal(checks.metaCount, 1); assert.equal(checks.metaWrap, 'nowrap', 'reply meta stays on one ellipsized line'); }
       if (state.startsWith('refused')) assert.equal(checks.refusalIcon, true, 'approved refusal glyph is present');
       if (locale === 'en') assert.equal(checks.title, 'Overview');
+      if (['rest', 'selected', 'stale'].includes(state)) {
+        const entry = await shadow(page, c => {
+          const pane = c.shadowRoot.querySelector('.analysis-content');
+          return { scrollTop: pane.scrollTop, topFade: pane.hasAttribute('data-top') };
+        });
+        assert.deepEqual(entry, { scrollTop: 0, topFade: false }, 'overview starts without clipped content');
+      }
       const pass = `AIT-274 GEOMETRY PASS ${locale} ${width} ${theme} ${state}: 0 px; reserved heading/action; focus/target/retry checks passed`;
       passes.push(pass); console.log(pass);
       if (evidence) {
         await shadow(page, (c, state) => {
-          const analysis = c.shadowRoot.querySelector('.analysis-content'), section = c.shadowRoot.querySelector('.open-questions');
-          analysis.scrollTop = Math.max(0, section.offsetTop - analysis.offsetTop - 24);
-          if (innerWidth < 600) c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start', behavior: 'instant' });
+          const analysis = c.shadowRoot.querySelector('.analysis-content');
+          // Rest evidence must show the real entry position, never clipped earlier sections.
+          analysis.scrollTop = 0;
+          if (innerWidth < 600) {
+            const aside = c.shadowRoot.querySelector('.understanding'), band = c.shadowRoot.querySelector('.band');
+            aside.scrollIntoView({ block: 'start', behavior: 'instant' });
+            window.scrollBy({ top: aside.getBoundingClientRect().top - band.getBoundingClientRect().bottom - 12, behavior: 'instant' });
+          }
           c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
         }, state);
         await page.mouse.move(-1, -1); await settle(page);
-        const file = `ait274-${locale}-${width}-${theme}-${state}.png`;
+        if (width === 1440 && ['rest', 'selected', 'stale'].includes(state)) {
+          const diagnostics = await shadow(page, c => {
+            const root = c.shadowRoot, pane = root.querySelector('.analysis-content');
+            const box = n => { const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height }; };
+            return { scrollTop: pane.scrollTop, topFade: pane.hasAttribute('data-top'), mask: getComputedStyle(pane).maskImage,
+              elements: ['.readiness', '.analysis-content', '.summary', '.signals', '.signals li', '.open-questions'].map(selector => {
+                const n = root.querySelector(selector), style = getComputedStyle(n);
+                return { selector, ...box(n), borderTop: style.borderTopWidth, borderBottom: style.borderBottomWidth, hidden: n.hidden };
+              }) };
+          });
+          assert.equal(diagnostics.scrollTop, 0, 'rest/selected/stale capture is unscrolled');
+          assert.equal(diagnostics.topFade, false, 'no clipped content in a top fade at rest');
+          overviewDiagnostics.push({ locale, theme, state, mode: 'unscrolled overview', ...diagnostics });
+          const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('.understanding').getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: 310 }; });
+          await page.screenshot({ path: join(evidence, `ait288-after-${locale}-${theme}-${state}-1440-crop.png`), clip, captureBeyondViewport: false });
+        }
+        const file = `ait288-${locale}-${width}-${theme}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
         shots.push({ file, head: evidenceCommit, theme, locale, state, width, pass, viewportOnly: true, reducedMotion: true, fontsPinned: true, controlsBlurred: true });
         if (state === 'selected' && width === 390) {
-          await shadow(page, c => c.shadowRoot.querySelector('.transcript-shell').scrollIntoView({ block: 'start', behavior: 'instant' }));
+          await shadow(page, c => {
+            const transcript = c.shadowRoot.querySelector('.transcript-shell'), band = c.shadowRoot.querySelector('.band');
+            transcript.scrollIntoView({ block: 'start', behavior: 'instant' });
+            window.scrollBy({ top: transcript.getBoundingClientRect().top - band.getBoundingClientRect().bottom - 12, behavior: 'instant' });
+          });
           await settle(page);
-          const file = `ait274-${locale}-${width}-${theme}-${state}-conversation.png`;
+          const file = `ait288-${locale}-${width}-${theme}-${state}-conversation.png`;
           await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
           shots.push({ file, head: evidenceCommit, theme, locale, state, width, pass, viewportOnly: true, reducedMotion: true, fontsPinned: true, controlsBlurred: true });
         }
       }
+      if (['rest', 'selected', 'stale'].includes(state)) {
+        const empty = await shadow(page, c => {
+          const root = c.shadowRoot, pane = root.querySelector('.analysis-content');
+          const boxes = () => ['.understanding', '.readiness', '.understanding > .foot', '.composer-shell', '.band'].map(selector => {
+            const b = root.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+          });
+          const baseline = boxes(), original = structuredClone(c.session.understanding);
+          const update = data => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data });
+          update({ ...original, summary: '', signals: [] });
+          const sections = ['.summary', '.signals-section'].map(selector => {
+            const n = root.querySelector(selector); return { hidden: n.hidden, height: n.getBoundingClientRect().height, display: getComputedStyle(n).display };
+          });
+          const first = [...pane.querySelectorAll(':scope > section')].find(n => !n.hidden);
+          const result = { baseline, empty: boxes(), sections, signalRows: root.querySelector('.signals').children.length,
+            firstBorder: getComputedStyle(first).borderTopColor, scrollTop: pane.scrollTop };
+          update(original); result.arrived = boxes(); return result;
+        });
+        assert.deepEqual(empty.sections, Array(2).fill({ hidden: true, height: 0, display: 'none' }), 'empty sections have no heading, border or reserved space');
+        assert.equal(empty.signalRows, 0, 'no placeholder bullet or ghost text');
+        assert.equal(empty.firstBorder, 'rgba(0, 0, 0, 0)', 'only readiness draws the entry divider');
+        assert.equal(empty.scrollTop, 0);
+        assert.deepEqual(empty.empty, empty.baseline, 'empty content keeps pane, readiness, footer, composer and band at 0 px');
+        assert.deepEqual(empty.arrived, empty.baseline, 'content arrival keeps surrounding layout at 0 px');
+        const pass = `AIT-288 PASS ${locale} ${width} ${theme} ${state}: empty sections 0 px/no paint; one entry divider; scrollTop=0/no top fade; content arrival surrounding shift 0 px`;
+        passes.push(pass); console.log(pass);
+      }
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, shots, passes }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, shots, passes, overviewDiagnostics }, null, 2));
 });
