@@ -57,8 +57,11 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     // observe the popup itself: completed animations alone do not prove hover.
     await page.mouse.move(-1, -1);
     await settle(page);
+    await page.evaluate(() => document.addEventListener('pointermove', event => {
+      window.engineHoverPoint = { x: event.clientX, y: event.clientY };
+    }, { once: true, capture: true }));
     await page.hover('aithema-session >>> .engine-info');
-    await page.waitForFunction(expected => {
+    try { await page.waitForFunction(expected => {
       const detail = document.querySelector('aithema-session')?.shadowRoot.querySelector('.engine__detail');
       if (!detail) return false;
       const style = getComputedStyle(detail), lines = detail.textContent.split('\n');
@@ -67,7 +70,34 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     }, { polling: 'raf', timeout: 5_000 }, [
       `${copy.display.reply}: ${copy.display.modelUnknown}`,
       `${copy.display.understanding}: ${copy.display.modelUnknown}`,
-    ]);
+    ]); } catch (cause) {
+      // Only fixture copy and element structure/geometry: no session, route,
+      // identity, attribute values or host-owned text belongs in failure logs.
+      const diagnostics = await shadow(page, c => {
+        const root = c.shadowRoot, anchor = root.querySelector('.engine-info');
+        const detail = root.querySelector('.engine__detail'), point = window.engineHoverPoint;
+        const describe = node => {
+          if (!node) return null;
+          const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+          return { tag: node.localName, classes: [...node.classList],
+            box: { x: box.x, y: box.y, width: box.width, height: box.height },
+            hover: node.matches(':hover'), focusWithin: node.matches(':focus-within'),
+            visibility: style.visibility, opacity: style.opacity, transition: style.transition,
+            pointerEvents: style.pointerEvents, zIndex: style.zIndex, transform: style.transform };
+        };
+        const documentHit = point && document.elementFromPoint(point.x, point.y);
+        const shadowHit = point && root.elementFromPoint(point.x, point.y);
+        const hitStack = point ? [...new Set([...root.elementsFromPoint(point.x, point.y),
+          ...document.elementsFromPoint(point.x, point.y)])] : [];
+        return { point, documentHit: describe(documentHit), shadowHit: describe(shadowHit),
+          anchorOnTop: shadowHit === anchor || anchor.contains(shadowHit),
+          anchor: describe(anchor), engine: describe(anchor.parentElement), detail: describe(detail),
+          lines: detail.textContent.split('\n'), hitStack: hitStack.map(describe),
+          footer: [...root.querySelectorAll('.display-foot,.display-foot__row,.footer-right,.host-legal,.engine__flag,.footer-popup'),
+            ...c.querySelectorAll('[slot="legal"], [slot="legal"] *')].map(describe) };
+      });
+      throw new Error(`Engine detail did not open: ${JSON.stringify(diagnostics)}`, { cause });
+    }
   };
   const shot = async (locale, state, hover = false) => {
     if (!evidenceDirectory) return;
