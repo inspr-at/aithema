@@ -438,6 +438,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             } catch { summary.pending++; continue; }
           }
           const plugin = record && registry.get(record.plugin);
+          // A removed provider cannot service its scheduled retry. Erased sessions
+          // may retire with their existing conservative receipt; live receipts stay
+          // retryable if the host restores the plugin. Never fabricate settlement.
+          if (!plugin && record?.retryAt != null && storage.get(row.session_id).tombstone) {
+            summary.candidates++; summary.beforeMicro += row.settled_micro; summary.afterMicro += row.settled_micro;
+            if (!options.dryRun) budget.acknowledgeCost(row.attempt_id);
+            continue;
+          }
           if (!plugin?.reconcileCost) { summary.pending++; continue; }
           const usage = row.usage ? JSON.parse(row.usage) : null;
           if (usage && ['inputTokens', 'outputTokens'].every(k => Number.isSafeInteger(usage[k]) && usage[k] >= 0)) {
