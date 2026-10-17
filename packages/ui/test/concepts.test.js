@@ -578,6 +578,65 @@ test('AIT-282: erased in-flight bytes never reach any surface or URL cache', asy
   assert.equal(root.querySelectorAll('.concept-backdrop img[src], .concept-preview img[src], .concept-image[src]').length, 0);
   assert.equal(URL.createObjectURL.mock.callCount(), 0);
 });
+// The element also reads its independent motion preference during mounting.
+const viewedStorageCalls = spy => spy.mock.calls.filter(call => call.arguments[0] === 'aithema-concept-viewed');
+for (const visualsBound of [false, undefined]) test(`AIT-296: unbound visuals (${visualsBound}) never read or write storage while constructing and painting a conversation`, async t => {
+  const get = t.mock.method(window.localStorage, 'getItem'), set = t.mock.method(window.localStorage, 'setItem');
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound, featureMatrix: {
+    best: { text: { available: true }, images: { available: false, reason: 'not configured' }, html: { available: false, reason: 'not configured' } },
+  } } });
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'next', role: 'assistant', content: 'Tell me more.' } });
+  assert.match(root.querySelector('.transcript-shell ol').textContent, /Tell me more/);
+  assert.equal(viewedStorageCalls(get).length, 0); assert.equal(viewedStorageCalls(set).length, 0);
+  // Saved items can outlive a host's visual bindings. Opening and navigating them must stay storage-free too.
+  for (const id of ['image1', 'image2']) c.receive({ seq: c.session.seq + 1, type: 'concept.state',
+    data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: item(id) } });
+  root.querySelector('.concept-preview').click();
+  root.querySelector('.concept-previous').click(); await tick();
+  assert.equal(root.querySelector('.concept-viewer').open, true);
+  assert.equal(viewedStorageCalls(get).length, 0); assert.equal(viewedStorageCalls(set).length, 0);
+});
+for (const kind of ['image', 'html']) test(`AIT-296: bound ${kind} visuals read once on the first item and persist only opaque viewed IDs`, async t => {
+  window.localStorage.clear();
+  window.localStorage.setItem('aithema-concept-viewed', JSON.stringify(['previous', 'image1', 42, { content: 'private' }, 'person@example.com', 'x'.repeat(129)]));
+  const get = t.mock.method(window.localStorage, 'getItem'), set = t.mock.method(window.localStorage, 'setItem');
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true, conceptVisualKind: kind } });
+  assert.equal(viewedStorageCalls(get).length, 0, 'a binding without an item needs no storage');
+  assert.equal(viewedStorageCalls(set).length, 0);
+  const artifact = kind === 'html' ? draft : item;
+  const arrive = id => c.receive({ seq: c.session.seq + 1, type: 'concept.state',
+    data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: artifact(id) } });
+  arrive('image1');
+  assert.deepEqual(viewedStorageCalls(get).map(call => call.arguments), [['aithema-concept-viewed']]);
+  assert.equal(root.querySelector('.concept-tab').dataset.unread, 'false', 'the first paint restores viewed state');
+  assert.equal(viewedStorageCalls(set).length, 0, 'painting only reads');
+  arrive('image2');
+  assert.equal(root.querySelector('.concept-tab').dataset.unread, 'true');
+  root.querySelector('.concept-preview').click(); await tick();
+  root.querySelector('.concept-close').click();
+  assert.equal(viewedStorageCalls(get).length, 1, 'updates and opening do not repeat the read');
+  assert.deepEqual(viewedStorageCalls(set).map(call => [call.arguments[0], JSON.parse(call.arguments[1])]),
+    [['aithema-concept-viewed', ['previous', 'image1', 'image2']]]);
+  const reloaded = setup(t, { concepts: [artifact('image2')], session: { visualsBound: true, conceptVisualKind: kind } });
+  assert.equal(reloaded.root.querySelector('.concept-tab').dataset.unread, 'false', 'a fresh viewer restores persisted state');
+  assert.equal(viewedStorageCalls(get).length, 2);
+  assert.equal(viewedStorageCalls(set).length, 1);
+});
+test('AIT-296: failed storage methods are attempted once per read and leave viewing usable', async t => {
+  const get = t.mock.method(window.localStorage, 'getItem', () => { throw new Error('read denied'); });
+  const set = t.mock.method(window.localStorage, 'setItem', () => { throw new Error('write denied'); });
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true } });
+  assert.equal(viewedStorageCalls(get).length, 0);
+  c.receive({ seq: c.session.seq + 1, type: 'concept.state',
+    data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: item('image1') } });
+  root.querySelector('.concept-preview').click(); await tick();
+  assert.equal(root.querySelector('.concept-viewer').open, true);
+  assert.ok(root.querySelector('.concept-image').src.startsWith('blob:'));
+  assert.equal(root.querySelector('.concept-tab').dataset.unread, 'false');
+  root.querySelector('.concept-close').click(); root.querySelector('.concept-preview').click(); await tick();
+  assert.equal(viewedStorageCalls(get).length, 1, 'failing reads are not retried on every render or open');
+  assert.equal(viewedStorageCalls(set).length, 2);
+});
 test('AIT-282: viewed storage contains opaque IDs only and private-mode read/write failures leave viewing usable', async t => {
   window.localStorage.clear();
   const { root } = setup(t); root.querySelector('.concept-preview').click(); await tick();

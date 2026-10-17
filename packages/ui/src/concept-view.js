@@ -51,7 +51,7 @@ export function paintFailureLine(line, words, suffix = '') {
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #lifetime = 0;
-  #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
+  #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #canvasEpoch = 0; #canvasCopy; #stageFeature;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
@@ -90,10 +90,6 @@ export class ConceptView {
         <p class="concept-disclosure"></p><div class="concept-feedback"><button class="concept-up" type="button"></button><button class="concept-down" type="button"></button><button class="concept-reject" type="button"></button></div>
         <div class="concept-guidance-options"></div><p class="concept-viewer-message" role="status"></p></footer>`;
     root.append(dialog); this.dialog = dialog;
-    try {
-      const seen = JSON.parse(root.ownerDocument.defaultView.localStorage.getItem('aithema-concept-viewed') ?? '[]');
-      if (Array.isArray(seen)) this.#seen = new Set(seen.filter(id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(id)));
-    } catch { /* Private mode must not prevent viewing. */ }
     this.#paintCopy();
     // Move the same access and priced request nodes into the phone dock. There is
     // one keyboard target per action, and the composer status row stays untouched.
@@ -254,12 +250,17 @@ export class ConceptView {
     return this.#pointer || this.#pointerStage || draft.draftFocused || active === draft || Boolean(active && this.root.querySelector('.concept-viewer-controls').contains(active));
   }
   visualKind() { return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image'; }
-  progress() {
-    if (!this.#session) return;
-    const unbound = this.#session.visualsBound === false || this.#session.visualsBound !== true && Object.values(this.#session.featureMatrix ?? {}).every(matrix => ['html', 'images'].every(kind => {
+  #visualsBound() {
+    if (!this.#session || this.#session.visualsBound === false) return false;
+    if (this.#session.visualsBound === true) return true;
+    return !Object.values(this.#session.featureMatrix ?? {}).every(matrix => ['html', 'images'].every(kind => {
       const value = matrix[kind], verdict = value?.reason === 'session paused' ? value.unpaused ?? value : value;
       return !verdict || !verdict.available && ['not configured', this.copy.notConfigured, 'preset not configured', 'unavailable on device'].includes(verdict.reason);
     }));
+  }
+  progress() {
+    if (!this.#session) return;
+    const unbound = !this.#visualsBound();
     this.#unbound = unbound;
     // A host with no visuals retains its existing layout. Once this conversation
     // has bound images, keep its reservation through all states, including none.
@@ -318,6 +319,7 @@ export class ConceptView {
     const owner = this.#session?.id, epoch = this.#epoch;
     this.progress();
     const latest = this.items.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = conceptKind(latest) === 'html';
+    if (latest) this.#readViewed();
     const view = latestDraft ? this.copy.conceptDraftView : this.copy.conceptView;
     tab.dataset.unread = String(Boolean(latest && !this.#seen.has(latest.id))); tab.disabled = !latest;
     tab.title = latest ? view : this.feature().reason ?? this.copy.conceptIntro;
@@ -422,7 +424,20 @@ export class ConceptView {
       status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } else { if (bytes) { image.src = bytes; image.dataset.id = item.id; } status.textContent = bytes ? '' : this.copy.conceptImageFailed; }
   }
+  #readViewed() {
+    if (this.#seenLoaded || !this.#visualsBound()) return;
+    // No storage is needed until a bound visual is shown. A failed read is final
+    // for this viewer too, so private mode does not trigger retries on every paint.
+    this.#seenLoaded = true;
+    try {
+      const seen = JSON.parse(this.root.ownerDocument.defaultView.localStorage.getItem('aithema-concept-viewed') ?? '[]');
+      if (Array.isArray(seen)) for (const id of seen) {
+        if (typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(id)) this.#seen.add(id);
+      }
+    } catch { /* Private mode must not prevent viewing. */ }
+  }
   rememberViewed() {
+    if (!this.#visualsBound()) return;
     try {
       this.root.ownerDocument.defaultView.localStorage.setItem('aithema-concept-viewed',
         JSON.stringify([...this.#seen].filter(id => /^[a-zA-Z0-9_-]{1,128}$/u.test(id)).slice(-200)));
@@ -581,6 +596,7 @@ export class ConceptView {
   open(id = this.items.at(-1)?.id) {
     if (conceptControlsBlocked(this.root)) return;
     if (!id || !this.items.some(c => c.id === id)) return;
+    this.#readViewed();
     this.#trigger = this.root.activeElement; this.#selected = id; this.#seen.add(id); this.rememberViewed();
     if (!this.dialog.open) this.dialog.showModal(); this.render(); this.root.querySelector('.concept-close').focus();
     // Viewing is a local cached read. It never POSTs or records spending intent.
