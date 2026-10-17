@@ -646,7 +646,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         : getComputedStyle(child).display === 'none' ? '' : visibleText(child)).join('');
       const narrow = innerWidth <= 340;
       return { text: visibleText(line), expected: `${narrow ? copy.featureConsent.textNarrow : copy.featureConsent.text}\u00a0· ${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}`,
-        accessibleName: action.getAttribute('aria-label'), expectedName: `${copy.featureConsent.text}. ${copy.featureConsent.action} (${copy.featureConsent.textReview})`,
+        expectedName: `${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}: ${copy.featureConsent.text}`,
         underlined: getComputedStyle(action).textDecorationLine.includes('underline'),
         lineCount: Math.round(ink.height / lineHeight), fontSize, target,
         overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
@@ -656,8 +656,11 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         inkBox: [ink.x, ink.y, ink.width, ink.height], reasonBox: [slot.x, slot.y, slot.width, slot.height] };
     });
     assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
+    const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
+    state.accessibleName = (await page.accessibility.snapshot({ root: opener })).name;
     assert.equal(state.accessibleName, state.expectedName); assert.equal(state.underlined, true);
-    assert.ok(state.accessibleName.toLocaleLowerCase(locale).includes(state.action.toLocaleLowerCase(locale)), 'accessible name contains the visible action at every width');
+    assert.ok(state.accessibleName.startsWith(`${state.action}: `), 'accessible name starts with the visible action at every width');
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: label-first name ${state.accessibleName}`);
     const tree = await page.accessibility.snapshot({ interestingOnly: false });
     const findButton = n => n.role === 'button' && n.name === state.expectedName || n.children?.some(findButton);
     assert.ok(findButton(tree), `${locale}/${width}: full consent sentence is the accessible button name`);
@@ -701,42 +704,56 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     assert.deepEqual([...page.posts[0].processing.items].sort(), CONSENT_ITEMS.map(i => i.id).sort());
     assert.deepEqual(await boxes(page, selectors), before, 'composer, input and send move 0 px after saving consent');
     if (width === 390) await capture215(t, page, `${locale}-light-${width}-composer-enabled`, { locale, width, ...saved, ...target, layoutShiftPx: 0 });
-    if (width === 1440) {
-      await shadow(page, async c => {
-        const { inputRevision } = await import('/packages/core/src/session.js');
-        const session = structuredClone(c.session);
-        session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
-        session.transcript.push({ id: 'overview-reply', role: 'assistant', content: session.locale === 'de' ? 'Wer schreibt die Angebote heute?' : 'Who writes the quotes today?', inputRevision: inputRevision(session) });
-        Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: inputRevision(session),
-          summary: session.locale === 'de' ? 'Das Team verliert Zeit beim Schreiben von Angeboten.' : 'The team loses time writing quotes.',
-          signals: [session.locale === 'de' ? 'Angebote werden von Hand geschrieben' : 'Quotes are written by hand'] });
-        const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-        c.configure({ copy, session });
-      });
-      await frame(page);
-      const overviewSelectors = ['.understanding', '.notice', '.summary', '.summary-text', '.understanding > .foot', '.composer', '.send'];
-      const overviewBefore = await boxes(page, overviewSelectors);
-      const overview = await shadow(page, c => {
-        const r = c.shadowRoot, section = r.querySelector('.summary'), heading = r.getElementById(section.getAttribute('aria-labelledby'));
-        return { noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
-          regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
-      });
-      assert.equal(overview.noticeVisible, false, 'completed overview has no visible current-assessment label');
-      assert.equal(overview.summaryVisible, true);
-      const ax = await page.accessibility.snapshot({ interestingOnly: false });
-      const namedRegion = n => n.role === 'region' && n.name === overview.regionName || n.children?.some(namedRegion);
-      assert.ok(namedRegion(ax), 'summary keeps its accessible region name');
-      for (const draft of [true, false]) {
-        await shadow(page, (c, draft) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...structuredClone(c.session.understanding), draft } }), draft);
-        await frame(page);
-        assert.deepEqual(await boxes(page, overviewSelectors), overviewBefore, 'draft/current label change moves summary and surrounding layout 0 px');
-        assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.notice-text')).visibility !== 'hidden'), draft);
-      }
-      if (locale === 'de') await capture215(t, page, 'de-light-1440-overview-no-label', { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
-    }
   }
 });
 
+
+test('AIT-290 round 4: overview label has no slot, matching section gap DE/EN 1440/1024/390', async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const width of [1440, 1024, 390]) {
+    await scene(page, locale, 'light', width, []);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const session = structuredClone(c.session);
+      session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
+      session.transcript.push({ id: 'overview-reply', role: 'assistant', content: session.locale === 'de' ? 'Wer schreibt die Angebote heute?' : 'Who writes the quotes today?', inputRevision: inputRevision(session) });
+      Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: inputRevision(session),
+        summary: session.locale === 'de' ? 'Das Team verliert Zeit beim Schreiben von Angeboten.' : 'The team loses time writing quotes.',
+        signals: [session.locale === 'de' ? 'Angebote werden von Hand geschrieben' : 'Quotes are written by hand'] });
+      const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ copy, session });
+    });
+    await frame(page);
+    await shadow(page, c => { const panel = c.shadowRoot.querySelector('.analysis-content'); panel.scrollTop = 0; c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }); });
+    await frame(page);
+    const overviewSelectors = ['.understanding', '.notice', '.summary', '.summary-text', '.understanding > .foot', '.composer', '.send'];
+    const overviewBefore = await boxes(page, overviewSelectors);
+    const overview = await shadow(page, c => {
+      const r = c.shadowRoot, section = r.querySelector('.summary'), heading = r.getElementById(section.getAttribute('aria-labelledby'));
+      const summary = r.querySelector('.summary-text').getBoundingClientRect();
+      const divider = r.querySelector('.readiness').getBoundingClientRect();
+      const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
+      return { summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
+        noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
+        regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
+    });
+    assert.equal(overview.noticeVisible, false, 'completed overview has no visible current-assessment label');
+    assert.equal(overview.summaryVisible, true);
+    assert.equal(overview.noticeOutOfFlow, true);
+    assert.ok(Math.abs(overview.summaryGap - overview.nextHeadingGap) <= 2, `${locale}/${width}: divider-to-summary gap equals next divider-to-heading gap ±2px: ${JSON.stringify(overview)}`);
+    const ax = await page.accessibility.snapshot({ interestingOnly: false });
+    const namedRegion = n => n.role === 'region' && n.name === overview.regionName || n.children?.some(namedRegion);
+    assert.ok(namedRegion(ax), 'summary keeps its accessible region name');
+    for (const draft of [true, false]) {
+      await shadow(page, (c, draft) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...structuredClone(c.session.understanding), draft } }), draft);
+      await frame(page);
+      assert.deepEqual(await boxes(page, overviewSelectors), overviewBefore, 'draft/current label change moves summary and surrounding layout 0 px');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.notice-text')).visibility !== 'hidden'), draft);
+    }
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: gap ${overview.summaryGap}px = next section ${overview.nextHeadingGap}px ±2px; draft/current 0px; named region`);
+    if (width === 1440 || locale === 'de' && width === 390) await capture215(t, page, `${locale}-light-${width}-overview-no-label`, { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
+  }
+});
 
 // The r2 composer changes are the only delta from main in this CSS block.
 // Disable those rules temporarily to compare actual boxes and computed targets.

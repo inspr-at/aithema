@@ -1555,12 +1555,13 @@ export class AithemaSession extends HTMLElement {
       : !u.readinessAssessed ? copy.noProjectDetails
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
-    // Keep the notice slot so pending/current/stale transitions displace nothing.
+    // Assessment labels have no visual slot; consent, pending and failure notices stay visible.
     const blocked = !this.#host?.usedUp && paintConsentLine(root.querySelector('.notice-text'), {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
     notice.toggleAttribute('data-current', !blocked && overviewText === copy.final);
+    notice.toggleAttribute('data-assessment', !blocked && (overviewText === copy.final || overviewText === copy.draft));
     overviewRetry.hidden = itemRetry || !failedOverview || replyFailed;
     overviewRetry.disabled = !analysis.available || Boolean(running);
     setText(overviewRetry, failedOverview && !replyFailed ? copy.understandingRetry : '');

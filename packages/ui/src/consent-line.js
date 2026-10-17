@@ -28,7 +28,7 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
   const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
   label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
   if (feature === 'text' && line.classList.contains('composer-reason')) {
-    // CSS chooses visible copy; the action keeps the complete sentence at every width.
+    // CSS selects a label-first name together with its visible action at each width.
     if (!label.querySelector('.consent-wide')) {
       label.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
       action.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
@@ -38,7 +38,8 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${reasonSeparator}`);
     setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
     setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
-    action.setAttribute('aria-label', `${featureConsentText(copy, feature)}. ${copy.featureConsent.action} (${copy.featureConsent.textReview})`);
+    action.querySelector('.consent-wide').setAttribute('aria-label', `${copy.featureConsent.action}: ${featureConsentText(copy, feature)}`);
+    action.querySelector('.consent-narrow').setAttribute('aria-label', `${copy.featureConsent.actionNarrow}: ${featureConsentText(copy, feature)}`);
   } else {
     setText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`);
     setText(action, copy.featureConsent.action);
