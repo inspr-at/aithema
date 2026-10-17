@@ -1,6 +1,7 @@
 import { evidenceCommit, settleEvidenceFrame } from './start2-display-helpers.js';
 import { normalComposerEvidence } from './normal-composer-evidence.js';
 import { createRequire } from 'node:module';
+import { a11yEvidenceMode } from './matrix-coverage.js';
 import { mockConsent } from './consent-helpers.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 // AIT-104 B2: the host surface in a real browser against the default mock demo with its labelled
@@ -720,7 +721,7 @@ async function postRelease297(browserPage, t, legalHTML) {
         await settleEvidenceFrame(page);
         await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
         // Axe is explicit remote evidence only; never add audits to CI workloads.
-        if (!process.env.CI) {
+        if (a11yEvidenceMode) {
           if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
           const audit = await page.evaluate(async () => {
             const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
