@@ -273,7 +273,8 @@ async function checkPhoneVoiceHeader(t, widths) {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
     AITHEMA_COMMIT: '45cd699', AITHEMA_BUILD_DATE: '2026-10-17T00:00:00Z',
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });

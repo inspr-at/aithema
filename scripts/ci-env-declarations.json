@@ -140,6 +140,7 @@
     "reads": [
       "CI",
       "CI",
+      "CI",
       "GITHUB_EVENT_PATH",
       "GITHUB_EVENT_PATH"
     ],
