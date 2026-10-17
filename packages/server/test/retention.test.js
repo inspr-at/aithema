@@ -267,6 +267,7 @@ for (const erased of [true, false]) test(`AIT-297: removed plugin ends scheduled
   spend.uncertain(reservation);
   const registry = new PluginRegistry().register({ ...createMockReasoning(), async reconcileCost() { return null; } });
   const original = createPluginRuntime({ storage, registry, now: () => clock, costReconciliationWindowMs: 1000 });
+  clock = Date.now() + 1001;
   await original.reconcileCosts();
   assert.ok(JSON.parse(ledger.get('removed').provider_cost_json).retryAt > clock, 'plugin initially schedules an estimate retry');
   if (erased) {
