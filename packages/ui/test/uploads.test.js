@@ -729,6 +729,7 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
     assert.ok(line.querySelector('.upload-retry')); assert.ok(line.querySelector('.upload-discard'));
+    assert.equal(root.querySelector('#upload-retry-reason').textContent, copy.uploads.notUploaded.one, 'actions describe retained files, independently of send failure');
     // Consent wins over both the failed send and the upload notice, preserving all available ways out.
     verdict = { available: false, reason: 'current processing consent required' };
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await tick(); await tick();

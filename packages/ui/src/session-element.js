@@ -284,7 +284,7 @@ export class AithemaSession extends HTMLElement {
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <span class="composer-feedback"><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+            <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
@@ -1080,15 +1080,17 @@ export class AithemaSession extends HTMLElement {
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#composerPaused ? '' : !text.available || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
         : this.#uploadNotice || copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
+      setText(root.querySelector('#upload-retry-reason'), this.#retryFiles.length ? plural(copy.uploads.notUploaded, this.#retryFiles.length) : '');
       if (this.#retryFiles.length) {
         const refusal = this.#retryRefusal();
         if (!reason.querySelector('.upload-discard')) {
           const label = node('span'), discard = reasonAction('', () => {
             this.#retryFiles = []; this.#uploadNotice = ''; this.#render('composer');
           });
-          label.id = 'upload-retry-reason'; label.classList.add('upload-retry-copy'); discard.classList.add('upload-discard');
+          label.classList.add('upload-retry-copy'); label.tabIndex = 0; discard.classList.add('upload-discard');
           discard.setAttribute('aria-describedby', label.id);
           const actions = node('span', 'upload-retry-actions'); actions.append(discard);
+          delete reason.dataset.consentFeature;
           reason.replaceChildren(label, actions);
         }
         let action = reason.querySelector('.upload-retry');
@@ -1102,7 +1104,7 @@ export class AithemaSession extends HTMLElement {
           joined.append(action, document.createTextNode(reasonSeparator)); discard.before(joined);
         }
         // Failure replaces the notice, never the retained selection's actions. Consent keeps its opener too.
-        const facts = !text.available && !paused || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
+        const facts = !text.available && !this.#session.paused || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
           : refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
         paintConsentLine(reason.querySelector('.upload-retry-copy'), { copy, feature: 'text', text: `${facts}${reasonSeparator}`,
           verdict: text, open: opener => this.#dialog.openConsent('text', opener) });
@@ -1119,7 +1121,7 @@ export class AithemaSession extends HTMLElement {
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');
         reason.replaceChildren(parts[0] ?? '', modifier, suffix[0], enter, suffix.slice(1).join('Enter'));
       }
-      reason.title = text.available ? '' : unavailable;
+      reason.title = !text.available || this.#rail?.moved ? unavailable : '';
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
