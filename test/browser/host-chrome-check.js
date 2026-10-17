@@ -99,11 +99,14 @@ export async function hostChromeCheck(t) {
       const label = `${locale}-${theme}-${width}-${cause}-${control.slice(1)}`;
       const state = await shadow(page, c => {
         const r = c.shadowRoot, button = r.querySelector('.composer-resume'), send = r.querySelector('.send');
+        // Resolve Send's base colour token without its pointer-dependent hover tint.
+        const primary = document.createElement('span'); primary.style.color = 'var(--aithema-accent)'; r.append(primary);
+        const primaryColor = getComputedStyle(primary).color; primary.remove();
         r.querySelector('textarea').value = 'Unsent draft';
         return { disabled: r.querySelector('textarea').disabled, line: r.querySelector('.composer-paused span').textContent,
           visible: r.querySelector('.composer-paused').checkVisibility(), resume: button.textContent, label: send.getAttribute('aria-label'), title: send.title,
           targets: [button, send].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
-          resumeColor: getComputedStyle(button).color, primaryColor: getComputedStyle(send).backgroundColor,
+          resumeColor: getComputedStyle(button).color, primaryColor,
           resumeWeight: getComputedStyle(button).fontWeight, pausedColor: getComputedStyle(r.querySelector('.composer-paused span')).color,
           restoreFocus: r.activeElement === button, active: r.activeElement?.className ?? null, documentActive: document.activeElement?.tagName, inert: r.querySelector('form').inert, resumeDisabled: button.disabled };
       });
