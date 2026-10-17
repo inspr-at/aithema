@@ -18,7 +18,8 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
-  const themes = evidence ? ['light', 'dark'] : ['light'];
+  // CI already requests light artifacts; preserve its cost while remote evidence adds dark.
+  const themes = evidence && !process.env.CI ? ['light', 'dark'] : ['light'];
   page.on('pageerror', error => problems.push(error.message));
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -204,7 +205,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     passLines.push(`AIT-266 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights; ${evidence ? 60 : 0} viewport captures.`);
   }
   assert.deepEqual(problems, []); assert.equal(checks.length, 15 * themes.length);
-  if (evidence) assert.equal(shots.length, 120);
+  if (evidence) assert.equal(shots.length, 60 * themes.length);
   passLines.push('AIT-266 PASS: visuals absent/present; DE/EN, 1440/1280x860/390, touch/mouse.',
     'AIT-266 PASS: Mac/other keycaps; touch hint hidden; inline Saved 1600ms; composer/Send 0 px; 44 px Send.',
     'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all tested heights.');
