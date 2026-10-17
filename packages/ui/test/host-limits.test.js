@@ -1,0 +1,150 @@
+// AIT-298: focused unit workers keep cumulative DOM work within the unchanged
+// three-minute file deadline under merge-group CPU contention.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
+import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
+import { hostStyles } from '../src/host-styles.js';
+import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup } from './host-surface-helpers.js';
+
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-261: ${reason} disables every conversation control and retains export (${copy === de ? 'de' : 'en'})`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+    const { c, root } = setup(t, { copy, host: { credits: true }, voiceClient: {} }); await tick(8); userTurn(c);
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+    c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason, preserveTranscript: true, settleOutstanding: true } });
+    await tick(8);
+    assert.ok(copy.hostSurface.credits.ended[reason], 'translated terminal copy exists');
+    assert.equal(root.querySelector('form.composer').inert, true);
+    assert.equal(root.querySelector('.qcard').inert, true);
+    assert.equal(root.querySelector('.voice-start').disabled, true);
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+    assert.ok(root.querySelector('.composer-out__export').href.endsWith(`/api/sessions/${c.session.id}/export`));
+    assert.equal(c.session.transcript[0].content, 'We need a preorder app.');
+    t.mock.timers.tick(15_001); await tick(12);
+    assert.equal(root.querySelector('form.composer').inert, true, 'an unrelated credit refresh cannot clear a terminal reason');
+  });
+}
+
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-261: reconnecting to saved ${reason} keeps controls disabled and export available (${copy === de ? 'de' : 'en'})`, async t => {
+    const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
+    await tick(8);
+    assert.equal(root.querySelector('form.composer').inert, true);
+    assert.equal(root.querySelector('.composer-out__body').textContent, copy.hostSurface.credits.ended[reason].body);
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+  });
+}
+
+const releaseLimits = {
+  de: {
+    'one-hour': ['Die Gesprächszeit ist abgelaufen.', 'Ein Gespräch dauert hier höchstens eine Stunde. Ihr Verlauf bleibt gespeichert.', false],
+    session: ['Die Credits dieses Gesprächs sind aufgebraucht.', 'Ihr Verlauf bleibt gespeichert.', true],
+    voiceVisitor: ['Die Sprach-Credits sind aufgebraucht.', 'Sprechen ist in diesem Gespräch nicht mehr möglich.', true],
+    'host-limit': ['Hier sind gerade keine Gespräche möglich.', 'Das Budget dieses Angebots ist ausgeschöpft. Ihr Gespräch bleibt gespeichert.', false],
+  },
+  en: {
+    'one-hour': ['The conversation time has run out.', 'A conversation here lasts at most one hour. Your transcript stays saved.', false],
+    session: ['The credits for this conversation are used up.', 'Your transcript stays saved.', true],
+    voiceVisitor: ['The voice credits are used up.', 'Speaking is no longer possible in this conversation.', true],
+    'host-limit': ['Conversations are not available here right now.', 'The budget for this service is used up. Your conversation stays saved.', false],
+  },
+};
+for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [title, body, footer]] of Object.entries(releaseLimits[locale])) {
+  for (const textAvailable of reason === 'voiceVisitor' ? [true, false] : [true]) {
+    test(`AIT-291 ${locale}: ${reason}, text verdict ${textAvailable}, final copy and one announcement`, async t => {
+      const { c, root } = setup(t, { copy, host: { credits: true, verification: true }, voiceClient: {},
+        session: { featureMatrix: { best: { text: { available: textAvailable }, voice: { available: true } } } },
+        routes: { 'GET /credits': () => Response.json({ balance, tiers: { current: 'anonymous', next: reason === 'host-limit' ? null : 'emailGiven',
+          delta: 1_000_000, allowancesMicro: { anonymous: 5_000_000, emailGiven: 6_000_000 } } }) } });
+      await tick(8); userTurn(c);
+      const statusBefore = root.querySelector('.status__label').textContent;
+      c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+      await tick(8);
+      assert.equal(root.querySelector('.composer-out__title').textContent, title);
+      assert.equal(root.querySelector('.composer-out__body').textContent, body);
+      const none = root.querySelector('.composer-out__none');
+      assert.equal(none.hidden, !footer);
+      assert.equal(none.textContent, footer ? copy.hostSurface.usedUp.none : '');
+      assert.equal(none.getAttribute('aria-hidden'), String(!footer));
+      assert.equal(root.querySelector('.host-credits__next').hidden, !footer);
+      const link = root.querySelector('.composer-out__export');
+      assert.equal(link.getAttribute('aria-hidden'), 'false');
+      assert.equal(link.inert, false);
+      assert.equal(link.textContent.trim(), locale === 'de' ? 'Gespräch exportieren' : 'Export conversation');
+      assert.ok(link.href.endsWith(`/api/sessions/${c.session.id}/export`));
+      if (reason === 'one-hour') {
+        const label = locale === 'de' ? 'Zeit abgelaufen' : 'Time up';
+        assert.equal(root.querySelector('.voice-state').textContent, label);
+        assert.equal(root.querySelector('.composer-reason').textContent, label);
+        assert.equal(root.querySelector('.pause').title, label);
+        for (const size of ['full', 'short']) assert.equal(root.querySelector(`.host-credits__used-up-${size}`).textContent, label);
+      }
+      if (reason === 'voiceVisitor') {
+        // Even an available raw text verdict cannot bypass the existing terminal host gate.
+        assert.equal(root.querySelector('form.composer').inert, true);
+        assert.equal(root.querySelector('textarea').disabled, true);
+        assert.doesNotMatch(body, /Schreiben geht weiter|keep writing/iu);
+      }
+      const announcement = root.querySelector('.credit-announcement');
+      assert.equal(announcement.getAttribute('aria-live'), 'polite');
+      assert.equal(announcement.textContent, `${title} ${body}`);
+      assert.equal(root.querySelector('.status__label').textContent, statusBefore);
+      assert.equal(root.querySelector('.voice-state').getAttribute('aria-live'), 'off');
+      const changes = [];
+      const observer = new window.MutationObserver(records => changes.push(...records));
+      observer.observe(announcement, { childList: true, characterData: true, subtree: true });
+      c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason } });
+      c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+      await tick(8); observer.disconnect();
+      assert.equal(changes.length, 0, 'repeated end events do not reannounce');
+    });
+  }
+}
+
+
+for (const [locale, copy] of Object.entries({ de, en })) for (const variant of ['missing', 'unconfirmed', 'no-next', 'operator-budget']) for (const restored of [false, true]) {
+  test(`AIT-291 r2 ${locale}: host-limit ${variant}, restored ${restored} has one announcement and independent upgrade/export`, async t => {
+    const next = variant === 'missing' ? 'give' : variant === 'unconfirmed' ? 'confirm' : 'none';
+    const { c, root } = a2Setup(t, { copy, delivery: variant === 'unconfirmed',
+      address: ['unconfirmed', 'no-next'].includes(variant) ? 'reader@example.test' : null,
+      privacy: variant !== 'operator-budget', confirmed: variant === 'no-next', endReason: restored ? 'host-limit' : null });
+    const announcement = root.querySelector('.credit-announcement'), changes = [];
+    const observer = new window.MutationObserver(records => changes.push(...records));
+    observer.observe(announcement, { childList: true, characterData: true, subtree: true });
+    await tick(10); userTurn(c);
+    if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+    await tick(8);
+    const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
+    const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'
+      ? next === 'give' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
+      : next === 'give' ? 'Add your email address to get +600 more Credits. Your conversation stays saved.' : 'Confirm your email address to get +600 more Credits.';
+    const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
+    assert.equal(out.dataset.next, next);
+    assert.equal(out.querySelector('.composer-out__title').textContent, title);
+    assert.equal(out.querySelector('.composer-out__body').textContent, body);
+    assert.equal(upgrade.inert, next === 'none');
+    assert.equal(upgrade.getAttribute('aria-hidden'), String(next === 'none'));
+    if (next !== 'none') assert.equal(upgrade.querySelector(`[data-next="${next}"]`).textContent, copy.hostSurface.credits[next === 'give' ? 'give' : 'confirm']);
+    assert.equal(root.querySelector('.credits-email').hidden, next === 'none', 'tier offer survives host-limit');
+    assert.equal(link.inert, false); assert.equal(link.getAttribute('aria-hidden'), 'false');
+    assert.equal(link.textContent.trim(), copy.hostSurface.usedUp.export);
+    assert.equal(link.hasAttribute('data-next'), false, 'export owns its own slot');
+    assert.ok(link.href.endsWith(`/api/sessions/${c.session.id}/export`));
+    assert.equal(announcement.getAttribute('aria-live'), 'polite');
+    assert.equal(announcement.textContent, `${title} ${body}`);
+    assert.equal(changes.length, 1);
+    c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason: 'host-limit' } });
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+    await tick(8); observer.disconnect();
+    assert.equal(changes.length, 1, 'repeated events cannot announce again');
+    if (next !== 'none') {
+      upgrade.click(); await tick(6);
+      assert.equal(root.querySelector('dialog.settings').open, true);
+      assert.equal(root.querySelector('[data-tab="general"]').getAttribute('aria-selected'), 'true');
+      if (next === 'give') assert.equal(root.activeElement?.id, 'email-input');
+      else assert.ok(root.activeElement?.classList.contains('verify-entry'), 'confirmation entry receives focus');
+    }
+  });
+}
