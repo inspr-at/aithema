@@ -173,7 +173,11 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       assert.equal(preMeasure.footerVariable, '', 'the fallback, rather than the measured value, is active');
       assert.equal(preMeasure.reserved, 81, 'pre-measure fallback includes the 24px safe area exactly once');
       await shot(label, theme, 'entrance-pre-measure-24px');
-      await shadow(page, c => c.shadowRoot.querySelector('#pre-measure-hold').remove());
+      await shadow(page, c => {
+        c.shadowRoot.querySelector('#pre-measure-hold').remove();
+        // CDP inset changes alone do not emit a viewport resize; schedule the real first measurement.
+        window.dispatchEvent(new Event('resize'));
+      });
       await settle();
       const measured = await shadow(page, c => {
         const r = c.shadowRoot;
