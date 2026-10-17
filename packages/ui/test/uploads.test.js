@@ -5,6 +5,7 @@ import { Session } from 'node:inspector';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { WARNING_ICON } from '../src/concept-view.js';
 import { UPLOAD_LIMITS, uploadRetryDelay, planUploads, refusalText, formatBytes, uploadStateText, uploadStateTexts, filePartBytes, formBytes, limitsText, dropText, uploadsPossible } from '../src/uploads.js';
 // Node's own FormData and File encode a real multipart body; the component tests below use the window's.
 const { FormData: NodeFormData, File: NodeFile } = globalThis;
@@ -658,6 +659,8 @@ for (const copy of [de, en]) for (const notice of [false, true])
     const submit = async () => { root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(); };
     root.querySelector('textarea').value = 'Hello'; await submit();
     assert.equal(root.querySelector('.composer-reason').textContent, copy.failed);
+    assert.equal(root.querySelector('.composer-reason .warning svg').outerHTML, WARNING_ICON);
+    assert.equal(root.querySelector('.composer-reason .warning .question-why').textContent, copy.failed.split('. ')[0] + '.');
     assert.equal(root.querySelector('.composer-reason').hasAttribute('data-shortcut'), false);
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
@@ -726,6 +729,7 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
     const line = root.querySelector('.composer-reason');
     assert.equal(line.textContent, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+    assert.equal(line.querySelector('.upload-retry-copy .warning svg').outerHTML, WARNING_ICON);
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
     assert.ok(line.querySelector('.upload-retry')); assert.ok(line.querySelector('.upload-discard'));
@@ -736,6 +740,9 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await tick(); await tick();
     assert.ok(line.querySelector('.consent-line-copy'));
     assert.ok(line.querySelector('.consent-action')); assert.ok(line.querySelector('.upload-discard'));
+    assert.equal(line.querySelector('.consent-action').tagName, 'BUTTON');
+    assert.equal(line.querySelector('.consent-action').type, 'button');
+    assert.equal(line.querySelector('.warning'), null, 'consent supersedes the send warning');
     assert.equal(line.textContent.includes(copy.failed), false);
     if (action === 'discard') {
       line.querySelector('.upload-discard').click();

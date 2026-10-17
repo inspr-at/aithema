@@ -1,5 +1,5 @@
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
-import { ConceptView } from './concept-view.js';
+import { ConceptView, WARNING_ICON, paintFailureLine } from './concept-view.js';
 import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
@@ -69,11 +69,11 @@ const CLARIFY_ICONS = Object.fromEntries(Object.entries({
   ask: '<path d="M14 7.7a5.7 5.7 0 0 1-8.3 5.1L2.2 13.8l1-3.3A5.7 5.7 0 1 1 14 7.7z"/>',
   spin: '<circle cx="8" cy="8" r="6" stroke-opacity=".22"/><path d="M14 8a6 6 0 0 0-6-6"/>',
   check: '<path d="m3.2 8.6 3 3 6.6-7.2"/>',
-  warn: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.9v3.6M8 11.1v.05"/>',
   pause: '<path d="M5 3v10M11 3v10" stroke-width="2.4"/>',
   consent: '<path d="M8 1.8 3 3.7v3.9c0 3 2.1 5.2 5 6.6 2.9-1.4 5-3.6 5-6.6V3.7z"/>',
   clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/>',
 }).map(([name, paths]) => [name, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="${name === 'spin' ? 'clarify-spin' : ''}">${paths}</svg>`]));
+CLARIFY_ICONS.warn = WARNING_ICON;
 const NONE = '\u0000none';
 function reconnectDelay(signal) {
   if (signal.aborted) return Promise.resolve();
@@ -1312,6 +1312,8 @@ export class AithemaSession extends HTMLElement {
           verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
       }
+      if (this.#sendFailed && text.available && !this.#rail?.moved)
+        paintFailureLine(reason.querySelector('.upload-retry-copy') ?? reason, copy.failed, this.#retryFiles.length ? reasonSeparator : '');
       if (reason.hasAttribute('data-shortcut') && words) {
         const parts = copy.shortcut.split('{key}'), modifier = node('kbd', '', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');

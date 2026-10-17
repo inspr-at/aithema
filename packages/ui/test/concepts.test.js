@@ -5,7 +5,8 @@ import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { creditCost } from '../src/display.js';
-import { ConceptView, conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
+import { ConceptView, conceptProgress, conceptKind, conceptStateText, WARNING_ICON } from '../src/concept-view.js';
+import { styles } from '../src/styles.js';
 import { EmailAsk } from '../src/email-ask.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
@@ -596,4 +597,21 @@ test('AIT-282: initially unbound hosts keep the existing layout, while an image 
   view.update({...c.session,visualsBound:false,conceptStatus:{phase:'idle'}});
   assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
   assert.equal(root.querySelector('.concept-access').dataset.state,'none');
+});
+
+for (const copy of [de, en]) test(`AIT-286 ${copy.display.locale}: access failure reuses retry warning and keeps the priced button inline after its separator`, async t => {
+  const { c, root, calls } = setup(t, { copy, concepts: [], session: { visualsBound: true, conceptCost: { maxMicro: 30000 } } });
+  const button = root.querySelector('.concept-request');
+  conceptState(c, { phase: 'failed' });
+  const text = root.querySelector('.concept-activity-text');
+  assert.equal(text.querySelector('.question-status.warning svg').outerHTML, WARNING_ICON);
+  assert.equal(text.querySelector('.question-why').textContent, copy.conceptBackdropFailed);
+  assert.equal(text.parentElement.nextElementSibling, button);
+  assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-rail \{ display:block;/u);
+  assert.ok(styles.includes('.concept-activity-text::after { content:"\u00a0· ";'));
+  assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-request \{[^}]*display:inline-block[^}]*white-space:nowrap/u);
+  assert.equal(button.textContent, `${copy.conceptRetry}\u00a0· ${creditCost(30000, copy)}`);
+  button.click(); await tick();
+  assert.equal(calls.filter(call => call.options.body).length, 1, 'existing one-click priced request');
+  assert.equal(root.querySelector('.concept-activity-text .warning'), null, 'pending clears warning');
 });

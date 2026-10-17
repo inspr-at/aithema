@@ -36,6 +36,17 @@ export function conceptStateText({ copy, status = { phase: 'idle' }, feature, it
 const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y="1.5" width="45" height="29" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
   '<path d="M1.5 8h45M7 15h18M7 20h12M30 15h11v10H30z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
 
+// AIT-274's retry glyph and status markup also serve the composer and access error.
+export const WARNING_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.9v3.6M8 11.1v.05"/></svg>';
+export function paintFailureLine(line, words, suffix = '') {
+  const status = document.createElement('span'), why = document.createElement('span');
+  status.className = 'question-status warning'; why.className = 'question-why';
+  status.innerHTML = WARNING_ICON;
+  const [, first, rest = ''] = /^(.*?[.!?])(?=\s|$)([\s\S]*)$/u.exec(words) ?? [null, words];
+  why.textContent = first; status.append(why);
+  line.replaceChildren(status, document.createTextNode(rest + suffix));
+}
+
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
@@ -425,6 +436,10 @@ export class ConceptView {
     access.dataset.state = state;
     if (this.visualKind() === 'image' && state === 'err' && !this.#requestError && !this.#session.conceptStatus?.reason)
       this.root.querySelector('.concept-activity-text').textContent = this.copy.conceptBackdropFailed;
+    if (this.#imageLayout && state === 'err') {
+      const text = this.root.querySelector('.concept-activity-text');
+      paintFailureLine(text, text.textContent);
+    }
     this.root.querySelector('.concept-withdrawn').textContent = state === 'gone' ? this.copy.conceptWithdrawn : '';
     const bottom = this.root.querySelector('.concept-bottom');
     bottom.dataset.state = state;

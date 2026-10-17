@@ -15,7 +15,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-280-r2');
+  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-286-composer');
   const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
@@ -69,6 +69,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     await page.mouse.move(-1, -1); await settle();
     const colors = await shadow(page, c => {
       const selectors = ['.composer-saved', '.composer-saved svg', '.composer-reason', '.composer-reason kbd',
+        '.composer-reason .warning', '.composer-reason .warning svg', '.composer-reason .consent-action',
         '.chooser-option[aria-disabled="true"] strong', '.chooser-option[aria-disabled="true"] .chooser-option__detail',
         '.chooser-option[aria-disabled="true"] .chooser-option__note',
         '.preset-option[aria-disabled="true"]', '.preset-option[aria-disabled="true"] .option-status',
@@ -288,13 +289,14 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           return { visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved'), savedText: r.querySelector('.composer-saved span').textContent,
             announcement: r.querySelector('.composer-saved-announcement').textContent, announcementCount: window.polish280Announcements.length,
             notice: r.querySelector('.composer-reason').textContent, paused: !r.querySelector('.composer-paused').hidden,
+            warning: Boolean(r.querySelector('.composer-reason .question-status.warning svg')),
             failureVisible: r.querySelector('.composer-reason').checkVisibility({ opacityProperty: true, visibilityProperty: true }) };
         }, state);
         assert.equal(result.visibleSaved, false); assert.equal(result.savedText, '');
         assert.equal(result.announcement, state === 'failure' ? '' : copy.saved);
         assert.equal(result.announcementCount, state === 'failure' ? 0 : 1);
         if (state === 'pause') assert.equal(result.paused, true);
-        else if (state === 'failure') { assert.equal(result.notice, copy.failed); assert.equal(result.failureVisible, true); }
+        else if (state === 'failure') { assert.equal(result.notice, copy.failed); assert.equal(result.failureVisible, true); assert.equal(result.warning, true); }
         else assert.equal(result.notice, noticeBefore);
         assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: ${state} shifts composer/Send 0 px`);
         await shot(label, theme, state === 'failure' ? 'send-failure' : `saved-${state}`);
@@ -335,8 +337,11 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
             const r = c.shadowRoot, n = r.querySelector('.composer-reason .consent-action'), b = n.getBoundingClientRect();
             return { text: r.querySelector('.composer-reason').textContent, sendDisabled: r.querySelector('.send').disabled,
               actionHit: r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n,
-              visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved') };
+              visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved'),
+              button: n.tagName, underline: getComputedStyle(n).textDecorationLine, hitHeight: parseFloat(getComputedStyle(n, '::after').height) };
           });
+          assert.equal(consent.button, 'BUTTON'); assert.equal(consent.underline, 'underline');
+          if (touch) assert.ok(consent.hitHeight >= 44);
           assert.equal(consent.text, `${copy.featureConsent.text}\u00a0· ${copy.featureConsent.action}`);
           assert.equal(consent.sendDisabled, true); assert.equal(consent.actionHit, true); assert.equal(consent.visibleSaved, false);
           assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure then consent shifts 0 px`);
@@ -387,6 +392,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   passLines.push('AIT-280 PASS: polite live-region reads count 1 for two saves within 10s; no typing announcements; text clears on hide.',
     'AIT-280 PASS: upload notice, retry and pause win visually; saved confirmation remains assistive-only; failure replaces hint/notice.',
     'AIT-280 PASS: composer/Send shift 0 px in every new state; short host legal links stay on one line at 390px.');
+  passLines.push('AIT-286 PASS: send failure and retained-upload failure share warning glyph/ink; consent opener underlined, native button, 44px coarse hit area; all transitions 0 px.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,
     blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks, shots }, null, 2) + '\n');
