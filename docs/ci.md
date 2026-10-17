@@ -99,7 +99,8 @@ with `head_repository.full_name == inspr-at/aithema` and the CI workflow path.
 GitHub's compare API must confirm that the head SHA is an ancestor of current
 canonical main. Every artifact's workflow run ID, head repository ID, branch and
 SHA must match the verified run; every JSONL header must match its run ID,
-attempt and SHA. PR, pull_request_target, fork and merge-group runs are rejected.
+attempt and SHA. PR runs require the explicit current-head path below;
+`pull_request_target`, fork and merge-group runs are rejected.
 Local `--artifacts` imports are no longer accepted because local bytes cannot
 prove their origin. It validates all input before writing siblings, deduplicates
 run/attempt
@@ -110,6 +111,21 @@ precision. For fewer than five samples, it multiplies that measured sum by 1.25
 and rounds upward to milliseconds. At five or more samples no margin is added.
 The sample count and full provenance remain visible.
 
+AIT-284 also permits an explicit measurement of the open canonical PR at the
+checked-out head, after its complete CI run succeeds:
+
+```sh
+npm run update:browser-timings -- --run SUCCESSFUL_PR_RUN_ID --pr PR_NUMBER
+```
+
+This path requires exactly one run, the canonical head repository and branch,
+the current local/PR/run head SHA, and base `main` in the canonical repository.
+All six artifact metadata records must match that run; JSONL headers must name
+the PR's independently fetched synthetic merge SHA, run ID and attempt. Failed,
+incomplete, mismatched and local artifacts remain rejected. The same workload,
+per-test p95 and 25% warmup rules apply. Without `--pr`, selection and imports
+continue to require canonical main push history.
+
 The workload hash covers the test plus transitive statically referenced helpers
 and fixtures under `test/`. Changing those inputs starts a fresh series when a
 matching trusted CI artifact arrives; the new series immediately regains the
@@ -119,8 +135,8 @@ for older workload hashes are ignored, and files without matching observations
 stay unchanged. Review sibling changes with the code, then commit the generated
 measurements. New files need a measured sibling before joining the required
 suite. The pre-policy PR calibration below is explicitly bootstrap data; it is
-retained with the warmup margin, while all future imports enforce the main-push
-policy. Main will produce the first eligible artifacts after this change merges.
+retained with the warmup margin. Main-push history remains the default; explicit
+current-head PR measurements follow the provenance checks above.
 Missing, malformed, nonpositive, inconsistent or orphaned measurements
 fail the guard. The updater never changes the shard count, budget or checks.
 
