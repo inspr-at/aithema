@@ -70,6 +70,12 @@ export async function auditMainSurfaces(t, evidence) {
       session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'images', 'html'].map(key => [key, { available: true }])),
         eu: { text: { available: false, reason: 'not configured' } }, custom: { text: { available: false, reason: 'not configured' } } };
       session.visualsBound = true; session.conceptVisualKind = 'image'; session.conceptCost = { maxMicro: 0 };
+      if (state === 'consent') {
+        session.settings.visuals = 'fixture-image';
+        for (const feature of Object.keys(session.featureMatrix.best)) session.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
+      }
+      if (state === 'paused') session.paused = true;
+      if (state === 'no-text') session.featureMatrix.best.text = { available: false, reason: 'not configured' };
       session.concepts = []; session.conceptStatus = { phase: 'idle' };
       session.transcript = ['entrance', 'ready'].includes(state) ? [] : [
         { id: 'person', role: 'user', content: locale === 'de' ? 'Wir gleichen 400 Rechnungen von Hand ab.' : 'We reconcile 400 invoices by hand.' },
@@ -130,6 +136,10 @@ export async function auditMainSurfaces(t, evidence) {
       await shadow(page, c => c.shadowRoot.querySelector('.ai-notice').click());
       await audit('conversation', 'footer-popup', locale, theme, width, true);
       await page.keyboard.press('Escape');
+      for (const state of ['consent', 'paused', 'no-text']) {
+        await configure(locale, theme, state);
+        await audit('conversation', state, locale, theme, width, true);
+      }
       for (const state of ['rest', 'requesting', 'selected', 'asked', 'stale', 'retry', 'refused-paused', 'refused-consent', 'refused-deadline']) {
         await configure(locale, theme);
         if (state !== 'rest') await shadow(page, async (c, state) => {
@@ -165,7 +175,10 @@ export async function auditMainSurfaces(t, evidence) {
       await page.keyboard.press('Escape');
       await shadow(page, c => c.shadowRoot.querySelector('[data-tab="general"]').click());
       await audit('settings', 'general-consent', locale, theme, width, true);
-      await shadow(page, c => c.shadowRoot.querySelector('.general-consent-manage').click());
+      await page.keyboard.press('Escape');
+      await configure(locale, theme, 'consent');
+      await audit('consent', 'opener', locale, theme, width, true);
+      await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text .consent-action').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
       await audit('consent', 'dialog', locale, theme, width, true);
       await page.keyboard.press('Escape');
