@@ -127,7 +127,7 @@ export async function visitorCreditMatrix(t, locales) {
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
       const ait292Capture = async state => {
-        if (!evidence || locale !== 'de' || width !== 1440) return;
+        if (!evidence || locale !== 'de' || ![1440, 390].includes(width)) return;
         await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
         await page.mouse.move(-1, -1); await settle(page);
         const file = `ait292-${label}-${state}.png`;
@@ -515,7 +515,11 @@ export async function visitorCreditMatrix(t, locales) {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
       await fixture(page, locale);
       const hourBefore = await boxes(page, liveFixed);
-      await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } })); await settle(page);
+      await shadow(page, c => {
+        for (const type of ['credits.limit-reached', 'conversation.end-requested']) {
+          c.receive({ seq: c.session.seq + 1, type, data: { reason: 'one-hour' } });
+        }
+      }); await settle(page);
       const oneHour = await shadow(page, c => {
         const r = c.shadowRoot;
         return { title: r.querySelector('.composer-out__title').textContent, body: r.querySelector('.composer-out__body').textContent,

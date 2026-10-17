@@ -139,7 +139,8 @@ export class HostSurface {
     if (event.type === 'credits.limit-reached' || event.type === 'conversation.end-requested') {
       const reason = event.data?.reason;
       this.#ended = reason ?? this.#ended ?? 'session';
-      if (event.type === 'credits.limit-reached' && !this.#onCredits) this.#status(this.limitCopy.announce);
+      // The composer's limit block owns the reason and its polite announcement.
+      // Never send ended copy through the action-status/toast channel.
     }
     if (event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state)) {
       const endedCall = this.#creditContext?.();
@@ -240,7 +241,7 @@ export class HostSurface {
     try {
       const response = await this.#call(this.#sessionPath('credits'));
       if (!this.#alive || load !== this.#creditsLoad) return;
-      if (!response.ok) { this.#creditsFailed = true; this.#verification?.setCreditsState('failed'); this.#onCredits?.(); return; }
+      if (!response.ok) { this.#creditsFailed = true; this.#verification?.setCreditsState('failed'); this.#onCredits?.({ receiptFailed: true }); return; }
       this.#creditsFailed = false; this.#credits = response.body;
       const allowanceChanged = Boolean(previous && (previous.balance?.owner?.limitMicro !== this.#credits?.balance?.owner?.limitMicro ||
         JSON.stringify(previous.tiers) !== JSON.stringify(this.#credits?.tiers)));
@@ -254,7 +255,7 @@ export class HostSurface {
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.
       if (this.#alive && load === this.#creditsLoad) {
-        this.#creditsFailed = true; this.#verification?.setCreditsState('failed'); this.#onCredits?.();
+        this.#creditsFailed = true; this.#verification?.setCreditsState('failed'); this.#onCredits?.({ receiptFailed: true });
       }
     }
     finally { this.#creditsReads--; }

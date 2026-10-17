@@ -93,7 +93,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #announcedNotice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
+  #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
   #voiceTranscript = { pending: null };
   #reconcilingPoll = null; #reconcilingLongTimer = null; #reconcilingLong = false;
@@ -158,7 +158,7 @@ export class AithemaSession extends HTMLElement {
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
     this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
-    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#announcedNotice = ''; this.#connection = '';
+    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused); this.#composerResuming = false;
@@ -836,14 +836,7 @@ export class AithemaSession extends HTMLElement {
   }
   #connectionStatus(value) { this.#connection = value; this.#notice = ''; this.#paintStatus(); }
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
-  #limitNotice(value) {
-    if (!value || !this.#host || !this.#composerUsedUp) return false;
-    const { title, body } = this.#host.limitCopy;
-    return [title, body, `${title} ${body}`].includes(value);
-  }
   #paintStatus() {
-    // The composer owns this reason and its polite announcement in either arrival order.
-    if (this.#limitNotice(this.#notice)) this.#notice = '';
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
     // Reserve only short labels, measured in the current font and language.
@@ -861,7 +854,6 @@ export class AithemaSession extends HTMLElement {
     setText(placeholder, labels[connectionKey]); placeholder.hidden = !message;
     const parent = toast ? root.querySelector('.composer-dock') : status.querySelector('.status__group');
     if (label.parentNode !== parent) parent.append(label);
-    if (toast) this.#announcedNotice = this.#notice;
     if (toast) label.setAttribute('role', 'status'); else label.removeAttribute('role');
     label.setAttribute('aria-hidden', String(!toast));
     setText(label, key && !message ? labels[key] : words); status.title = words;
@@ -1000,13 +992,14 @@ export class AithemaSession extends HTMLElement {
     } catch { this.#status(this.#copy.controlFailed); }
     finally { form.remove(); }
   }
-  #creditsChanged({ allowanceChanged = false, settledCall } = {}) {
+  #creditsChanged({ allowanceChanged = false, settledCall, receiptFailed = false } = {}) {
     if (!this.#host) return;
     if (settledCall) this.#rail?.settleLedger(settledCall);
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
     const textReason = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason;
     const deniedText = !this.#hasLiveCall() && ['budget denied', 'budget reconciling'].includes(textReason);
-    const refresh = (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
+    // A failed receipt can resolve fallback copy, but supplies no new admission facts.
+    const refresh = !receiptFailed && (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close(this.#host.endReason ?? 'host-limit');
@@ -1015,9 +1008,6 @@ export class AithemaSession extends HTMLElement {
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
     const announcement = this.#host.limitCopy.announce;
-    if (this.#limitNotice(this.#announcedNotice)) {
-      this.#creditAnnounced = announcement; this.#announcedNotice = '';
-    }
     if (usedUp && !this.#creditEnding && announcement && this.#creditAnnounced !== announcement) {
       this.#creditAnnounced = announcement; setText(this.shadowRoot.querySelector('.credit-announcement'), announcement);
     }
