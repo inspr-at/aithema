@@ -25,7 +25,7 @@ export async function scrollbarFirstPaintCheck(t) {
     void request.respond({ status: 200, contentType: 'text/html', body: `<!doctype html><html lang="de"><head>
       <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">
       <link rel="stylesheet" href="/demo/host.css"><style>
-      html { overflow-y:scroll; } html::-webkit-scrollbar { width:15px; }
+      html { overflow-y:scroll; scrollbar-gutter:stable; } ::-webkit-scrollbar { width:15px; height:15px; }
       body { margin:0; } .aithema-shell { width:100%; }
       .aithema-shell > * { --aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
         --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; }
@@ -58,6 +58,7 @@ export async function scrollbarFirstPaintCheck(t) {
     await page.evaluate(({ scene, markup }) => {
       const { actions, locale, theme, classic } = scene;
       document.documentElement.style.overflowY = classic ? 'scroll' : 'hidden';
+      document.documentElement.style.scrollbarGutter = classic ? 'stable' : 'auto';
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       const shell = document.querySelector('.aithema-shell'); shell.classList.toggle('wide', actions === 280);
       shell.innerHTML = `<aithema-session theme="${theme}" motion="off"><h1 slot="brand">START · Augmentoring — a deliberately very long host brand for truncation</h1></aithema-session>${markup}`;
