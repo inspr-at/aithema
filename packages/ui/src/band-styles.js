@@ -255,6 +255,7 @@ slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit !importan
 .conversations-toggle > svg:last-child { display:block; width:10px; height:10px; color:var(--aithema-muted); }
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 .footer-right { grid-column:3; min-width:0; }
+.display-foot .footer-left { width:max-content; }
 .display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
 .display-foot:has(.host-credits[hidden]) .display-foot__row { grid-template-columns:minmax(0,1fr) auto auto; }
 .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
@@ -336,7 +337,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:is([data-fit="timer"],[data-fit="role"]) .status .connection-timer { display:none; }
   .display-foot[data-fit="role"] .actor-role { display:none; }
   .display-foot[data-fit="role"] .footer-left { gap:0; }
-  .display-foot[data-fit="role"] .host-credits__track { width:24px; }
+  .display-foot[data-fit="role"] .host-credits__track { width:12px; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }

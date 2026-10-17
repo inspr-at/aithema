@@ -65,6 +65,15 @@ test('AIT-294: footer collisions yield the timer even when scrollWidth fits', ()
   assert.equal(fitFooter(footer, true), 'timer');
 });
 
+test('AIT-294: an open absolute popover does not consume footer space', () => {
+  const zone = { hidden:false, clientWidth:100, scrollWidth:372, getClientRects: () => [1],
+    getBoundingClientRect: () => ({ left:0, right:100 }) };
+  const row = { children:[zone], clientWidth:600, scrollWidth:600,
+    getBoundingClientRect: () => ({ left:0, right:600 }) };
+  const footer = { dataset:{}, querySelector: () => row };
+  assert.equal(fitFooter(footer), 'full');
+});
+
 test('fold hides the whole middle, updates its two-line message and restores both scroll positions through incoming content', async t => {
   const window = new Window(); t.after(() => window.happyDOM.close());
   const root = window.document.createElement('div');

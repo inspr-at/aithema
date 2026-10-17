@@ -45,7 +45,7 @@ export function fitFooter(footer, compactIdentity = false) {
     const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
     const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
     const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
-    if (row.scrollWidth <= row.clientWidth && clear && zones.every(n => n.scrollWidth <= n.clientWidth)) break;
+    if (row.scrollWidth <= row.clientWidth && clear) break;
   }
   return footer.dataset.fit;
 }
