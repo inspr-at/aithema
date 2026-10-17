@@ -79,9 +79,10 @@
   },
   "test/browser/matrix-coverage.js": {
     "reads": [
-      "CI"
+      "CI",
+      "GITHUB_ACTIONS"
     ],
-    "reason": "AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI"
+    "reason": "AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI; AIT-293 manual axe evidence also excludes GITHUB_ACTIONS so PR and nightly CI never run axe"
   },
   "test/browser/operator-login.test.js": {
     "reads": [

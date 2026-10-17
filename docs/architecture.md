@@ -186,7 +186,7 @@ they are not test coverage switches.
 | `test/browser/footer-width-sweep.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
 | `test/browser/host-surface.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/html-preview.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
-| `test/browser/matrix-coverage.js` | `CI` ×1 | AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI |
+| `test/browser/matrix-coverage.js` | `CI` ×1, `GITHUB_ACTIONS` ×1 | AIT-185/192 full evidence matrix disabled in CI; nightly explicitly unsets CI; AIT-293 manual axe evidence also excludes GITHUB_ACTIONS so PR and nightly CI never run axe |
 | `test/browser/operator-login.test.js` | `CI` ×2 | Linux headless Chrome sandbox selection |
 | `test/browser/question-card.test.js` | `CI` ×1, `GITHUB_SHA` ×1 | Linux headless Chrome sandbox selection; Evidence/source provenance; release test matches the run identifier |
 | `test/browser/safeguards.test.js` | `CI` ×1 | Linux headless Chrome sandbox selection |
