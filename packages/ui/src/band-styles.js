@@ -318,7 +318,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   /* At 320px Linux fallback fonts wrap the ready status at 13px, growing the
      rail. Keep this reservation and its status at 12px to prevent movement. */
   .concept-activity-text, .drafts-reason-reserve { font-size:12px; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:0; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) { padding-inline:4px; }

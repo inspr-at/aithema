@@ -658,13 +658,14 @@ async function postRelease297(browserPage, t, legalHTML) {
     for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
       await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true, demo: true,
         confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
-      await inShadow(page, (c, { legalHTML, theme, labels }) => {
+      await inShadow(page, async (c, { legalHTML, theme, labels }) => {
         c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme; document.documentElement.lang = c.session.locale;
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
         for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
         c.insertAdjacentHTML('beforeend', legalHTML);
         c.querySelector('#demo-legal').setAttribute('aria-label', labels.legal);
-        c.querySelector('#demo-license').textContent = labels.license;
+        const { paintLicenseLabel } = await import('/demo/license-label.js');
+        paintLicenseLabel(c.querySelector('#demo-license'), labels.license);
         c.querySelector('#demo-legal-source').textContent = labels.legalSource;
       }, { legalHTML, theme, labels: (locale === 'de' ? de : en).host.slots });
       await settleEvidenceFrame(page);
@@ -691,8 +692,7 @@ async function postRelease297(browserPage, t, legalHTML) {
         overlap: (() => { const [a, b] = selectors.map(selector => r.querySelector(selector).getBoundingClientRect());
           return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; })(),
         licenceLines: (() => {
-          const node = c.querySelector('#demo-license').firstChild, start = node.textContent.indexOf('AGPL-3.0-only');
-          const range = document.createRange(); range.setStart(node, start); range.setEnd(node, start + 'AGPL-3.0-only'.length);
+          const range = document.createRange(); range.selectNodeContents(c.querySelector('#demo-license .demo-license-id'));
           return new Set([...range.getClientRects()].map(b => b.y)).size;
         })(), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
           const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }), clipped: n.scrollWidth > n.clientWidth || n.scrollHeight > n.clientHeight };
