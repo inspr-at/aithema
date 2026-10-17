@@ -165,9 +165,13 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__body > span { grid-area:1/1; }
+/* Match the question card's text inset, accounting for the composer border.
+   Only copy moves; the measured surface and action cells retain their padding. */
+.composer-out[data-host-limit] { --host-limit-text-inset:calc(16px - 1px - clamp(.85rem,2vw,1.25rem)); }
+.composer-out[data-host-limit] .composer-out__title { margin-inline:var(--host-limit-text-inset); }
 .composer-out[data-host-limit] .composer-out__body { position:relative; }
 .composer-out[data-host-limit] .composer-out__body::before { content:attr(data-default-body); visibility:hidden; grid-area:1/1; }
-.composer-out[data-host-limit] .composer-out__body > span { position:absolute; top:0; inset-inline:0; }
+.composer-out[data-host-limit] .composer-out__body > span { position:absolute; top:0; inset-inline:var(--host-limit-text-inset); }
 .composer-out__bar { display:flex; align-items:center; align-self:end; gap:14px; padding-top:2px; font-size:13.5px; line-height:1.35; }
 .composer-out__steps { flex:1; min-width:0; }
 :is(.composer-out__steps,.composer-out__actions,.composer-out__upgrade) { display:grid; }
@@ -297,6 +301,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
   .composer-out__bar { font-size:13px; gap:10px; }
+  .composer-out[data-host-limit] { --host-limit-text-inset:calc(12px - 1px - clamp(.85rem,2vw,1.25rem)); }
   /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
   .composer-out[data-host-limit] .composer-out__bar { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; transform:translateY(10px); }
@@ -321,9 +326,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   /* The measured bar retains the normal composer's size; only its absolute
      host-limit action layer reserves the two 44 px rows. */
   .composer-out[data-host-limit] .composer-out__actions { min-height:90px; }
-  .composer-out[data-host-limit] .composer-out__title { margin-inline:-8px; font-size:11.5px; }
+  .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
   .composer-out[data-host-limit] .composer-out__title > span { line-height:1.35; letter-spacing:-.025em; }
-  .composer-out[data-host-limit] .composer-out__body > span { top:-9px; inset-inline:-8px; font-size:12px; line-height:1.3; }
+  .composer-out[data-host-limit] .composer-out__body > span { top:-9px; font-size:12px; line-height:1.3; }
 }
 @media(389px <= width <= 600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }

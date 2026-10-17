@@ -705,6 +705,12 @@ async function postRelease297(browserPage, t, legalHTML) {
           const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }), clipped: n.scrollWidth > n.clientWidth || n.scrollHeight > n.clientHeight };
         }), preset: (() => { const b = r.querySelector('.engine-info').getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width:b.width }; })() };
       });
+      if (width === 320) {
+        const { title } = state.textAlignment;
+        t.diagnostic(`AIT-297 reserved title ${label}: ${JSON.stringify(title)}`);
+        assert.equal(title.lines, 1, `${label}: title fits its reserved single line at 320`);
+        assert.ok(title.right <= title.boxRight + 1, `${label}: title stays inside its inline padding at 320`);
+      }
       reserved ??= state.boxes;
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
