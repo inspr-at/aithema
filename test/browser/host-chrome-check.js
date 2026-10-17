@@ -283,6 +283,14 @@ export async function hostChromeCheck(t) {
       assert.equal(metric.roleReserved, true); assert.equal(metric.credits, true);
       assert.equal(metric.roleAvailable, true, `${label}: real role projection is loaded`);
       if (frames.length) assert.deepEqual(metric.frame, frames[0], `${label}: voice bind/unbind shifts 0 px`);
+      if (metric.fit === 'role') {
+        const sheet = await shadow(page, c => {
+          const r = c.shadowRoot; r.querySelector('.settings-open').click();
+          const open = r.querySelector('.actor-sheet').open;
+          r.querySelector('.actor-close').click(); return open;
+        });
+        assert.equal(sheet, true, `${label}: dropped Rolle is available in the gear sheet`);
+      }
       frames.push(metric.frame); rail294Checks.push({ pass: true, label, ...metric, shiftPx: 0 });
       if ((width === 700 && locale === 'de' && voice) || (width === 768 && locale === 'en' && theme === 'light' && frames.length <= 2)) await shot(label);
     }

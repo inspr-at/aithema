@@ -165,6 +165,12 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           const range = document.createRange(); range.selectNodeContents(text);
           for (const b of range.getClientRects()) if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
         }
+        // Painted controls occupy space too: the slider is content, not an empty text run.
+        for (const control of r.querySelectorAll('[data-panel="model"] :is(button,input)')) {
+          if (!control.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
+          const b = control.getBoundingClientRect();
+          if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
+        }
         intervals.sort((a,b) => a[0]-b[0]); let end = from, maxEmptyPx = 0;
         for (const [top,bottom] of intervals) { maxEmptyPx = Math.max(maxEmptyPx,top-end); end = Math.max(end,bottom); }
         maxEmptyPx = Math.max(maxEmptyPx,to-end);
