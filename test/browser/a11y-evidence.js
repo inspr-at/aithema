@@ -86,6 +86,10 @@ export async function auditMainSurfaces(t, evidence) {
         signals: [locale === 'de' ? '400 Rechnungen' : '400 invoices'],
         openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?', 'PDF oder Papier?'] : ['Which system is in use?', 'Who approves invoices?', 'PDF or paper?'] });
       session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
+      if (state === 'concept') {
+        session.settings.visuals = 'fixture-image';
+        session.concepts = [{ id: 'a11y-image', mediaType: 'image/png', turnIds: ['person'], referenceIds: [], archived: false }];
+      }
       if (role) {
         session.demo = false;
         session.roleChoice = { available: true, roles: Object.keys(labels.en), role: 'company', source: 'inferred', reasoning: locale === 'de' ? 'Sie sprechen von Ihrem Unternehmen.' : 'You refer to your company.', revision: session.seq };
@@ -94,7 +98,8 @@ export async function auditMainSurfaces(t, evidence) {
       c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.configure({ session, copy, host: { credits: true, ...(role ? { actorRole: { labels } } : {}) } });
+      c.configure({ session, copy, host: { credits: true, version: { version: '261015164601.0.0', version_scheme: 'inspr-calver-3',
+        commit: 'c285d360', date: '2026-10-17T10:00:00Z' }, ...(role ? { actorRole: { labels } } : {}) } });
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       window.scrollTo(0, 0);
     }, { locale, theme, state, role, labels });
@@ -116,7 +121,13 @@ export async function auditMainSurfaces(t, evidence) {
         const b = root.querySelector(selector)?.getBoundingClientRect(); return [selector, b ? [b.x, b.y, b.width, b.height] : null];
       }));
     });
-    runs.push({ surface, state, locale, theme, width, height: width === 390 ? 844 : 1000, geometry, ...result });
+    const scene = await page.evaluate(() => {
+      const r = document.querySelector('aithema-session')?.shadowRoot;
+      return r ? { stage: r.querySelector('.workspace').dataset.stage, composer: r.querySelector('.composer-reason').outerHTML,
+        itemStates: [...r.querySelectorAll('.open-question')].map(n => n.dataset.state), openDialogs: [...r.querySelectorAll('dialog[open]')].map(n => n.className),
+        conceptItems: document.querySelector('aithema-session').session.concepts?.length } : { route: location.pathname };
+    });
+    runs.push({ surface, state, locale, theme, width, height: width === 390 ? 844 : 1000, geometry, scene, ...result });
     if (shot && locale === 'de') {
       const file = `a11y-${surface}-${state}-${locale}-${theme}-${width}.png`;
       await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
@@ -193,12 +204,7 @@ export async function auditMainSurfaces(t, evidence) {
       await shadow(page, (c, width) => c.shadowRoot.querySelector(width === 390 ? '.settings-open' : '.actor-trigger').click(), width);
       await audit('actor-role', width === 390 ? 'phone-sheet' : 'popover', locale, theme, width, true);
       await page.keyboard.press('Escape');
-      await configure(locale, theme);
-      await shadow(page, c => {
-        c.session.settings.visuals = 'fixture-image';
-        c.session.concepts = [{ id: 'a11y-image', mediaType: 'image/png', turnIds: ['person'], referenceIds: [], archived: false }];
-        c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { phase: 'idle' } });
-      });
+      await configure(locale, theme, 'concept');
       await audit('concept', 'backdrop-access', locale, theme, width, true);
       await shadow(page, c => c.shadowRoot.querySelector('.concept-preview').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
