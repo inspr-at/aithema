@@ -37,6 +37,12 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 }
 
 export const browserTestWeights = readBrowserTestWeights();
+// AIT-276 round 2: PR CI run 38997826397, head 81022a10fd, measured all
+// three geometry tests at 88.450875s (no-helper regression: 14.332418s).
+// Keep a 110.564s floor including the usual 25% warmup margin until rolling
+// main CI catches up with the expanded same-page workload.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 110.564);
 
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
