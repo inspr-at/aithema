@@ -616,7 +616,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
 
 // AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
 async function postRelease297(page, t, legalHTML) {
-  const checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const checks = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320]) {
     const height = width < 600 ? 844 : 1000;
     await page.setViewport({ width, height });
@@ -642,6 +642,9 @@ async function postRelease297(page, t, legalHTML) {
       await settleEvidenceFrame(page);
       const after = await stable(), label = `${locale}/${theme}/${width}/${variant}`;
       assert.deepEqual(after, before, `${label}: zero layout shift on host-limit entry`);
+      const footerKey = `${theme}/${width}`;
+      if (!footerHeights.has(footerKey)) footerHeights.set(footerKey, after[3][3]);
+      assert.equal(after[3][3], footerHeights.get(footerKey), `${label}: footer height stays fixed across languages and tiers`);
       const state = await inShadow(page, c => {
         const r = c.shadowRoot, selectors = ['.composer-out__upgrade', '.composer-out__export'];
         return { boxes: selectors.map(selector => {

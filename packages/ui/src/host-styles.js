@@ -320,7 +320,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 @media(max-width:380px) { .composer-out__bar { min-height:90px; } }
 @media(min-width:381px) and (max-width:600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:4px; }
-  .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:12.5px; }
+  .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }
 }
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); } }
