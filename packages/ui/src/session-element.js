@@ -89,7 +89,7 @@ function textKeys(values) {
 
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
-  #clarify = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
+  #clarify = null; #clarifyRequest = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
@@ -129,7 +129,7 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#cancelUploads();
-    clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
+    clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyRequest = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#laneStatusPending = null;
@@ -207,6 +207,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#clarifyBusy()) throw Object.assign(new Error('reply-in-flight'), { reason: 'reply-in-flight', status: 409 });
     const item = this.openQuestionItems.find(item => item.id === questionId);
     const sessionId = this.#session.id, revision = inputRevision(this.#session);
+    const attempt = {}; this.#clarifyRequest = attempt;
     this.#clarify = { questionId, question: item?.question, inputRevision: revision, state: 'requesting', pending: true };
     this.#render('aside');
     try {
@@ -220,13 +221,15 @@ export class AithemaSession extends HTMLElement {
       if (sessionId === this.#session.id && revision === inputRevision(this.#session)) await this.#clarifyRefused(error);
       throw error;
     } finally {
-      if (sessionId === this.#session.id && this.#clarify?.inputRevision === revision) {
-        this.#clarify.pending = false; this.#render('aside');
+      if (this.#clarifyRequest === attempt) {
+        this.#clarifyRequest = null;
+        if (this.#clarify?.inputRevision === revision) this.#clarify.pending = false;
+        this.#render('aside');
       }
     }
   }
   #clarifyBusy() {
-    return this.#clarify?.pending || ['requesting', 'selected'].includes(this.#clarify?.state) ||
+    return Boolean(this.#clarifyRequest) || this.#clarify?.pending || ['requesting', 'selected'].includes(this.#clarify?.state) ||
       this.#session.operations?.inputRevision === inputRevision(this.#session) && this.#session.operations.running.includes('reaction');
   }
   async #clarifyRefused(error) {
@@ -279,7 +282,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#clarify && this.#clarify.inputRevision !== revision) this.#clarify = null;
     if (chosen?.inputRevision === revision && this.#session.focusedQuestion && chosen.requestId !== this.#clarify?.requestId) {
       const question = this.#session.focusedQuestion;
-      this.#clarify = { ...chosen, question, state: 'requesting' };
+      this.#clarify = { ...chosen, question, state: 'requesting', pending: Boolean(this.#clarifyRequest) };
       this.#clarifyReplies.set(chosen.requestId, question);
     }
     const focus = this.#clarify;
@@ -298,6 +301,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, copy = this.#copy.clarify, focus = this.#clarify;
     const terminal = focus?.reason === 'deadline' || this.#host?.usedUp ||
       ['ending', 'ended'].includes(this.#session.credits?.status);
+    if (terminal && focus) { focus.state = 'refused'; focus.reason = 'deadline'; }
     const available = this.openQuestionItems, questions = this.#session.understanding.openQuestions;
     reconcile(root.querySelector('.questions'), questions.length ? textKeys(questions) : [[NONE, null]], value => {
       const row = node('li', value === null ? 'none-yet' : 'open-question');

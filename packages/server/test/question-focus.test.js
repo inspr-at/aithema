@@ -224,7 +224,9 @@ test('focus instruction echoes never reach replies, event replay, transcript or 
 test('AIT-263 Low: a published assessment removes pending focus from snapshots and voice context', async t => {
   const hold = held(), f = fixture(t, { hold, assessmentQuestions: ['What is the budget?'] });
   assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
-  await f.handlers.lanes.run(f.session.id, 'understanding');
+  const before = f.storage.get(f.session.id);
+  f.storage.append(f.session.id, 'understanding.updated', { ...before.understanding, draft: true }, inputRevision(before));
+  assert.equal(await f.handlers.lanes.run(f.session.id, 'understanding'), 'done');
   const session = f.storage.get(f.session.id);
   assert.equal(session.focusedQuestion, null);
   assert.equal(session.questionFocus, null);
