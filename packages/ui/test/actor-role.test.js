@@ -72,6 +72,9 @@ test('AIT-281: Esc restores focus; outside click and Tab-out close; chosen role 
   key(f.root.activeElement, 'Escape'); assert.equal(f.actor.popover.hidden, true); assert.equal(f.root.activeElement, f.root.querySelector('.actor-trigger'));
   f.actor.open(true); f.root.querySelector('.outside').focus(); assert.equal(f.actor.popover.hidden, true);
   f.actor.open(); f.root.querySelector('.outside').click(); assert.equal(f.actor.popover.hidden, true);
+  f.actor.open(true); key(f.root.activeElement, 'Tab');
+  f.root.activeElement.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+  assert.equal(f.actor.popover.hidden, true, 'Tab into browser chrome also closes');
   f.actor.set({ ...initial, source: 'chosen' }); f.actor.open(); await f.actor.choose('company');
   assert.equal(f.calls.filter(c => c.body).length, 0);
 });

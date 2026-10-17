@@ -66,8 +66,7 @@ export const actorRoleStyles = `
 .actor-sheet .actor-status { margin:0 -8px; padding:0 8px; height:44px; border:0; font-size:14px; }
 .actor-sheet .actor-status[data-phase=error] { display:block; padding-top:2px; }
 .actor-sheet .actor-status[data-phase=error] > span { display:block; }
-.actor-sheet .actor-status[data-phase=error] .actor-status-icon { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2.5px; }
-.actor-status-sep { display:none; }
+.actor-sheet .actor-status[data-phase=error] .actor-status-sep { display:none; }
 .actor-sheet .actor-retry { margin-left:20px; }
 .actor-processing { border-top:1px solid var(--aithema-line); margin-top:6px; padding-top:16px; }
 .actor-processing > button { display:flex; align-items:center; width:100%; min-height:50px; padding:0; text-align:left; color:var(--aithema-ink); font-size:16px; }

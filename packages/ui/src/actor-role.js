@@ -45,7 +45,13 @@ export class ActorRole {
       });
     }
     this.#trigger.addEventListener('click', event => { this.popover.hidden ? this.open(event.detail === 0) : this.close(); });
-    this.element.addEventListener('focusout', event => { if (event.relatedTarget && !this.element.contains(event.relatedTarget)) this.close(); });
+    let tabbing = false;
+    this.element.addEventListener('keydown', event => { if (event.key === 'Tab') tabbing = true; });
+    this.element.addEventListener('pointerdown', () => { tabbing = false; });
+    this.element.addEventListener('focusout', event => {
+      if (event.relatedTarget ? !this.element.contains(event.relatedTarget) : tabbing) this.close();
+      tabbing = false;
+    });
     this.sheet.querySelector('.actor-close').addEventListener('click', () => this.closeSheet());
     this.sheet.addEventListener('cancel', event => { event.preventDefault(); this.closeSheet(); });
     this.sheet.addEventListener('click', event => { if (event.target === this.sheet) this.closeSheet(); });
