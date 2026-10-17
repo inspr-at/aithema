@@ -1,20 +1,20 @@
 {
-  "seconds": 25.854,
-  "evidence": "Measured PR CI run 39000100777, attempt 1, browser (5/6), artifact browser-timings-5-of-6/batch-0.jsonl: 20.682911521 s including all viewport screenshots and refusal-glyph/single-line-meta checks. One observation with 25% warmup margin; matching corrected workload. Shard count and 420 s ceiling unchanged.",
+  "seconds": 35.507,
+  "evidence": "Measured PR CI run 39002851879, attempt 1, browser (1/6), artifact browser-timings-1-of-6/batch-0.jsonl: 28.40469569 s including the expanded 96-state matrix and 98 viewport screenshots. PR head 3989977e; CI tested merge 73aae6a8d28b44b5739ead9be9ec71364a833580. One observation with 25% warmup margin; matching round-2 workload. Shard count and 420 s ceiling unchanged.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "90c929f81595f3fc70ca350ced7f4e93ff0eaa3255b0946f7c7e5e8cdee9a60d",
+    "workload": "ca8a8b801973a3624e098f00ab4982ef1ed856de08436a414dddbc6acb08a7d3",
     "samples": [
       {
-        "runId": "39000100777",
+        "runId": "39002851879",
         "attempt": 1,
-        "sha": "9d056b7fddff89b2c523fbfb2126af0931b81695",
-        "observedAt": "2026-10-17T03:47:49.327Z",
+        "sha": "73aae6a8d28b44b5739ead9be9ec71364a833580",
+        "observedAt": "2026-10-17T04:31:44.320Z",
         "tests": [
           {
             "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
-            "seconds": 20.682911521
+            "seconds": 28.40469569
           }
         ]
       }
