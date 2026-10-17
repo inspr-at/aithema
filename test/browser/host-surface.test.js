@@ -479,7 +479,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     let reserved;
     for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
       await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test',
-        delivery: true, confirmed: variant === 'no-upgrade' });
+        delivery: true, confirmed: variant === 'no-upgrade',
+        spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
       await inShadow(page, c => {
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
         c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
