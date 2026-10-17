@@ -133,74 +133,9 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     }, { locale, stage, visuals });
     await settle();
   };
-  // AIT-294 r2: one live page for both model types, translations and palettes.
-  const settings294Checks = [];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
-    await page.setViewport({ width: 390, height: 844 }); await page.select('#theme', theme);
-    await configure(locale, 'live');
-    await shadow(page, async (c, locale) => {
-      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      window.ait294Settings = true;
-      const session = c.session; session.settings = { ...session.settings, model: 'mock', effort: 'none', origin: 'chosen' };
-      c.configure({ session, copy }); c.openSettings();
-    }, locale);
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role="option"]').length === 2);
-    let baseline;
-    for (const model of ['fixed', 'adjustable', 'fixed']) {
-      await shadow(page, (c, model) => {
-        const r = c.shadowRoot;
-        r.querySelector('[data-select="model"] .select__button').click();
-        r.querySelector(`[data-select="model"] [data-value="${model === 'fixed' ? 'mock' : 'mock/deep'}"]`).click();
-      }, model);
-      await settle();
-      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-      await page.mouse.move(-1, -1); await settle();
-      const metric = await shadow(page, c => {
-        const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
-        const model = r.querySelector('[data-text="model"]'), info = r.querySelector('.context-message');
-        const from = model.getBoundingClientRect().top, to = info.getBoundingClientRect().top, intervals = [];
-        const walker = document.createTreeWalker(r.querySelector('[data-panel="model"]'), NodeFilter.SHOW_TEXT);
-        for (let text; (text = walker.nextNode());) {
-          if (!text.textContent.trim() || !text.parentElement.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
-          const range = document.createRange(); range.selectNodeContents(text);
-          for (const b of range.getClientRects()) if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
-        }
-        // Painted controls occupy space too: the slider is content, not an empty text run.
-        for (const control of r.querySelectorAll('[data-panel="model"] :is(button,input)')) {
-          if (!control.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
-          const b = control.getBoundingClientRect();
-          if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
-        }
-        intervals.sort((a,b) => a[0]-b[0]); let end = from, maxEmptyPx = 0;
-        for (const [top,bottom] of intervals) { maxEmptyPx = Math.max(maxEmptyPx,top-end); end = Math.max(end,bottom); }
-        maxEmptyPx = Math.max(maxEmptyPx,to-end);
-        return { info: box(info), maxEmptyPx, intervals,
-          gauges: r.querySelector('.settings-overview').getBoundingClientRect().height,
-          slot: box(r.querySelector('.effort-area')), slider: box(r.querySelector('.effort')),
-          note: box(r.querySelector('.effort-note')),
-          areas: ['.settings__body','.settings-panel','.notice-area','.settings-overview','.settings-context','.context-text'].map(s => [s,box(r.querySelector(s))]) };
-      });
-      baseline ??= metric.info;
-      settings294Checks.push({ locale, theme, model, ...metric });
-      assert.equal(metric.gauges, 0, 'AIT-294: below 600px the entire gauge column has no footprint');
-      assert.ok(metric.maxEmptyPx <= 24, `AIT-294: no empty run taller than 24px: ${JSON.stringify(metric)}`);
-      assert.deepEqual(metric.info, baseline, 'AIT-294: info line moves exactly 0px between model types');
-      assert.equal(metric.slot[3], metric.slider[3], 'AIT-294: reservation is exactly the real slider height');
-      if (evidence && locale === 'de' && theme === 'dark') await shot('ait294-de-dark-390', theme, `settings-${model}`);
-    }
-    for (const width of [599, 600, 1024]) {
-      await page.setViewport({ width, height: 900 }); await settle();
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.settings-overview').checkVisibility()), width >= 600,
-        `AIT-294: gauges follow the exact 600px breakpoint at ${width}`);
-    }
-    await shadow(page, c => { c.shadowRoot.querySelector('dialog.settings .done').click(); window.ait294Settings = false; });
-  }
-  assert.equal(settings294Checks.length, 12, 'AIT-294: both model directions in each locale and palette');
-  passLines.push('AIT-294 r2 PASS: Settings 390 DE/EN light/dark; empty runs <=24px; info line/model switch 0px; slider slot exact; gauges absent below 600px, retained at 600/1024.');
   // CI keeps its single light functional matrix. A second theme and PNGs are remote evidence only.
   // Keep native mouse emulation first: disabling touch resets hover on Linux.
   for (const touch of [false, true]) for (const theme of themes) {
-    await page.select('#theme', theme);
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) {
       const label = `${locale}-${width}x${height}-${touch ? 'touch' : 'mouse'}-${theme}`, copy = { de, en }[locale];
@@ -493,6 +428,71 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       passLines.push(`AIT-280 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights at 390/1280 with 24px safe area; ${evidence ? 144 : 0} viewport captures.`);
     }
   }
+  // AIT-294 r2: reuse this page after the native mouse/touch checks. Puppeteer
+  // viewport emulation resets Chrome’s native hover profile, so this matrix runs last.
+  const settings294Checks = [];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width: 390, height: 844 }); await page.select('#theme', theme);
+    await configure(locale, 'live');
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      window.ait294Settings = true;
+      const session = c.session; session.settings = { ...session.settings, model: 'mock', effort: 'none', origin: 'chosen' };
+      c.configure({ session, copy }); c.openSettings();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role="option"]').length === 2);
+    let baseline;
+    for (const model of ['fixed', 'adjustable', 'fixed']) {
+      await shadow(page, (c, model) => {
+        const r = c.shadowRoot;
+        r.querySelector('[data-select="model"] .select__button').click();
+        r.querySelector(`[data-select="model"] [data-value="${model === 'fixed' ? 'mock' : 'mock/deep'}"]`).click();
+      }, model);
+      await settle();
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle();
+      const metric = await shadow(page, c => {
+        const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
+        const model = r.querySelector('[data-text="model"]'), info = r.querySelector('.context-message');
+        const from = model.getBoundingClientRect().top, to = info.getBoundingClientRect().top, intervals = [];
+        const walker = document.createTreeWalker(r.querySelector('[data-panel="model"]'), NodeFilter.SHOW_TEXT);
+        for (let text; (text = walker.nextNode());) {
+          if (!text.textContent.trim() || !text.parentElement.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
+          const range = document.createRange(); range.selectNodeContents(text);
+          for (const b of range.getClientRects()) if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
+        }
+        // Painted controls occupy space too: the slider is content, not an empty text run.
+        for (const control of r.querySelectorAll('[data-panel="model"] :is(button,input)')) {
+          if (!control.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
+          const b = control.getBoundingClientRect();
+          if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
+        }
+        intervals.sort((a,b) => a[0]-b[0]); let end = from, maxEmptyPx = 0;
+        for (const [top,bottom] of intervals) { maxEmptyPx = Math.max(maxEmptyPx,top-end); end = Math.max(end,bottom); }
+        maxEmptyPx = Math.max(maxEmptyPx,to-end);
+        return { info: box(info), maxEmptyPx, intervals,
+          gauges: r.querySelector('.settings-overview').getBoundingClientRect().height,
+          slot: box(r.querySelector('.effort-area')), slider: box(r.querySelector('.effort')),
+          note: box(r.querySelector('.effort-note')),
+          areas: ['.settings__body','.settings-panel','.notice-area','.settings-overview','.settings-context','.context-text'].map(s => [s,box(r.querySelector(s))]) };
+      });
+      baseline ??= metric.info;
+      settings294Checks.push({ locale, theme, model, ...metric });
+      assert.equal(metric.gauges, 0, 'AIT-294: below 600px the entire gauge column has no footprint');
+      assert.ok(metric.maxEmptyPx <= 24, `AIT-294: no empty run taller than 24px: ${JSON.stringify(metric)}`);
+      assert.deepEqual(metric.info, baseline, 'AIT-294: info line moves exactly 0px between model types');
+      assert.equal(metric.slot[3], metric.slider[3], 'AIT-294: reservation is exactly the real slider height');
+      if (evidence && locale === 'de' && theme === 'dark') await shot('ait294-de-dark-390', theme, `settings-${model}`);
+    }
+    for (const width of [599, 600, 1024]) {
+      await page.setViewport({ width, height: 900 }); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.settings-overview').checkVisibility()), width >= 600,
+        `AIT-294: gauges follow the exact 600px breakpoint at ${width}`);
+    }
+    await shadow(page, c => { c.shadowRoot.querySelector('dialog.settings .done').click(); window.ait294Settings = false; });
+  }
+  assert.equal(settings294Checks.length, 12, 'AIT-294: both model directions in each locale and palette');
+  passLines.push('AIT-294 r2 PASS: Settings 390 DE/EN light/dark; empty runs <=24px; info line/model switch 0px; slider slot exact; gauges absent below 600px, retained at 600/1024.');
   assert.deepEqual(problems, []); assert.equal(checks.length, 18 * themes.length);
   assert.equal(failure294Checks.length, 16, 'AIT-294: every phone/desktop failure width, locale and palette');
   if (evidence) assert.equal(shots.filter(s => !s.file.startsWith('ait294-')).length, 144 * themes.length);
