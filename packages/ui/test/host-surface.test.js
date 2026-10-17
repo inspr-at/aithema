@@ -1680,3 +1680,17 @@ for (const copy of [de, en]) for (const failure of ['http', 'network']) {
     await tick(8); assert.equal(changes.length, 1);
   });
 }
+
+// This assertion also runs unchanged at Tick's recorded capture head 21e06f34.
+// The capture used string copy; current copy separates title and body.
+for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
+  test(`AIT-292 QA-base ${copy.display.locale}/${reason}: end event must not duplicate the composer as a toast`, async t => {
+    const { c, root } = setup(t, { copy, host: { credits: true } }); await tick(8); userTurn(c);
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } }); await tick(8);
+    const ended = copy.hostSurface.credits.ended[reason], body = typeof ended === 'string' ? ended : ended.body;
+    assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+    assert.equal(root.querySelector('.composer-out__body').textContent, body, 'the composer shows the actual ended reason');
+    const toast = root.querySelector('.composer-dock > .status__label');
+    assert.equal(toast?.textContent ?? '', '', `duplicate ended-reason toast: ${toast?.textContent ?? ''}`);
+  });
+}
