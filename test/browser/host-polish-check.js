@@ -11,6 +11,11 @@ import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 
 export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
+  // AIT-293: axe is manual evidence tooling, never part of the CI browser path.
+  if (evidenceDirectory && fullMatrix) {
+    const { auditMainSurfaces } = await import('./a11y-evidence.js');
+    await auditMainSurfaces(t, evidenceDirectory);
+  }
   const directory = await mkdtemp(join(tmpdir(), 'aithema-host-polish-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
