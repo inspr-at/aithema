@@ -1341,6 +1341,7 @@ export class AithemaSession extends HTMLElement {
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.toggleAttribute('data-host-limit', this.#host?.endReason === 'host-limit');
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
+      out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
       setText(out.querySelector('.composer-out__title'), limit.title);
       setText(out.querySelector('.composer-out__body span'), limit.body);
       // Keep the normal composer's body reservation through host-limit and receipt changes.
