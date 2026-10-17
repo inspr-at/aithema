@@ -31,7 +31,7 @@ export class ConnectionTimer {
 }
 
 // The boundaries are shared by the footer's container rules and its tests.
-export const FOOTER_WIDTHS = Object.freeze({ voice: 1100, identity: 680, compact: 700, number: 360 });
+export const FOOTER_WIDTHS = Object.freeze({ voice: 1100, identity: 600, compact: 700, number: 360 });
 export function footerMode(width) {
   return { voice: width >= FOOTER_WIDTHS.voice, identity: width >= FOOTER_WIDTHS.identity,
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };

@@ -28,14 +28,13 @@ test('connection time crosses minute and hour boundaries, pads fields and uses e
   now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00', 'a reconnect starts a new interval'); timer.destroy();
 });
 
-test('footer narrowing reserves the 1024 credit gap with 1100/680 boundaries', () => {
+test('footer narrowing reserves the 1024 credit gap and keeps product identity down to 600px', () => {
   assert.deepEqual(footerMode(1440), { voice: true, identity: true, limit: true, connected: true, unit: true });
   assert.equal(footerMode(1100).voice, true); assert.equal(footerMode(1099).voice, false); assert.equal(footerMode(1024).voice, false);
   assert.deepEqual(footerMode(768), { voice: false, identity: true, limit: true, connected: true, unit: true });
-  assert.equal(footerMode(680).identity, true); assert.equal(footerMode(679).identity, false);
+  assert.equal(footerMode(600).identity, true); assert.equal(footerMode(599).identity, false);
   for (const width of [700, 701]) assert.deepEqual(footerMode(width), { voice: false, identity: true, limit: true, connected: true, unit: true });
-  for (const width of [680, 699]) assert.deepEqual(footerMode(width), { voice: false, identity: true, limit: false, connected: false, unit: true });
-  assert.deepEqual(footerMode(600), { voice: false, identity: false, limit: false, connected: false, unit: true });
+  for (const width of [600, 680, 699]) assert.deepEqual(footerMode(width), { voice: false, identity: true, limit: false, connected: false, unit: true });
   for (const width of [599, 390, 360]) assert.deepEqual(footerMode(width), { voice: false, identity: false, limit: false, connected: false, unit: true });
   for (const width of [359, 320]) assert.deepEqual(footerMode(width), { voice: false, identity: false, limit: false, connected: false, unit: false });
 });
