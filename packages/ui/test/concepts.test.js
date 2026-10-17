@@ -4,7 +4,9 @@ import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-import { conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
+import { creditCost } from '../src/display.js';
+import { ConceptView, conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
+import { EmailAsk } from '../src/email-ask.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -15,7 +17,7 @@ function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480,
 const draftBytes = revision => new TextEncoder().encode(`<!doctype html><html><head><title>Draft</title></head><body><p>Revision ${revision}</p></body></html>`);
 function draft(id, extra = {}) { return item(id, { mediaType: 'text/html', width: undefined, height: undefined, visualKind: 'html',
   provenance: { origin: 'ai-generated', modality: 'html', generator: { provider: 'local-demo-fake' } }, ...extra }); }
-function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse } = {}) {
+function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse, imageResponse } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
   session.transcript = [{ id: 'first', role: 'user', content: 'An API dashboard' }]; session.inputRevision = 1;
   session.concepts = concepts; session.conceptCost = { maxMicro: 1234 };
@@ -27,6 +29,7 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     calls.push({ url, options });
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal.addEventListener('abort', () => controller.close(), { once: true }); } }));
+    if ((url.endsWith('/image') || url.includes('/image?')) && imageResponse) return imageResponse(url, options);
     if (url.endsWith('/image') || url.includes('/image?')) return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } });
     if (url.endsWith('/html')) return new Response(draftBytes(/(\d+)\/html$/u.exec(url)?.[1] ?? 0), { headers: { 'content-type': 'application/octet-stream' } });
     if (!options.body) return Response.json(c.session);
@@ -388,3 +391,209 @@ for (const copy of [de, en]) for (const enabled of [true, false]) for (const rea
     assert.doesNotMatch(stage(c.shadowRoot), /paused|pausiert/iu, 'pause copy stays in composer');
   });
 }
+
+// AIT-282: state changes share a permanent access cell and the authenticated bytes.
+const conceptState = (c, status, artifact) => c.receive({ seq: c.session.seq + 1, type: 'concept.state',
+  data: { intent: c.session.conceptIntent, status, ...(artifact ? { artifact } : {}) } });
+test('AIT-282 round 3: phone access stays inert behind the email ask through stage renders and moves', async t => {
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
+  const { c, root, calls } = setup(t, { session: { visualsBound: true, conceptCost: { maxMicro: 30000 } } });
+  document.body.append(c);
+  // Happy DOM initializes change listeners to false even when the query matches.
+  window.dispatchEvent(new window.Event('resize'));
+  const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
+  assert.ok(access.closest('.composer-dock'), 'the real access row is mounted in the phone dock');
+  const email = { canCollect: true, address: '', numbers: {}, paintNotice() {} };
+  const ask = new EmailAsk({ root, copy: en, verification: { email }, session: () => c.session, streaming: () => false, request: async () => ({ ok: false }) });
+  t.after(() => ask.destroy());
+  ask.open = true; ask.paint();
+  assert.equal(access.inert, true, 'the ready thumbnail is inert behind the modal email ask');
+  root.querySelector('.concept-preview').click();
+  assert.equal(root.querySelector('.concept-viewer').open, false);
+  conceptState(c, { phase: 'failed' });
+  assert.equal(access.inert, true, 'stage renders cannot reopen the paid retry behind the modal');
+  retry.click(); await tick();
+  assert.equal(calls.filter(call => call.options.body).length, 0, 'blocked retry cannot send a paid request');
+  window.happyDOM.setWindowSize({ width: 800, height: 844 });
+  window.dispatchEvent(new window.Event('resize'));
+  assert.ok(access.closest('.concept-bar'));
+  assert.equal(access.inert, true, 'moving the same row retains its guard');
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  window.dispatchEvent(new window.Event('resize'));
+  ask.open = false; ask.paint();
+  assert.equal(access.inert, false, 'live controls return after dismissal');
+  retry.click(); await tick();
+  assert.equal(calls.filter(call => call.options.body).length, 1, 'the existing one-click priced retry still works');
+});
+test('AIT-282 round 3: phone access is hidden and inert outside live, including after email-ask paint', t => {
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
+  for (const origin of ['default', 'chosen']) {
+    const { c, root, calls } = setup(t, { session: { transcript: [], visualsBound: true, settings: { origin }, conceptStatus: { phase: 'failed' } } });
+    document.body.append(c);
+    const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
+    assert.ok(access.closest('.composer-dock'));
+    assert.equal(root.querySelector('.workspace').dataset.stage, origin === 'chosen' ? 'ready' : 'entrance');
+    const email = { canCollect: true, address: '', numbers: {}, paintNotice() {} };
+    const ask = new EmailAsk({ root, copy: en, verification: { email }, session: () => c.session, streaming: () => false, request: async () => ({ ok: false }) });
+    t.after(() => ask.destroy());
+    ask.paint();
+    assert.equal(access.inert, true, 'closed email ask cannot remove the stage guard');
+    assert.equal(window.getComputedStyle(access).display, 'none', 'image layout cannot override the not-live hide rule');
+    assert.ok(retry.closest('.concept-access').inert, 'retry has an inert ancestor');
+    retry.click();
+    assert.equal(calls.filter(call => call.options.body).length, 0);
+  }
+});
+test('AIT-282 round 3: phone accessible name matches visible ready text in DE and EN', t => {
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
+  for (const copy of [de, en]) {
+    const { root } = setup(t, { copy, session: { visualsBound: true } });
+    const preview = root.querySelector('.concept-preview');
+    assert.equal(preview.querySelector('.concept-preview-label').textContent, copy.conceptPhoneReady);
+    assert.equal(preview.getAttribute('aria-label'), copy.conceptPhoneReady);
+  }
+});
+test('AIT-282 round 3: failure and restart copy name the current retry button in DE and EN', () => {
+  for (const copy of [de, en]) for (const text of [copy.conceptFailed, copy.conceptRestarted]) {
+    assert.ok(text.includes(`„${copy.conceptRetry}“`) || text.includes(`“${copy.conceptRetry}”`), text);
+  }
+});
+test('AIT-282: generating, ready, replacement, failure, withdrawal and empty keep the same access nodes', async t => {
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true } });
+  const access = root.querySelector('.concept-access'), preview = root.querySelector('.concept-preview'), request = root.querySelector('.concept-request');
+  conceptState(c, { phase: 'pending', startedAt: Date.now(), estimateMs: 40000 });
+  assert.equal(access.dataset.state, 'gen');
+  assert.equal(root.querySelector('.concept-scene').getAttribute('aria-hidden'), 'true');
+  assert.equal(root.querySelector('.concept-bottom-label').getAttribute('role'), 'status');
+  assert.match(root.querySelector('.concept-bottom-label').textContent, /Creating concept … about 40 s/);
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 0);
+  conceptState(c, { phase: 'ready' }, item('first-concept')); await tick();
+  assert.equal(access.dataset.state, 'ready');
+  const before = root.querySelector('.concept-backdrop img[data-on]'); assert.ok(before.src.startsWith('blob:'));
+  conceptState(c, { phase: 'ready' }, item('replacement')); await tick();
+  const after = root.querySelector('.concept-backdrop img[data-on]'); assert.notEqual(before, after);
+  assert.equal(before.hasAttribute('data-on'), false); assert.equal(after.dataset.id, 'replacement');
+  for (const img of root.querySelectorAll('.concept-backdrop img, .concept-preview img')) {
+    assert.equal(img.alt, ''); assert.equal(img.getAttribute('aria-hidden'), 'true');
+  }
+  conceptState(c, { phase: 'failed' });
+  assert.equal(access.dataset.state, 'err'); assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 0);
+  assert.equal(root.querySelector('.concept-activity-text').textContent, en.conceptBackdropFailed);
+  c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'first', at: new Date().toISOString() } });
+  assert.equal(access.dataset.state, 'gone'); assert.equal(root.querySelector('.concept-withdrawn').textContent, en.conceptWithdrawn);
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src], .concept-preview img[src]').length, 0);
+  assert.equal(root.querySelector('.concept-preview'), preview); assert.equal(root.querySelector('.concept-request'), request);
+});
+test('AIT-282: withdrawal during generating clears bytes immediately and shows the notice for exactly four seconds', t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true } });
+  conceptState(c, { phase: 'pending', startedAt: Date.now(), estimateMs: 40000 });
+  c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'first', at: new Date().toISOString() } });
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  assert.equal(root.querySelector('.concept-bottom-label').textContent, '');
+  t.mock.timers.tick(3999); assert.equal(root.querySelector('.concept-access').dataset.state, 'gone');
+  t.mock.timers.tick(1); assert.equal(root.querySelector('.concept-withdrawn').textContent, '');
+});
+test('AIT-282: the priced retry is the confirmation; one click makes one request, and caps refuse in plain words', async t => {
+  for (const copy of [de, en]) {
+    const { root, calls } = setup(t, { copy, concepts: [], session: { visualsBound: true, conceptCost: { maxMicro: 30000 }, conceptStatus: { phase: 'failed' } },
+      refuse: { status: 409, body: { reason: 'OpenRouter spend cap exhausted' } } });
+    const retry = root.querySelector('.concept-request');
+    assert.equal(retry.textContent, `${copy.conceptRetry}\u00a0· ${creditCost(30000, copy)}`);
+    retry.click(); await tick();
+    assert.equal(calls.filter(call => call.options.body).length, 1);
+    assert.equal(JSON.parse(calls.find(call => call.options.body).options.body).intent, true);
+    assert.match(root.querySelector('.concept-activity-text').textContent, copy === de ? /Ausgabenlimit|Ausgaben.*erreicht|Ausgabenlimit/ : /spending limit reached/i);
+    assert.equal(root.querySelectorAll('dialog').length > 0, true);
+    assert.equal(root.querySelector('.concept-viewer').open, false);
+  }
+});
+test('AIT-282: bubbles and controls win; exposed background opens the existing viewer and focus sharpens it', async t => {
+  const { c, root, calls } = setup(t); document.body.append(c); await tick();
+  const box = { left:0, top:0, right:300, bottom:200 };
+  t.mock.method(root.querySelector('.concept-backdrop'), 'getBoundingClientRect', () => box);
+  const click = target => target.dispatchEvent(new window.MouseEvent('click', { bubbles:true, clientX:30, clientY:30 }));
+  click(root.querySelector('.turn')); assert.equal(root.querySelector('.concept-viewer').open, false);
+  const upload=document.createElement('li');upload.className='upload';upload.textContent='Fixture.pdf';root.querySelector('ol').append(upload);
+  click(upload);assert.equal(root.querySelector('.concept-viewer').open,false,'upload row wins the click');upload.remove();
+  click(root.querySelector('.transcript-latest')); assert.equal(root.querySelector('.concept-viewer').open, false);
+  root.querySelector('.concept-preview').focus(); assert.equal(root.querySelector('.concept-thread').hasAttribute('data-near'), true);
+  root.querySelector('.concept-preview').blur();
+  click(root.querySelector('.transcript-shell')); assert.equal(root.querySelector('.concept-viewer').open, true);
+  assert.equal(calls.filter(call => call.options.body).length, 0);
+});
+test('AIT-282: erased in-flight bytes never reach any surface or URL cache', async t => {
+  let resolve; const pending = new Promise(r => { resolve = r; });
+  const { c, root } = setup(t, { imageResponse: () => pending });
+  c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'first', at: new Date().toISOString() } });
+  resolve(new Response(new Uint8Array([137,80,78,71]), { headers: { 'content-type': 'image/png' } })); await tick();
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src], .concept-preview img[src], .concept-image[src]').length, 0);
+  assert.equal(URL.createObjectURL.mock.callCount(), 0);
+});
+test('AIT-282: viewed storage contains opaque IDs only and private-mode read/write failures leave viewing usable', async t => {
+  window.localStorage.clear();
+  const { root } = setup(t); root.querySelector('.concept-preview').click(); await tick();
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('aithema-concept-viewed')), ['image1']);
+  root.querySelector('.concept-close').click();
+  t.mock.method(window, 'localStorage', () => { throw new Error('private mode'); }, { getter:true });
+  const second = setup(t); second.root.querySelector('.concept-preview').click(); await tick();
+  assert.equal(second.root.querySelector('.concept-viewer').open, true);
+  assert.ok(second.root.querySelector('.concept-image').src.startsWith('blob:'));
+});
+test('AIT-282: unbound visuals show no access; reduced motion disables fades and pulsing', t => {
+  const { root } = setup(t, { concepts: [], session: { visualsBound:false } });
+  assert.equal(root.querySelector('.concept-access').dataset.state, 'none');
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 0);
+  const css = root.querySelector('style').textContent;
+  assert.match(css, /:host\(\[motion="off"\]\) [^{]*concept-backdrop[^{]* img \{ transition:none/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\) \{ [^{]*concept-backdrop[^{]* img \{ transition:none/);
+  assert.match(css, /animation:none !important/);
+});
+test('AIT-282: revoking an outgoing cross-fade layer removes it synchronously while the current concept stays', async t => {
+  const { c, root, revoked } = setup(t); await tick();
+  conceptState(c, {phase:'ready'}, item('current')); await tick();
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 2);
+  c.receive({seq:c.session.seq+1,type:'concept.archived',data:{artifactId:'image1'}});
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 1);
+  assert.equal(root.querySelectorAll('.concept-preview img[src]').length, 1);
+  assert.equal(root.querySelector('.concept-backdrop img[data-on]').dataset.id, 'current');
+  assert.ok(revoked.length > 0);
+});
+test('AIT-282: late source-dependent arrivals after withdrawal and URL-shaped artifact IDs cannot load bytes', async t => {
+  const { c, root, calls } = setup(t, {concepts:[]});
+  c.receive({seq:c.session.seq+1,type:'turn.withdrawn',data:{turnId:'first',at:new Date().toISOString()}});
+  conceptState(c, {phase:'ready'}, item('late')); await tick();
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src],.concept-preview img[src]').length, 0);
+  assert.equal(calls.filter(call=>call.url.endsWith('/image')).length,0);
+  const second=setup(t,{concepts:[item('https://other.example/image')]});await tick();
+  assert.equal(second.calls.filter(call=>call.url.endsWith('/image')).length,0);
+});
+test('AIT-282: an old conversation response cannot paint a new conversation, even with the same artifact ID', async t => {
+  let resolve; const oldBytes = new Promise(r=>{resolve=r;});
+  const png=()=>new Response(new Uint8Array([137,80,78,71]),{headers:{'content-type':'image/png'}});
+  const {c,root:oldRoot,calls}=setup(t,{session:{id:'owner-one'},imageResponse:url=>url.includes('/owner-one/')?oldBytes:png()});
+  const oldSurfaces=[...oldRoot.querySelectorAll('.concept-backdrop img,.concept-preview img')];
+  const session={...c.session,id:'owner-two',concepts:[item('image1')]};
+  c.configure({session,copy:en,sessionToken:'second-owner'});await tick();
+  resolve(png());await tick();
+  assert.ok(oldSurfaces.every(image=>!image.hasAttribute('src')));
+  assert.equal(c.shadowRoot.querySelectorAll('.concept-backdrop img[src]').length,1);
+  assert.equal(URL.createObjectURL.mock.callCount(),1);
+  const read=calls.find(call=>call.url.includes('/owner-two/concepts/'));
+  assert.equal(new Headers(read.options.headers).get('x-aithema-session-token'),'second-owner');
+});
+test('AIT-282: initially unbound hosts keep the existing layout, while an image conversation keeps its reservation through none', t => {
+  let view; const update=ConceptView.prototype.update;
+  t.mock.method(ConceptView.prototype,'update',function(session){view=this;return update.call(this,session);});
+  const {c,root}=setup(t,{concepts:[],session:{visualsBound:false}});
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'unbound');
+  assert.equal(root.querySelector('.concept-bar').hasAttribute('data-no-drafts'),true);
+  view.update({...c.session,visualsBound:true,conceptStatus:{phase:'pending',startedAt:Date.now(),estimateMs:40000}});
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
+  view.update({...c.session,visualsBound:false,conceptStatus:{phase:'idle'}});
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
+  assert.equal(root.querySelector('.concept-access').dataset.state,'none');
+});

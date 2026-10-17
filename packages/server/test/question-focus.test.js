@@ -222,37 +222,78 @@ test('focus instruction echoes never reach replies, event replay, transcript or 
 });
 
 // Exercise the handler publication path, rather than appending an assessment directly.
-test('AIT-263 Low: a published assessment removes pending focus from snapshots and voice context', async t => {
-  const hold = held(), f = fixture(t, { hold, assessmentQuestions: ['What is the budget?'] });
-  const stream = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${f.session.id}/events?after=${f.storage.get(f.session.id).seq}`));
-  const reader = stream.body.getReader(), events = [];
-  const reading = (async () => { for (;;) { const value = await reader.read(); if (value.done) return;
-    for (const block of new TextDecoder().decode(value.value).split('\n\n')) {
-      const data = block.split('\n').find(line => line.startsWith('data:'));
-      if (data) events.push(JSON.parse(data.slice(5)));
+for (const policy of [false, true]) for (const resolution of ['input', 'selection']) {
+  test(`AIT-287: published focus removal persists until new ${resolution} (purpose=${policy})`, async t => {
+    const hold = held(), f = fixture(t, { policy, hold, assessmentQuestions: ['What is the budget?'] });
+    const stream = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${f.session.id}/events?after=${f.storage.get(f.session.id).seq}`));
+    const reader = stream.body.getReader(), events = [];
+    const reading = (async () => { for (;;) { const value = await reader.read(); if (value.done) return;
+      for (const block of new TextDecoder().decode(value.value).split('\n\n')) {
+        const data = block.split('\n').find(line => line.startsWith('data:'));
+        if (data) events.push(JSON.parse(data.slice(5)));
+      }
+    } })();
+    t.after(async () => { await reader.cancel(); await reading; });
+    assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
+    const before = f.storage.get(f.session.id);
+    const { contentRef, hash, ...assessment } = before.understanding;
+    f.storage.append(f.session.id, 'understanding.updated', { ...assessment, draft: true }, inputRevision(before));
+    assert.equal(await f.handlers.lanes.run(f.session.id, 'understanding'), 'completed');
+    const session = f.storage.get(f.session.id);
+    assert.equal(session.focusedQuestion, null);
+    assert.equal(session.questionFocus, null);
+    const response = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${session.id}`));
+    const snapshot = await response.json();
+    assert.equal(snapshot.focusedQuestion, null); assert.equal(snapshot.questionFocus, null);
+    const failure = { inputRevision: inputRevision(session), lane: 'reaction', error: 'reasoning-unavailable',
+      reason: 'focused-question-removed', retryable: false };
+    assert.deepEqual(snapshot.operations.failures, [failure], 'removal is recorded before the stale reply settles');
+    assert.deepEqual(snapshot.operations.lastFailure, failure);
+    const voice = buildVoiceReplyRequest({ session: snapshot, messages: [], call: { callId: 'test-call', providerSessionId: 'test-voice' } });
+    assert.equal(JSON.stringify(voice).includes('When should it launch?'), false, 'removed focus never reaches voice context');
+    hold.resolve(); await f.handlers.idle(); await new Promise(resolve => setImmediate(resolve));
+    const failures = events.filter(event => event.type === 'lane.failed' && event.data.reason === 'focused-question-removed');
+    assert.equal(failures.length, 1, 'real handler emits the documented removal failure exactly once');
+    assert.equal(failures[0].data.lane, 'reaction'); assert.equal(failures[0].data.retryable, false);
+    assert.equal(failures[0].data.inputRevision, inputRevision(session));
+    assert.equal(JSON.stringify(failures[0]).includes('When should it launch?'), false, 'failure does not name the removed question');
+    assert.ok(events.indexOf(failures[0]) < events.findIndex(event => event.type === 'question.focused' && event.data.question === null), 'failure precedes clearing the focus');
+    assert.equal(f.storage.get(session.id).transcript.some(turn => turn.focusRequestId), false);
+    const snapshotNow = () => f.handlers.handle(ownedRequest(`http://local/api/sessions/${session.id}`)).then(r => r.json());
+    assert.deepEqual((await snapshotNow()).operations.failures, [failure], 'stale reaction completion retains the removal failure');
+    const beforeReconnect = { calls: f.calls.length, admissions: f.admissions.length };
+    for (let i = 0; i < 3; i++) {
+      const reconnect = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${session.id}/events?after=${f.storage.get(session.id).seq}`));
+      const reconnectReader = reconnect.body.getReader();
+      try {
+        const { value } = await reconnectReader.read();
+        const status = new TextDecoder().decode(value).split('\n\n').map(block => {
+          const data = block.split('\n').find(line => line.startsWith('data:'));
+          return data ? JSON.parse(data.slice(5)) : null;
+        }).find(event => event?.type === 'lane.status');
+        assert.deepEqual(status?.data.failures, [failure], 'reconnect status retains the recorded failure');
+        assert.deepEqual(status?.data.lastFailure, failure);
+      } finally { await reconnectReader.cancel(); }
+      await f.handlers.idle();
     }
-  } })();
-  t.after(async () => { await reader.cancel(); await reading; });
-  assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
-  const before = f.storage.get(f.session.id);
-  const { contentRef, hash, ...assessment } = before.understanding;
-  f.storage.append(f.session.id, 'understanding.updated', { ...assessment, draft: true }, inputRevision(before));
-  assert.equal(await f.handlers.lanes.run(f.session.id, 'understanding'), 'completed');
-  const session = f.storage.get(f.session.id);
-  assert.equal(session.focusedQuestion, null);
-  assert.equal(session.questionFocus, null);
-  const response = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${session.id}`));
-  const snapshot = await response.json();
-  assert.equal(snapshot.focusedQuestion, null); assert.equal(snapshot.questionFocus, null);
-  const voice = buildVoiceReplyRequest({ session: snapshot, messages: [], call: { callId: 'test-call', providerSessionId: 'test-voice' } });
-  assert.equal(JSON.stringify(voice).includes('When should it launch?'), false, 'removed focus never reaches voice context');
-  hold.resolve(); await f.handlers.idle(); await new Promise(resolve => setImmediate(resolve));
-  const failures = events.filter(event => event.type === 'lane.failed' && event.data.reason === 'focused-question-removed');
-  assert.equal(failures.length, 1, 'real handler emits the documented removal failure exactly once');
-  assert.equal(failures[0].data.lane, 'reaction'); assert.equal(failures[0].data.retryable, false);
-  assert.equal(failures[0].data.inputRevision, inputRevision(session));
-  assert.equal(JSON.stringify(failures[0]).includes('When should it launch?'), false, 'failure does not name the removed question');
-  assert.ok(events.indexOf(failures[0]) < events.findIndex(event => event.type === 'question.focused' && event.data.question === null), 'failure precedes clearing the focus');
-  assert.equal(f.storage.get(session.id).transcript.some(turn => turn.focusRequestId), false);
-  console.log('AIT-274 REMOVAL PASS: real handler emitted focused-question-removed once before clearing; snapshot and voice context clean; no late reply');
-});
+    assert.equal((await f.route('retry', {})).status, 202); await f.handlers.idle();
+    assert.equal(f.calls.length, beforeReconnect.calls, 'neither reconnect nor Retry repeats the removed focus');
+    assert.equal(f.admissions.length, beforeReconnect.admissions, 'the removed focus admits no further attempts');
+    const retained = await snapshotNow();
+    assert.deepEqual(retained.operations.failures, [failure]);
+    assert.equal(retained.focusedQuestion, null); assert.equal(retained.questionFocus, null);
+    assert.equal(JSON.stringify(buildVoiceReplyRequest({ session: retained, messages: [], call: { callId: 'test-call', providerSessionId: 'test-voice' } })).includes('When should it launch?'), false);
+    if (resolution === 'input') {
+      assert.equal((await f.route('turns', { clientEventId: 'new-input', content: 'Our budget is 5000 euros.' })).status, 200);
+    } else {
+      assert.equal((await f.route('focus-question', { questionId: retained.openQuestionItems[0].id,
+        inputRevision: retained.operations.inputRevision })).status, 202);
+    }
+    await f.handlers.idle();
+    const resolved = await snapshotNow();
+    assert.deepEqual(resolved.operations.failures, []);
+    assert.equal(resolved.operations.lastFailure, null);
+    assert.ok(f.calls.length > beforeReconnect.calls, 'new input or selection can dispatch fresh work');
+    assert.equal(f.calls.at(-1).system.includes('When should it launch?'), false, 'fresh work cannot reuse the cleared focus');
+  });
+}
