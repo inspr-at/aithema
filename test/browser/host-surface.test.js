@@ -620,8 +620,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
 
 // AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
 async function postRelease297(browserPage, t, legalHTML) {
-  const checks = [], fractionalChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320, 388.5]) {
+  const checks = [], fractionalChecks = [], alignmentChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 360, 320, 388.5]) {
     const height = width < 600 ? 844 : 1000;
     await browserPage.setViewport({ width: Math.ceil(width), height });
     await browserPage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
@@ -656,7 +656,7 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.equal(await page.evaluate(() => matchMedia('(width < 389px)').matches), true, 'fractional viewport selects the stacked range');
     }
     let reserved;
-    for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
+    for (const variant of (width === 360 ? ['upgrade'] : ['upgrade', 'unconfirmed', 'no-upgrade'])) {
       await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true, demo: true,
         confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
       await inShadow(page, async (c, { legalHTML, theme, labels }) => {
@@ -683,7 +683,13 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.equal(after[3][3], footerHeights.get(footerKey), `${label}: footer height stays fixed across languages and tiers`);
       const state = await inShadow(page, c => {
         const r = c.shadowRoot, selectors = ['.composer-out__upgrade', '.composer-out__export'];
-        return { boxes: selectors.map(selector => {
+        const text = selector => {
+          const n = r.querySelector(selector), range = document.createRange(); range.selectNodeContents(n);
+          const rects = [...range.getClientRects()].filter(b => b.width > 0), box = n.getBoundingClientRect();
+          return { x: Math.min(...rects.map(b => b.x)), lines: new Set(rects.map(b => b.y)).size,
+            right: Math.max(...rects.map(b => b.right)), boxRight: box.right, height: box.height };
+        };
+        return { textAlignment: { card: text('.qtext'), title: text('.composer-out__title > span'), body: text('.composer-out__body > span') }, boxes: selectors.map(selector => {
           const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
         }), lines: selectors.map(selector => {
           const n = r.querySelector(selector), text = n.querySelector('[aria-hidden="false"]') ?? n.querySelector('span');
@@ -715,11 +721,23 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
       assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
-      (Number.isInteger(width) ? checks : fractionalChecks).push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
+      if (variant === 'upgrade' && [320, 360, 390].includes(width)) {
+        alignmentChecks.push({ locale, theme, width, ...state.textAlignment });
+        t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(state.textAlignment)}`);
+      }
+      if (width !== 360) (Number.isInteger(width) ? checks : fractionalChecks).push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
       if (evidence && variant === 'upgrade') {
         await mkdir(evidence, { recursive: true });
         await settleEvidenceFrame(page);
         await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+        if (locale === 'de' && theme === 'dark' && width === 320) {
+          const clip = await inShadow(page, c => {
+            const card = c.shadowRoot.querySelector('.qcard').getBoundingClientRect(), out = c.shadowRoot.querySelector('.composer-out').getBoundingClientRect();
+            return { x: card.x, y: card.y, width: card.width, height: out.bottom - card.y };
+          });
+          await settleEvidenceFrame(page);
+          await capturePage.screenshot({ path: join(evidence, 'ait-297-de-dark-320-host-limit-crop.png'), clip, captureBeyondViewport: false });
+        }
         // Axe is explicit remote evidence only; never add audits to CI workloads.
         if (a11yEvidenceMode) {
           if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
@@ -737,5 +755,14 @@ async function postRelease297(browserPage, t, legalHTML) {
   assert.equal(checks.length, 48);
   assert.equal(fractionalChecks.length, 12);
   t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
-  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, audits }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, alignmentChecks, audits }, null, 2));
+  assert.equal(alignmentChecks.length, 12);
+  for (const { locale, theme, width, card, title, body } of alignmentChecks) {
+    for (const [name, text] of Object.entries({ title, body })) assert.ok(Math.abs(text.x - card.x) <= 1,
+      `${locale}/${theme}/${width}: host-limit ${name} x=${text.x} equals card text x=${card.x} (±1 px)`);
+    if (width === 320) {
+      assert.equal(title.lines, 1, `${locale}/${theme}/320: title fits its reserved single line`);
+      assert.ok(title.right <= title.boxRight + 1, `${locale}/${theme}/320: title stays inside its inline padding`);
+    }
+  }
 }
