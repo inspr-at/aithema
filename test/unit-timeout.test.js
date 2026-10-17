@@ -37,3 +37,38 @@ for (const [name, body] of [
     assert.match(output, /Active resources:/u);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('AIT-298: file timeout identifies the completed subtest and open-handle creation site', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-diagnostic-'));
+  try {
+    const fixture = join(directory, 'owned-handle.test.cjs');
+    writeFileSync(fixture, `const test = require('node:test');
+const { armUnitWatchdog } = require(${JSON.stringify(watchdog)});
+armUnitWatchdog(200);
+test('leaking wallet poll', () => { setInterval(function walletPoll() {}, 1000); });`);
+    const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /Last completed subtest: leaking wallet poll/);
+    assert.match(output, /Open Timeout .*created in leaking wallet poll/);
+    assert.match(output, /owned-handle\.test\.cjs:4/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('AIT-298: late uncaught callbacks print their error stack and originating subtest', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-uncaught-'));
+  try {
+    const fixture = join(directory, 'late-callback.test.cjs');
+    writeFileSync(fixture, `const test = require('node:test');
+test('reject concept', () => { setTimeout(function withdrawalNotice() { throw new TypeError('gone getRootNode'); }, 40); });`);
+    const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /Unit uncaught error:/);
+    assert.match(output, /Async origin: reject concept/);
+    assert.match(output, /TypeError: gone getRootNode/);
+    assert.match(output, /withdrawalNotice .*late-callback\.test\.cjs:2/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

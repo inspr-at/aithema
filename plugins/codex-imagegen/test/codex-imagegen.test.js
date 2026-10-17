@@ -1,3 +1,4 @@
+import { setTimeout as nativeTimeout, clearTimeout as nativeClearTimeout } from 'node:timers';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
@@ -49,6 +50,14 @@ async function fake(t, extra = {}) {
     rates: { inputMicro: 0, outputMicro: 0 }, routing: { codex: { binaryPath: 'codex', codexHome, timeoutMs: 5000,
       trustedPromptsOnly: true } } };
   const plugin = createCodexImagegen({ binding, spawnImpl });
+  if (extra.stallPreparationMs) for (const operation of ['generate', 'edit']) {
+    const run = plugin[operation];
+    plugin[operation] = async (...args) => {
+      const input = args[operation === 'generate' ? 0 : 1];
+      if (input.prompt === 'fixture-mode:hang') await new Promise(resolve => nativeTimeout(resolve, extra.stallPreparationMs));
+      return run(...args);
+    };
+  }
   t.after(async () => {
     for (const record of [...records, ...probes]) {
       if (record.child.exitCode === null && record.child.signalCode === null) {
@@ -413,6 +422,14 @@ for (const size of ['1024x1024', '1536x1024', '1024x1536']) {
 
 test('Codex imagegen passes the reusable UI conformance kit with fake executable stalls', async t => {
   const f = await fake(t), source = await f.plugin.generate(spec, '', options());
+  assert.deepEqual(await uiGenerationConformance(f.plugin, { spec, feedback: 'Blue action', artifact: source }, {
+    timeoutMs: 2000, stallSpec: { prompt: 'fixture-mode:hang' }, stallFeedback: 'fixture-mode:hang',
+    requestCount: () => f.records.length, expectedUsage: { inputTokens: 0, outputTokens: 0 },
+  }), { ok: true, failures: [] });
+});
+
+test('AIT-298: conformance active stalls survive slow local preparation', async t => {
+  const f = await fake(t, { stallPreparationMs: 60 }), source = await f.plugin.generate(spec, '', options());
   assert.deepEqual(await uiGenerationConformance(f.plugin, { spec, feedback: 'Blue action', artifact: source }, {
     timeoutMs: 2000, stallSpec: { prompt: 'fixture-mode:hang' }, stallFeedback: 'fixture-mode:hang',
     requestCount: () => f.records.length, expectedUsage: { inputTokens: 0, outputTokens: 0 },
