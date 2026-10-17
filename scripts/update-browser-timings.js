@@ -40,7 +40,10 @@ try {
     if (pull) assertPullRequestTimingRun(run, runId, pull, head);
     else {
       assertTrustedTimingRun(run, runId);
-      const comparison = JSON.parse(gh('api', `repos/${timingRepository}/compare/${run.head_sha}...main`));
+      // Compare responses can include megabytes of unrelated file patches.
+      // Ancestry validation needs only these independently fetched fields.
+      const comparison = JSON.parse(gh('api', `repos/${timingRepository}/compare/${run.head_sha}...main`,
+        '--jq', '{status, merge_base_commit: {sha: .merge_base_commit.sha}}'));
       assertTimingMainHistory(comparison, run);
     }
     const artifacts = JSON.parse(gh('api', `repos/${timingRepository}/actions/runs/${runId}/artifacts?per_page=100`)).artifacts
