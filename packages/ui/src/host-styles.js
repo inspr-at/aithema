@@ -299,7 +299,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
   .composer-out[data-host-limit] .composer-out__bar { display:grid; min-height:calc(4.05em + 2px); transform:translateY(10px); }
   /* Retain the old action's wrapped height too, including three-line Linux labels. */
-  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
+  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; box-sizing:border-box; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
   .composer-out[data-host-limit] .composer-out__actions { grid-area:1/1; }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }
