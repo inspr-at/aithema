@@ -134,3 +134,137 @@ test('AIT-298: same-width footer text mutations keep the fit cache; changed zone
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(changes.length > 0, 'text that changes a zone width must refit');
 });
+
+for (const label of ['ai-notice__label', 'connection-timer', 'actor-role']) test(`AIT-299: compact footer restores full fit after hidden ${label} text shrinks`, async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><div class="footer-left"><span class="${label}">A very long label</span></div></div></footer></div>`;
+  const footer = root.querySelector('footer'), text = footer.querySelector('span');
+  // Model actual full/compact layout: the hidden label no longer contributes
+  // to its visible zone, but its natural width still changes.
+  t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+    const owner = this.closest('footer'), long = owner?.querySelector('span').textContent.length > 5;
+    const width = this.matches('.display-foot__row') ? 100 : this.matches('.footer-left') ? owner.dataset.fit === 'full' ? long ? 200 : 80 : 40 : 0;
+    return { width, left: 0, right: width };
+  });
+  t.mock.method(window.HTMLElement.prototype, 'getClientRects', function () { return [this.getBoundingClientRect()]; });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  assert.equal(footer.dataset.fit, 'identity');
+  const compactChanges = [], compactObserver = new window.MutationObserver(records => compactChanges.push(...records));
+  compactObserver.observe(footer, { attributes: true, attributeFilter: ['data-fit'] });
+  text.textContent = 'An equally long text';
+  await new Promise(resolve => setImmediate(resolve));
+  compactObserver.disconnect();
+  assert.equal(compactChanges.length, 0, 'equal hidden natural width does not refit compact controls');
+  text.textContent = 'Short';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(footer.dataset.fit, 'full', 'the shorter hidden label makes the full form fit again');
+  const changes = [], observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(footer, { attributes: true, attributeFilter: ['data-fit'] }); t.after(() => observer.disconnect());
+  text.textContent = 'Other';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes.length, 0, 'equal natural geometry does not refit');
+});
+
+test('AIT-299: a footer refit reads shadow focus only when its host owns document focus', async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><span>Connected</span></div></footer></div>`;
+  Object.defineProperty(root, 'activeElement', { get() { throw new Error('Another shadow root owns focus'); } });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  root.querySelector('footer span').textContent = 'Still connected';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(viewport.connected, true);
+});
+
+
+// A real shadow owner keeps held keyboard focus observable; only geometry is modeled.
+function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short', modeWidths = { full: [160, 260], identity: [40, 40], timer: [40, 40], role: [40, 40] }) {
+  const window = new Window();
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><div class="footer-left"><button><span class="${labelClass}">${text}</span></button></div><div class="footer-right">Connected</div></div></footer></div>`;
+  const footer = root.querySelector('footer'), label = footer.querySelector('span'), button = footer.querySelector('button');
+  let width = 300, hover = false, reads = 0, probeReads = 0;
+  Object.defineProperty(footer, 'clientWidth', { get: () => width });
+  const matches = footer.matches.bind(footer);
+  footer.matches = selector => selector === ':hover' ? hover : matches(selector);
+  t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+    reads++;
+    const owner = this.closest('footer');
+    if (owner && owner !== footer) probeReads++;
+    let left = 0, size = 0;
+    if (this.matches('.display-foot__row')) size = width;
+    if (this.matches('.footer-left')) size = modeWidths[owner.dataset.fit ?? 'full'][owner.querySelector('span').textContent.length > 5 ? 1 : 0];
+    if (this.matches('.footer-right')) { size = 100; left = width - size; }
+    return { width: size, height: 0, left, right: left + size };
+  });
+  t.mock.method(window.HTMLElement.prototype, 'getClientRects', function () { return [this.getBoundingClientRect()]; });
+  const viewport = new PhoneComposerViewport(root); t.after(async () => { viewport.destroy(); await window.happyDOM.close(); });
+  return { window, root, footer, label, button, viewport, narrow: () => { width = 200; }, hover: on => { hover = on; },
+    counts: () => ({ reads, probeReads }), resetCounts: () => { reads = 0; probeReads = 0; } };
+}
+
+for (const trigger of ['narrowing', 'growing label']) test(`AIT-299 r2: held footer focus cannot defer ${trigger} that overlaps zones`, async t => {
+  const f = heldFooter(t); f.button.focus();
+  assert.equal(f.root.activeElement, f.button);
+  assert.equal(f.footer.dataset.fit, 'full');
+  if (trigger === 'narrowing') { f.narrow(); f.window.dispatchEvent(new f.window.Event('resize')); }
+  else { f.label.textContent = 'A much longer label'; await new Promise(resolve => setImmediate(resolve)); }
+  assert.equal(f.footer.dataset.fit, 'identity', 'corrective compaction happens while focus stays held');
+  assert.equal(f.root.activeElement, f.button);
+  const [left, right] = [...f.footer.querySelector('.display-foot__row').children].map(n => n.getBoundingClientRect());
+  assert.ok(left.right <= right.left, 'zones no longer overlap');
+});
+
+test('AIT-299 r2: same-width expansion waits until both footer focus and pointer leave', async t => {
+  const f = heldFooter(t, 'ai-notice__label', 'A much longer label');
+  assert.equal(f.footer.dataset.fit, 'identity');
+  f.button.focus(); f.hover(true); f.label.textContent = 'Short';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'identity');
+  f.button.blur(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'identity', 'the resting pointer still protects expansion');
+  f.hover(false); f.footer.dispatchEvent(new f.window.Event('pointerleave'));
+  assert.equal(f.footer.dataset.fit, 'full');
+});
+
+for (const hold of ['pointer', 'focus']) test(`AIT-299 r3: timer-to-identity at unchanged width waits for ${hold} to leave while full still overflows`, async t => {
+  const f = heldFooter(t, 'connection-timer', 'A much longer label', {
+    full: [230, 260], identity: [160, 220], timer: [40, 40], role: [40, 40],
+  });
+  assert.equal(f.footer.dataset.fit, 'timer');
+  if (hold === 'focus') f.button.focus(); else f.hover(true);
+  const boxes = () => [...f.footer.querySelector('.display-foot__row').children].map(n => n.getBoundingClientRect());
+  const before = boxes();
+  f.label.textContent = 'Short'; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'timer', 'a partial expansion also waits while the current row is clear');
+  assert.deepEqual(boxes(), before, 'held footer zones move 0px');
+  if (hold === 'focus') { f.button.blur(); await new Promise(resolve => setImmediate(resolve)); }
+  else { f.hover(false); f.footer.dispatchEvent(new f.window.Event('pointerleave')); }
+  assert.equal(f.footer.dataset.fit, 'identity', 'leaving applies the best fit even though full still overflows');
+  const [left, right] = boxes(); assert.ok(left.right <= right.left);
+});
+
+test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digit column remeasures', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = heldFooter(t, 'connection-timer', '123:00');
+  let now = 0;
+  const timer = new ConnectionTimer(f.label, () => now); t.after(() => timer.destroy());
+  timer.setConnected(true); now = 123 * 60_000; timer.paint();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'identity');
+  f.resetCounts();
+  for (let i = 1; i <= 5; i++) { now += 1000; t.mock.timers.tick(1000); await new Promise(resolve => setImmediate(resolve)); }
+  const counts = f.counts(); t.diagnostic(`compact 5s timer: ${counts.reads} layout reads, ${counts.probeReads} probe reads`);
+  assert.equal(counts.probeReads, 0, 'tabular digit changes never clone and measure the hidden label');
+  assert.equal(counts.reads, 0, 'width-equivalent timer mutations do not trigger a viewport paint');
+  f.label.textContent = '1234:05'; await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.counts().probeReads > 0, 'a changed timer width still invalidates natural geometry');
+});

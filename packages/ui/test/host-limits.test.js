@@ -6,6 +6,7 @@ import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithem
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
+import { HostSurface } from '../src/host-surface.js';
 import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
 for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
@@ -113,13 +114,13 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     const announcement = root.querySelector('.credit-announcement'), changes = [];
     const observer = new window.MutationObserver(records => changes.push(...records));
     observer.observe(announcement, { childList: true, characterData: true, subtree: true });
-    await tick(10); userTurn(c);
+    await waitForText(root.querySelector('.host-credits__measure-amount'), locale === 'de' ? '2.400' : '2,400'); userTurn(c);
     if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
-    await tick(8);
     const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
     const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'
       ? next === 'give' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
       : next === 'give' ? 'Add your email address to get +600 more Credits. Your conversation stays saved.' : 'Confirm your email address to get +600 more Credits.';
+    await waitForText(announcement, `${title} ${body}`);
     const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
     assert.equal(out.dataset.next, next);
     assert.equal(out.querySelector('.composer-out__title').textContent, title);
@@ -148,3 +149,118 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     }
   });
 }
+
+for (const restored of [false, true]) test(`AIT-299: a pre-limit receipt cannot erase host-limit or announce an intermediate title (restored ${restored})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const pending = Promise.withResolvers(), started = Promise.withResolvers();
+  const { c, root } = a2Setup(t, { privacy: false, endReason: restored ? 'host-limit' : null,
+    creditsRead: read => { started.resolve(); return pending.promise.then(read); } });
+  t.after(() => pending.resolve());
+  const announcement = root.querySelector('.credit-announcement'), changes = [];
+  const observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(announcement, { childList: true, characterData: true, subtree: true });
+  t.after(() => observer.disconnect());
+  await started.promise;
+  if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  pending.resolve();
+  await waitForText(root.querySelector('.host-credits__measure-amount'), '2,400');
+  assert.equal(root.querySelector('.composer-out__title').textContent, releaseLimits.en['host-limit'][0]);
+  assert.equal(announcement.textContent, releaseLimits.en['host-limit'].slice(0, 2).join(' '));
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  assert.equal(changes.length, 1, 'only the final host-limit copy is announced');
+});
+
+// Wait for the actual DOM acknowledgement; setImmediate counts cannot order a
+// receipt's response.json(), SSE events, and MutationObserver delivery under load.
+function waitForText(node, text) {
+  if (node.textContent === text) return Promise.resolve();
+  return new Promise(resolve => {
+    const observer = new window.MutationObserver(() => {
+      if (node.textContent === text) { observer.disconnect(); resolve(); }
+    });
+    observer.observe(node, { childList: true, characterData: true, subtree: true });
+  });
+}
+
+test('AIT-299: an unchanged post-limit visitor balance cannot recover an operator-budget limit', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); let reads = 0;
+  const { c, root } = a2Setup(t, { privacy: false, creditsRead: async read => {
+    const receipt = await read().json();
+    reads++;
+    return Response.json({ ...receipt, reconciling: reads > 1, tiers: { ...receipt.tiers, canConfirm: reads > 1 } });
+  } });
+  await waitForText(root.querySelector('.host-credits__measure-amount'), '2,400');
+  const announcement = root.querySelector('.credit-announcement'), changes = [];
+  const observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(announcement, { childList: true, characterData: true, subtree: true }); t.after(() => observer.disconnect());
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  const button = root.querySelector('.host-credits__button');
+  const received = new Promise(resolve => {
+    const observer = new window.MutationObserver(() => {
+      if (button.getAttribute('aria-description') === cr.reconciling) { observer.disconnect(); resolve(); }
+    });
+    observer.observe(button, { attributes: true, attributeFilter: ['aria-description'] }); t.after(() => observer.disconnect());
+  });
+  t.mock.timers.tick(301); await received;
+  assert.equal(reads, 2, 'the post-event poll has landed');
+  assert.equal(root.querySelector('.composer-out__title').textContent, releaseLimits.en['host-limit'][0]);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  assert.equal(announcement.textContent, releaseLimits.en['host-limit'].slice(0, 2).join(' '));
+  assert.equal(changes.length, 1, 'the unchanged balance neither clears nor repeats the final announcement');
+  c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true', 'a new durable active state can reopen the conversation');
+  assert.equal(announcement.textContent, '');
+});
+
+
+for (const refused of [false, true]) test(`AIT-299 r2: releasing a full hold is not an operator-budget recovery signal (host-limit ${refused})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  // Exercise the surface directly: the session projection must not mask its retained reason.
+  const fixture = setup(t, { host: {} }); await tick(8); fixture.c.remove();
+  const element = window.document.createElement('div'), root = element.attachShadow({ mode: 'open' });
+  root.innerHTML = fixture.root.innerHTML;
+  const session = createSession({ demo: false, locale: 'en' });
+  let held = true, ack = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    balance: { owner: { limitMicro: 12_000_000, committedMicro: held ? 12_000_000 : 1_000_000,
+      reservedMicro: held ? 12_000_000 : 0, availableMicro: held ? 0 : 11_000_000 } },
+    exhausted: false, fullHold: held, reconciling: held, limitSlot: null,
+  }));
+  const surface = new HostSurface({ root, copy: en, options: { credits: true }, baseUrl: '', session: () => session,
+    onCredits: () => ack.resolve() });
+  t.after(() => surface.destroy()); surface.connect(); await ack.promise;
+  assert.equal(surface.fullHold, true); assert.equal(surface.endReason, null);
+  if (refused) surface.receive({ type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  held = false;
+  surface.receive({ type: 'turn.final', data: { role: 'assistant' } });
+  ack = Promise.withResolvers(); t.mock.timers.tick(301); await ack.promise;
+  assert.equal(surface.endReason, refused ? 'host-limit' : null, 'settling a hold says nothing about operator-budget admission');
+  if (refused) assert.equal(surface.limitCopy.title, releaseLimits.en['host-limit'][0]);
+  else { assert.equal(surface.usedUp, false, 'settlement never shows a host-limit title'); assert.equal(root.querySelector('.host-credits').dataset.ended, 'false'); }
+});
+
+test('AIT-299 r3: an explicit exhausted receipt recognises operator-budget recovery without a visitor allowance increase', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const fixture = setup(t, { host: {} }); await tick(8); fixture.c.remove();
+  const element = window.document.createElement('div'), root = element.attachShadow({ mode: 'open' });
+  root.innerHTML = fixture.root.innerHTML;
+  const session = createSession({ demo: false, locale: 'en' });
+  let exhausted = true, ack = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    // Visitor credit stays positive and unchanged through the operator top-up.
+    balance: { owner: { limitMicro: 12_000_000, committedMicro: 1_000_000, availableMicro: 11_000_000 } },
+    exhausted, reconciling: false, limitSlot: null,
+  }));
+  const surface = new HostSurface({ root, copy: en, options: { credits: true }, baseUrl: '', session: () => session,
+    onCredits: () => ack.resolve() });
+  t.after(() => surface.destroy()); surface.connect(); await ack.promise;
+  surface.receive({ type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  assert.equal(surface.endReason, 'host-limit'); assert.equal(surface.usedUp, true);
+  exhausted = false;
+  surface.receive({ type: 'turn.final', data: { role: 'assistant' } });
+  ack = Promise.withResolvers();
+  t.mock.timers.tick(301); await ack.promise;
+  assert.equal(surface.endReason, null, 'exhausted true-to-false is an authoritative recovery signal');
+  assert.equal(surface.usedUp, false);
+  assert.equal(root.querySelector('.host-credits').dataset.ended, 'false');
+});

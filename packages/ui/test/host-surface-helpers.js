@@ -58,7 +58,7 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
 
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, question, blocked = false, voiceClient, waitingCall, confirmed = false, endReason = null } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, creditsRead, question, blocked = false, voiceClient, waitingCall, confirmed = false, endReason = null } = {}) {
   let saved = address, raised = false;
   const allowances = () => ({ ...a2Allowances, anonymous: raised ? 18_000_000 : 12_000_000 });
   const tiers = () => ({ allowancesMicro: allowances(), current: confirmed ? 'emailConfirmed' : saved ? 'emailGiven' : 'anonymous',
@@ -73,8 +73,8 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
       'GET ': () => Response.json({ ...h.c.session, featureMatrix: features() }),
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => { const read = () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }); return visitorRead ? visitorRead(read) : read(); },
-      'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent + reserved,
-        confirmedSpendMicro: spent, reservedMicro: reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - spent - reserved) } }, exhausted: spent >= limitMicro, limitSlot: null, tiers: tiers() }); },
+      'GET /credits': () => { const read = () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent + reserved,
+        confirmedSpendMicro: spent, reservedMicro: reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - spent - reserved) } }, exhausted: spent >= limitMicro, limitSlot: null, tiers: tiers() }); }; return creditsRead ? creditsRead(read) : read(); },
       'PUT /visitor/email': async body => { await save?.(body); saved = body.address; return Response.json({ visitor: visitor() }); },
       ...(link ? { 'POST /identity/request': body => link(body), 'POST /identity/change': body => link(body) } : {}),
       'DELETE /visitor/email': () => { saved = null; return Response.json({ visitor: visitor() }); },
