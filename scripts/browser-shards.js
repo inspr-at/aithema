@@ -37,10 +37,11 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 }
 
 export const browserTestWeights = readBrowserTestWeights();
-// AIT-276: mbp2606 run 00f244e794-95194 measured the additional one-page
-// regression at 2.203668s; reserve 2.755s including the usual 25% margin.
-// Remove this supplement when the rolling CI weight includes that new test.
-browserTestWeights['test/browser/start2-display-geometry.test.js'] += 2.755;
+// AIT-276: CI run 38996486796, head 51093c2e8d, measured all three top-level
+// geometry tests at 84.044281s (new regression: 10.821768s). Keep a 105.056s
+// floor including the usual 25% warmup margin until rolling main CI catches up.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 105.056);
 
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
