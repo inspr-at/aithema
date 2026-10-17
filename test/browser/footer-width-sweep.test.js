@@ -195,3 +195,132 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
     }, null, 2));
     t.diagnostic(`AIT-164 HEAD ${evidenceCommit}: ${passes.length} geometry sweep checks PASS; ${shots.length} footer viewports PASS`);
   });
+
+// AIT-281 deliberately reuses one page for the complete state matrix. Scenario
+// controls and labels belong to this fixture; production has no sample roles.
+test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark',
+  { timeout: 90_000 }, async t => {
+    const { browserForFile } = await import('./shared-browser.js');
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-role-'));
+    const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'role.sqlite'), {
+      AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+    });
+    const browser = await browserForFile(), page = await browser.newPage(), errors = [];
+    t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+    page.on('pageerror', error => errors.push(error.message));
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await page.evaluate(() => {
+      const c = document.querySelector('aithema-session'); window.roleBase = structuredClone(c.session);
+      const original = window.fetch.bind(window);
+      window.fetch = async (url, init = {}) => {
+        const path = new URL(url, location.href).pathname, f = window.roleFixture;
+        if (f && path.endsWith('/identity')) return Response.json({ roleChoice: f.view });
+        if (f && path.endsWith('/identity/role')) {
+          f.command = JSON.parse(init.body);
+          if (f.state === 'saving') return new Promise(() => {});
+          if (f.state === 'error') return Response.json({ error: 'fixture-failure' }, { status: 500 });
+          if (f.state === 'stale') { f.view = { ...f.view, role: 'representative', source: 'chosen', reasoning: null, revision: f.view.revision + 1 };
+            return Response.json({ error: 'role-conflict', roleChoice: f.view }, { status: 409 }); }
+          f.view = { ...f.view, role: f.command.role, source: 'chosen', reasoning: null, revision: f.view.revision + 1 };
+          return Response.json({ roleChoice: f.view });
+        }
+        if (f && path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          if (init.signal?.aborted) controller.close(); else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        return original(url, init);
+      };
+    });
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR, shots = [], pass = [];
+    if (evidence) await mkdir(evidence, { recursive: true });
+    const states = ['chosen', 'inferred', 'saving', 'error', 'stale', 'saved', 'unavailable'];
+    for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
+      await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+      let baseline, surfaceBaseline;
+      for (const state of states) {
+        await shadow(page, async (c, { state, locale, theme, width }) => {
+          const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+          const labels = { de: { private: 'Privatperson', company: 'Unternehmen', representative: 'Vertretung', agency: 'Agentur' },
+            en: { private: 'Private individual', company: 'Company', representative: 'Representative', agency: 'Agency' } };
+          const view = { available: state !== 'unavailable', roles: Object.keys(labels.en), role: 'company',
+            source: state === 'chosen' ? 'chosen' : 'inferred',
+            reasoning: locale === 'de' ? 'Fixture: Sie schreiben „wir“ und sprechen vom Abgleich von Eingangsrechnungen; das deutet auf einen Betrieb mit mehreren Personen hin.'
+              : 'Fixture: You write “we” and talk about matching incoming invoices, which points to a business with several people.', revision: window.roleBase.seq };
+          window.roleFixture = { state, view };
+          const session = structuredClone(window.roleBase); session.locale = locale; session.demo = false; session.roleChoice = view;
+          session.actor = { type: 'company', evidence: view.source === 'chosen' ? 'selected' : 'inferred', reasoning: view.reasoning };
+          session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
+          session.transcript = [{ id: 'role-user', role: 'user', content: locale === 'de' ? 'Wir verlieren Zeit beim Abgleich von Eingangsrechnungen.' : 'We lose time matching incoming invoices.' },
+            { id: 'role-assistant', role: 'assistant', content: locale === 'de' ? 'Wer gibt die Rechnungen heute frei?' : 'Who approves invoices today?' }];
+          session.understanding = { ...session.understanding, summary: locale === 'de' ? 'Eingangsrechnungen abgleichen' : 'Match incoming invoices', actor: session.actor };
+          c.setAttribute('motion', 'off');
+          c.configure({ session, copy, host: { actorRole: { labels } } });
+          document.documentElement.lang = locale; document.documentElement.dataset.theme = theme; c.setAttribute('theme', theme);
+          const root = c.shadowRoot;
+          if (state !== 'unavailable') {
+            root.querySelector(width === 390 ? '.settings-open' : '.actor-trigger').click();
+            await Promise.resolve();
+            if (['saving', 'error', 'stale', 'saved'].includes(state)) {
+              root.querySelector((width === 390 ? '.actor-sheet ' : '.actor-popover ')+'input[value=agency]').click();
+              await Promise.resolve(); await Promise.resolve();
+            }
+          }
+        }, { state, locale, theme, width });
+        const surface = width === 390 ? '.actor-sheet' : '.actor-popover';
+        if (['error', 'stale'].includes(state)) await until(page, ({ state, surface }) =>
+          document.querySelector('aithema-session').shadowRoot.querySelector(surface+' .actor-status').dataset.phase === state, { state, surface });
+        if (state === 'saved') {
+          if (width === 390) await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.actor-sheet .actor-status').dataset.phase === 'saved');
+          else {
+            await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.actor-popover').hidden);
+            await shadow(page, c => c.shadowRoot.querySelector('.actor-trigger').click());
+          }
+        }
+        await settle(page);
+        const measured = await shadow(page, (c, { width, state }) => {
+          const root = c.shadowRoot, surface = root.querySelector(width === 390 ? '.actor-sheet' : '.actor-popover');
+          const box = node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+          const rows = [...surface.querySelectorAll('.actor-option')];
+          return { page: [document.documentElement.scrollWidth, document.documentElement.clientWidth],
+            fixed: ['.display-foot', '.footer-info', '.footer-right', '.workspace', '.band'].map(s => box(root.querySelector(s))),
+            surface: state === 'unavailable' ? null : [box(surface), ...rows.map(box), box(surface.querySelector('.actor-status'))],
+            rowHeights: rows.map(row => row.getBoundingClientRect().height),
+            checked: surface.querySelector('input:checked')?.value, footer: root.querySelector('.actor-trigger-text').textContent,
+            triggerVisible: getComputedStyle(root.querySelector('.actor-role')).display !== 'none' && !root.querySelector('.actor-trigger').hidden,
+            open: width === 390 ? surface.open : !surface.hidden, account: root.querySelector('.actor-account').hidden,
+            reasoning: surface.querySelector('.actor-reason').textContent, status: surface.querySelector('.actor-status').textContent,
+            pending: surface.querySelector('[data-pending]')?.dataset.role,
+            disabled: [...surface.querySelectorAll('input')].filter(input => input.disabled).length };
+        }, { width, state });
+        baseline ??= measured.fixed;
+        assert.deepEqual(measured.fixed, baseline, `${width}/${theme}/${locale}/${state}: page/footer shifted`);
+        assert.equal(measured.page[0], measured.page[1], 'no horizontal page overflow');
+        assert.equal(measured.account, true, 'absent host account has no account line');
+        if (state !== 'unavailable') {
+          surfaceBaseline ??= measured.surface;
+          assert.deepEqual(measured.surface, surfaceBaseline, `${width}/${theme}/${locale}/${state}: surface/rows shifted`);
+          assert.ok(measured.rowHeights.every(height => height === (width === 390 ? 50 : 44)));
+          assert.equal(measured.open, true);
+          assert.equal(measured.triggerVisible, width !== 390);
+          if (state === 'saving') { assert.equal(measured.pending, 'agency'); assert.equal(measured.disabled, 3); assert.match(measured.footer, /Unternehmen|Company/u); }
+          if (state === 'error') assert.equal(measured.checked, 'company');
+          if (state === 'stale') assert.equal(measured.checked, 'representative');
+          if (state === 'saved') assert.equal(measured.checked, 'agency');
+        } else { assert.equal(measured.triggerVisible, false); assert.equal(measured.open, false); }
+        const line = `PASS ${width} ${theme} ${locale} ${state}: page/footer/surface/rows 0px; account=none`;
+        pass.push(line);
+        if (evidence) {
+          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+          await page.mouse.move(-1, -1); await settle(page);
+          const name = `role-${width}-${theme}-${locale}-${state}.png`;
+          await page.screenshot({ path: join(evidence, name), fullPage: false });
+          shots.push({ file: name, head: evidenceCommit, width, theme, locale, state, surface: state === 'unavailable' ? 'none' : width === 390 ? 'sheet' : 'popover', account: 'none', viewport: true, reducedMotion: true, blurred: true, pass: line });
+        }
+      }
+    }
+    assert.deepEqual(errors, []);
+    assert.equal(pass.length, 84);
+    t.diagnostic(`PASS AIT-281: ${pass.length} state/viewport/theme/locale cases; exact 0px movement; one page`);
+    if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, shots, pass, errors }, null, 2)+'\n');
+  });
