@@ -31,7 +31,7 @@ export async function scrollbarFirstPaintCheck(t) {
       .aithema-shell > * { --aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
         --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; }
       .wide > * { --aithema-header-actions-width:280px; }
-      ${firstPaint.headerRailReservation?.({ selector: '.wide > :is(aithema-session,.aithema-first-paint)', actionsWidth: '280px' }) ?? ''}
+      ${firstPaint.headerRailReservation?.({ selector: '.wide:not(.no-helper) > :is(aithema-session,.aithema-first-paint)', actionsWidth: '280px' }) ?? ''}
       </style></head><body><main class="aithema-shell"></main></body></html>` });
   });
   await page.goto(`${demo.url}/ait276`, { waitUntil: 'domcontentloaded' });
@@ -42,7 +42,10 @@ export async function scrollbarFirstPaintCheck(t) {
       const c = document.querySelector('aithema-session'), mounted = c.hasAttribute('data-aithema-mounted');
       const band = mounted ? c.shadowRoot.querySelector('.band') : document.querySelector('.aithema-first-paint');
       const rail = band.querySelector('.audio-rail'), b = band.getBoundingClientRect(), r = rail.getBoundingClientRect();
-      return { band: [b.x, b.y, b.width, b.height], rail: [r.x, r.y, r.width, r.height], row: getComputedStyle(rail).gridRowStart,
+      const a = band.querySelector('.header-actions').getBoundingClientRect();
+      const intersection = Math.max(0, Math.min(r.right, a.right) - Math.max(r.left, a.left))
+        * Math.max(0, Math.min(r.bottom, a.bottom) - Math.max(r.top, a.top));
+      return { intersection, actions: [a.x, a.y, a.width, a.height], band: [b.x, b.y, b.width, b.height], rail: [r.x, r.y, r.width, r.height], row: getComputedStyle(rail).gridRowStart,
         scrollbar: innerWidth - document.documentElement.clientWidth,
         fit: mounted ? { tracks: getComputedStyle(band).gridTemplateColumns, padding: getComputedStyle(band).padding,
           brand: band.querySelector('.band-identity').getBoundingClientRect().width, actions: band.querySelector('.header-actions').getBoundingClientRect().width,
@@ -56,14 +59,18 @@ export async function scrollbarFirstPaintCheck(t) {
   }
   // Preserve today's default host geometry without a classic scrollbar as well.
   cases.push(...[760, 768, 780, 790, 800, 1024, 1440, 390].map(width => ({ actions: 216, width, locale: 'de', theme: 'light', classic: false })));
+  // Older hosts override the actions property without the new reservation helper.
+  cases.push(...[true, false].flatMap(classic => [768, 780, 790].map(width =>
+    ({ actions: 280, width, locale: 'de', theme: 'light', classic, noHelper: true }))));
   for (const scene of cases) {
-    const { actions, width, locale, theme, classic } = scene;
+    const { actions, width, locale, theme, classic, noHelper } = scene;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.evaluate(({ scene, markup }) => {
-      const { actions, locale, theme, classic } = scene;
+      const { actions, locale, theme, classic, noHelper } = scene;
       document.documentElement.style.overflowY = classic ? 'scroll' : 'hidden';
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       const shell = document.querySelector('.aithema-shell'); shell.classList.toggle('wide', actions === 280);
+      shell.classList.toggle('no-helper', Boolean(noHelper));
       shell.innerHTML = `<aithema-session theme="${theme}" motion="off"><h1 slot="brand">START · Augmentoring — a deliberately very long host brand for truncation</h1></aithema-session>${markup}`;
       // Match the capped full-width brand before and after mount, independent of font loading.
       shell.querySelector('.aithema-first-paint .wordmark').textContent = shell.querySelector('h1').textContent;
@@ -75,8 +82,8 @@ export async function scrollbarFirstPaintCheck(t) {
     const initial = await page.evaluate(() => ({ mounted: document.querySelector('aithema-session').hasAttribute('data-aithema-mounted'), ...window.bandGeometry() }));
     assert.equal(initial.mounted, false, 'reserved geometry is visible before configure');
     assert.equal(initial.scrollbar, classic ? 15 : 0, `host really reserves the requested scrollbar width: ${JSON.stringify(initial)}`);
-    const name = `${width}-${actions}-${theme}-${locale}${classic ? '-classic' : '-overlay'}`;
-    const capture = evidence && classic && ([768, 780, 790].includes(width) || width >= 1024 || width === 390);
+    const name = `${width}-${actions}-${theme}-${locale}${classic ? '-classic' : '-overlay'}${noHelper ? '-no-helper' : ''}`;
+    const capture = evidence && (noHelper || classic && ([768, 780, 790].includes(width) || width >= 1024 || width === 390));
     if (capture) await page.screenshot({ path: join(evidence, `${name}-first-paint.png`), fullPage: false, captureBeyondViewport: false });
     await page.evaluate(async locale => {
       await import('/packages/ui/src/session-element.js');
@@ -88,22 +95,40 @@ export async function scrollbarFirstPaintCheck(t) {
     await settleEvidenceFrame(page);
     const mounted = await page.evaluate(() => { cancelAnimationFrame(window.scrollbarFrame); return { ...window.bandGeometry(), frames: window.scrollbarFrames }; });
     if (capture) await page.screenshot({ path: join(evidence, `${name}-mounted.png`), fullPage: false, captureBeyondViewport: false });
-    assert.deepEqual(mounted.band, initial.band, `${name}: band box moves 0 px: ${JSON.stringify(mounted.fit)}`);
-    assert.deepEqual(mounted.rail, initial.rail, `${name}: rail box moves 0 px`);
-    assert.equal(mounted.row, initial.row, `${name}: rail row stays reserved`);
+    assert.equal(mounted.intersection, 0, `${name}: mounted rail/actions box intersection is 0`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
-    for (const frame of mounted.frames) {
-      assert.deepEqual(frame.band, initial.band, `${name}: band stays stable through mount`);
-      assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);
+    const resized = [];
+    if (noHelper) {
+      // Reuse this mounted element through both directions of the row boundary.
+      for (const resizedWidth of [1024, width]) {
+        await page.setViewport({ width: resizedWidth, height: 1000 });
+        await settleEvidenceFrame(page);
+        const geometry = await page.evaluate(() => window.bandGeometry());
+        assert.equal(geometry.intersection, 0, `${name}: rail/actions box intersection is 0 after resize to ${resizedWidth}`);
+        assert.ok(geometry.rail[2] >= 208, `${name}: resized rail keeps its 208px floor`);
+        resized.push({ width: resizedWidth, ...geometry });
+      }
+    } else {
+      assert.deepEqual(mounted.band, initial.band, `${name}: band box moves 0 px: ${JSON.stringify(mounted.fit)}`);
+      assert.deepEqual(mounted.rail, initial.rail, `${name}: rail box moves 0 px`);
+      assert.equal(mounted.row, initial.row, `${name}: rail row stays reserved`);
+      for (const frame of mounted.frames) {
+        assert.deepEqual(frame.band, initial.band, `${name}: band stays stable through mount`);
+        assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);
+      }
+      if (!classic) assert.equal(mounted.band[3], width < 600 ? 124 : width < 768 ? 150 : 90, `${name}: existing default host geometry`);
     }
-    if (!classic) assert.equal(mounted.band[3], width < 600 ? 124 : width < 768 ? 150 : 90, `${name}: existing default host geometry`);
-    checks.push({ head: evidenceCommit, ...scene, initial, mounted, pass: true, shiftPx: 0,
+    checks.push({ head: evidenceCommit, ...scene, initial, mounted, resized, pass: true,
+      shiftPx: Math.max(...mounted.band.map((value, i) => Math.abs(value - initial.band[i])),
+        ...mounted.rail.map((value, i) => Math.abs(value - initial.rail[i]))),
       shots: capture ? ['first-paint', 'mounted'].map(phase => ({ file: `${name}-${phase}.png`, phase, head: evidenceCommit, theme, locale })) : [] });
-    console.log(`AIT-276 PASS ${name}: classic=${initial.scrollbar}px; band/rail boxes and row ${mounted.row}, every startup frame 0 px`);
+    if (noHelper) console.log(`AIT-276 PASS ${name}: mounted and resized rail/actions box intersection 0; 208px rail floor`);
+    else console.log(`AIT-276 PASS ${name}: classic=${initial.scrollbar}px; band/rail boxes and row ${mounted.row}, every startup frame 0 px`);
   }
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, blurredControls: true,
     fonts: 'Chrome baseline: ui-sans-serif,-apple-system,Segoe UI Variable Text,Segoe UI,system-ui,sans-serif; Georgia,Iowan Old Style,Palatino Linotype,serif',
     passLines: ['PASS: classic scrollbar 15px; 760/768/780/790/800; default 216px and wide 280px actions; voice bound; band/rail boxes and rows 0px on every startup frame',
+      'PASS: no-helper 280px actions; 768/780/790 classic and overlay; mounted and resized rail/actions box intersection 0',
       'PASS: default hosts retain existing geometry', 'PASS: 1440/1024/390 light/dark DE/EN; settled viewport captures; pinned fonts; blurred controls'], checks }, null, 2) + '\n');
 }
