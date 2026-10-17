@@ -57,7 +57,7 @@ export async function scrollbarFirstPaintCheck(t) {
     await mkdir(evidence, { recursive: true });
     cases.push(...[1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ actions: 216, width, theme, locale, classic: true })))));
   }
-  cases.push(...[false, true].flatMap(classic => [1204, 1205, 1226, 1227].map(width =>
+  cases.push(...[false, true].flatMap(classic => [1250, 1251, 1272, 1273].map(width =>
     ({ actions: 216, width, locale: 'de', theme: 'light', classic, boundary294: true }))));
   // AIT-294 r3: reuse the same page for the full status/startup matrix.
   cases.push(...[600, 700, 768, 820, 1024, 1180].flatMap(width => ['de', 'en'].flatMap(locale =>
@@ -157,7 +157,7 @@ export async function scrollbarFirstPaintCheck(t) {
       }
       if (!classic && !scene.boundary294) assert.equal(mounted.band[3], width < 600 ? 124 : width <= 1180 ? 150 : 90, `${name}: status-inclusive default host geometry`);
     }
-    if (scene.boundary294) assert.equal(mounted.row, width < (classic ? 1227 : 1205) ? '2' : '1', `${name}: measured status reservation switches at the content boundary`);
+    if (scene.boundary294) assert.equal(mounted.row, width < (classic ? 1273 : 1251) ? '2' : '1', `${name}: measured status reservation switches at the content boundary`);
     checks.push({ head: evidenceCommit, ...scene, initial, mounted, resized, pass: true,
       shiftPx: Math.max(...mounted.band.map((value, i) => Math.abs(value - initial.band[i])),
         ...mounted.rail.map((value, i) => Math.abs(value - initial.rail[i]))),

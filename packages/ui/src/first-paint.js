@@ -4,7 +4,7 @@ export const voiceSingleRowMinWidth = 768;
 // Four 44px controls + four 8px gaps + the longest DE/EN status at 12px,
 // including its padding and room for baseline font differences. Share this
 // content floor with the pre-upgrade shell; the mounted fit also measures text.
-export const voiceRailMinWidth = 512;
+export const voiceRailMinWidth = 544;
 
 // Emit this into the host's render-blocking CSS after firstPaintStyles when
 // overriding geometry. Query conditions cannot resolve CSS custom properties.
