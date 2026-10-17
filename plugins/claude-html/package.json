@@ -8,13 +8,13 @@
     "./html-artifact": "./src/html-artifact.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261017073156.0.0",
-    "@inspr/aithema-plugin-openrouter": "261017073156.0.0"
+    "@inspr/aithema-core": "261017100846.0.0",
+    "@inspr/aithema-plugin-openrouter": "261017100846.0.0"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "261017073156.0.0",
+  "version": "261017100846.0.0",
   "license": "AGPL-3.0-only",
   "files": [
     "src/"

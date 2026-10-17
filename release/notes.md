@@ -1,6 +1,6 @@
 # Aithema 2026.10
 
-Version **261017073156.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261017100846.0.0**. Licensed under **AGPL-3.0-only**.
 
 Second October release: host integration, enforced conversation limits, clearer settings and privacy evidence, role selection, and “Jetzt klären” build on the first October release.
 
@@ -8,11 +8,13 @@ Second October release: host integration, enforced conversation limits, clearer 
 
 - **Host chrome (AIT-260):** host branding and legal links stay visible; hosts
   without a bound voice client get a text-only header and footer.
-- **Conversation limits (AIT-261/268):** the one-hour deadline survives pauses,
+- **Conversation limits (AIT-261/268/291):** the one-hour deadline survives pauses,
   reconnects and restarts. Budget denials stop fresh work while admitted work
-  settles; pause controls keep their reserved space.
-- **Settings gauges (AIT-262):** quality and privacy indicators reflect current
-  host binding evidence rather than model-name assumptions.
+  settles; pause controls keep their reserved space. Limit messages name the
+  actual reason, and host limits offer an email upgrade when a next tier exists.
+- **Settings gauges (AIT-262/291):** quality and privacy indicators reflect current
+  host binding evidence rather than model-name assumptions, with “Checked” and
+  “Set” wording and concise provider regions.
 - **Model and host details (AIT-265/267):** the footer uses the host's model label
   and served version metadata, with the host coordinate below Aithema's version.
 - **Privacy and EU processing (AIT-270/271):** provider seats and processing
@@ -20,9 +22,12 @@ Second October release: host integration, enforced conversation limits, clearer 
   EU-only processing guarantee; the privacy detail can link to the host policy.
 - **Consent editor (AIT-231):** Settings reads the host's validated consent
   document; invalid or unavailable documents keep saving disabled.
-- **Jetzt klären / Clarify now (AIT-263/274/288):** choose an open point for the
+- **Consent on phones (AIT-290):** narrow phones use a short consent line with
+  a clear review action.
+- **Jetzt klären / Clarify now (AIT-263/274/288/290):** choose an open point for the
   next reply, with selected, pending, stale and retry states. Empty overview
-  sections collapse and the overview opens at its natural scroll position.
+  sections collapse, the redundant overview label is removed, and the overview
+  opens at its natural scroll position.
 - **Concept backdrop (AIT-282):** image concepts appear behind the transcript,
   with one access button and stable generating, ready and failure states.
 - **Actor role (AIT-281):** visitors can choose a role using host-owned labels.
@@ -52,7 +57,7 @@ Second October release: host integration, enforced conversation limits, clearer 
 - **EU bindings and consent:** hosts using `eu` must supply qualified
   `legal.processingCountries` alongside `legal.countries`. Editable consent
   requires the authoritative port's `describe(sessionId)` contract. See the
-  [embedding guide](https://github.com/inspr-at/aithema/blob/v261017073156.0.0/docs/embedding.md)
+  [embedding guide](https://github.com/inspr-at/aithema/blob/v261017100846.0.0/docs/embedding.md)
   for these contracts and the `data-aithema-privacy` legal-link marker.
 
 Composed voice and its generic core component helpers remain source-only proof
@@ -80,10 +85,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261017073156.0.0` into a clean directory:
+Download the assets for `v261017100846.0.0` into a clean directory:
 
 ```sh
-gh release download v261017073156.0.0 --repo inspr-at/aithema
+gh release download v261017100846.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -106,7 +111,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261017073156.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261017100846.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -136,6 +141,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017073156.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017100846.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.
