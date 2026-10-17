@@ -279,6 +279,16 @@ async function checkPhoneVoiceHeader(t, widths) {
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const stableViewport = async label => {
+    // Rebuild the same band paint on both sides. Incremental invalidation after
+    // replacing inline nodes otherwise retains different antialiasing at the
+    // unchanged pause circle in Linux Chrome (65 border pixels, delta <= 3).
+    await shadow(page, async c => {
+      const band = c.shadowRoot.querySelector('.band'), visibility = band.style.visibility;
+      band.style.visibility = 'hidden';
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      band.style.visibility = visibility;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     let previous;
     for (let attempt = 0; attempt < 8; attempt++) {
       await settle();
