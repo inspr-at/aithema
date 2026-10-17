@@ -707,3 +707,25 @@ heard prefixes. Emulated: output volume selection, engine pause/resume, automati
 recovery and visitor pause billing. Unavailable: force-interrupt control, native
 provider reasoning, unconfigured/unqualified preset features. The SDK remains
 pinned to 1.17.0; availability is demonstrated with local fakes, not live evidence.
+
+## Facade secret drift recovery (OPS)
+
+OPS: use this section when callbacks repeatedly return 401 after an external
+secret-value edit. With the same `facadeSecrets` store passed to the voice host
+and callback adapter, three bearer rejections within a rolling five minutes clear
+only that secret's SHA-256 write receipt and immediately re-run the existing
+ensure path in process. Ownership checks still apply; the owned secret gets one
+idempotent PATCH with the current configured value. No restart or DB edit is
+needed. One stray request or an expired group cannot trigger repair.
+
+Repairs are limited in memory to one per thirty minutes, including failed or
+ambiguous PATCH attempts. Transient failures use the existing unref'd backoff
+timer, delayed until the write cooldown expires; permanent failures stay off.
+The detector stores at most three timestamps and starts no extra timers. A fresh
+threshold is required after cooldown; shutdown disconnects detection and cancels
+retries. Restart resets the in-memory limit, and an invalidated receipt also makes
+the next boot repair the value. Hosts without the shared store have no detector.
+Each repair logs only `{event: 'voice-secret-repair', name}`. Bad requests remain
+401 before any body read; credentials, headers, hashes and counters never enter
+that event or public reasons. Persistent 401s after repair require OPS to check
+host configuration and secret ownership using value-free diagnostics.
