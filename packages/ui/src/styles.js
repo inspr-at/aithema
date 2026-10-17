@@ -379,7 +379,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 :is(.composer-reason,.concept-activity-text) .question-status svg { flex:none; width:14px; height:14px; align-self:center; }
 :is(.composer-reason,.concept-activity-text) .warning, :is(.composer-reason,.concept-activity-text) .warning .question-why { color:var(--aithema-warning); }
 .composer-reason .question-status { white-space:nowrap; }
+.composer-reason:has(.consent-action) { font-size:max(12px,.72rem); }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
+/* Keep the 44px target inside its text column, clear of Attach and Send. */
+.composer-reason .consent-action::after { left:0; width:100%; height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
   .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
 }

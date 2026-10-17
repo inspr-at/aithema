@@ -1349,3 +1349,9 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
   for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface])
     assert.ok(contrast(tokens.warning, background) >= 4.5, `${theme}: warning ink AA on ${background}`);
 });
+
+
+test('AIT-290: composer consent keeps the 12px floor and confines its 44px target to the action width', () => {
+  assert.match(styles, /\.composer-reason:has\(\.consent-action\) \{ font-size:max\(12px,\.72rem\); \}/u);
+  assert.match(styles, /\.composer-reason \.consent-action::after \{ left:0; width:100%; height:max\(100%,44px\); \}/u);
+});
