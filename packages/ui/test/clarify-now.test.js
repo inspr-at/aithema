@@ -101,6 +101,8 @@ for (const [reason, admissionReason, state] of [['paused', null, 'paused'], ['co
     await assert.rejects(f.c.focusQuestion(f.c.openQuestionItems[1].id), { reason });
     assert.equal(f.rows()[1].dataset.state, 'refused');
     assert.match(f.rows()[1].textContent, new RegExp(en.clarify[state]));
+    assert.ok(f.rows()[1].querySelector('.question-status svg'), 'every refusal has its approved icon');
+    assert.equal(f.rows()[1].textContent.includes('undefined'), false);
     if (state === 'deadline') assert.ok(f.rows().every(row => row.querySelector('button').hidden));
     else assert.equal(f.button(1).textContent, state === 'paused' ? en.resume : en.clarify.review);
   });

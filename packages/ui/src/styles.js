@@ -395,7 +395,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .clarify-meta::after { content:''; position:absolute; inset:-13px -6px; }
 .clarify-dot { width:6px; height:6px; border-radius:50%; background:var(--aithema-amber); flex:none; }
 .clarify-meta-label { flex:none; }
-.clarify-meta-question { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; }
+.turn .clarify-meta-question { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; }
 .clarify-meta:hover { color:var(--aithema-ink); }
 @media(max-width:599px) {
   .question-text { font-size:15px; }

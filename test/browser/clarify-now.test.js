@@ -110,13 +110,16 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
           targetHeight: target.height - parseFloat(pseudo.top) - parseFloat(pseudo.bottom),
           noOverflow: line.scrollWidth <= text.width + 1,
           oneRetry: retry.hidden && overviewRetry.hidden, noDeadlineButtons: rows.every(row => row.querySelector('button').hidden),
+          refusalIcon: Boolean(rows[1].querySelector('.question-status svg')),
+          metaWrap: c.shadowRoot.querySelector('.clarify-meta-question') ? getComputedStyle(c.shadowRoot.querySelector('.clarify-meta-question')).whiteSpace : null,
           metaCount: c.shadowRoot.querySelectorAll('.clarify-meta').length, title: c.shadowRoot.querySelector('#understanding-title').textContent };
       }, state);
       if (['requesting', 'selected', 'asked'].includes(state)) assert.equal(checks.focusRetained, true, 'keyboard focus stays on the original action');
       if (['rest', 'requesting', 'selected', 'asked'].includes(state)) assert.equal(checks.targetHeight, 44, '44 px pointer target');
       if (state === 'retry') { assert.equal(checks.oneRetry, true); assert.equal(checks.noOverflow, true, 'narrow retry fits the reserved line'); }
       if (state === 'refused-deadline') assert.equal(checks.noDeadlineButtons, true);
-      if (['selected', 'asked'].includes(state)) assert.equal(checks.metaCount, 1);
+      if (['selected', 'asked'].includes(state)) { assert.equal(checks.metaCount, 1); assert.equal(checks.metaWrap, 'nowrap', 'reply meta stays on one ellipsized line'); }
+      if (state.startsWith('refused')) assert.equal(checks.refusalIcon, true, 'approved refusal glyph is present');
       if (locale === 'en') assert.equal(checks.title, 'Overview');
       const pass = `AIT-274 GEOMETRY PASS ${locale} ${width} ${theme} ${state}: 0 px; reserved heading/action; focus/target/retry checks passed`;
       passes.push(pass); console.log(pass);

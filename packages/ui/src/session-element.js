@@ -347,7 +347,7 @@ export class AithemaSession extends HTMLElement {
       if (withReason) {
         const signature = `${state}/${reason}/${this.#copyLocale}`;
         if (status.dataset.state !== signature) {
-          status.replaceChildren(); status.insertAdjacentHTML('beforeend', CLARIFY_ICONS[reason === 'deadline' ? 'clock' : reason ?? 'warn']);
+          status.replaceChildren(); status.insertAdjacentHTML('beforeend', CLARIFY_ICONS[reason === 'deadline' ? 'clock' : reason === 'paused' ? 'pause' : reason ?? 'warn']);
           if (state === 'retry') {
             status.append(node('span', 'sr-only', `${copy.chosen}, `));
             const why = node('span', 'question-why');
