@@ -1367,6 +1367,7 @@ export class AithemaSession extends HTMLElement {
       out.toggleAttribute('data-host-limit', this.#host?.endReason === 'host-limit');
       out.querySelector('.composer-out__steps').setAttribute('aria-hidden', String(out.hasAttribute('data-host-limit')));
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
+      out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
       setText(out.querySelector('.composer-out__title span'), limit.title);

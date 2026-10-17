@@ -296,14 +296,14 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-sent-prefix { font-weight:400; color:var(--aithema-muted); }
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
-  /* Reserve both 44 px action rows before the limit arrives, including hidden variants. */
-  .composer-out__bar { font-size:13px; gap:10px; min-height:90px; }
+  .composer-out__bar { font-size:13px; gap:10px; }
   /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
-  .composer-out[data-host-limit] .composer-out__bar { position:relative; min-height:90px; transform:translateY(10px); }
-  .composer-out[data-host-limit] .composer-out__steps { display:grid; visibility:hidden; opacity:0; }
-  /* The normal action slot also measures its hidden export (icon + 8 px gap). */
-  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-export-measure); order:1; flex:none; visibility:hidden; box-sizing:border-box; width:max-content; min-width:132px; min-height:44px; padding-inline-start:22px; font-size:13.5px; line-height:1.25; white-space:nowrap; }
+  .composer-out[data-host-limit] .composer-out__bar { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; transform:translateY(10px); }
+  .composer-out[data-host-limit] .composer-out__steps { display:grid; grid-area:1/1; visibility:hidden; opacity:0; }
+  /* Preserve the normal action cell's wrapped button and hidden export measurements. */
+  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); grid-area:1/2; visibility:hidden; box-sizing:border-box; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
+  .composer-out[data-host-limit] .composer-out__bar::after { content:attr(data-export-measure); grid-area:1/2; visibility:hidden; box-sizing:border-box; width:max-content; min-height:44px; padding-inline-start:22px; font-size:13.5px; line-height:1.25; white-space:nowrap; }
   .composer-out[data-host-limit] .composer-out__actions { position:absolute; inset-inline:0; bottom:0; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:0; }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }
@@ -315,6 +315,12 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 @media(max-width:40rem) {
   .m-form { grid-template-columns:auto auto minmax(0,1fr); grid-template-areas:"lead lead lead" "label label label" "in in in" "msg msg msg" "notice notice notice" "save cancel ."; row-gap:.35rem; }
   .m-save,.m-cancel { margin-top:.3rem; } .m-msg { font-size:.75rem; }
+}
+/* Narrow phones reserve two rows up front. At 390px, quiet compact links fit the original row. */
+@media(max-width:380px) { .composer-out__bar { min-height:90px; } }
+@media(min-width:381px) and (max-width:600px) {
+  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:4px; }
+  .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:12.5px; }
 }
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); } }
