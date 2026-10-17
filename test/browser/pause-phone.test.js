@@ -731,8 +731,10 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
   for (const width of [390, 1024, 1440]) await t.test(`${width}px`, async t => {
     const page = await fixture(t, width === 390);
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+    // The position sweep rebuilds its 48-turn session below. Configure the
+    // common voice client, locale and viewport once for this sweep.
+    await voiceScene(page, locale, theme, width);
     for (const position of width === 390 ? ['following', 'scrolled-up', 'near-bottom'] : ['following', 'scrolled-up', 'near-bottom-9', 'near-bottom-20', 'near-bottom-43']) await t.test(`${locale}-${theme}-${position}`, async t => {
-      await voiceScene(page, locale, theme, width);
       await page.evaluate(async () => {
         const { createPageReplay } = await import('/packages/ui/src/page-replay.js');
         globalThis.rowPlayer = createPageReplay({ document, control: { speakText: async () => ({ kind: 'audio', audio: { format: 'pcm_16000', data: btoa('\0'.repeat(512)) } }) } });
