@@ -269,7 +269,7 @@ export async function hostChromeCheck(t) {
           identity: r.querySelector('.display-version').checkVisibility({ visibilityProperty:true }),
           roleReserved: Boolean(r.querySelector('.actor-reservation').textContent),
           credits: r.querySelector('.host-credits').checkVisibility(),
-          frame: ['.composer','.send','.display-foot'].map(s => box(r.querySelector(s))), fit: footer.dataset.fit };
+          frame: ['.composer','.send','.display-foot','.footer-left','.footer-right','.host-legal','.engine-info','.status'].map(s => box(r.querySelector(s))), fit: footer.dataset.fit };
       });
       const label = `ait294-${locale}-${theme}-${width}-${voice ? 'voice' : 'text'}-${frames.length}`;
       assert.ok(metric.footerScrollWidth <= metric.footerWidth, `${label}: footer fits ${JSON.stringify(metric)}`);
@@ -283,6 +283,7 @@ export async function hostChromeCheck(t) {
     }
   }
   await shadow(page, () => { window.rail294 = false; });
+  assert.equal(rail294Checks.length, 60, 'AIT-294: all five widths, locales, palettes and bind/unbind states');
   checks.push(...rail294Checks);
   const rail294Pass = 'AIT-294 PASS: 600/700/768/820/1024 DE/EN light/dark, long role/legal with credits; footer fits, legal/flag/dot visible, composer above footer; voice bind/unbind 0 px.';
   console.log(rail294Pass);

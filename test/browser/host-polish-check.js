@@ -18,7 +18,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-286-composer');
   const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
+  const cdp = await page.createCDPSession(), checks = [], failure294Checks = [], shots = [], passLines = [], problems = [];
   // CI already requests light artifacts; preserve its cost while remote evidence adds dark.
   const themes = evidence && fullMatrix ? ['light', 'dark'] : ['light'];
   page.on('pageerror', error => problems.push(error.message));
@@ -317,7 +317,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           assert.deepEqual(retained.actions, [true, true]); assert.equal(retained.visibleSaved, false);
           assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure with retained upload shifts 0 px`);
           await shot(label, theme, 'failure-retained-upload');
-          if (!touch && width === 390) {
+          if (!touch && width === 390 && theme === 'light') {
             for (const failureTheme of ['light', 'dark']) for (const failureWidth of [320, 360, 390, 1440]) {
               await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: failureTheme }]);
               await cdp.send('Emulation.setDeviceMetricsOverride', { width: failureWidth, height: 900, deviceScaleFactor: 1, mobile: false }); await settle();
@@ -343,7 +343,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
               assert.equal(fit.separate, true, `${failureLabel}: no overlapping line boxes ${JSON.stringify(fit)}`);
               assert.equal(fit.actionsOneLine, true); assert.equal(fit.noTrailingSeparator, true);
               assert.equal(fit.hiddenDetail, failureWidth < 600); assert.equal(fit.short, copy.failedShort); assert.equal(fit.full, copy.failed);
-              checks.push({ pass: true, label: failureLabel, ...fit });
+              failure294Checks.push({ pass: true, label: failureLabel, ...fit });
               if (locale === 'de' && failureTheme === 'light' && [390,1440].includes(failureWidth)) await shot(failureLabel, failureTheme, 'retained-upload');
             }
             await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
@@ -416,7 +416,8 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     }
   }
   assert.deepEqual(problems, []); assert.equal(checks.length, 18 * themes.length);
-  if (evidence) assert.equal(shots.length, 144 * themes.length);
+  assert.equal(failure294Checks.length, 16, 'AIT-294: every phone/desktop failure width, locale and palette');
+  if (evidence) assert.equal(shots.filter(s => !s.file.startsWith('ait294-')).length, 144 * themes.length);
   passLines.push('AIT-266 PASS: visuals absent/present; DE/EN, 1440/1280x860/390, touch/mouse.',
     'AIT-266 PASS: Mac/other keycaps; touch hint hidden; inline Saved 1600ms; composer/Send 0 px; 44 px Send.',
     'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all tested heights.');
@@ -429,5 +430,5 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   passLines.push('AIT-286 PASS: send failure and retained-upload failure share warning glyph/ink; consent opener underlined, native button, 44px coarse hit area; all transitions 0 px.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,
-    blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks, shots }, null, 2) + '\n');
+    blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks: [...checks, ...failure294Checks], shots }, null, 2) + '\n');
 }
