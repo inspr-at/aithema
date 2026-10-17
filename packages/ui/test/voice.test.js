@@ -616,6 +616,7 @@ test('component sends typed text through active voice, updates context and accep
   assert.equal(root.querySelector('.status__label').textContent, en.voiceTextSent);
   events.push({ callId: activeCall, type: 'speaking' }); await tick();
   assert.notEqual(root.querySelector('.status__label').textContent, en.voiceTextSent, 'the status line follows the call state (D11)');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, openQuestions: ['Which systems?'], inputRevision: inputRevision(c.session) } });
   c.receive({ seq: c.session.seq + 1, type: 'question.focused', data: { question: 'Which systems?' } }); await tick();
   assert.equal(commands.at(-1)[1].focusedQuestion, 'Which systems?');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: 'New context', inputRevision: inputRevision(c.session) } }); await tick();
