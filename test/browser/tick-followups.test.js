@@ -10,7 +10,8 @@ import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-disp
 
 // Every scene reconfigures from tickSeed; keep the expensive host and page for
 // the file, including the genuinely open SSE connection checked by F8.
-let fileFixture;
+let fileFixture, cleanup;
+after(() => cleanup?.());
 const fixture = () => fileFixture ??= createFixture();
 async function createFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-tick-followups-'));
@@ -19,7 +20,7 @@ async function createFixture() {
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  cleanup = async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); };
   const page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);

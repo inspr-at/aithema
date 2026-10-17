@@ -29,13 +29,14 @@ async function setViewport(page, viewport) {
 
 // Share the host across every test. A page is reused while device capabilities
 // match; desktop's native fine pointer still needs its own launch configuration.
-let host, currentFixture;
+let host, currentFixture, cleanup;
+after(() => cleanup?.());
 async function hostForFile() {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-pause-phone-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
-  after(async () => { await currentFixture?.browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  cleanup = async () => { await currentFixture?.browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); };
   return { demo, hostConfig: await fetch(new URL('/demo/config', demo.url)).then(response => response.json()) };
 }
 async function fixture(t, touch = true) {
