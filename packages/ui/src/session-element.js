@@ -1365,6 +1365,7 @@ export class AithemaSession extends HTMLElement {
       const limit = this.#host?.limitCopy ?? u;
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.toggleAttribute('data-host-limit', this.#host?.endReason === 'host-limit');
+      out.querySelector('.composer-out__steps').setAttribute('aria-hidden', String(out.hasAttribute('data-host-limit')));
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
       out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
