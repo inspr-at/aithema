@@ -568,6 +568,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       }
     }
   }
+  assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
   const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
   t.diagnostic(export294Pass);
   if (evidence) await writeFile(join(evidence, 'ait294-r2-export-checks.json'), JSON.stringify({ head:evidenceCommit, passLines:[export294Pass], checks:export294Checks }, null, 2));

@@ -182,7 +182,6 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       });
       baseline ??= metric.info;
       settings294Checks.push({ locale, theme, model, ...metric });
-      t.diagnostic(`AIT-294 r2 settings ${locale}/${theme}/${model}: ${JSON.stringify(metric)}`);
       assert.equal(metric.gauges, 0, 'AIT-294: below 600px the entire gauge column has no footprint');
       assert.ok(metric.maxEmptyPx <= 24, `AIT-294: no empty run taller than 24px: ${JSON.stringify(metric)}`);
       assert.deepEqual(metric.info, baseline, 'AIT-294: info line moves exactly 0px between model types');
@@ -196,6 +195,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     }
     await shadow(page, c => { c.shadowRoot.querySelector('dialog.settings .done').click(); window.ait294Settings = false; });
   }
+  assert.equal(settings294Checks.length, 12, 'AIT-294: both model directions in each locale and palette');
   passLines.push('AIT-294 r2 PASS: Settings 390 DE/EN light/dark; empty runs <=24px; info line/model switch 0px; slider slot exact; gauges absent below 600px, retained at 600/1024.');
   // CI keeps its single light functional matrix. A second theme and PNGs are remote evidence only.
   // Keep native mouse emulation first: disabling touch resets hover on Linux.
