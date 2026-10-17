@@ -18,7 +18,7 @@ const geometry = page => shadow(page, c => [
   '.understanding > .foot', '.composer-shell', '.band', ...[1, 2, 3].map(i => `.open-question:nth-child(${i})`),
 ].map(selector => {
   const n = c.shadowRoot.querySelector(selector);
-  return [selector, n.offsetLeft, n.offsetTop, n.offsetWidth, n.offsetHeight];
+  return [selector, n.offsetLeft, selector === '.band' ? n.getBoundingClientRect().top : n.offsetTop, n.offsetWidth, n.offsetHeight];
 }));
 
 test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry', { timeout: 120_000 }, async t => {
@@ -78,6 +78,7 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
           if (state === 'requesting') return;
           if (state === 'stale' || state.startsWith('refused')) {
             const reason = { stale: 'stale-question', 'refused-paused': 'paused', 'refused-consent': 'consent-required', 'refused-deadline': 'not-admitted' }[state];
+            if (state === 'refused-paused') receive('session.paused', { paused: true });
             window.releaseFocus(Response.json({ error: 'focus-refused', reason, ...(state === 'refused-deadline' ? { admissionReason: 'one-hour' } : {}) }, { status: 409 }));
             return window.focusPromise;
           }

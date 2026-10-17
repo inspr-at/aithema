@@ -337,6 +337,7 @@ export class AithemaSession extends HTMLElement {
       button.setAttribute('aria-describedby', text.id);
       button.setAttribute('aria-disabled', String(['requesting', 'selected', 'asked', 'disabled'].includes(state)));
       button.setAttribute('aria-busy', String(state === 'requesting'));
+      if (state === 'retry') button.setAttribute('aria-label', `${copy.failed} · ${copy.retry}`); else button.removeAttribute('aria-label');
       const label = { requesting: copy.asking, selected: copy.chosen, asked: copy.asked, retry: copy.retry }[state] ??
         (reason === 'paused' ? this.#copy.resume : reason === 'consent' ? copy.review : copy.action);
       setText(button.querySelector('.clarify-label'), label);

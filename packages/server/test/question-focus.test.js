@@ -225,8 +225,9 @@ test('AIT-263 Low: a published assessment removes pending focus from snapshots a
   const hold = held(), f = fixture(t, { hold, assessmentQuestions: ['What is the budget?'] });
   assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
   const before = f.storage.get(f.session.id);
-  f.storage.append(f.session.id, 'understanding.updated', { ...before.understanding, draft: true }, inputRevision(before));
-  assert.equal(await f.handlers.lanes.run(f.session.id, 'understanding'), 'done');
+  const { contentRef, hash, ...assessment } = before.understanding;
+  f.storage.append(f.session.id, 'understanding.updated', { ...assessment, draft: true }, inputRevision(before));
+  assert.equal(await f.handlers.lanes.run(f.session.id, 'understanding'), 'completed');
   const session = f.storage.get(f.session.id);
   assert.equal(session.focusedQuestion, null);
   assert.equal(session.questionFocus, null);
