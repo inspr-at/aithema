@@ -27,6 +27,8 @@ export async function hostPolishCheck(t) {
     const original = window.fetch;
     window.fetch = async (url, init = {}) => {
       const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/features')) return Response.json({});
+      if (/\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
       if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
         init.signal?.addEventListener('abort', () => controller.close(), { once: true });
       } }));
