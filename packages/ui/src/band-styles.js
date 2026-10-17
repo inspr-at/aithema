@@ -185,6 +185,11 @@ export const bandStyles = `
   .ai-notice { font-size:11.5px; } .host-credits__track { width:44px; }
 }
 @media(600px <= width < 900px) {
+  /* AIT-283: the complete transport reservation needs the timer-only layout
+     on tablets too, so credit-enabled footers retain their existing gutters. */
+  .display-foot .status { grid-template-columns:8ch; gap:0; }
+  .display-foot :is(.status__label,.status__sizer) { display:none; }
+  .display-foot .connection-timer { grid-column:1; }
   .ai-notice,.host-credits,.status { font-size:11px; }
   .host-credits__track { width:44px; }
 }

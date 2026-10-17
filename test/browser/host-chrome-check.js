@@ -231,7 +231,7 @@ export async function hostChromeCheck(t) {
     await page.setViewport({ width: 700, height: 1000 }); await settle(); await shot(`de-light-700-voice-${brandMode}`);
   }
   console.log('AIT-260 PASS: 48 paused composer cases (restore/blur/limits, both controls, DE/EN, light/dark, 1440/390), acknowledged resume and focus, composer/Send 0 px; 58 rail-fit cases 320–1440; phone status and KI/AI accessible name.');
-  for (const locale of ['de', 'en']) for (const width of fullMatrix ? [1440, 1024, 390] : [1440, 390]) {
+  for (const locale of ['de', 'en']) for (const width of fullMatrix ? [1440, 1024, 768, 390] : [1440, 768, 390]) {
     await page.setViewport({ width, height: width < 600 ? 844 : 1000 });
     for (const theme of fullMatrix ? ['light', 'dark'] : ['light']) {
       await page.select('#theme', theme);
