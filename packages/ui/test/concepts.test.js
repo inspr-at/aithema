@@ -450,6 +450,8 @@ test('AIT-282: bubbles and controls win; exposed background opens the existing v
   t.mock.method(root.querySelector('.concept-backdrop'), 'getBoundingClientRect', () => box);
   const click = target => target.dispatchEvent(new window.MouseEvent('click', { bubbles:true, clientX:30, clientY:30 }));
   click(root.querySelector('.turn')); assert.equal(root.querySelector('.concept-viewer').open, false);
+  const upload=document.createElement('li');upload.className='upload';upload.textContent='Fixture.pdf';root.querySelector('ol').append(upload);
+  click(upload);assert.equal(root.querySelector('.concept-viewer').open,false,'upload row wins the click');upload.remove();
   click(root.querySelector('.transcript-latest')); assert.equal(root.querySelector('.concept-viewer').open, false);
   root.querySelector('.concept-preview').focus(); assert.equal(root.querySelector('.concept-thread').hasAttribute('data-near'), true);
   root.querySelector('.concept-preview').blur();

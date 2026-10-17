@@ -487,7 +487,7 @@ export class ConceptView {
       (this.#hover || this.root.activeElement === this.root.querySelector('.concept-preview')));
   }
   exposedAt(x, y, target = this.root.elementFromPoint?.(x, y)) {
-    if (this.#phone.matches || !this.#backdropId || this.backdropHidden() || target?.closest('.turn,button,a,input,textarea,select,[role="button"],.concept-bottom')) return false;
+    if (this.#phone.matches || !this.#backdropId || this.backdropHidden() || target?.closest('.turn,.upload,button,a,input,textarea,select,[role="button"],.concept-bottom')) return false;
     const box = this.root.querySelector('.concept-backdrop').getBoundingClientRect();
     return Boolean(target && x >= box.left && x <= box.right && y >= box.top && y <= box.bottom);
   }
