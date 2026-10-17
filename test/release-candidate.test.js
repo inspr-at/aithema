@@ -18,6 +18,7 @@ test('candidate builds twice, installs outside the workspace, mounts handlers/co
   assert.equal(evidence.consumer.release_sequence, version.release_sequence);
   assert.equal(evidence.reproducible, true);
   assert.equal(evidence.consumer.installed.runtime_exports, 'all');
+  assert.equal(evidence.consumer.update.from, version.migration.last_legacy_version);
   for (const smoke of [evidence.consumer.installed, evidence.consumer.locked_reinstall, evidence.consumer.rollback.smoke]) {
     assert.equal(smoke.verified_packages, 15);
     assert.ok(smoke.verified_files > 100);

@@ -829,8 +829,8 @@ scheme `inspr-calver-3`.
 `reserveVersion` accepts explicit candidate authorization separately from a
 publish go. A candidate reservation authorizes no tag or registry publication.
 The fixed `dry_run_version` remains test input only. Reuse the reserved
-coordinate in every candidate/release output; build machines never choose their own coordinate. The channel's next
-reservation must be strictly later; a same-second collision waits for the next
+coordinate in every candidate/release output; build machines never choose their
+own coordinate. The channel's next reservation must be strictly later; a same-second collision waits for the next
 second. Retain the candidate source commit and manifest digest; rebuild that exact commit
 with the same toolchain. The source-commit argument to `release:pack` allows that
 reproduction after evidence-only commits. Changed product bytes require a new
@@ -846,8 +846,8 @@ retain their exact lock closure.
 The historical release-order mapping is in `release/history.json`: the 11
 legacy v0.x releases, ending `0.10.1`, followed by the first October release,
 `261015164601.0.0` at ordinal 12. The migration anchor keeps that first calendar
-coordinate fixed; AIT-278 reserves the next release at ordinal 13. Mixed-era ordering requires the explicit
-anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
+coordinate fixed; AIT-278 reserves the next release at ordinal 13. Mixed-era
+ordering requires the explicit anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
 identifier; v1 dates and legacy stable SemVer remain tagged types. No old tag,
 release, artifact or signed attestation is renamed, rewritten or republished.
 
