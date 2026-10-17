@@ -1,8 +1,8 @@
 {
   "schema": "aithema-candidate-evidence/1",
-  "version": "261015164601.0.0",
-  "source_commit": "470bdd0b5b1de7867bb854c4c336c5aa094fbb15",
-  "built_at": "2026-10-15T22:21:10.761Z",
+  "version": "261017073156.0.0",
+  "source_commit": "1df438d112c01f6620f70f519dd9e3fc3c122703",
+  "built_at": "2026-10-17T07:35:14.992Z",
   "runner": "mbp2606",
   "toolchain": {
     "node": "24.20.0",
@@ -10,176 +10,176 @@
   },
   "reproducible": true,
   "builds": 2,
-  "manifest_sha256": "sha256:e3e799b07019f75ec4a0583b7998d1ee8867029b19451c5f041e28d0ae8eba49",
+  "manifest_sha256": "sha256:c258a95ffe3025dcf3d0a600b6e090629284b2b1f3c6439bdb469eb85ae0374f",
   "artifacts": [
     {
-      "path": "aithema-reset-261015164601.0.0.tgz",
-      "sha256": "sha256:1c112d9dd117dbf3324888a503aa297d142fb099760b4a8f30b7763e0734acb1"
+      "path": "aithema-reset-261017073156.0.0.tgz",
+      "sha256": "sha256:37d68591a19340e9d2ee2632f49ab4c1d09c1ab662b0a8c4b8150e93246bacc2"
     },
     {
-      "path": "inspr-aithema-core-261015164601.0.0.tgz",
+      "path": "inspr-aithema-core-261017073156.0.0.tgz",
       "name": "@inspr/aithema-core",
-      "sha256": "sha256:55d02b2a1f1dbcb26a7b3a9cbc9fbdab978437982e714f551b81d14c9304b171"
+      "sha256": "sha256:024c50866c347119215949ff3e00d464af9dca9a5d7a7dd91d9f4974f4a6b438"
     },
     {
-      "path": "inspr-aithema-server-261015164601.0.0.tgz",
+      "path": "inspr-aithema-server-261017073156.0.0.tgz",
       "name": "@inspr/aithema-server",
-      "sha256": "sha256:9b35f9b88c8dc30d7f2d295b43ba9b7d0fe2829f4fb1c4abf3067359e8534c89"
+      "sha256": "sha256:d6c8699a60ea8131d951e07d265cf423b5661365925ad1207a1e1d441b12c68e"
     },
     {
-      "path": "inspr-aithema-ui-261015164601.0.0.tgz",
+      "path": "inspr-aithema-ui-261017073156.0.0.tgz",
       "name": "@inspr/aithema-ui",
-      "sha256": "sha256:aeb9e92a3fcf7780187a717607009853febd889f74dbcad90516eac550c97d59"
+      "sha256": "sha256:a82fdbcde356037bc253a7f0d4d5d452e3f903f794574c4923f15b00a92fd529"
     },
     {
-      "path": "inspr-aithema-plugin-claude-html-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-claude-html-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-claude-html",
-      "sha256": "sha256:65f12d1453748cb74b0d0515f0abb0d2345149adbc98fae54fb0ebf1e5c854e5"
+      "sha256": "sha256:17e6780ebfc108f4510f19100b2048dafb93d432d826610d0d9c1250e8fed054"
     },
     {
-      "path": "inspr-aithema-plugin-codex-imagegen-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-codex-imagegen-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-codex-imagegen",
-      "sha256": "sha256:44f8cdfe7028789cac2cf057ad9fa90b4ed7cfd3bdb40941d9576fdc782bde3c"
+      "sha256": "sha256:3ce62e93473a59920d3d1888cf1e88e8b939d21b5fcce4bf2babeb9433cebf59"
     },
     {
-      "path": "inspr-aithema-plugin-device-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-device-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-device",
-      "sha256": "sha256:82bd009e79898f4f8e073f5bbc84fbc30d98bf19470e70b229fffe14b6130b9c"
+      "sha256": "sha256:3c7cb9a57857890496790524c6eb61efd2abe3a4529e20e22b5bdf4e2542b6c6"
     },
     {
-      "path": "inspr-aithema-plugin-elevenlabs-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-elevenlabs-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-elevenlabs",
-      "sha256": "sha256:057cb20fbce19f6dc5c9db83964a4ef4a21d8af0e011cc3ece9bb7701043abdd"
+      "sha256": "sha256:c3b85d8eccae1c87a13e0a77e143bd46d8c2825e311f8b533b76a609bbb82ed6"
     },
     {
-      "path": "inspr-aithema-plugin-extract-ooxml-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-extract-ooxml-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-extract-ooxml",
-      "sha256": "sha256:653972e3c7bc4a43ec1e78dbb44df0db518ee6090ad8b27f81de3a131e8a4671"
+      "sha256": "sha256:6ccce7f5948abba2ce108b795abd72968533f7f45f138f85d46c7d0761227f52"
     },
     {
-      "path": "inspr-aithema-plugin-extract-pdf-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-extract-pdf-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-extract-pdf",
-      "sha256": "sha256:7f14605038861c009bf0885b26524985e616b7c8eb1351d707feacc02a0f3dc6"
+      "sha256": "sha256:e49e577401c632dff65bb2b52f702d1a714b209024ca6425f8e5fb580d08cd5d"
     },
     {
-      "path": "inspr-aithema-plugin-extract-text-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-extract-text-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-extract-text",
-      "sha256": "sha256:641bf295a53be568b0fe8ccd940f387faa30b2b533f256d27a2e90fff4d4e1e6"
+      "sha256": "sha256:d778f25e2f019fd48f86bdf86deee578ce233e4f084d8403502948e0308b3f3b"
     },
     {
-      "path": "inspr-aithema-plugin-mail-smtp-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-mail-smtp-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-mail-smtp",
-      "sha256": "sha256:0c86d6d3f1b093f97024e09eccdd35159a76f994051d9312e9f0df4405bcb7da"
+      "sha256": "sha256:8608d866f21a9b00919c92732d0dd5ea0f32111e5a20a4205bc4ccd940c141f9"
     },
     {
-      "path": "inspr-aithema-plugin-mistral-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-mistral-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-mistral",
-      "sha256": "sha256:f7e31287d3f55d3420c6977a44ab036cdf09c8de4f16b6d0e22b5043de8c2572"
+      "sha256": "sha256:c5f624bf77b0926ce303355c7e2fbf67539ec8cae2d658aafd218b0b850decab"
     },
     {
-      "path": "inspr-aithema-plugin-openai-images-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-openai-images-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-openai-images",
-      "sha256": "sha256:efec6c18faa00fa39cffb6058cc66e605f6369b741dccb8cfdfaf44a1fec7d86"
+      "sha256": "sha256:c0d3e7418b8f25c6e7c377daf03f7f470fb2ca5f899e3eb831efbde46de312df"
     },
     {
-      "path": "inspr-aithema-plugin-openrouter-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-openrouter-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-openrouter",
-      "sha256": "sha256:53f54e7df2f55714bde6a55b26a476ea67bae8ff2524177fb00ffae42a2dca30"
+      "sha256": "sha256:ce5d8a06b255ffd956fb3ddc87fa140a2605e23b715ae44baa05cee82361b7ff"
     },
     {
-      "path": "inspr-aithema-plugin-zitadel-oidc-261015164601.0.0.tgz",
+      "path": "inspr-aithema-plugin-zitadel-oidc-261017073156.0.0.tgz",
       "name": "@inspr/aithema-plugin-zitadel-oidc",
-      "sha256": "sha256:3990203f2166f946f18921ee0577bc1288938ecc379bb8682fcf5de32c5c98e5"
+      "sha256": "sha256:a6ff8d6372d77dc1d81ac2f48b0d6d7c880511819cbdb16e5a1620d0ebde236d"
     }
   ],
   "consumer": {
     "schema": "aithema-consumer-evidence/1",
-    "version": "261015164601.0.0",
+    "version": "261017073156.0.0",
     "version_scheme": "inspr-calver-3",
     "release_channel": "stable",
-    "release_sequence": 12,
-    "source_commit": "470bdd0b5b1de7867bb854c4c336c5aa094fbb15",
-    "manifest_sha256": "sha256:e3e799b07019f75ec4a0583b7998d1ee8867029b19451c5f041e28d0ae8eba49",
+    "release_sequence": 13,
+    "source_commit": "1df438d112c01f6620f70f519dd9e3fc3c122703",
+    "manifest_sha256": "sha256:c258a95ffe3025dcf3d0a600b6e090629284b2b1f3c6439bdb469eb85ae0374f",
     "packages": [
       {
         "name": "@inspr/aithema-core",
-        "path": "inspr-aithema-core-261015164601.0.0.tgz",
-        "sha256": "sha256:55d02b2a1f1dbcb26a7b3a9cbc9fbdab978437982e714f551b81d14c9304b171"
+        "path": "inspr-aithema-core-261017073156.0.0.tgz",
+        "sha256": "sha256:024c50866c347119215949ff3e00d464af9dca9a5d7a7dd91d9f4974f4a6b438"
       },
       {
         "name": "@inspr/aithema-server",
-        "path": "inspr-aithema-server-261015164601.0.0.tgz",
-        "sha256": "sha256:9b35f9b88c8dc30d7f2d295b43ba9b7d0fe2829f4fb1c4abf3067359e8534c89"
+        "path": "inspr-aithema-server-261017073156.0.0.tgz",
+        "sha256": "sha256:d6c8699a60ea8131d951e07d265cf423b5661365925ad1207a1e1d441b12c68e"
       },
       {
         "name": "@inspr/aithema-ui",
-        "path": "inspr-aithema-ui-261015164601.0.0.tgz",
-        "sha256": "sha256:aeb9e92a3fcf7780187a717607009853febd889f74dbcad90516eac550c97d59"
+        "path": "inspr-aithema-ui-261017073156.0.0.tgz",
+        "sha256": "sha256:a82fdbcde356037bc253a7f0d4d5d452e3f903f794574c4923f15b00a92fd529"
       },
       {
         "name": "@inspr/aithema-plugin-claude-html",
-        "path": "inspr-aithema-plugin-claude-html-261015164601.0.0.tgz",
-        "sha256": "sha256:65f12d1453748cb74b0d0515f0abb0d2345149adbc98fae54fb0ebf1e5c854e5"
+        "path": "inspr-aithema-plugin-claude-html-261017073156.0.0.tgz",
+        "sha256": "sha256:17e6780ebfc108f4510f19100b2048dafb93d432d826610d0d9c1250e8fed054"
       },
       {
         "name": "@inspr/aithema-plugin-codex-imagegen",
-        "path": "inspr-aithema-plugin-codex-imagegen-261015164601.0.0.tgz",
-        "sha256": "sha256:44f8cdfe7028789cac2cf057ad9fa90b4ed7cfd3bdb40941d9576fdc782bde3c"
+        "path": "inspr-aithema-plugin-codex-imagegen-261017073156.0.0.tgz",
+        "sha256": "sha256:3ce62e93473a59920d3d1888cf1e88e8b939d21b5fcce4bf2babeb9433cebf59"
       },
       {
         "name": "@inspr/aithema-plugin-device",
-        "path": "inspr-aithema-plugin-device-261015164601.0.0.tgz",
-        "sha256": "sha256:82bd009e79898f4f8e073f5bbc84fbc30d98bf19470e70b229fffe14b6130b9c"
+        "path": "inspr-aithema-plugin-device-261017073156.0.0.tgz",
+        "sha256": "sha256:3c7cb9a57857890496790524c6eb61efd2abe3a4529e20e22b5bdf4e2542b6c6"
       },
       {
         "name": "@inspr/aithema-plugin-elevenlabs",
-        "path": "inspr-aithema-plugin-elevenlabs-261015164601.0.0.tgz",
-        "sha256": "sha256:057cb20fbce19f6dc5c9db83964a4ef4a21d8af0e011cc3ece9bb7701043abdd"
+        "path": "inspr-aithema-plugin-elevenlabs-261017073156.0.0.tgz",
+        "sha256": "sha256:c3b85d8eccae1c87a13e0a77e143bd46d8c2825e311f8b533b76a609bbb82ed6"
       },
       {
         "name": "@inspr/aithema-plugin-extract-ooxml",
-        "path": "inspr-aithema-plugin-extract-ooxml-261015164601.0.0.tgz",
-        "sha256": "sha256:653972e3c7bc4a43ec1e78dbb44df0db518ee6090ad8b27f81de3a131e8a4671"
+        "path": "inspr-aithema-plugin-extract-ooxml-261017073156.0.0.tgz",
+        "sha256": "sha256:6ccce7f5948abba2ce108b795abd72968533f7f45f138f85d46c7d0761227f52"
       },
       {
         "name": "@inspr/aithema-plugin-extract-pdf",
-        "path": "inspr-aithema-plugin-extract-pdf-261015164601.0.0.tgz",
-        "sha256": "sha256:7f14605038861c009bf0885b26524985e616b7c8eb1351d707feacc02a0f3dc6"
+        "path": "inspr-aithema-plugin-extract-pdf-261017073156.0.0.tgz",
+        "sha256": "sha256:e49e577401c632dff65bb2b52f702d1a714b209024ca6425f8e5fb580d08cd5d"
       },
       {
         "name": "@inspr/aithema-plugin-extract-text",
-        "path": "inspr-aithema-plugin-extract-text-261015164601.0.0.tgz",
-        "sha256": "sha256:641bf295a53be568b0fe8ccd940f387faa30b2b533f256d27a2e90fff4d4e1e6"
+        "path": "inspr-aithema-plugin-extract-text-261017073156.0.0.tgz",
+        "sha256": "sha256:d778f25e2f019fd48f86bdf86deee578ce233e4f084d8403502948e0308b3f3b"
       },
       {
         "name": "@inspr/aithema-plugin-mail-smtp",
-        "path": "inspr-aithema-plugin-mail-smtp-261015164601.0.0.tgz",
-        "sha256": "sha256:0c86d6d3f1b093f97024e09eccdd35159a76f994051d9312e9f0df4405bcb7da"
+        "path": "inspr-aithema-plugin-mail-smtp-261017073156.0.0.tgz",
+        "sha256": "sha256:8608d866f21a9b00919c92732d0dd5ea0f32111e5a20a4205bc4ccd940c141f9"
       },
       {
         "name": "@inspr/aithema-plugin-mistral",
-        "path": "inspr-aithema-plugin-mistral-261015164601.0.0.tgz",
-        "sha256": "sha256:f7e31287d3f55d3420c6977a44ab036cdf09c8de4f16b6d0e22b5043de8c2572"
+        "path": "inspr-aithema-plugin-mistral-261017073156.0.0.tgz",
+        "sha256": "sha256:c5f624bf77b0926ce303355c7e2fbf67539ec8cae2d658aafd218b0b850decab"
       },
       {
         "name": "@inspr/aithema-plugin-openai-images",
-        "path": "inspr-aithema-plugin-openai-images-261015164601.0.0.tgz",
-        "sha256": "sha256:efec6c18faa00fa39cffb6058cc66e605f6369b741dccb8cfdfaf44a1fec7d86"
+        "path": "inspr-aithema-plugin-openai-images-261017073156.0.0.tgz",
+        "sha256": "sha256:c0d3e7418b8f25c6e7c377daf03f7f470fb2ca5f899e3eb831efbde46de312df"
       },
       {
         "name": "@inspr/aithema-plugin-openrouter",
-        "path": "inspr-aithema-plugin-openrouter-261015164601.0.0.tgz",
-        "sha256": "sha256:53f54e7df2f55714bde6a55b26a476ea67bae8ff2524177fb00ffae42a2dca30"
+        "path": "inspr-aithema-plugin-openrouter-261017073156.0.0.tgz",
+        "sha256": "sha256:ce5d8a06b255ffd956fb3ddc87fa140a2605e23b715ae44baa05cee82361b7ff"
       },
       {
         "name": "@inspr/aithema-plugin-zitadel-oidc",
-        "path": "inspr-aithema-plugin-zitadel-oidc-261015164601.0.0.tgz",
-        "sha256": "sha256:3990203f2166f946f18921ee0577bc1288938ecc379bb8682fcf5de32c5c98e5"
+        "path": "inspr-aithema-plugin-zitadel-oidc-261017073156.0.0.tgz",
+        "sha256": "sha256:a6ff8d6372d77dc1d81ac2f48b0d6d7c880511819cbdb16e5a1620d0ebde236d"
       }
     ],
     "installed": {
-      "imports": 23,
-      "symbols": 42,
+      "imports": 25,
+      "symbols": 46,
       "runtime_exports": "all",
       "runtime_subpaths": [
         "@inspr/aithema-core",
@@ -198,6 +198,7 @@
         "@inspr/aithema-core/text-origin",
         "@inspr/aithema-core/presets",
         "@inspr/aithema-core/settings",
+        "@inspr/aithema-core/consent-document",
         "@inspr/aithema-core/ai-notice",
         "@inspr/aithema-core/voice-lifecycle",
         "@inspr/aithema-core/reply-replay",
@@ -208,6 +209,9 @@
         "@inspr/aithema-core/reasoning",
         "@inspr/aithema-core/reply-opener",
         "@inspr/aithema-core/chat-completions",
+        "@inspr/aithema-core/ui-html-prompt",
+        "@inspr/aithema-core/ui-html-artifact",
+        "@inspr/aithema-core/ui-image-artifact",
         "@inspr/aithema-server",
         "@inspr/aithema-server/http",
         "@inspr/aithema-server/local-voice-identity",
@@ -218,6 +222,7 @@
         "@inspr/aithema-ui/html-preview",
         "@inspr/aithema-ui/reply-audio",
         "@inspr/aithema-ui/page-replay",
+        "@inspr/aithema-ui/first-paint",
         "@inspr/aithema-ui/display",
         "@inspr/aithema-ui/i18n/de",
         "@inspr/aithema-plugin-claude-html",
@@ -249,17 +254,26 @@
         "@inspr/aithema-core/plugin-contract"
       ],
       "locale_key_parity": "recursive",
-      "handlers": "HTTP create/read/export and owner isolation",
+      "handlers": "HTTP health/session/consent/turn/overview/export and owner isolation",
+      "conversation": {
+        "model": "mock",
+        "turns": 1,
+        "consent": "granted",
+        "overview": "current, settled and content verified"
+      },
       "components": [
         "aithema-session",
         "aithema-html-preview"
       ],
       "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
-      "version": "261015164601.0.0"
+      "version": "261017073156.0.0",
+      "verified_packages": 15,
+      "verified_files": 260,
+      "isolation": "all module resolutions confined to temporary host"
     },
     "locked_reinstall": {
-      "imports": 23,
-      "symbols": 42,
+      "imports": 25,
+      "symbols": 46,
       "runtime_exports": "all",
       "runtime_subpaths": [
         "@inspr/aithema-core",
@@ -278,6 +292,7 @@
         "@inspr/aithema-core/text-origin",
         "@inspr/aithema-core/presets",
         "@inspr/aithema-core/settings",
+        "@inspr/aithema-core/consent-document",
         "@inspr/aithema-core/ai-notice",
         "@inspr/aithema-core/voice-lifecycle",
         "@inspr/aithema-core/reply-replay",
@@ -288,6 +303,9 @@
         "@inspr/aithema-core/reasoning",
         "@inspr/aithema-core/reply-opener",
         "@inspr/aithema-core/chat-completions",
+        "@inspr/aithema-core/ui-html-prompt",
+        "@inspr/aithema-core/ui-html-artifact",
+        "@inspr/aithema-core/ui-image-artifact",
         "@inspr/aithema-server",
         "@inspr/aithema-server/http",
         "@inspr/aithema-server/local-voice-identity",
@@ -298,6 +316,7 @@
         "@inspr/aithema-ui/html-preview",
         "@inspr/aithema-ui/reply-audio",
         "@inspr/aithema-ui/page-replay",
+        "@inspr/aithema-ui/first-paint",
         "@inspr/aithema-ui/display",
         "@inspr/aithema-ui/i18n/de",
         "@inspr/aithema-plugin-claude-html",
@@ -329,27 +348,36 @@
         "@inspr/aithema-core/plugin-contract"
       ],
       "locale_key_parity": "recursive",
-      "handlers": "HTTP create/read/export and owner isolation",
+      "handlers": "HTTP health/session/consent/turn/overview/export and owner isolation",
+      "conversation": {
+        "model": "mock",
+        "turns": 1,
+        "consent": "granted",
+        "overview": "current, settled and content verified"
+      },
       "components": [
         "aithema-session",
         "aithema-html-preview"
       ],
       "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
-      "version": "261015164601.0.0"
+      "version": "261017073156.0.0",
+      "verified_packages": 15,
+      "verified_files": 260,
+      "isolation": "all module resolutions confined to temporary host"
     },
     "update": {
       "from": "0.10.1",
-      "to": "261015164601.0.0",
+      "to": "261017073156.0.0",
       "scope": "dependency pin replacement and anchored ordering; no legacy API/database migration",
       "legacy_source_commit": "e89c1cdad0c3f608f2ae06fb0cfc87d9048b1ca0",
       "legacy_install": "not applicable: private, retired monolith; no compatible split package release"
     },
     "rollback": {
-      "retained_manifest_sha256": "sha256:e3e799b07019f75ec4a0583b7998d1ee8867029b19451c5f041e28d0ae8eba49",
+      "retained_manifest_sha256": "sha256:c258a95ffe3025dcf3d0a600b6e090629284b2b1f3c6439bdb469eb85ae0374f",
       "verified_packages": 15,
       "smoke": {
-        "imports": 23,
-        "symbols": 42,
+        "imports": 25,
+        "symbols": 46,
         "runtime_exports": "all",
         "runtime_subpaths": [
           "@inspr/aithema-core",
@@ -368,6 +396,7 @@
           "@inspr/aithema-core/text-origin",
           "@inspr/aithema-core/presets",
           "@inspr/aithema-core/settings",
+          "@inspr/aithema-core/consent-document",
           "@inspr/aithema-core/ai-notice",
           "@inspr/aithema-core/voice-lifecycle",
           "@inspr/aithema-core/reply-replay",
@@ -378,6 +407,9 @@
           "@inspr/aithema-core/reasoning",
           "@inspr/aithema-core/reply-opener",
           "@inspr/aithema-core/chat-completions",
+          "@inspr/aithema-core/ui-html-prompt",
+          "@inspr/aithema-core/ui-html-artifact",
+          "@inspr/aithema-core/ui-image-artifact",
           "@inspr/aithema-server",
           "@inspr/aithema-server/http",
           "@inspr/aithema-server/local-voice-identity",
@@ -388,6 +420,7 @@
           "@inspr/aithema-ui/html-preview",
           "@inspr/aithema-ui/reply-audio",
           "@inspr/aithema-ui/page-replay",
+          "@inspr/aithema-ui/first-paint",
           "@inspr/aithema-ui/display",
           "@inspr/aithema-ui/i18n/de",
           "@inspr/aithema-plugin-claude-html",
@@ -419,189 +452,23 @@
           "@inspr/aithema-core/plugin-contract"
         ],
         "locale_key_parity": "recursive",
-        "handlers": "HTTP create/read/export and owner isolation",
+        "handlers": "HTTP health/session/consent/turn/overview/export and owner isolation",
+        "conversation": {
+          "model": "mock",
+          "turns": 1,
+          "consent": "granted",
+          "overview": "current, settled and content verified"
+        },
         "components": [
           "aithema-session",
           "aithema-html-preview"
         ],
         "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
-        "version": "261015164601.0.0"
+        "version": "261017073156.0.0",
+        "verified_packages": 15,
+        "verified_files": 260,
+        "isolation": "all module resolutions confined to temporary host"
       }
     }
-  },
-  "scope": "AIT-105 round 6 part 3: remove incorrect shipped voice-host claim and interactive-shell exit from release notes. Final-head evidence is retained separately after this evidence commit; no builder review gate, tag, release or publication.",
-  "retention": {
-    "local_directory": "dist/ait105-r6-b3-unit/candidate/first",
-    "comparison_directory": "dist/ait105-r6-b3-unit/candidate/second",
-    "final_head_evidence": "dist/ait105-r6-b3-final/candidate/candidate-evidence.json",
-    "final_head_manifest": "dist/ait105-r6-b3-final/candidate/first/release-set.json",
-    "ci_artifact_name": "reset-candidate",
-    "ci_retention_days": 90,
-    "note": "Committed evidence binds the implementation checkpoint; a commit cannot contain its own SHA. Final-head BSD evidence is retained separately after this evidence commit, and handed to OPS with its exact head and manifest digest. PR CI retains its own GNU candidate; only the later OPS tag build identifies shipped bytes."
-  },
-  "tests": {
-    "unit": {
-      "runner": "mbp2606",
-      "run": "470bdd0b5b-81015",
-      "head": "470bdd0b5b1de7867bb854c4c336c5aa094fbb15",
-      "passed": 3898,
-      "failed": 0
-    },
-    "red_before": {
-      "runner": "mbp2606",
-      "run": "099e7d9098-42050",
-      "head": "099e7d9098006b26b05eb33e186e31827d950edc",
-      "gate4_failures": [
-        "excluded same-package import accepted",
-        "null START2 options override defaults"
-      ],
-      "test_correction": "Tarball inspection now honors TypeScript .js-to-.d.ts declaration resolution."
-    },
-    "browser": {
-      "scope": "No browser files changed in round 6; all four shards run on the draft PR CI."
-    }
-  },
-  "ait105_round5": {
-    "session": "AIT-105-b5",
-    "merge_commit": "ad44322adaf7d4fe793a7ce2c0729e42945469f7",
-    "merged_main": "022595ab0aac930c3ef1c739cc664d92d4f078fb",
-    "merge_resolution": "package.json:21: keep release:consumer/release:candidate and add setup:browser from main. No other conflicted hunks.",
-    "export_decisions": [
-      {
-        "file": "plugins/elevenlabs/src/components.js:5",
-        "decision": "consentCoverage from existing @inspr/aithema-core root; no new public subpath"
-      },
-      {
-        "file": "plugins/composed-voice/src/configuration.js:3",
-        "decision": "consentCoverage from existing @inspr/aithema-core root; no new public subpath"
-      },
-      {
-        "file": "release/lib/modules.mjs:13",
-        "decision": "Unexported ElevenLabs composed proof retained in source archive only; its unpublished composed helper requires no new public surface."
-      }
-    ],
-    "version_gate": {
-      "result": "passed on mbp2606",
-      "version": "261015164601.0.0",
-      "reservation_changed": false
-    },
-    "validation": {
-      "runner": "mbp2606",
-      "unit_pass": 3767,
-      "unit_fail": 0,
-      "import_guard": "passed; stricter round-4 guard unchanged",
-      "locale_key_parity": "recursive DE/EN across installed, reinstall and rollback",
-      "candidate": "two byte-identical packs; all runtime exports; lockfile reinstall, dependency update and retained-digest rollback"
-    },
-    "round4_fixes": "release ERR trap; required voice-host arguments; undefined defaults; stricter import guard; dev/local-voice production guard unchanged",
-    "review_gate_run": false
-  },
-  "ait205": {
-    "ticket": "AIT-205",
-    "session": "AIT-205-b1",
-    "new_exports": [
-      "@inspr/aithema-ui/i18n/de",
-      "@inspr/aithema-plugin-elevenlabs/voice-host",
-      "@inspr/aithema-server/dev/local-voice"
-    ],
-    "decisions": "docs/embedding.md \u2014 Consumer export surface (AIT-205)",
-    "browser_source_url_exceptions": [
-      "demo/host.js",
-      "demo/consent-page.js",
-      "demo/admin-view.js",
-      "demo/fake-voice.js"
-    ],
-    "review_gate_run": false,
-    "version_reservation_changed": false,
-    "ci_integration": "Merged only landed AIT-204 commits through 9b78b4fb to resolve CI conflict with main; preserved reset-candidate retention with the matching heavy-job guard. No product changes from main imported."
-  },
-  "ait105_round6": {
-    "session": "AIT-105-b1",
-    "base_main": "8d52ace2d36c1e8d40bcd2d738e1db5d7ad04cb7",
-    "desk": {
-      "decision": "Ver\u00f6ffentlichen, mit den Nacht-Fixes.",
-      "reference": "dda0948b",
-      "publisher": "OPS; builder must never tag, release or publish"
-    },
-    "version_gate": {
-      "command": "npm run release:candidate -- <retained-directory>",
-      "runner": "mbp2606",
-      "head": "099e7d9098006b26b05eb33e186e31827d950edc",
-      "result": "passed",
-      "version": "261015164601.0.0",
-      "release_sequence": 12,
-      "reservation_changed": false
-    },
-    "gate4_lows": {
-      "excluded_imports": "release/lib/modules.mjs: shared exclusion set checked before same-package return; static, side-effect, re-export and dynamic literals tested. Actual module tarballs inspected for absent components.js and import closure.",
-      "null_defaults": "demo/start2-voice-host.js: ignore null and undefined; both tested with successful host startup.",
-      "provenance": "publish_route, presentation_pin_review, ait205 and ait205_implementation_ci restored from dc0c76c0; historical reviews/CI remain attributed to their original source."
-    },
-    "overnight_fixes": [
-      "AIT-218 security: private simulator identity and frozen dispatch",
-      "AIT-212: no silent paid rerun, durable failure state, ordered two-lane Retry and reply/overview states",
-      "AIT-201: shipped budget-ledger lane diagnostics; test-only lane-race qualification kit",
-      "AIT-209: test-only browser launch timeout and one launch-only retry; absent from tarballs"
-    ],
-    "validation": {
-      "import_guard": "passed in full unit suite, including tarball inspection",
-      "locale_key_parity": "recursive DE/EN through outside-repo consumer",
-      "candidate": "two identical packs; all runtime exports; locked reinstall, dependency replacement and retained-digest rollback"
-    },
-    "review_gate_run": false
-  },
-  "delivery": {
-    "draft_pr": 186,
-    "tag_created": false,
-    "github_release_created": false,
-    "registry_published": false,
-    "shipped_bytes": "Only a later owner-authorized Linux tag build identifies shipped bytes; this is candidate preparation.",
-    "publish_route": "GitHub release tarballs + SHA256SUMS + attestations; GITHUB_TOKEN only; OPS publishes after Markus Desk go",
-    "presentation_pin_review": "passed in controller-supplied AIT-105 gate1",
-    "ait205_implementation_ci": {
-      "run": "https://github.com/inspr-at/aithema/actions/runs/38782325931",
-      "head": "18777f1ffe5c98f874dbd672c908b90f51324857",
-      "checks": "7/7 green",
-      "ci_units": 3557,
-      "ci_unit_job_duration": "2m57s",
-      "ci_browser_job_durations": [
-        "6m7s",
-        "4m47s",
-        "5m5s",
-        "5m37s"
-      ],
-      "started_at": "2026-10-15T18:02:39Z",
-      "completed_at": "2026-10-15T18:08:46Z"
-    },
-    "previous_draft_pr": "https://github.com/inspr-at/aithema/pull/173",
-    "branch": "release/ait-105-freeze-refresh",
-    "handoff": "Draft PR and 7/7 final CI details are recorded in the round-6 PR handoff after the final-head freeze."
-  },
-  "ait105_round6_part2": {
-    "session": "AIT-105-b2",
-    "changes": [
-      "Consumer-facing first-release notes with release-URL install, sha512 lockfile integrity and published-asset verification",
-      "draft_pr set to 186"
-    ],
-    "version_gate": {
-      "runner": "mbp2606",
-      "result": "passed in full unit suite and candidate command",
-      "version": "261015164601.0.0",
-      "release_sequence": 12,
-      "reservation_changed": false
-    },
-    "validation": {
-      "candidate": "two identical packs; all 62 runtime exports; locked reinstall, dependency replacement and retained-digest rollback"
-    },
-    "review_gate_run": false
-  },
-  "ait105_round6_part3": {
-    "session": "AIT-105-b3",
-    "changes": [
-      "Drop demo-only null/default claim from published API notes",
-      "Remove || exit 1 from verification loop"
-    ],
-    "version_unchanged": true,
-    "review_gate_run": false
   }
 }
