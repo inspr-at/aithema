@@ -383,7 +383,8 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
 .consent-narrow { display:none; }
 @media(max-width:340px) {
-  .composer-actions { gap:0; }
+  /* Reclaim inner padding for the 44px controls and the full narrow sentence. */
+  .composer-actions { gap:0; margin-inline:-.5rem; }
   .composer-reason[data-consent-feature="text"] { white-space:nowrap; }
   .composer-reason .consent-wide { display:none; }
   .composer-reason .consent-narrow { display:inline; }
