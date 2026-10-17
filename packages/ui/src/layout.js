@@ -164,9 +164,10 @@ export class PhoneComposerViewport {
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
-      const fitWidth = view?.innerWidth;
+      const footer = root.querySelector('.display-foot'), fitWidth = footer.clientWidth;
+      // Host columns and scrollbars can resize the row without resizing the window.
       if (this.footerFitWidth !== fitWidth) {
-        fitFooter(root.querySelector('.display-foot')); this.footerFitWidth = fitWidth;
+        fitFooter(footer); this.footerFitWidth = fitWidth;
       }
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
