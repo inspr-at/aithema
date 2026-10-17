@@ -148,3 +148,36 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     }
   });
 }
+
+for (const restored of [false, true]) test(`AIT-299: a pre-limit receipt cannot erase host-limit or announce an intermediate title (restored ${restored})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const pending = Promise.withResolvers(), started = Promise.withResolvers();
+  const { c, root } = a2Setup(t, { privacy: false, endReason: restored ? 'host-limit' : null,
+    creditsRead: read => { started.resolve(); return pending.promise.then(read); } });
+  t.after(() => pending.resolve());
+  const announcement = root.querySelector('.credit-announcement'), changes = [];
+  const observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(announcement, { childList: true, characterData: true, subtree: true });
+  t.after(() => observer.disconnect());
+  await started.promise;
+  if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  pending.resolve();
+  await viState(root.querySelector('.host-credits__measure-amount'), '1,200');
+  await tick();
+  assert.equal(root.querySelector('.composer-out__title').textContent, releaseLimits.en['host-limit'][0]);
+  assert.equal(announcement.textContent, releaseLimits.en['host-limit'].slice(0, 2).join(' '));
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  assert.equal(changes.length, 1, 'only the final host-limit copy is announced');
+});
+
+// Wait for the actual DOM acknowledgement; setImmediate counts cannot order a
+// receipt's response.json(), SSE events, and MutationObserver delivery under load.
+function viState(node, text) {
+  if (node.textContent === text) return Promise.resolve();
+  return new Promise(resolve => {
+    const observer = new window.MutationObserver(() => {
+      if (node.textContent === text) { observer.disconnect(); resolve(); }
+    });
+    observer.observe(node, { childList: true, characterData: true, subtree: true });
+  });
+}

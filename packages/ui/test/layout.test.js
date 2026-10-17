@@ -134,3 +134,30 @@ test('AIT-298: same-width footer text mutations keep the fit cache; changed zone
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(changes.length > 0, 'text that changes a zone width must refit');
 });
+
+for (const label of ['ai-notice__label', 'connection-timer', 'actor-role']) test(`AIT-299: compact footer restores full fit after hidden ${label} text shrinks`, async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><div class="footer-left"><span class="${label}">A very long label</span></div></div></footer></div>`;
+  const footer = root.querySelector('footer'), text = footer.querySelector('span');
+  // Model actual full/compact layout: the hidden label no longer contributes
+  // to its visible zone, but its natural width still changes.
+  t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+    const owner = this.closest('footer'), long = owner?.querySelector('span').textContent.length > 5;
+    const width = this.matches('.display-foot__row') ? 100 : this.matches('.footer-left') ? owner.dataset.fit === 'full' ? long ? 200 : 80 : 40 : 0;
+    return { width, left: 0, right: width };
+  });
+  t.mock.method(window.HTMLElement.prototype, 'getClientRects', function () { return [this.getBoundingClientRect()]; });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  assert.equal(footer.dataset.fit, 'identity');
+  text.textContent = 'Short';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(footer.dataset.fit, 'full', 'the shorter hidden label makes the full form fit again');
+  const changes = [], observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(footer, { attributes: true, attributeFilter: ['data-fit'] }); t.after(() => observer.disconnect());
+  text.textContent = 'Other';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes.length, 0, 'equal natural geometry does not refit');
+});

@@ -728,3 +728,23 @@ test('AIT-286: an error with a consent verdict preserves its native consent open
   assert.equal(root.querySelector('.concept-activity-text .consent-action').tagName, 'BUTTON');
   assert.ok(root.querySelector('.concept-activity-text .warning svg'));
 });
+
+test('AIT-299: detach and re-attach immediately enable controls while an old request is pending', async t => {
+  const first = Promise.withResolvers(), second = Promise.withResolvers(); let requests = 0;
+  const { c, root } = setup(t, { postResponse: () => ++requests === 1 ? first.promise : second.promise });
+  t.after(() => { first.resolve(Response.json({})); second.resolve(Response.json({})); });
+  document.body.append(c);
+  root.querySelector('.concept-request').click();
+  assert.equal(root.querySelector('.concept-request').disabled, true);
+  c.remove(); document.body.append(c);
+  for (const selector of ['.concept-request', '.concept-regenerate', '.concept-up', '.concept-down', '.concept-reject'])
+    assert.equal(root.querySelector(selector).disabled, false, `${selector} is enabled before any render or response`);
+  root.querySelector('.concept-request').click();
+  assert.equal(requests, 2);
+  first.resolve(Response.json({ event: { seq: c.session.seq + 1, type: 'concept.state', data: { status: { phase: 'failed', error: 'restart' } } } }));
+  await tick();
+  assert.equal(root.querySelector('.concept-request').disabled, true, 'the old lifetime cannot clear the new request busy gate');
+  assert.notEqual(c.session.conceptStatus?.phase, 'failed', 'the old lifetime cannot apply its response');
+  second.resolve(Response.json({})); await tick();
+  assert.equal(root.querySelector('.concept-request').disabled, false);
+});
