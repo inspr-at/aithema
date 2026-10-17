@@ -73,7 +73,7 @@ const css = `
 /* Three named links retain one row and 44px targets at the 320px host floor.
    Omit only decorative external-link glyphs before reducing readable type. */
 @media(max-width:359px) {
-  .aithema-reveal-band > .aithema-reveal__row { column-gap:8px; }
+  .aithema-reveal-band > .aithema-reveal__row { right:8px; column-gap:8px; }
   .aithema-reveal__link { min-width:44px; }
   .aithema-reveal__title svg { display:none; }
 }
