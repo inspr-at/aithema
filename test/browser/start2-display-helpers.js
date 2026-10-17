@@ -40,13 +40,15 @@ const statusGeometry = page => shadow(page, c => {
   const narrow = n.querySelector('.consent-narrow');
   if (narrow && getComputedStyle(narrow).display !== 'none') rects.push(...narrow.getClientRects());
   const lines = rects.filter(r => r.width > 0).map(r => ({ x: r.x, y: r.y, width: r.width, height: r.height }));
+  // The phone box reserves two rows even for one visible line. Count text rows.
+  const rows = []; for (const line of lines) if (!rows.some(y => Math.abs(y - line.y) < 3)) rows.push(line.y);
   const widest = lines.reduce((a, r) => r.width > a.width ? r : a), half = parseFloat(getComputedStyle(wave).getPropertyValue('--voice-label-half'));
   const center = w.x + w.width / 2 + parseFloat(getComputedStyle(wave).getPropertyValue('--voice-label-center'));
   const textBox = { x: Math.min(...lines.map(r => r.x)), y: Math.min(...lines.map(r => r.y)),
     right: Math.max(...lines.map(r => r.x + r.width)), bottom: Math.max(...lines.map(r => r.y + r.height)) };
   return { x: b.x, y: b.y, width: b.width, height: b.height, waveX: w.x, waveWidth: w.width, half, rendered: lines, textBox,
     gaps: [widest.x - (center - half - 16), center + half + 16 - widest.x - widest.width],
-    lines: (b.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight),
+    lines: rows.length,
     overflow: style.textOverflow, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight, visibility: getComputedStyle(wave).visibility };
 });
 const sameBoxes = (before, after, context) => before.forEach((box, i) => box.forEach((value, n) =>
