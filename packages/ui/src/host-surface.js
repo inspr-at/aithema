@@ -144,6 +144,10 @@ export class HostSurface {
       // The composer's limit block owns the reason and its polite announcement.
       // Never send ended copy through the action-status/toast channel.
     }
+    if (event.type === 'credits.state' && event.data?.status === 'active') {
+      this.#limitGeneration++;
+      if (this.#ended === 'host-limit') this.#ended = null;
+    }
     if (event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state)) {
       const endedCall = this.#creditContext?.();
       if (endedCall && event.data.callId === endedCall.callId && event.data.providerSessionId === endedCall.providerSessionId) this.#creditClosing = endedCall;
@@ -250,7 +254,10 @@ export class HostSurface {
         JSON.stringify(previous.tiers) !== JSON.stringify(this.#credits?.tiers)));
       if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
       const slot = this.#credits?.limitSlot;
-      const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
+      // A positive visitor balance alone says nothing about the operator budget.
+      // Recovery requires an improved allowance or a previously exhausted/held balance.
+      const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0 &&
+        (allowanceChanged || previous?.exhausted === true || previous?.balance?.owner?.availableMicro === 0);
       // An earlier receipt cannot recover a limit announced after its request.
       const currentLimit = limitGeneration === this.#limitGeneration;
       if (currentLimit && this.#ended === 'host-limit' && recovered) this.#ended = null;

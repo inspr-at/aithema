@@ -205,4 +205,7 @@ test('AIT-299: an unchanged post-limit visitor balance cannot recover an operato
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
   assert.equal(announcement.textContent, releaseLimits.en['host-limit'].slice(0, 2).join(' '));
   assert.equal(changes.length, 1, 'the unchanged balance neither clears nor repeats the final announcement');
+  c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true', 'a new durable active state can reopen the conversation');
+  assert.equal(announcement.textContent, '');
 });
