@@ -718,6 +718,8 @@ async function recoveryRowMetrics(page) {
     const actions = r.querySelector('.voice-reply-actions'), row = rect(actions), parent = actions.parentElement;
     const text = parent.querySelector('.turn-text'), first = [...r.querySelectorAll('ol .turn')].find(n => n.getBoundingClientRect().bottom > shell.getBoundingClientRect().top);
     return { row, parent: parent.className, turnId: parent.dataset.id ?? null,
+      audioAvailable: globalThis.tickRail.notices.audioAvailable(),
+      clientReplayAvailable: typeof globalThis.tickVoiceClient.replayReply === 'function',
       emptySpaceAbovePx: text ? row.top - text.getBoundingClientRect().bottom : null,
       controls: [...actions.querySelectorAll('button')].map(n => ({ ...rect(n), hidden: n.hidden, border: getComputedStyle(n).borderWidth, background: getComputedStyle(n).backgroundColor })),
       first: first ? { id: first.dataset.id, top: rect(first).top } : null,
@@ -760,6 +762,8 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
         globalThis.tickRail.notices.recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: reply.content, lastReplyTurnId: reply.id });
       }); await frame(page);
       const sentence = await recoveryRowMetrics(page), label = `${locale}-${theme}-${width}-${position}`;
+      assert.equal(sentence.audioAvailable, false, `${label}-clear remains text-only`);
+      assert.equal(sentence.clientReplayAvailable, false, `${label}-clear has no replay client`);
       if (!following) assert.deepEqual(sentence.first, before.first, 'notice add: first visible bubble shifts 0px');
       if (following) for (const b of sentence.controls) {
         assert.ok(b.top >= 0 && b.bottom <= 900, 'sentence controls fully visible in viewport');
@@ -771,6 +775,8 @@ test('AIT-190 N1: recovery sentence → quiet reply action row → gone, touch 3
       const beforeClear = await recoveryRowMetrics(page);
       await page.evaluate(() => globalThis.tickRail.notices.clear()); await frame(page);
       const row = await recoveryRowMetrics(page);
+      assert.equal(row.audioAvailable, false, `${label}-action-row remains text-only`);
+      assert.equal(row.clientReplayAvailable, false, `${label}-action-row has no replay client`);
       assert.equal(row.sentence, '');
       assert.equal(row.turnId, 'row-47', 'controls are the last assistant bubble action row');
       assert.equal(row.emptySpaceAbovePx, 0, 'no empty line above the action row');
