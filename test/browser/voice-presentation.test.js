@@ -9,7 +9,6 @@ import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, settle, evidenceCommit } from './start2-display-helpers.js';
 import { pixels, samePaint } from './png-pixels.js';
-import { narrowVoiceStatus } from '../../packages/ui/src/voice-status.js';
 
 test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-voice-presentation-'));
@@ -273,9 +272,10 @@ async function checkPhoneVoiceHeader(t, widths) {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
     AITHEMA_COMMIT: '45cd699', AITHEMA_BUILD_DATE: '2026-10-17T00:00:00Z',
   });
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+  let browser;
+  t.after(async () => { await browser?.close(); await demo.kill(); });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -311,16 +311,7 @@ async function checkPhoneVoiceHeader(t, widths) {
       await page.mouse.move(-1, -1);
       let baseline;
       // Full coverage below 600; desktop compares the legacy paint directly.
-      const seenAvailability = new Set();
-      const samples = voiceStatusCases(copy).filter(sample => {
-        if (width >= 600) return sample.id === 'consent';
-        // All 133 sentence sources are unit checked. Identical availability
-        // projections share one browser case; every lifecycle/error state stays.
-        if (['state', 'error'].includes(sample.kind)) return true;
-        const key = `${sample.kind === 'consent' ? 'consent' : 'unavailable'}:${narrowVoiceStatus(copy, sample.full)}`;
-        if (seenAvailability.has(key)) return false;
-        seenAvailability.add(key); return true;
-      });
+      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
       for (const sample of samples) {
         const geometry = await page.evaluate(async sample => {
           const rail = globalThis.ait302Rail, copy = rail.copy;
