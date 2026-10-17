@@ -326,9 +326,11 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   /* The measured bar retains the normal composer's size; only its absolute
      host-limit action layer reserves the two 44 px rows. */
   .composer-out[data-host-limit] .composer-out__actions { min-height:90px; }
-  .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
-  .composer-out[data-host-limit] .composer-out__title > span { line-height:1.35; letter-spacing:-.025em; }
-  .composer-out[data-host-limit] .composer-out__body > span { top:-9px; font-size:12px; line-height:1.3; }
+  /* The hidden title sizer keeps the normal row's measurement. Reserve the
+     visible title's two lines independently so wrapping cannot grow the shell. */
+  .composer-out[data-host-limit] .composer-out__title { position:relative; font-size:11.5px; }
+  .composer-out[data-host-limit] .composer-out__title > span { position:absolute; inset:0; height:2lh; line-height:1.35; letter-spacing:-.025em; }
+  .composer-out[data-host-limit] .composer-out__body > span { top:calc(2 * 11.5px * 1.35 - 15.5px * 1.35); font-size:12px; line-height:1.3; }
 }
 @media(389px <= width <= 600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }

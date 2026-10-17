@@ -782,6 +782,9 @@ async function postRelease297(browserPage, t, legalHTML) {
         assert.ok(Math.abs(title.height - 2 * title.lineHeight) <= .1, `${label}: title reserves exactly two line boxes`);
         assert.ok(title.lines >= 1 && title.lines <= 2 && title.textTop >= title.top && title.textBottom <= title.bottom, `${label}: title text fits inside the reserved block`);
         assert.ok(title.bottom <= body.top, `${label}: reserved title clears the body`);
+        const actionsTop = await inShadow(page, c => Math.min(...['.composer-out__upgrade', '.composer-out__export'].map(selector => c.shadowRoot.querySelector(selector).getBoundingClientRect().top)));
+        t.diagnostic(`AIT-297 360 geometry ${label}: ${JSON.stringify({ before, after, title, body, actionsTop })}`);
+        assert.ok(body.bottom <= actionsTop, `${label}: body clears both actions`);
         narrow360Checks.push({ head: evidenceCommit, locale, theme, width: 360, variant, shift: 0, textAlignment: alignment });
         if (variant === 'upgrade') {
           alignmentChecks.push({ locale, theme, width: 360, ...alignment });
@@ -804,7 +807,7 @@ async function postRelease297(browserPage, t, legalHTML) {
   }
   assert.equal(checks.length, 48);
   assert.equal(fractionalChecks.length, 12);
-  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
+  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/360/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
   if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, narrow360Checks, alignmentChecks, audits }, null, 2));
   assert.equal(narrow360Checks.length, 12);
   assert.equal(alignmentChecks.length, 16);
