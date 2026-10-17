@@ -38,9 +38,9 @@ export function footerMode(width) {
 }
 
 /** Measure real host copy before yielding optional footer content, in Tick's order. */
-export function fitFooter(footer, compactIdentity = false) {
+export function fitFooter(footer) {
   const row = footer.querySelector('.display-foot__row');
-  for (const mode of compactIdentity ? ['identity', 'timer', 'role'] : ['full', 'identity', 'timer', 'role']) {
+  for (const mode of ['full', 'identity', 'timer', 'role']) {
     footer.dataset.fit = mode;
     const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
     const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
@@ -163,7 +163,7 @@ export class PhoneComposerViewport {
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
-      fitFooter(root.querySelector('.display-foot'), (view?.innerWidth ?? 0) < FOOTER_WIDTHS.voice);
+      fitFooter(root.querySelector('.display-foot'));
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;

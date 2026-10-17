@@ -339,6 +339,11 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot[data-fit="role"] .footer-left { gap:0; }
   .display-foot[data-fit="role"] .host-credits__track { width:12px; }
 }
+/* Apply the baseline drop synchronously at the breakpoint; a compact marker
+   from a phone must not survive the first desktop frame after resizing. */
+@media(600px <= width < ${FOOTER_WIDTHS.voice}px) {
+  .display-foot .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:none; }
+}
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }
