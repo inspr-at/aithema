@@ -236,7 +236,9 @@ export async function hostChromeCheck(t) {
     for (const theme of fullMatrix ? ['light', 'dark'] : ['light']) {
       await page.select('#theme', theme);
       const heights = [];
-      for (const brandMode of fullMatrix ? ['start', 'none', 'long'] : ['start']) {
+      // The added tablet footer case uses START; long-brand rail wrapping is
+      // covered by the independent 320–1440 sweep above.
+      for (const brandMode of fullMatrix && width !== 768 ? ['start', 'none', 'long'] : ['start']) {
       for (const voice of [false, true]) {
         await shadow(page, async (c, { locale, voice, brandMode }) => {
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
