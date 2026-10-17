@@ -57,8 +57,8 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
         if (window.ait294Settings) {
           const base = catalog.presets.best.models[0];
           catalog.presets.best.models = [
-            { ...base, id: 'ait294-fixed', label: 'Fixed model', efforts: ['none'], effort: 'none' },
-            { ...base, id: 'ait294-adjustable', label: 'Adjustable model', efforts: ['low', 'medium', 'high'], effort: 'medium' },
+            { ...base, id: 'mock', label: 'Mock reasoning', efforts: ['none'], effort: 'none' },
+            { ...base, id: 'mock/deep', label: 'Deep (mock)', efforts: ['low', 'medium', 'high'], effort: 'medium' },
           ];
         }
         catalog.presets.eu = { offered: false, status: 'unavailable', reason: 'not configured' };
@@ -138,18 +138,19 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
     await page.setViewport({ width: 390, height: 844 }); await page.select('#theme', theme);
     await configure(locale, 'live');
-    await shadow(page, c => {
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       window.ait294Settings = true;
-      const session = c.session; session.settings = { ...session.settings, model: 'ait294-fixed', effort: 'none', origin: 'chosen' };
-      c.configure({ session }); c.openSettings();
-    });
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] .select__value').textContent.includes('Fixed model'));
+      const session = c.session; session.settings = { ...session.settings, model: 'mock', effort: 'none', origin: 'chosen' };
+      c.configure({ session, copy }); c.openSettings();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role="option"]').length === 2);
     let baseline;
     for (const model of ['fixed', 'adjustable', 'fixed']) {
       await shadow(page, (c, model) => {
         const r = c.shadowRoot;
         r.querySelector('[data-select="model"] .select__button').click();
-        r.querySelector(`[data-select="model"] [data-value="ait294-${model}"]`).click();
+        r.querySelector(`[data-select="model"] [data-value="${model === 'fixed' ? 'mock' : 'mock/deep'}"]`).click();
       }, model);
       await settle();
       await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
