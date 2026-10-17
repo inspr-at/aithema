@@ -180,3 +180,29 @@ function waitForText(node, text) {
     observer.observe(node, { childList: true, characterData: true, subtree: true });
   });
 }
+
+test('AIT-299: an unchanged post-limit visitor balance cannot recover an operator-budget limit', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] }); let reads = 0;
+  const { c, root } = a2Setup(t, { privacy: false, creditsRead: async read => {
+    const receipt = await read().json();
+    return Response.json({ ...receipt, reconciling: ++reads > 1 });
+  } });
+  await waitForText(root.querySelector('.host-credits__measure-amount'), '2,400');
+  const announcement = root.querySelector('.credit-announcement'), changes = [];
+  const observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(announcement, { childList: true, characterData: true, subtree: true }); t.after(() => observer.disconnect());
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  const button = root.querySelector('.host-credits__button');
+  const received = new Promise(resolve => {
+    const observer = new window.MutationObserver(() => {
+      if (button.getAttribute('aria-description') === cr.reconciling) { observer.disconnect(); resolve(); }
+    });
+    observer.observe(button, { attributes: true, attributeFilter: ['aria-description'] }); t.after(() => observer.disconnect());
+  });
+  t.mock.timers.tick(301); await received;
+  assert.equal(reads, 2, 'the post-event poll has landed');
+  assert.equal(root.querySelector('.composer-out__title').textContent, releaseLimits.en['host-limit'][0]);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  assert.equal(announcement.textContent, releaseLimits.en['host-limit'].slice(0, 2).join(' '));
+  assert.equal(changes.length, 1, 'the unchanged balance neither clears nor repeats the final announcement');
+});

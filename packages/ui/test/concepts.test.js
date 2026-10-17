@@ -734,6 +734,7 @@ test('AIT-299: detach and re-attach immediately enable controls while an old req
   const { c, root } = setup(t, { postResponse: () => ++requests === 1 ? first.promise : second.promise });
   t.after(() => { first.resolve(Response.json({})); second.resolve(Response.json({})); });
   document.body.append(c);
+  root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-request').click();
   assert.equal(root.querySelector('.concept-request').disabled, true);
   c.remove(); document.body.append(c);
