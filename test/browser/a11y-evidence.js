@@ -23,7 +23,7 @@ const settle = page => page.evaluate(async () => {
 
 export async function auditMainSurfaces(t, evidence) {
   assert.ok(evidence, 'axe requires an explicit evidence directory');
-  assert.ok(!process.env.CI, 'axe must never run on the CI path');
+  assert.ok(!process.env.CI && !process.env.GITHUB_ACTIONS, 'axe must never run on the PR or nightly CI path');
   const directory = await mkdtemp(join(tmpdir(), 'aithema-a11y-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,

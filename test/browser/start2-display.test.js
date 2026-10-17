@@ -1917,4 +1917,4 @@ import { hostChromeCheck } from './host-chrome-check.js';
 test('AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN', { timeout: fullMatrix ? 300_000 : 90_000 }, hostChromeCheck);
 
 import { hostPolishCheck } from './host-polish-check.js';
-test('AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390', { timeout: fullMatrix ? 600_000 : 120_000 }, t => hostPolishCheck(t, { evidenceDirectory: process.env.AITHEMA_EVIDENCE_DIR }));
+test('AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390', { timeout: fullMatrix && !process.env.GITHUB_ACTIONS ? 600_000 : 120_000 }, t => hostPolishCheck(t, { evidenceDirectory: process.env.AITHEMA_EVIDENCE_DIR }));
