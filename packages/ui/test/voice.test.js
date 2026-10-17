@@ -861,7 +861,7 @@ test('resending failed typed input after voice ends drops its stale call identit
   root.querySelector('.voice-start').click(); await tick();
   root.querySelector('textarea').value = 'yes';
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
-  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.status__label').textContent, en.failed);
+  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.composer-reason').textContent, en.failed);
   events.push({ type: 'ended', callId: requests[0].voiceCallId, reason: 'closed' }); events.end(); await tick();
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.equal(requests[1].voiceCallId, undefined); assert.equal(requests[1].providerSessionId, undefined);
