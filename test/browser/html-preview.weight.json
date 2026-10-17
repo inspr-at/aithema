@@ -1,32 +1,24 @@
 {
-  "seconds": 10.1,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 33.11,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "fc60b69ac0897e2ce5a8d2884984b5ffaeaa663f0a811db9e6c9273531e6270f",
+    "workload": "f3a2d2de22f19469cebf55571760be24c82f57da125f21ebc9831fe2601686b1",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:46.515Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:49.554Z",
         "tests": [
           {
-            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
-            "seconds": 8.079524807
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:35.492Z",
-        "tests": [
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 18.412708941
+          },
           {
             "name": "real Chrome isolates the html preview and renders the sample click-dummy",
-            "seconds": 8.039300065
+            "seconds": 8.074516757
           }
         ]
       }

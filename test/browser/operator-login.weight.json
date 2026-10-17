@@ -1,40 +1,24 @@
 {
-  "seconds": 61.567,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 50.538,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "71fe1d34d4fa739c5f65479d3ec6479cde0a1575018af8873a758d32b5cd4e2d",
+    "workload": "ceec0401cbd1512a665a44c7f603103b69a1968054a86b69de85600939f911e4",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T14:01:17.791Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:27:03.373Z",
         "tests": [
           {
             "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
-            "seconds": 28.276383609
+            "seconds": 27.58122597
           },
           {
             "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
-            "seconds": 12.954973378
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:13:38.682Z",
-        "tests": [
-          {
-            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
-            "seconds": 34.079157230999996
-          },
-          {
-            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
-            "seconds": 15.173663406
+            "seconds": 12.848420622999999
           }
         ]
       }

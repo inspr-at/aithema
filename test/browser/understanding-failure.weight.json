@@ -1,72 +1,72 @@
 {
-  "seconds": 112.838,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 112.069,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "571ffdec2ba81d7d88455cc4dba5b5eb3e88916beee3e0e87a734719ab778f2e",
+    "workload": "1f32d0eaa374259aeb14b9092be695c387349ca90c263cba04c53a073fcef792",
     "samples": [
       {
-        "runId": "38913449964",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:57.305Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:49.554Z",
         "tests": [
           {
             "name": "AIT-198 facade pending: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 4.303092823
+            "seconds": 4.244615013
           },
           {
             "name": "AIT-198 facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.434584053
+            "seconds": 1.3660042289999998
           },
           {
             "name": "AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement, retry recovery and 0 px",
-            "seconds": 12.319245609
+            "seconds": 12.233948664
           },
           {
             "name": "AIT-198 live voice: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 4.329666467
+            "seconds": 4.33986981
           },
           {
             "name": "AIT-198 live voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.451420873
+            "seconds": 1.483048707
           },
           {
             "name": "AIT-198 spoken facade pending: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 4.311801451
+            "seconds": 4.252978006999999
           },
           {
             "name": "AIT-198 spoken facade pending: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.452561786
+            "seconds": 1.367384247
           },
           {
             "name": "AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 390/1440, one inline Retry and 0 px",
-            "seconds": 3.08646917
+            "seconds": 2.955316482
           },
           {
             "name": "AIT-198 typed: no false failure during reply event gaps, DE/EN 390/1440",
-            "seconds": 4.361068211
+            "seconds": 4.272324907
           },
           {
             "name": "AIT-198 waiting voice: recorded reaction failure keeps footer Retry, DE/EN 390/1440",
-            "seconds": 1.797118317
+            "seconds": 1.799097159
           },
           {
             "name": "AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then assessment; DE/EN 390/1440",
-            "seconds": 2.7894922099999997
+            "seconds": 2.754873013
           },
           {
             "name": "AIT-212 failed paid lane survives reconnect until explicit Retry, DE/EN 390/1440 L/D",
-            "seconds": 27.184358855
+            "seconds": 27.337087369000002
           },
           {
             "name": "AIT-221 two failures: Retry at the first failure recovers both lanes, overview-only unchanged, 0 px",
-            "seconds": 17.044949772
+            "seconds": 16.974307042
           },
           {
             "name": "AIT-242 project action preserves the footer and Retry geometry, configured or absent, DE/EN 390/1440",
-            "seconds": 4.403893014
+            "seconds": 4.27391642
           }
         ]
       }

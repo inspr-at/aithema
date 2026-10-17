@@ -1,48 +1,32 @@
 {
-  "seconds": 186.343,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 47.813,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "abdae818709caf0d92cf6a0af3d0f0b2c88aae4e73d36a34ffba3c4e9962ba8f",
+    "workload": "9362909cb44c8c231c929ac3790b2d11ca58a4e34163a31955bd54415ae006da",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:46.515Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:50.422Z",
         "tests": [
           {
             "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
-            "seconds": 2.389405333
+            "seconds": 1.8601528920000001
           },
           {
             "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
-            "seconds": 2.224402811
+            "seconds": 0.842975968
           },
           {
             "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
-            "seconds": 144.459945323
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:34.094Z",
-        "tests": [
-          {
-            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
-            "seconds": 1.601835692
+            "seconds": 33.562093533
           },
           {
-            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
-            "seconds": 0.6668768199999999
-          },
-          {
-            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
-            "seconds": 143.643591993
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.983968873
           }
         ]
       }

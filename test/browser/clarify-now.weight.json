@@ -1,6 +1,6 @@
 {
   "seconds": 35.507,
-  "evidence": "Measured PR CI run 39002851879, attempt 1, browser (1/6), artifact browser-timings-1-of-6/batch-0.jsonl: 28.40469569 s including the expanded 96-state matrix and 98 viewport screenshots. PR head 3989977e; CI tested merge 73aae6a8d28b44b5739ead9be9ec71364a833580. One observation with 25% warmup margin; matching round-2 workload. Shard count and 420 s ceiling unchanged.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39002851879-1, 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -15,6 +15,18 @@
           {
             "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
             "seconds": 28.40469569
+          }
+        ]
+      },
+      {
+        "runId": "39009665180",
+        "attempt": 1,
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:46.140Z",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 22.998253067
           }
         ]
       }
