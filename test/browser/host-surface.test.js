@@ -624,14 +624,16 @@ function textAlignment297(c) {
     const n = c.shadowRoot.querySelector(selector), range = document.createRange(); range.selectNodeContents(n);
     const rects = [...range.getClientRects()].filter(b => b.width > 0), box = n.getBoundingClientRect();
     return { x: Math.min(...rects.map(b => b.x)), lines: new Set(rects.map(b => b.y)).size,
-      right: Math.max(...rects.map(b => b.right)), boxRight: box.right, height: box.height };
+      right: Math.max(...rects.map(b => b.right)), boxRight: box.right, height: box.height,
+      top: box.top, bottom: box.bottom, textTop: Math.min(...rects.map(b => b.top)),
+      textBottom: Math.max(...rects.map(b => b.bottom)), lineHeight: parseFloat(getComputedStyle(n).lineHeight) };
   };
   return { card: text('.qtext'), title: text('.composer-out__title > span'), body: text('.composer-out__body > span') };
 }
 
 // AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
 async function postRelease297(browserPage, t, legalHTML) {
-  const checks = [], fractionalChecks = [], alignmentChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const checks = [], fractionalChecks = [], narrow360Checks = [], alignmentChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320, 388.5]) {
     const height = width < 600 ? 844 : 1000;
     await browserPage.setViewport({ width: Math.ceil(width), height });
@@ -711,10 +713,13 @@ async function postRelease297(browserPage, t, legalHTML) {
         }), preset: (() => { const b = r.querySelector('.engine-info').getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width:b.width }; })() };
       });
       state.textAlignment = await inShadow(page, textAlignment297);
-      if (width === 320) {
-        const { title } = state.textAlignment;
+      if (width < 389) {
+        const { title, body } = state.textAlignment;
         t.diagnostic(`AIT-297 reserved title ${label}: ${JSON.stringify(title)}`);
-        assert.equal(title.lines, 1, `${label}: title fits its reserved single line at 320`);
+        assert.ok(title.lines >= 1 && title.lines <= 2, `${label}: title occupies at most two lines`);
+        assert.ok(Math.abs(title.height - 2 * title.lineHeight) <= .1, `${label}: title reserves exactly two line boxes`);
+        assert.ok(title.textTop >= title.top && title.textBottom <= title.bottom, `${label}: title text fits inside the reserved block`);
+        assert.ok(title.bottom <= body.top, `${label}: reserved title clears the body`);
         assert.ok(title.right <= title.boxRight + 1, `${label}: title stays inside its inline padding at 320`);
       }
       reserved ??= state.boxes;
@@ -733,22 +738,22 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
       assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
-      if (variant === 'upgrade' && [320, 360, 390].includes(width)) {
+      if (variant === 'upgrade' && width < 600) {
         alignmentChecks.push({ locale, theme, width, ...state.textAlignment });
         t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(state.textAlignment)}`);
       }
       (Number.isInteger(width) ? checks : fractionalChecks).push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
-      if (evidence && variant === 'upgrade') {
+      if (evidence && ['upgrade', 'no-upgrade'].includes(variant)) {
         await mkdir(evidence, { recursive: true });
         await settleEvidenceFrame(page);
-        await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
-        if (locale === 'de' && theme === 'dark' && width === 320) {
+        await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-${variant === 'upgrade' ? 'legal' : 'no-upgrade'}.png`), fullPage: false, captureBeyondViewport: false });
+        if (variant === 'no-upgrade' && theme === 'dark' && width === 320) {
           const clip = await inShadow(page, c => {
             const card = c.shadowRoot.querySelector('.qcard').getBoundingClientRect(), out = c.shadowRoot.querySelector('.composer-out').getBoundingClientRect();
             return { x: card.x, y: card.y, width: card.width, height: out.bottom - card.y };
           });
           await settleEvidenceFrame(page);
-          await capturePage.screenshot({ path: join(evidence, 'ait-297-de-dark-320-host-limit-crop.png'), clip, captureBeyondViewport: false });
+          await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-dark-320-host-limit-crop.png`), clip, captureBeyondViewport: false });
         }
         // Axe is explicit remote evidence only; never add audits to CI workloads.
         if (a11yEvidenceMode) {
@@ -761,15 +766,36 @@ async function postRelease297(browserPage, t, legalHTML) {
           assert.deepEqual(audit.violations.filter(rule => ['serious', 'critical'].includes(rule.impact)), [], `${label}: axe serious/critical findings`);
         }
       }
-      if (width === 390 && variant === 'upgrade') {
-        // Reuse this receipt for the new 360px alignment probe. The existing
-        // cross-language footer reservation matrix keeps its original widths.
+      if (width === 390) {
+        // Reuse the page and fixture for 360px entry checks without extending
+        // the original cross-language footer invariant to this extra width.
         await browserPage.setViewport({ width: 360, height });
+        await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true, demo: true,
+          confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
         await settleEvidenceFrame(page);
-        const alignment = await inShadow(page, textAlignment297);
-        alignmentChecks.push({ locale, theme, width: 360, ...alignment });
-        t.diagnostic(`AIT-297 alignment ${locale}/${theme}/360/upgrade: ${JSON.stringify(alignment)}`);
-        if (evidence) await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-360-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+        const before = await stable();
+        await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }));
+        await settleEvidenceFrame(page);
+        const after = await stable(), label = `${locale}/${theme}/360/${variant}`;
+        assert.deepEqual(after, before, `${label}: zero layout shift on host-limit entry`);
+        const alignment = await inShadow(page, textAlignment297), { title, body } = alignment;
+        assert.ok(Math.abs(title.height - 2 * title.lineHeight) <= .1, `${label}: title reserves exactly two line boxes`);
+        assert.ok(title.lines >= 1 && title.lines <= 2 && title.textTop >= title.top && title.textBottom <= title.bottom, `${label}: title text fits inside the reserved block`);
+        assert.ok(title.bottom <= body.top, `${label}: reserved title clears the body`);
+        narrow360Checks.push({ head: evidenceCommit, locale, theme, width: 360, variant, shift: 0, textAlignment: alignment });
+        if (variant === 'upgrade') {
+          alignmentChecks.push({ locale, theme, width: 360, ...alignment });
+          t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(alignment)}`);
+          if (evidence) await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-360-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+        }
+        if (evidence && locale === 'en' && theme === 'light' && variant === 'no-upgrade') {
+          const clip = await inShadow(page, c => {
+            const card = c.shadowRoot.querySelector('.qcard').getBoundingClientRect(), out = c.shadowRoot.querySelector('.composer-out').getBoundingClientRect();
+            return { x: card.x, y: card.y, width: card.width, height: out.bottom - card.y };
+          });
+          await settleEvidenceFrame(page);
+          await browserPage.screenshot({ path: join(evidence, 'ait-297-en-light-360-host-limit-crop.png'), clip, captureBeyondViewport: false });
+        }
         await browserPage.setViewport({ width, height });
         await settleEvidenceFrame(page);
       }
@@ -779,13 +805,14 @@ async function postRelease297(browserPage, t, legalHTML) {
   assert.equal(checks.length, 48);
   assert.equal(fractionalChecks.length, 12);
   t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
-  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, alignmentChecks, audits }, null, 2));
-  assert.equal(alignmentChecks.length, 12);
+  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, narrow360Checks, alignmentChecks, audits }, null, 2));
+  assert.equal(narrow360Checks.length, 12);
+  assert.equal(alignmentChecks.length, 16);
   for (const { locale, theme, width, card, title, body } of alignmentChecks) {
     for (const [name, text] of Object.entries({ title, body })) assert.ok(Math.abs(text.x - card.x) <= 1,
       `${locale}/${theme}/${width}: host-limit ${name} x=${text.x} equals card text x=${card.x} (±1 px)`);
     if (width === 320) {
-      assert.equal(title.lines, 1, `${locale}/${theme}/320: title fits its reserved single line`);
+      assert.ok(title.lines <= 2, `${locale}/${theme}/320: title fits its reserved two lines`);
       assert.ok(title.right <= title.boxRight + 1, `${locale}/${theme}/320: title stays inside its inline padding`);
     }
   }
