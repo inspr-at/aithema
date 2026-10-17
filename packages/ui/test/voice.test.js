@@ -189,10 +189,14 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 Tick UI: ${
     assert.equal(root.querySelector(selector).title, copy.voiceResumeHereFirst);
     assert.equal(root.querySelector(`${selector} .voice-label`).textContent, copy.voiceResumeHereFirst);
   }
-  for (const selector of ['.composer-reason', '.status__label']) assert.equal(root.querySelector(selector).textContent, copy.voiceInAnotherTab);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy.voiceInAnotherTab);
+  assert.equal(root.querySelector('.status__label').textContent, copy.connectionLabels.voiceInAnotherTab);
+  assert.equal(root.querySelector('.status').title, copy.voiceInAnotherTab);
+  assert.equal(root.querySelector('.status__live').textContent, copy.voiceInAnotherTab);
+  assert.equal(root.querySelector('.status__dot').getAttribute('aria-label'), copy.voiceInAnotherTab);
   assert.equal(root.querySelector('.notice').textContent, copy.empty, 'no person turn keeps the overview placeholder, including a retired tab');
   assert.equal(root.querySelector('.status').hasAttribute('data-message'), false);
-  assert.ok([...root.querySelectorAll('.status__sizer > span')].some(span => span.textContent === copy.voiceInAnotherTab));
+  assert.ok([...root.querySelectorAll('.status__sizer > span')].some(span => span.textContent === copy.connectionLabels.voiceInAnotherTab));
   root.querySelector('.pause').click(); await tick(); await tick();
   assert.equal(takeovers, 1); assert.equal(starts, 2, 'one old-tab click takes over and resumes');
   assert.equal(rail.dataset.state, 'listening'); assert.equal(rail.hasAttribute('data-moved'), false);

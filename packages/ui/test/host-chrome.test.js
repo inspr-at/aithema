@@ -151,3 +151,62 @@ for (const locale of ['de', 'en']) for (const source of ['host', 'budget']) {
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'limits' } }); check();
   });
 }
+
+for (const locale of ['de', 'en']) for (const voice of [false, true]) {
+  test(`AIT-283: first footer paint reserves transport labels, ${locale}/voice=${voice}`, () => {
+    const copy = { en, de }[locale], c = configure(locale, voice ? { voiceClient: {} } : {});
+    const r = c.shadowRoot, status = r.querySelector('.status');
+    assert.equal(status.querySelector('.status__label').textContent, copy.connectionLabels.connecting);
+    const reserved = [...status.querySelectorAll('.status__sizer > span')].map(n => n.textContent);
+    for (const words of ['connecting', 'connected', 'reconnecting', ...(voice ? ['paused', 'voiceInAnotherTab'] : [])].map(key => copy.connectionLabels[key])) {
+      assert.ok(reserved.includes(words), 'transport and bound-voice labels have a permanent width reservation');
+    }
+    assert.equal(status.querySelector('.status__sizer').getAttribute('aria-hidden'), 'true');
+    assert.equal(r.querySelector('.engine-info').disabled, false);
+    assert.equal(r.querySelector('.ai-notice').disabled, false);
+  });
+}
+
+for (const locale of ['de', 'en']) {
+  test(`AIT-283: all footer states have short localized labels and full descriptions, ${locale}`, () => {
+    const copy = { en, de }[locale];
+    assert.deepEqual(copy.connectionLabels, locale === 'de'
+      ? { connecting: 'Verbindet …', connected: 'Verbunden', reconnecting: 'Verbindet …', paused: 'Pausiert', voiceInAnotherTab: 'Anderer Tab' }
+      : { connecting: 'Connecting …', connected: 'Connected', reconnecting: 'Reconnecting …', paused: 'Paused', voiceInAnotherTab: 'Other tab' });
+    for (const key of Object.keys(copy.connectionLabels)) {
+      assert.ok(copy[key], `${key} retains its full description`);
+      assert.ok(copy.connectionLabels[key].length <= 14);
+    }
+  });
+  test(`AIT-283: transport tooltip/live text changes once and short labels stay reserved, ${locale}`, async t => {
+    const copy = { en, de }[locale], c = configure(locale), r = c.shadowRoot;
+    let resolveResponse, stream;
+    t.mock.method(globalThis, 'fetch', (url, init) => {
+      if (url.endsWith('/events')) return new Promise(resolve => {
+        resolveResponse = () => resolve(new Response(new ReadableStream({ start(controller) { stream = controller; } })));
+        init.signal.addEventListener('abort', () => resolve(new Response(null, { status: 499 })), { once: true });
+      });
+      return Promise.resolve(Response.json({}));
+    });
+    document.body.append(c); t.after(() => c.remove());
+    const live = r.querySelector('.status__live'), announcements = [];
+    const observer = new window.MutationObserver(() => announcements.push(live.textContent));
+    observer.observe(live, { childList: true, subtree: true, characterData: true });
+    t.after(() => observer.disconnect());
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const check = key => {
+      assert.equal(r.querySelector('.status').title, copy[key]);
+      assert.equal(live.textContent, copy[key]);
+      assert.equal(live.getAttribute('aria-live'), 'polite');
+      assert.equal(r.querySelector('.status__label').textContent, copy.connectionLabels[key]);
+      assert.equal(r.querySelector('.status__dot').getAttribute('aria-label'), copy[key]);
+    };
+    check('connecting'); resolveResponse(); await flush(); check('connected');
+    // Unrelated repaints retain the live node without another announcement.
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+    await flush(); assert.equal(r.querySelector('.status__live'), live);
+    assert.deepEqual(announcements, [copy.connected]);
+    stream.close(); await flush(); check('reconnecting');
+    await flush(); assert.deepEqual(announcements, [copy.connected, copy.reconnecting]);
+  });
+}
