@@ -45,9 +45,22 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
         if (window.polish280State === 'pause') c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
         return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
       }
+      if (window.ait294Settings && path.endsWith('/settings') && init.method === 'POST') {
+        const body = JSON.parse(init.body), settings = { ...c.session.settings, ...body, revision: c.session.settings.revision + 1, origin: 'chosen' };
+        return Response.json({ processingPreset: 'best', settings, engine: c.session.engine, unchanged: false,
+          event: { seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings } },
+          featureMatrix: c.session.featureMatrix, consent: { required: false, features: [] } });
+      }
       if (path.endsWith('/settings') && (init.method ?? 'GET') === 'GET') {
         const result = await original(url, init), catalog = await result.json();
         Object.assign(catalog, { processingPreset: 'best', settings: c.session.settings, engine: c.session.engine });
+        if (window.ait294Settings) {
+          const base = catalog.presets.best.models[0];
+          catalog.presets.best.models = [
+            { ...base, id: 'ait294-fixed', label: 'Fixed model', efforts: ['none'], effort: 'none' },
+            { ...base, id: 'ait294-adjustable', label: 'Adjustable model', efforts: ['low', 'medium', 'high'], effort: 'medium' },
+          ];
+        }
         catalog.presets.eu = { offered: false, status: 'unavailable', reason: 'not configured' };
         catalog.presets.custom = { offered: false, status: 'unavailable', reason: 'not configured' };
         return Response.json(catalog);
@@ -120,6 +133,63 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     }, { locale, stage, visuals });
     await settle();
   };
+  // AIT-294 r2: one live page for both model types, translations and palettes.
+  const settings294Checks = [];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width: 390, height: 844 }); await page.select('#theme', theme);
+    await configure(locale, 'live');
+    await shadow(page, c => {
+      window.ait294Settings = true;
+      const session = c.session; session.settings = { ...session.settings, model: 'ait294-fixed', effort: 'none', origin: 'chosen' };
+      c.configure({ session }); c.openSettings();
+    });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] .select__value').textContent.includes('Fixed model'));
+    let baseline;
+    for (const model of ['fixed', 'adjustable', 'fixed']) {
+      await shadow(page, (c, model) => {
+        const r = c.shadowRoot;
+        r.querySelector('[data-select="model"] .select__button').click();
+        r.querySelector(`[data-select="model"] [data-value="ait294-${model}"]`).click();
+      }, model);
+      await settle();
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle();
+      const metric = await shadow(page, c => {
+        const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
+        const model = r.querySelector('[data-text="model"]'), info = r.querySelector('.context-message');
+        const from = model.getBoundingClientRect().top, to = info.getBoundingClientRect().top, intervals = [];
+        const walker = document.createTreeWalker(r.querySelector('[data-panel="model"]'), NodeFilter.SHOW_TEXT);
+        for (let text; (text = walker.nextNode());) {
+          if (!text.textContent.trim() || !text.parentElement.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
+          const range = document.createRange(); range.selectNodeContents(text);
+          for (const b of range.getClientRects()) if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
+        }
+        intervals.sort((a,b) => a[0]-b[0]); let end = from, maxEmptyPx = 0;
+        for (const [top,bottom] of intervals) { maxEmptyPx = Math.max(maxEmptyPx,top-end); end = Math.max(end,bottom); }
+        maxEmptyPx = Math.max(maxEmptyPx,to-end);
+        return { info: box(info), maxEmptyPx, intervals,
+          gauges: r.querySelector('.settings-overview').getBoundingClientRect().height,
+          slot: box(r.querySelector('.effort-area')), slider: box(r.querySelector('.effort')),
+          note: box(r.querySelector('.effort-note')),
+          areas: ['.settings__body','.settings-panel','.notice-area','.settings-overview','.settings-context','.context-text'].map(s => [s,box(r.querySelector(s))]) };
+      });
+      baseline ??= metric.info;
+      settings294Checks.push({ locale, theme, model, ...metric });
+      t.diagnostic(`AIT-294 r2 settings ${locale}/${theme}/${model}: ${JSON.stringify(metric)}`);
+      assert.equal(metric.gauges, 0, 'AIT-294: below 600px the entire gauge column has no footprint');
+      assert.ok(metric.maxEmptyPx <= 24, `AIT-294: no empty run taller than 24px: ${JSON.stringify(metric)}`);
+      assert.deepEqual(metric.info, baseline, 'AIT-294: info line moves exactly 0px between model types');
+      assert.equal(metric.slot[3], metric.slider[3], 'AIT-294: reservation is exactly the real slider height');
+      if (evidence && locale === 'de' && theme === 'dark') await shot('ait294-de-dark-390', theme, `settings-${model}`);
+    }
+    for (const width of [599, 600, 1024]) {
+      await page.setViewport({ width, height: 900 }); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.settings-overview').checkVisibility()), width >= 600,
+        `AIT-294: gauges follow the exact 600px breakpoint at ${width}`);
+    }
+    await shadow(page, c => { c.shadowRoot.querySelector('dialog.settings .done').click(); window.ait294Settings = false; });
+  }
+  passLines.push('AIT-294 r2 PASS: Settings 390 DE/EN light/dark; empty runs <=24px; info line/model switch 0px; slider slot exact; gauges absent below 600px, retained at 600/1024.');
   // CI keeps its single light functional matrix. A second theme and PNGs are remote evidence only.
   // Keep native mouse emulation first: disabling touch resets hover on Linux.
   for (const touch of [false, true]) for (const theme of themes) {
@@ -430,5 +500,5 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   passLines.push('AIT-286 PASS: send failure and retained-upload failure share warning glyph/ink; consent opener underlined, native button, 44px coarse hit area; all transitions 0 px.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,
-    blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks: [...checks, ...failure294Checks], shots }, null, 2) + '\n');
+    blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks: [...checks, ...failure294Checks, ...settings294Checks], shots }, null, 2) + '\n');
 }
