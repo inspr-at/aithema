@@ -952,6 +952,13 @@ export class AithemaSession extends HTMLElement {
       else if (target > max) slack.bottom += target - max + (max < 1 ? spareSpace(pane) : 0);
       apply(); pane.scrollTop = Math.max(0, target);
     }
+    // Chrome can round a pane's scroll boundary down by a fractional pixel.
+    // Preserve the remaining upward displacement with padding, including while
+    // an assessment is pending and its notice temporarily has a visual row.
+    const residual = node.getBoundingClientRect().top - top;
+    if (pane.matches('.analysis-content') && residual <= -.5) {
+      slack.top -= residual; apply();
+    }
     // The phone notice observer runs after this render. Its reading position
     // must include the pointer anchor's compensation for changed transcript rows.
     if (pane.matches('.transcript-shell')) this.#phoneViewport?.recordTranscriptAnchor();
