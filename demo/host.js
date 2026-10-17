@@ -7,6 +7,7 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { withDemoConsentCopy } from './consent-copy.js';
 import { postJson } from './post-json.js';
+import { paintLicenseLabel } from './license-label.js';
 import { reasonSeparator } from '../packages/ui/src/display.js';
 import { reasonText } from './reason-text.js';
 import { aiNotice } from '../packages/core/src/ai-notice.js';
@@ -30,7 +31,7 @@ function paintPrivacyLink(link, legal, locale) {
 }
 // The page always speaks the current conversation's language.
 function paintPage() {
-  const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
+  const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) { if (selector === '#demo-license') paintLicenseLabel(node, value); else node.textContent = value; } };
   document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
   paintUtilities(copy);
   const privacyLink = document.querySelector('[data-aithema-privacy]');

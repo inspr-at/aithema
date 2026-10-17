@@ -486,6 +486,31 @@ test('AIT-295: library delete completes host erase before retirement', async t =
   assert.deepEqual(order, ['erase started', 'erase finished', 'retired']);
 });
 
+test('AIT-297: HTTP visitor erase holds all owned tombstones until sibling cleanup finishes, then releases them', async t => {
+  const f = fixture(t), first = await f.create(), second = await f.create();
+  const survivor = f.storage.create({ ownerToken: foreign });
+  const entered = deferred(), finish = deferred();
+  const erased = f.host.erased.bind(f.host);
+  t.mock.method(f.host, 'erased', async info => {
+    if (info.sessionId === second.id) { entered.resolve(); await finish.promise; }
+    return erased(info);
+  });
+  const deleting = f.call('/api/visitor/erase', {});
+  try {
+    await entered.promise;
+    assert.ok(f.storage.get(first.id).tombstone);
+    assert.ok(f.storage.get(second.id).tombstone);
+    assert.deepEqual(f.storage.pendingRetirements(10), [], 'even the finished sibling stays held through the HTTP request');
+    assert.deepEqual(await f.handlers.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
+    assert.equal(f.storage.get(survivor.id).tombstone, null);
+  } finally { finish.resolve(); }
+  assert.equal((await deleting).status, 200);
+  assert.deepEqual(new Set(f.storage.pendingRetirements(10)), new Set([first.id, second.id]));
+  assert.deepEqual(await f.handlers.retire({ before: 0 }), { retired: 2, failed: 0, more: false });
+  for (const id of [first.id, second.id]) assert.throws(() => f.storage.get(id), /not found/i);
+  assert.equal(f.storage.get(survivor.id).tombstone, null);
+});
+
 test('AIT-295: library delete is fully retired by a sweep past 24h', async t => {
   const f = fixture(t), session = await (await f.call('/api/library', { title: 'Delete completely' })).json();
   f.storage.postTurn(session.id, 'private', Buffer.from('private'), 'private conversation');
