@@ -25,7 +25,7 @@ const geometry = page => shadow(page, c => [
 test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-clarify-'));
   const fixture = await startChild(new URL('../fixtures/understanding-failure.js', import.meta.url), join(directory, 'unused.sqlite'));
-  const browser = await browserForFile(), page = await browser.newPage(), errors = [], passes = [], shots = [];
+  const browser = await browserForFile(), page = await browser.newPage(), errors = [], passes = [], shots = [], overviewDiagnostics = [];
   t.after(async () => { await browser.close(); await fixture.kill(); await rm(directory, { recursive: true, force: true }); });
   page.on('pageerror', error => errors.push(error.message));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
@@ -48,7 +48,7 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
     };
   });
   const states = ['rest', 'requesting', 'selected', 'asked', 'stale', 'retry', 'refused-paused', 'refused-consent', 'refused-deadline', 'second-requesting', 'second-refused-paused', 'voice-busy-resolved'];
-  for (const locale of ['de', 'en']) for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], [390, 'light']]) {
+  for (const locale of ['de', 'en']) for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], ...(evidence ? [[1024, 'dark']] : []), [390, 'light'], ...(evidence ? [[390, 'dark']] : [])]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     for (const state of states) {
       await shadow(page, async (c, locale, theme, state, manifest) => {
@@ -174,6 +174,20 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
           c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
         }, state);
         await page.mouse.move(-1, -1); await settle(page);
+        if (width === 1440 && ['rest', 'selected', 'stale'].includes(state)) {
+          const diagnostics = await shadow(page, c => {
+            const root = c.shadowRoot, pane = root.querySelector('.analysis-content');
+            const box = n => { const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, height: b.height }; };
+            return { scrollTop: pane.scrollTop, topFade: pane.hasAttribute('data-top'), mask: getComputedStyle(pane).maskImage,
+              elements: ['.readiness', '.analysis-content', '.summary', '.signals', '.signals li', '.open-questions'].map(selector => {
+                const n = root.querySelector(selector), style = getComputedStyle(n);
+                return { selector, ...box(n), borderTop: style.borderTopWidth, borderBottom: style.borderBottomWidth, hidden: n.hidden };
+              }) };
+          });
+          overviewDiagnostics.push({ locale, theme, state, mode: 'AIT-274 forced scroll', ...diagnostics });
+          const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('.understanding').getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: 310 }; });
+          await page.screenshot({ path: join(evidence, `ait288-before-${locale}-${theme}-${state}-1440-crop.png`), clip, captureBeyondViewport: false });
+        }
         const file = `ait274-${locale}-${width}-${theme}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
         shots.push({ file, head: evidenceCommit, theme, locale, state, width, pass, viewportOnly: true, reducedMotion: true, fontsPinned: true, controlsBlurred: true });
@@ -188,5 +202,5 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, shots, passes }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, shots, passes, overviewDiagnostics }, null, 2));
 });
