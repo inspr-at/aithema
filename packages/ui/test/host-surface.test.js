@@ -1589,3 +1589,46 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     }
   });
 }
+
+for (const copy of [de, en]) for (const toastFirst of [false, true]) {
+  test(`AIT-292 ${copy.display.locale}: duplicate limit toast ${toastFirst ? 'before' : 'after'} the composer block announces once`, async t => {
+    const limit = copy.hostSurface.credits.ended['one-hour'], message = `${limit.title} ${limit.body}`;
+    const pending = Promise.withResolvers();
+    const { c, root } = setup(t, { copy: { ...copy, reasoningFailed: message }, host: { credits: true },
+      routes: { 'POST /retry': () => pending.promise } });
+    await tick(8); userTurn(c);
+    const announcements = [];
+    const observer = new window.MutationObserver(records => {
+      for (const record of records) if (record.target.textContent === message) announcements.push(record.target);
+    });
+    for (const selector of ['.status__label', '.credit-announcement']) observer.observe(root.querySelector(selector), { childList: true });
+    t.after(() => observer.disconnect());
+    // A pending action can report its refusal on either side of the durable limit event.
+    root.querySelector('.retry').click();
+    if (toastFirst) { pending.resolve(Response.json({}, { status: 503 })); await tick(8); }
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } });
+    if (!toastFirst) pending.resolve(Response.json({}, { status: 503 }));
+    await tick(8);
+    assert.equal(root.querySelector('.composer-out__body').textContent, limit.body);
+    assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null, 'no duplicate toast remains');
+    assert.equal(announcements.length, 1, 'one polite announcement across both paths');
+    c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason: 'one-hour' } });
+    await tick(8); assert.equal(announcements.length, 1, 'repeat events stay quiet');
+  });
+}
+
+for (const copy of [de, en]) for (const failure of ['http', 'network']) {
+  test(`AIT-292 ${copy.display.locale}: restored host-limit announces once after ${failure} credits failure`, async t => {
+    const { c, root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ended', endReason: 'host-limit' } },
+      routes: { 'GET /credits': () => { if (failure === 'network') throw new Error('offline'); return Response.json({}, { status: 503 }); } } });
+    const announcement = root.querySelector('.credit-announcement'), changes = [];
+    const observer = new window.MutationObserver(records => changes.push(...records));
+    observer.observe(announcement, { childList: true }); t.after(() => observer.disconnect());
+    await tick(8);
+    const limit = copy.hostSurface.credits.ended['host-limit'];
+    assert.equal(announcement.textContent, `${limit.title} ${limit.body}`);
+    assert.equal(root.querySelector('.status__label').closest('.composer-dock'), null);
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+    await tick(8); assert.equal(changes.length, 1);
+  });
+}

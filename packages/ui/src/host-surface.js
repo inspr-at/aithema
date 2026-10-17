@@ -18,7 +18,7 @@ export const defaultCreditFormat = formatCredits;
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
-  #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
+  #credits = null; #creditsFailed = false; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
   #emailAsk = null; #actorRole = null;
   /**
@@ -90,7 +90,7 @@ export class HostSurface {
       ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
       : credits.ended[this.endReason] ?? usedUp;
     // Restored host limits wait for the tier receipt before announcing their variant.
-    return { ...state, announce: this.endReason === 'host-limit' && this.#options.credits && !this.#credits ? '' : `${state.title} ${state.body}` };
+    return { ...state, announce: this.endReason === 'host-limit' && this.#options.credits && !this.#credits && !this.#creditsFailed ? '' : `${state.title} ${state.body}` };
   }
   get usedUp() { return Boolean(this.endReason) || this.#credits?.exhausted === true; }
   get fullHold() {
@@ -240,8 +240,8 @@ export class HostSurface {
     try {
       const response = await this.#call(this.#sessionPath('credits'));
       if (!this.#alive || load !== this.#creditsLoad) return;
-      if (!response.ok) { this.#verification?.setCreditsState('failed'); return; }
-      this.#credits = response.body;
+      if (!response.ok) { this.#creditsFailed = true; this.#verification?.setCreditsState('failed'); this.#onCredits?.(); return; }
+      this.#creditsFailed = false; this.#credits = response.body;
       const allowanceChanged = Boolean(previous && (previous.balance?.owner?.limitMicro !== this.#credits?.balance?.owner?.limitMicro ||
         JSON.stringify(previous.tiers) !== JSON.stringify(this.#credits?.tiers)));
       if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
@@ -253,7 +253,9 @@ export class HostSurface {
       this.#emailAsk?.setCredits(this.#credits);
     } catch {
       // Keep acknowledged tiers; only an unresolved lead needs a failure status.
-      if (this.#alive && load === this.#creditsLoad) this.#verification?.setCreditsState('failed');
+      if (this.#alive && load === this.#creditsLoad) {
+        this.#creditsFailed = true; this.#verification?.setCreditsState('failed'); this.#onCredits?.();
+      }
     }
     finally { this.#creditsReads--; }
   }

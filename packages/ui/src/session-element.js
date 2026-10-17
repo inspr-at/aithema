@@ -836,7 +836,14 @@ export class AithemaSession extends HTMLElement {
   }
   #connectionStatus(value) { this.#connection = value; this.#notice = ''; this.#paintStatus(); }
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
+  #limitNotice(value) {
+    if (!value || !this.#host || !this.#composerUsedUp) return false;
+    const { title, body } = this.#host.limitCopy;
+    return [title, body, `${title} ${body}`].includes(value);
+  }
   #paintStatus() {
+    // The composer owns this reason and its polite announcement in either arrival order.
+    if (this.#limitNotice(this.#notice)) this.#notice = '';
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
     // Reserve only short labels, measured in the current font and language.
@@ -1007,6 +1014,9 @@ export class AithemaSession extends HTMLElement {
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
     const announcement = this.#host.limitCopy.announce;
+    if (this.#limitNotice(this.#notice) && this.shadowRoot.querySelector('.status__label').getAttribute('role') === 'status') {
+      this.#creditAnnounced = announcement;
+    }
     if (usedUp && !this.#creditEnding && announcement && this.#creditAnnounced !== announcement) {
       this.#creditAnnounced = announcement; setText(this.shadowRoot.querySelector('.credit-announcement'), announcement);
     }
@@ -1366,6 +1376,7 @@ export class AithemaSession extends HTMLElement {
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
       const card = root.querySelector('.qcard'); card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp);
       this.#host?.emailAsk?.paint();
+      this.#paintStatus();
       return;
     }
     if (part === 'features') {
