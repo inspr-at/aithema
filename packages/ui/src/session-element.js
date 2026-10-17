@@ -1066,7 +1066,7 @@ export class AithemaSession extends HTMLElement {
       // A blocking verdict supersedes the failed attempt, including after it becomes available again.
       if (!text.available || this.#rail?.moved) this.#sendFailed = false;
       const reason = root.querySelector('.composer-reason');
-      reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length && !this.#sendFailed);
+      reason.toggleAttribute('data-shortcut', text.available && !this.#rail?.moved && !this.#uploadNotice && !this.#retryFiles.length && !this.#sendFailed);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       const feedback = root.querySelector('.composer-feedback');
       const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
@@ -1109,6 +1109,7 @@ export class AithemaSession extends HTMLElement {
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else {
+        if (reason.querySelector('.upload-retry-copy')) reason.replaceChildren();
         paintConsentLine(reason, { copy, feature: 'text', text: words,
           verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });

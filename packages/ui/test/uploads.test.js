@@ -735,11 +735,17 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     assert.ok(line.querySelector('.consent-line-copy'));
     assert.ok(line.querySelector('.consent-action')); assert.ok(line.querySelector('.upload-discard'));
     assert.equal(line.textContent.includes(copy.failed), false);
+    if (action === 'discard') {
+      line.querySelector('.upload-discard').click();
+      assert.equal(line.querySelector('.upload-discard'), null, 'discard removes its actions even under consent');
+      assert.ok(line.querySelector('.consent-line-copy'));
+    }
     verdict = { available: true };
     c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await tick(); await tick();
     assert.equal(line.textContent.includes(copy.failed), false, 'superseded failure cannot return');
     busy = false;
-    line.querySelector(`.upload-${action}`).click(); await tick(); await tick();
+    if (action === 'retry') line.querySelector('.upload-retry').click();
+    await tick(); await tick();
     assert.deepEqual(await retainedFiles(c), []);
     assert.equal(c.session.uploads.length, action === 'retry' ? 1 : 0);
   });

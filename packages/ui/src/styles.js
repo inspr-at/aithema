@@ -287,6 +287,9 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
 .upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 .upload-retry-actions { flex:none; }
+.upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; }
+.upload-retry-copy .consent-line-copy { min-width:0; max-height:1.25em; overflow-y:auto; }
+.upload-retry-copy .consent-action { flex:none; }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
 .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
