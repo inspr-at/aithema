@@ -262,3 +262,118 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
   if (evidence) await writeFile(join(evidence, 'ait-179-pass-lines.json'), JSON.stringify({ ticket: 'AIT-179', head: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', checks }, null, 2));
 });
+
+test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop consent', { timeout: 180_000 }, async t => {
+  const { voiceStatusCases } = await import('../voice-status-cases.js');
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-ait302-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+    AITHEMA_COMMIT: '45cd699', AITHEMA_BUILD_DATE: '2026-10-17T00:00:00Z',
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome') });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
+    ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue());
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await page.evaluate(async () => {
+    const { AudioRail } = await import('/packages/ui/src/audio-rail.js'), render = AudioRail.prototype.render;
+    AudioRail.prototype.render = function () { globalThis.ait302Rail = this; return render.call(this); };
+    globalThis.ait302Seed = document.querySelector('aithema-session').session;
+  });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+    const { [locale]: copy } = await import(`../../packages/ui/src/i18n/${locale}.js`);
+    await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+      const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.ait302Seed);
+      session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
+      session.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
+      session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'uploads', 'images', 'html'].map(key => [key, { available: true }]));
+      session.transcript = [{ id: 'fixture-turn', role: 'user', content: 'A website.' }];
+      c.configure({ copy, session, voiceClient: { manifest, async start() {} }, voicePresentation: manifest.presentation });
+      document.documentElement.lang = locale; scrollTo(0, 0);
+    }, locale);
+    for (const width of [320, 360, 390, 599, 600, 1024, 1440]) {
+      await page.setViewport({ width, height: width < 600 ? 844 : 900 });
+      let baseline;
+      // Full coverage below 600; desktop compares the legacy paint directly.
+      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
+      for (const sample of samples) {
+        await page.evaluate(sample => {
+          const rail = globalThis.ait302Rail, copy = rail.copy;
+          rail.session = sample.kind === 'state' && !['idle', 'failed'].includes(sample.id) ? {} : null;
+          rail.state = sample.kind === 'state' && !['low', 'usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? sample.id : 'idle';
+          rail.errorKey = sample.kind === 'error' ? sample.id : null; rail.paused = sample.id === 'paused'; rail.waitingCall = null;
+          rail.usedUp = () => ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id);
+          rail.endReason = () => sample.id === 'timeExpired' ? 'one-hour' : null;
+          rail.ending = () => sample.id === 'creditEnding'; rail.lowCredit = () => sample.id === 'low';
+          if (sample.id === 'low') { rail.state = 'listening'; rail.session = {}; }
+          rail.feature = () => sample.kind === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: copy.featureConsent.voice }
+            : ['reason', 'unavailable'].includes(sample.kind) ? { available: false, reason: sample.full, rawReason: sample.reason } : { available: true };
+          rail.render(); rail.waveform.baseline();
+          const c = document.querySelector('aithema-session');
+          c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+        }, sample);
+        await page.mouse.move(-1, -1);
+        await page.evaluate(async () => {
+          await document.fonts.ready;
+          const root = document.querySelector('aithema-session').shadowRoot;
+          await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        const geometry = await shadow(page, c => {
+          const root = c.shadowRoot, status = root.querySelector('.voice-state'), lines = new Map();
+          const walker = document.createTreeWalker(status, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const text = walker.currentNode, parent = text.parentElement, style = getComputedStyle(parent);
+            if (style.display === 'none' || parent.closest('[aria-hidden="true"]') || (style.position === 'absolute' && style.clipPath !== 'none')) continue;
+            for (let i = 0; i < text.length; i++) {
+              const range = document.createRange(); range.setStart(text, i); range.setEnd(text, i + 1);
+              for (const rect of range.getClientRects()) if (rect.width && rect.height) {
+                const key = Math.round(rect.y * 10); lines.set(key, (lines.get(key) ?? '') + text.textContent[i]);
+              }
+            }
+          }
+          const narrow = status.querySelector('.consent-narrow');
+          if (narrow && getComputedStyle(narrow).display !== 'none') {
+            for (const rect of narrow.getClientRects()) if (rect.width && rect.height) lines.set(Math.round(rect.y * 10), narrow.dataset.copy);
+          }
+          return { lines: [...lines.values()], short: narrow?.dataset.copy, text: status.textContent,
+            boxes: ['.band', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.conversations-toggle', '.settings-open'].map(selector => {
+              const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+            }) };
+        });
+        const label = `${width}-${theme}-${locale}-${sample.id}`;
+        if (width < 600) {
+          assert.ok(geometry.short && [...geometry.short].length <= 22, `${label}: short form`);
+          assert.ok(geometry.lines.length > 0 && geometry.lines.length <= 2, `${label}: at most 2 lines ${JSON.stringify(geometry.lines)}`);
+          assert.ok(geometry.lines.every(line => !/^·|·$/u.test(line.trim())), `${label}: no dangling separator`);
+          baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);
+        }
+        const name = `ait302-${label}.png`;
+        if (width !== 599 && width !== 600 && evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
+        if (width >= 600) {
+          assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
+          const before = Buffer.from(await page.screenshot({ fullPage: false }));
+          // Restore precisely the old inline nodes, leaving the accepted desktop CSS untouched.
+          await shadow(page, c => {
+            const status = c.shadowRoot.querySelector('.voice-state'), full = status.querySelector('.consent-wide');
+            if (full) full.replaceWith(document.createTextNode(full.textContent));
+            status.querySelector('.consent-narrow')?.remove();
+          });
+          const after = Buffer.from(await page.screenshot({ fullPage: false }));
+          assert.deepEqual(after, before, `${label}: byte-identical legacy desktop viewport`);
+        }
+        checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 599 || width === 600 ? null : name });
+      }
+      t.diagnostic(`PASS AIT-302 ${evidenceCommit} ${width}-${theme}-${locale}: ${samples.length} statuses; <=2 lines; no separator at line edges; controls shift 0 px`);
+    }
+  }
+  if (evidence) await writeFile(join(evidence, 'ait302-checks.json'), JSON.stringify({ ticket: 'AIT-302', head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
+});
