@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 function environment(trace) {
@@ -32,6 +32,11 @@ for (const mode of ['baseline', 'default', 'trace']) test(`AIT-299 watchdog cost
   // Identical scope before and after; omit the new red-before regressions only.
   const command = JSON.parse(await (await import('node:fs/promises')).readFile('package.json', 'utf8')).scripts.test;
   const childEnv = environment(mode === 'trace');
+  if (childEnv.AITHEMA_EVIDENCE_DIR) {
+    // Release-candidate fixtures require a fresh output directory per run.
+    childEnv.AITHEMA_EVIDENCE_DIR = join(childEnv.AITHEMA_EVIDENCE_DIR, `${mode}-artifacts`);
+    await mkdir(childEnv.AITHEMA_EVIDENCE_DIR, { recursive: true });
+  }
   const child = spawn('/bin/sh', ['-c', command.replace('node --test ', 'node --test --test-skip-pattern=AIT-299 ')], {
     env: childEnv, stdio: ['ignore', 'pipe', 'pipe'],
   });
