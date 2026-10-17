@@ -323,7 +323,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] .composer-out__actions { min-height:90px; }
   .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
   .composer-out[data-host-limit] .composer-out__title > span { line-height:1.35; }
-  .composer-out[data-host-limit] .composer-out__body > span { top:-6px; inset-inline:-8px; font-size:12px; line-height:1.3; }
+  .composer-out[data-host-limit] .composer-out__body > span { top:-9px; inset-inline:-8px; font-size:12px; line-height:1.3; }
 }
 @media(389px <= width <= 600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
