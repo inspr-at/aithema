@@ -81,7 +81,7 @@ export async function hostPolishCheck(t) {
   // CI keeps the full functional matrix. PNG captures are explicit remote evidence only.
   for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) for (const touch of [false, true]) {
     const label = `${locale}-${width}x${height}-${touch ? 'touch' : 'mouse'}`, copy = { de, en }[locale];
-    await page.setViewport({ width, height, hasTouch: touch });
+    await page.setViewport({ width, height });
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: 1 });
     await configure(locale, 'entrance');
     const disabled = await shadow(page, c => ['eu', 'custom'].map(preset => {
