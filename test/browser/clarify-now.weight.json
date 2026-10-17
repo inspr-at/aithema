@@ -1,20 +1,20 @@
 {
-  "seconds": 7.044,
-  "evidence": "Bootstrap measured on mbp2606 by remote-browser.sh, run ddba52c5c1-79370 (no screenshots): 5.634388792 s, 72 state/locale/viewport/theme cases, 25% warmup margin. Replace with this PR CI observation before handoff; no shard-count or ceiling changes.",
+  "seconds": 21.523,
+  "evidence": "Measured PR CI run 38999358262, attempt 1, browser (4/6), artifact browser-timings-4-of-6/batch-0.jsonl: 17.217207368 s including viewport screenshots for all 72 cases. One observation with 25% warmup margin; replaces the remote bootstrap. Test workload hash matches. Shard count and 420 s ceiling unchanged.",
   "timing": {
     "schema": 1,
     "window": 20,
     "workload": "9c39cdaa7a53d3f1e893faceb5d6983bb2d5e4ec2f69a942c1719cc941622541",
     "samples": [
       {
-        "runId": "79370",
+        "runId": "38999358262",
         "attempt": 1,
-        "sha": "ddba52c5c125eb3faf581f86af01c7857acee86a",
-        "observedAt": "2026-10-17T03:34:56.071405+00:00",
+        "sha": "c3549daf658b8f5cfad4bd6f80a990f31c9ed069",
+        "observedAt": "2026-10-17T03:35:34.742Z",
         "tests": [
           {
             "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
-            "seconds": 5.634388792
+            "seconds": 17.217207368
           }
         ]
       }
