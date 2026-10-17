@@ -54,6 +54,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
   if (binding.plugin !== manifest.id || !['gpt-image-2', 'openai/gpt-image-2'].includes(binding.model) || binding.effort !== 'none') throw new TypeError('OpenAI Images binding requires gpt-image-2 or openai/gpt-image-2 and effort none');
   const base = new URL(baseUrl ?? binding.endpoint);
   if (base.href !== new URL(binding.endpoint).href) throw new TypeError('Image base URL must match the admitted binding');
+  if (base.search || base.hash || base.username || base.password) throw new TypeError('Image endpoint must not contain a query, fragment or credentials');
   const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname), gateway = binding.model === 'openai/gpt-image-2';
   if (base.protocol === 'http:' && !loopback) throw new TypeError('HTTP is for loopback fixtures only');
   if (!loopback && (base.origin !== (gateway ? 'https://openrouter.ai' : 'https://api.openai.com') ||

@@ -1312,15 +1312,22 @@ the async conformance kit additionally checks the content against those fields.
 
 `createOpenAIImages({binding, resolveSecret, fetchImpl, baseUrl})` comes from
 `@inspr/aithema-plugin-openai-images`. It requires an explicit private binding
-for `openai-images` / `gpt-image-2` / effort `none`, with the endpoint set to
-the API base URL (normally `https://api.openai.com/v1`). An optional `baseUrl`
-must match that binding. HTTP is restricted to loopback fixtures. The server
-resolves `binding.secretRef` at runtime (the default resolver reads the named
+for `openai-images` with effort `none`. Direct mode (`gpt-image-2`) admits only
+`https://api.openai.com/v1`; OpenRouter mode (`openai/gpt-image-2`) admits only
+`https://openrouter.ai/api/v1`. Both allow one trailing slash. Both also admit
+HTTP or HTTPS loopback fixtures on `localhost`, `127.0.0.1` or `[::1]`, with
+any port and base path. Every endpoint must have no query, fragment, username
+or password. An optional `baseUrl` must match the binding's parsed URL.
+
+**Compatibility note (AIT-300):** direct mode now rejects every other
+non-loopback endpoint, including custom proxy hosts. Hosts using another direct
+endpoint must switch to the admitted OpenRouter mode or a loopback fixture.
+The server resolves `binding.secretRef` at runtime (the default resolver reads the named
 environment variable); the host owns account qualification and consent.
 Local health checks configuration without contacting a provider.
 
-The adapter posts JSON to `/images/generations` without references. With
-references it posts private multipart `image[]` bytes to `/images/edits`, as
+In direct mode, the adapter posts JSON to `/images/generations` without
+references. With references it posts private multipart `image[]` bytes to `/images/edits`, as
 does `edit`, which prepends the artifact as a previous reference (at most eight
 additional references). The request follows the official
 [generation reference](https://developers.openai.com/api/reference/resources/images/methods/generate)

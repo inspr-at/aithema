@@ -282,6 +282,16 @@ hosts persist and audit their own decisions.
 
 ## Routing and health
 
+**OpenAI Images compatibility note (AIT-300):** direct mode (`gpt-image-2`)
+now admits only `https://api.openai.com/v1` outside loopback; other direct
+endpoints, including custom proxy hosts, are rejected at construction before
+any invocation. Hosts using those endpoints must switch to OpenRouter mode
+(`openai/gpt-image-2`) at `https://openrouter.ai/api/v1` or a loopback fixture.
+Both production base URLs permit one trailing slash. Both modes also admit
+HTTP or HTTPS fixtures on `localhost`, `127.0.0.1` or `[::1]`, with any port
+and base path. All endpoints reject queries, fragments, usernames and passwords;
+an optional `baseUrl` must match the binding's parsed URL.
+
 Private text bindings use `createBinding` and the `PrivateBinding` shape:
 plugin/model/effort, endpoint/routing, account/secret references, call/token
 ceilings, rates and legal evidence. The adapter exposes `binding` and optionally
