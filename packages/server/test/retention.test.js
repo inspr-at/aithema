@@ -6,7 +6,7 @@ import { createUIRenderLimiter } from '../src/ui-render-limits.js';
 import { SQLiteBudgetLedger, createSpendCap, createVoiceCap } from '../src/index.js';
 import { testToken, ownedRequest, mockConsent, temporaryDb } from '../../../test/helpers.js';
 
-const request = path => ownedRequest(`http://localhost/api/sessions/${path}`);
+const request = (path, init) => ownedRequest(`http://localhost/api/sessions/${path}`, init);
 function fixture(t) {
   const storage = new SQLiteStorage(), erased = [];
   const handlers = createHandlers({ storage, consent: mockConsent, host: { retired: info => erased.push(info) } });
@@ -14,6 +14,34 @@ function fixture(t) {
   return { storage, handlers, erased };
 }
 const age = (storage, id, at = 1) => storage.db.prepare('UPDATE session_retention SET last_activity=? WHERE session_id=?').run(at, id);
+
+for (const via of ['erase route', 'storage erase']) test(`AIT-295: ${via} is fully retired by the next sweep past 24h`, async t => {
+  const { storage, handlers, erased } = fixture(t);
+  const session = storage.create({ ownerToken: testToken }), survivor = storage.create();
+  storage.postTurn(session.id, 'one', Buffer.from('one'), 'private input');
+  storage.postTurn(survivor.id, 'keep', Buffer.from('keep'), 'keep this journal');
+  const release = storage.hold(survivor.id); t.after(release);
+  const journal = storage.read(survivor.id);
+  storage.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run('upload', session.id, Buffer.from('private'), 7, 'ref');
+  storage.db.prepare('INSERT INTO concept_artifacts VALUES (?,?,?,?,?,NULL)').run('concept', session.id, Buffer.from('private'), '{}', '{"turnIds":[]}');
+  storage.db.prepare('INSERT INTO voice_calls VALUES (?,?,?,?)').run('provider', 'call', session.id, '{"terminal":true}');
+  storage.db.prepare('INSERT INTO voice_lifecycle_calls VALUES (?,?,?)').run(session.id, 'call', '{}');
+  storage.db.prepare('INSERT INTO voice_turn_operations VALUES (?,?,?,?,?)').run('op', session.id, 'call', 'provider', '{}');
+  if (via === 'erase route') assert.equal((await handlers.handle(request(`${session.id}/erase`, { method: 'POST' }))).status, 200);
+  else storage.erase(session.id);
+  assert.ok(storage.get(session.id).tombstone);
+  assert.equal(storage.db.prepare('SELECT bytes FROM uploads WHERE session_id=?').get(session.id).bytes, null);
+  const day = 24 * 60 * 60 * 1000, sweepAt = Date.now() + day + 1;
+  assert.deepEqual(await handlers.retire({ before: sweepAt - day, limit: 1 }), { retired: 1, failed: 0, more: false });
+  assert.throws(() => storage.get(session.id), /not found/i);
+  const present = new Set(storage.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name));
+  for (const table of CORE_RETIREMENT_TABLES.filter(table => present.has(table))) {
+    assert.equal(storage.db.prepare(`SELECT COUNT(*) n FROM "${table}" WHERE session_id=?`).get(session.id).n, 0, table);
+  }
+  assert.equal(erased[0].sessionId, session.id);
+  assert.deepEqual(storage.read(survivor.id), journal);
+  assert.throws(() => storage.db.prepare('DELETE FROM events WHERE session_id=?').run(survivor.id), /append only/);
+});
 
 test('retire erases whole sessions, calls the host, bounds batches and is idempotent', async t => {
   const { storage, handlers, erased } = fixture(t);
