@@ -618,9 +618,9 @@ async function capture215(t, page, label, values, interaction = null) {
   }
 }
 
-for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent action opens the text item and saves in place, 390/1440`, async t => {
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent action opens the text item and saves in place, 320/340/390/1440`, async t => {
   const page = await fixture(t);
-  for (const width of [390, 1440]) {
+  for (const width of [320, 340, 390, 1440]) {
     await scene(page, locale, 'light', width, ['text']);
     await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
     await frame(page);
@@ -629,7 +629,22 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
       const r = c.shadowRoot, line = r.querySelector('.composer-reason');
       const range = document.createRange(); range.selectNodeContents(line);
       const ink = range.getBoundingClientRect(), slot = line.getBoundingClientRect();
+      const action = line.querySelector('.consent-action'), button = action.getBoundingClientRect();
+      const pseudo = getComputedStyle(action, '::after'), transform = new DOMMatrixReadOnly(pseudo.transform);
+      const used = (value, size) => parseFloat(value) * (value.endsWith('%') ? size / 100 : 1);
+      const target = { left: button.left + used(pseudo.left, button.width) + transform.m41,
+        top: button.top + used(pseudo.top, button.height) + transform.m42,
+        width: parseFloat(pseudo.width), height: parseFloat(pseudo.height) };
+      target.right = target.left + target.width; target.bottom = target.top + target.height;
+      const overlap = selector => {
+        const box = r.querySelector(selector).getBoundingClientRect();
+        return Math.max(0, Math.min(target.right, box.right) - Math.max(target.left, box.left))
+          * Math.max(0, Math.min(target.bottom, box.bottom) - Math.max(target.top, box.top));
+      };
+      const fontSize = parseFloat(getComputedStyle(line).fontSize), lineHeight = parseFloat(getComputedStyle(line).lineHeight);
       return { text: line.textContent, expected: `${copy.featureConsent.text}\u00a0· ${copy.featureConsent.action}`,
+        lineCount: Math.round(ink.height / lineHeight), fontSize, target,
+        overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
         action: line.querySelector('.consent-action')?.textContent, expectedAction: copy.featureConsent.action,
         inputDisabled: r.querySelector('textarea').disabled, sendDisabled: r.querySelector('.send').disabled,
         reasonFits: ink.top >= slot.top - 1 && ink.bottom <= slot.bottom + 1 && ink.left >= slot.left - 1 && ink.right <= slot.right + 1,
@@ -640,6 +655,13 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     const selectors = ['.composer-shell', '.composer', 'textarea', '.send'];
     const before = await boxes(page, selectors);
     await capture215(t, page, `${locale}-light-${width}-composer-action`, { locale, width, ...state, composerBox: before[1] });
+    assert.ok(state.lineCount <= 2, `${locale}/${width}: at most two lines: ${JSON.stringify(state)}`);
+    assert.ok(state.fontSize >= 12, `${locale}/${width}: 12px font floor`);
+    if (width <= 390) {
+      assert.ok(state.target.height >= 44, `${locale}/${width}: 44px consent hit area`);
+      assert.equal(state.overlapAttach, 0, `${locale}/${width}: Attach intersection is 0 px²`);
+      assert.equal(state.overlapSend, 0, `${locale}/${width}: Send intersection is 0 px²`);
+    }
     assert.equal(state.reasonFits, true, `sentence and action fit the two-line reason: ${JSON.stringify(state)}`);
     await page.locator('aithema-session >>> .composer-reason .consent-action').click();
     await until(page, () => {
