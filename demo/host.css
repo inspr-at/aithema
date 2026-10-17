@@ -98,8 +98,9 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 @media(max-width:600px) {
   #demo-legal { gap:0; }
   #demo-license { flex-shrink:0; width:min-content; }
-  #demo-legal a { min-height:max(44px,3lh); }
+  #demo-legal a { min-height:max(44px,4lh); }
 }
+@media(width < 360px) { #demo-legal a { min-height:max(44px,5lh); } }
 #demo-footer { margin:0; color:var(--muted); }
 #outbox { width:min(34rem,calc(100vw - 1rem)); border:1px solid var(--line); border-radius:1rem; background:var(--surface); color:var(--ink); padding:1rem 1.25rem; }
 #outbox::backdrop { background:rgb(12 28 39 / .36); } #outbox h2 { font-size:1.05rem; margin:0 0 .3rem; } #outbox ul { list-style:none; padding:0; margin:.5rem 0; }

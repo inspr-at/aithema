@@ -688,7 +688,7 @@ async function postRelease297(browserPage, t, legalHTML) {
           const n = r.querySelector(selector), text = n.querySelector('[aria-hidden="false"]') ?? n.querySelector('span');
           const range = document.createRange(); range.selectNodeContents(text);
           return new Set([...range.getClientRects()].filter(b => b.width > 0).map(b => b.y)).size;
-        }), upgradeVisible: r.querySelector('.composer-out__upgrade').getAttribute('aria-hidden') === 'false', bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(...selectors.map(selector => r.querySelector(selector).getBoundingClientRect().top)),
+        }), bodyBox: (() => { const n = r.querySelector('.composer-out__body span'), b = n.getBoundingClientRect(); return { x:b.x, y:b.y, width:b.width, bottom:b.bottom, height:b.height, font:getComputedStyle(n).font }; })(), upgradeVisible: r.querySelector('.composer-out__upgrade').getAttribute('aria-hidden') === 'false', bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(...selectors.map(selector => r.querySelector(selector).getBoundingClientRect().top)),
         overlap: (() => { const [a, b] = selectors.map(selector => r.querySelector(selector).getBoundingClientRect());
           return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; })(),
         licenceLines: (() => {
@@ -702,6 +702,7 @@ async function postRelease297(browserPage, t, legalHTML) {
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
       assert.equal(state.upgradeVisible, variant !== 'no-upgrade', `${label}: fixture renders the requested tier action`);
+      if (!state.bodyClear) t.diagnostic(`${label}: clearance geometry ${JSON.stringify(state)}`);
       assert.equal(state.bodyClear, true, `${label}: body clears both actions`);
       assert.equal(state.overlap, false, `${label}: action targets do not overlap`);
       assert.equal(state.licenceLines, 1, `${label}: AGPL-3.0-only stays unbroken`);
