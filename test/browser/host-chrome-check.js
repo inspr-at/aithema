@@ -17,6 +17,12 @@ export async function hostChromeCheck(t) {
   t.after(async () => { await browser.close(); await demo.kill(); });
   const accessibility = await page.createCDPSession();
   const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const footerResponses = { catalog: 0, features: 0 };
+  page.on('response', response => {
+    const path = new URL(response.url()).pathname;
+    if (path.endsWith('/settings')) footerResponses.catalog++;
+    if (path.endsWith('/features')) footerResponses.features++;
+  });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
@@ -85,6 +91,21 @@ export async function hostChromeCheck(t) {
     }, { locale, voice, brandMode, paused });
     await settle();
   };
+  // Keep content in-page: assertion diagnostics contain only geometry, lengths and booleans.
+  const footerSnapshot = async (baseline = false) => ({ ...await shadow(page, (c, baseline) => {
+    const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const content = Object.fromEntries(['.engine__value', '.engine__detail', '.features', '.status__label'].map(selector => [selector, r.querySelector(selector).textContent]));
+    if (baseline) window.footerBefore = content;
+    const changed = selector => content[selector] !== window.footerBefore[selector];
+    const describe = n => ({ name: n.className, box: box(n), textLength: n.textContent.length, hidden: n.hidden });
+    return {
+      children: [...r.querySelector('.footer-right').children].map(n => ({ ...describe(n), children: [...n.children].map(describe) })),
+      catalogOrServedLabelChanged: changed('.engine__value') || changed('.engine__detail'),
+      servedLabelResolved: !window.footerBefore['.engine__detail'] && Boolean(content['.engine__detail']),
+      featuresChanged: changed('.features'), featuresResolved: !window.footerBefore['.features'] && Boolean(content['.features']),
+      statusChanged: changed('.status__label'), statusLabel: describe(r.querySelector('.status__label')),
+    };
+  }, baseline), responses: { ...footerResponses } });
   const composerBoxes = () => shadow(page, c => ['.composer', 'textarea', '.send'].map(selector => {
     const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
   }));
@@ -292,16 +313,16 @@ export async function hostChromeCheck(t) {
         const frame = () => shadow(page, c => ['.band', '.band-identity', '.header-actions', '.conversation', '.display-foot', '.footer-right'].map(selector => {
           const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
         }));
-        const baseline = await frame();
+        const baseline = await frame(), footerBefore = await footerSnapshot(true);
         await page.click('aithema-session >>> .ai-notice'); await settle();
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-version').checkVisibility({ checkVisibilityCSS: true })), true);
         if (width < 600) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.phone-status').checkVisibility({ checkVisibilityCSS: true })), true);
-        assert.deepEqual(await frame(), baseline, `${label}: popup opens with 0 px movement`);
+        assert.deepEqual(await frame(), baseline, `${label}: popup opens with 0 px movement ${JSON.stringify({ before: footerBefore, after: await footerSnapshot() })}`);
         await shot(`${label}-popup`);
         await page.keyboard.press('Escape');
         await page.click('aithema-session >>> .conversations-toggle'); await settle();
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), false);
-        assert.deepEqual(await frame(), baseline, `${label}: menu opens with 0 px movement`);
+        assert.deepEqual(await frame(), baseline, `${label}: menu opens with 0 px movement ${JSON.stringify({ before: footerBefore, after: await footerSnapshot() })}`);
         assert.equal(await shadow(page, c => Math.max(0, document.documentElement.scrollWidth - innerWidth)), 0);
         await shot(`${label}-menu`);
         checks.push({ label, popupShiftPx: 0, menuShiftPx: 0 });
