@@ -69,6 +69,13 @@ for (const [file, seconds] of Object.entries({
 browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
   browserTestWeights['test/browser/footer-width-sweep.test.js'], 41.875);
 
+// AIT-290: PR #262 CI 39014917676, head aff955f108, shard 1/6:
+// all 19 start2-display tests passed after the host-polish helper learned
+// rendered consent copy and child-safe action hits. Observed 177.450581640s;
+// retain the 25% warmup floor until rolling main reflects this workload.
+browserTestWeights['test/browser/start2-display.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display.test.js'], 221.814);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;
