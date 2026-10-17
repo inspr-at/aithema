@@ -49,9 +49,8 @@ export const bandStyles = `
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
 .voice-state { max-width:100%; white-space:nowrap; overflow-wrap:normal; word-break:normal; }
-/* Phone held-call copy keeps its accepted multi-line reservation, at word boundaries. */
-@media(width < 600px) { .audio-rail[data-state="waiting"] .voice-state,
-  .audio-rail[data-call-reconciling] .voice-state { white-space:normal; } }
+/* Preserve the accepted phone label reservation, with whole-word wrapping. */
+@media(width < 600px) { .voice-state { white-space:normal; text-wrap:balance; } }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
