@@ -1,40 +1,24 @@
 {
-  "seconds": 83.212,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 66.172,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "9350a9d642e636d0d358e2db2a9df79f614e12413e253b469d158e64a9b93da1",
+    "workload": "f31c3da31dd337edfa89db1470a0036e6b8b14fc7a7580a8a8205ba6ce348840",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:40.128Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:47.908Z",
         "tests": [
           {
             "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 48.478398394
+            "seconds": 34.770857391999996
           },
           {
             "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 17.784647867
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:34.094Z",
-        "tests": [
-          {
-            "name": "AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN",
-            "seconds": 48.783993676
-          },
-          {
-            "name": "AIT-179: hangup paints idle controls synchronously; reconciling and settled rail shift 0 px",
-            "seconds": 17.344081277
+            "seconds": 18.165905777
           }
         ]
       }

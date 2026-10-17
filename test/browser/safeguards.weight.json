@@ -1,32 +1,20 @@
 {
-  "seconds": 9.89,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 9.958,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "346a72ab472309ae102d14c3f713a2c833f3bdc75dc34b172a8061195b5b69ee",
+    "workload": "a756c8b84dc98a9cddd68e741d6377e5005168534bccf47660f359723c1d7174",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "39009665180",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:40.128Z",
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:47.908Z",
         "tests": [
           {
             "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 7.911358701
-          }
-        ]
-      },
-      {
-        "runId": "38913449964",
-        "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:34.094Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 6.4372750530000005
+            "seconds": 7.96504505
           }
         ]
       }

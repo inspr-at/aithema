@@ -1,6 +1,6 @@
 {
   "seconds": 22.365,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1, 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -59,6 +59,34 @@
           {
             "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
             "seconds": 7.4527821560000005
+          }
+        ]
+      },
+      {
+        "runId": "39009665180",
+        "attempt": 1,
+        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
+        "observedAt": "2026-10-17T06:22:46.081Z",
+        "tests": [
+          {
+            "name": "AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict",
+            "seconds": 1.790710473
+          },
+          {
+            "name": "AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes",
+            "seconds": 1.338088733
+          },
+          {
+            "name": "AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio",
+            "seconds": 1.624419094
+          },
+          {
+            "name": "AIT-129: failed and stale saves remain on consent; unsafe return targets go home",
+            "seconds": 1.488988775
+          },
+          {
+            "name": "AIT-129: live host has no developer chrome; contract consent stays stable at 1440×900 and 390×844, light/dark evidence",
+            "seconds": 5.583164446
           }
         ]
       }
