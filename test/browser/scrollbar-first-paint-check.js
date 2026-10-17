@@ -57,8 +57,8 @@ export async function scrollbarFirstPaintCheck(t) {
     await mkdir(evidence, { recursive: true });
     cases.push(...[1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ actions: 216, width, theme, locale, classic: true })))));
   }
-  cases.push(...[false, true].flatMap(classic => [1250, 1251, 1272, 1273].map(width =>
-    ({ actions: 216, width, locale: 'de', theme: 'light', classic, boundary294: true }))));
+  cases.push(...[false, true].flatMap(classic => [1250, 1251, 1272, 1273].flatMap(width => ['de', 'en'].map(locale =>
+    ({ actions: 216, width, locale, theme: 'light', classic, boundary294: true, status294: true })))));
   // AIT-294 r3: reuse the same page for the full status/startup matrix.
   cases.push(...[600, 700, 768, 820, 1024, 1180].flatMap(width => ['de', 'en'].flatMap(locale =>
     ['light', 'dark'].map(theme => ({ actions: 216, width, locale, theme, classic: false, status294: true })))));
@@ -158,6 +158,45 @@ export async function scrollbarFirstPaintCheck(t) {
       if (!classic && !scene.boundary294) assert.equal(mounted.band[3], width < 600 ? 124 : width <= 1180 ? 150 : 90, `${name}: status-inclusive default host geometry`);
     }
     if (scene.boundary294) assert.equal(mounted.row, width < (classic ? 1273 : 1251) ? '2' : '1', `${name}: measured status reservation switches at the content boundary`);
+    if (scene.status294 && width === 1180 && theme === 'light') {
+      await page.evaluate(() => {
+        const c = document.querySelector('aithema-session'), legal = document.createElement('span');
+        legal.slot = 'legal'; legal.innerHTML = '<a href="#privacy">Privacy</a> · <a href="#legal">Legal</a>'; c.append(legal);
+      });
+      await settleEvidenceFrame(page);
+      const footerWidths = await page.evaluate(async () => {
+        const c = document.querySelector('aithema-session'), footer = c.shadowRoot.querySelector('.display-foot');
+        const row = footer.querySelector('.display-foot__row'), links = c.querySelectorAll('[slot="legal"] a');
+        const changes = [], observer = new MutationObserver(records => changes.push(...records));
+        observer.observe(footer, { attributes:true, attributeFilter:['data-fit'] });
+        const measure = () => {
+          const bounds = row.getBoundingClientRect();
+          return { windowWidth:innerWidth, width:footer.clientWidth, fit:footer.dataset.fit, refits:changes.length,
+            legalInside:[...links].every(link => {
+              const b = link.getBoundingClientRect(); return b.width > 0 && b.left >= bounds.left && b.right <= bounds.right;
+            }) };
+        };
+        const states = [measure()];
+        for (const width of ['600px', '']) {
+          changes.length = 0; footer.style.width = width;
+          // ResizeObserver delivers after layout; allow the resulting paint and mutation delivery to settle.
+          for (let i = 0; i < 3; i++) await new Promise(resolve => requestAnimationFrame(resolve));
+          states.push(measure());
+        }
+        observer.disconnect(); return states;
+      });
+      const [before, narrow, restored] = footerWidths;
+      assert.ok(narrow.width < before.width, `${name}: footer container really narrows`);
+      for (const state of [narrow, restored]) {
+        assert.equal(state.windowWidth, before.windowWidth, `${name}: footer resize keeps innerWidth unchanged`);
+        assert.ok(state.refits > 0, `${name}: changed footer width refits: ${JSON.stringify(footerWidths)}`);
+        assert.equal(state.legalInside, true, `${name}: legal links stay inside the resized footer: ${JSON.stringify(state)}`);
+      }
+      assert.notEqual(narrow.fit, before.fit, `${name}: narrowing yields optional footer content`);
+      assert.equal(restored.fit, before.fit, `${name}: widening restores optional footer content`);
+      checks.push({ head:evidenceCommit, ...scene, footerWidths, pass:true });
+      console.log(`AIT-294 PASS ${name}: footer shrinks/restores at fixed innerWidth, refits both ways, legal links inside: ${JSON.stringify(footerWidths)}`);
+    }
     checks.push({ head: evidenceCommit, ...scene, initial, mounted, resized, pass: true,
       shiftPx: Math.max(...mounted.band.map((value, i) => Math.abs(value - initial.band[i])),
         ...mounted.rail.map((value, i) => Math.abs(value - initial.rail[i]))),
