@@ -152,6 +152,12 @@ for (const label of ['ai-notice__label', 'connection-timer', 'actor-role']) test
   t.mock.method(window.HTMLElement.prototype, 'getClientRects', function () { return [this.getBoundingClientRect()]; });
   const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
   assert.equal(footer.dataset.fit, 'identity');
+  const compactChanges = [], compactObserver = new window.MutationObserver(records => compactChanges.push(...records));
+  compactObserver.observe(footer, { attributes: true, attributeFilter: ['data-fit'] });
+  text.textContent = 'An equally long text';
+  await new Promise(resolve => setImmediate(resolve));
+  compactObserver.disconnect();
+  assert.equal(compactChanges.length, 0, 'equal hidden natural width does not refit compact controls');
   text.textContent = 'Short';
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(footer.dataset.fit, 'full', 'the shorter hidden label makes the full form fit again');

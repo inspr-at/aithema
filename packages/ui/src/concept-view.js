@@ -170,7 +170,7 @@ export class ConceptView {
     if (!this.#timer) { this.#timer = setInterval(() => this.progress(), 1000); this.#timer.unref?.(); }
   }
   suspend() {
-    this.#lifetime++; this.#busy = false;
+    this.#lifetime++; this.#busy = false; this.gates();
     this.#phone.removeEventListener('change', this.#placeAccess);
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);

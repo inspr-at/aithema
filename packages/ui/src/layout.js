@@ -51,6 +51,30 @@ export function fitFooter(footer) {
   return footer.dataset.fit;
 }
 
+// Compact labels have no visible width. Measure the full row offscreen only
+// when its content/geometry changes; never toggle the live data-fit to probe it.
+function footerGeometry(footer, cache) {
+  const row = footer.querySelector('.display-foot__row');
+  const zones = [...row.children].map(zone => [zone.hidden, zone.getBoundingClientRect().width]);
+  const compact = footer.dataset.fit && footer.dataset.fit !== 'full';
+  let natural = [];
+  if (compact) {
+    const source = JSON.stringify([footer.clientWidth, zones, row.textContent]);
+    if (cache.footerNaturalSource !== source) {
+      const probe = footer.cloneNode(true);
+      probe.dataset.fit = 'full'; probe.inert = true; probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText += `;position:fixed;left:-100000px;top:0;right:auto;bottom:auto;width:${footer.clientWidth}px;opacity:0;pointer-events:none;`;
+      footer.parentNode.append(probe);
+      try {
+        cache.footerNaturalWidths = [...probe.querySelector('.display-foot__row').children].map(zone => zone.getBoundingClientRect().width);
+        cache.footerNaturalSource = source;
+      } finally { probe.remove(); }
+    }
+    natural = cache.footerNaturalWidths;
+  }
+  return JSON.stringify([footer.clientWidth, zones, natural]);
+}
+
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
 export class ConversationFold {
   constructor({ root, copy, onChange, canFold = () => true }) {
@@ -165,13 +189,12 @@ export class PhoneComposerViewport {
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
       const footer = root.querySelector('.display-foot');
-      const fitKey = () => JSON.stringify([footer.clientWidth, ...[...footer.querySelector('.display-foot__row').children]
-        .map(zone => [zone.hidden, zone.getBoundingClientRect().width])]);
-      // Host columns and scrollbars can resize the row without resizing the window.
-      // Fixed-width timers/status reserves can change text without changing
-      // row geometry. Cache the fitted zone widths too: fitting itself may hide
-      // optional labels, and must not make the next scroll refit them again.
-      if (this.footerFitKey !== fitKey()) {
+      const fitKey = () => footerGeometry(footer, this);
+      // A compact label can change natural width without changing its visible
+      // zone. Preserve equal-geometry caching, and release a pending fit only
+      // after a resting pointer or keyboard focus leaves the footer controls.
+      const protectedFooter = footer.matches(':hover') || footer.contains(root.activeElement);
+      if (this.footerFitKey !== fitKey() && (this.footerFitKey === undefined || !protectedFooter)) {
         fitFooter(footer); this.footerFitKey = fitKey();
       }
       // On phones the reserved voice notices belong to the scrolling content,
@@ -228,6 +251,7 @@ export class PhoneComposerViewport {
   connect() {
     this.connected = true;
     this.root.addEventListener('focusin', this.paint);
+    this.root.querySelector('.display-foot').addEventListener('pointerleave', this.paint);
     this.root.addEventListener('focusout', this.focusOut);
     this.view?.addEventListener('resize', this.paint);
     this.view?.visualViewport?.addEventListener('resize', this.paint);
@@ -335,6 +359,7 @@ export class PhoneComposerViewport {
   destroy() {
     this.connected = false;
     this.root.removeEventListener('focusin', this.paint);
+    this.root.querySelector('.display-foot').removeEventListener('pointerleave', this.paint);
     this.root.removeEventListener('focusout', this.focusOut);
     this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
     this.root.querySelector('.transcript-shell').removeEventListener('wheel', this.noticeWheel);

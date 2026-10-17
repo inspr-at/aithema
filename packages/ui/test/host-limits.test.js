@@ -113,13 +113,13 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     const announcement = root.querySelector('.credit-announcement'), changes = [];
     const observer = new window.MutationObserver(records => changes.push(...records));
     observer.observe(announcement, { childList: true, characterData: true, subtree: true });
-    await tick(10); userTurn(c);
+    await waitForText(root.querySelector('.host-credits__measure-amount'), locale === 'de' ? '2.400' : '2,400'); userTurn(c);
     if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
-    await tick(8);
     const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
     const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'
       ? next === 'give' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
       : next === 'give' ? 'Add your email address to get +600 more Credits. Your conversation stays saved.' : 'Confirm your email address to get +600 more Credits.';
+    await waitForText(announcement, `${title} ${body}`);
     const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
     assert.equal(out.dataset.next, next);
     assert.equal(out.querySelector('.composer-out__title').textContent, title);

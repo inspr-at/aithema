@@ -50,7 +50,7 @@ test('AIT-298: file timeout identifies the completed subtest and open-handle cre
 const { armUnitWatchdog } = require(${JSON.stringify(watchdog)});
 armUnitWatchdog(200);
 test('leaking wallet poll', () => { setInterval(function walletPoll() {}, 1000); });`);
-    const childEnv = workerEnvironment();
+    const childEnv = workerEnvironment(); childEnv.AITHEMA_UNIT_TRACE_HANDLES = '1';
     const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
     const output = result.stdout + result.stderr;
     assert.equal(result.status, 1, output);
@@ -74,5 +74,23 @@ test('reject concept', () => { setTimeout(function withdrawalNotice() { throw ne
     assert.match(output, /Async origin: reject concept/);
     assert.match(output, /TypeError: gone getRootNode/);
     assert.match(output, /withdrawalNotice .*late-callback\.test\.cjs:2/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('AIT-299: default watchdog keeps timeout context without expensive handle stacks', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-default-'));
+  try {
+    const fixture = join(directory, 'default-handle.test.cjs');
+    writeFileSync(fixture, `const test = require('node:test');
+const { armUnitWatchdog } = require(${JSON.stringify(watchdog)});
+armUnitWatchdog(200);
+test('wallet poll without tracing', () => { setInterval(() => {}, 1000); });`);
+    const childEnv = workerEnvironment(); delete childEnv.AITHEMA_UNIT_TRACE_HANDLES;
+    const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /Last completed subtest: wallet poll without tracing/);
+    assert.match(output, /Active resources:.*Timeout/);
+    assert.doesNotMatch(output, /Open Timeout|Resource created here/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
