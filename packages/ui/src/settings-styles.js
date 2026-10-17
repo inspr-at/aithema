@@ -246,5 +246,19 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .done { justify-self:stretch; width:100%; } .disclosure__body { left:.8rem; width:calc(100% - 1.6rem); }
   .gauges { gap:.7rem .3rem; } .gauge__glass { width:3.3rem; height:6.6rem; } .gauge__value { font-size:1rem; }
 }
+/* AIT-294: phone essentials; the fixed-model note occupies the real slider slot.
+   Keep gauges on tablets and desktops, without retaining their grid row here. */
+@media(width < 600px) {
+  .settings-overview { display:none; }
+  .settings-panel[data-panel=model], .settings-panel[data-panel=model] .settings-column { gap:.5rem; }
+  .effort { grid-template-columns:minmax(0,1fr) auto; gap:0; }
+  .effort label { grid-area:1/1; line-height:1.2; }
+  .effort output { grid-area:1/2; justify-self:end; align-self:center; }
+  .effort__track { grid-area:2/1/3/-1; }
+  .effort-note { align-self:center; max-inline-size:36ch; }
+  .notice-area[data-kind=""] { display:none; }
+  /* With no gauge column below them, bottom fields open into the available space above. */
+  .select:is([data-select=voice],[data-select=visuals]) .select__menu { top:auto; bottom:calc(100% + .25rem); }
+}
 @media(prefers-reduced-motion:reduce) { .select__spinner { animation:none; } .gauge__level, .gauge__wave { transition:none !important; } }
 `;

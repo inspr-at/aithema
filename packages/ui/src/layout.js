@@ -31,10 +31,24 @@ export class ConnectionTimer {
 }
 
 // The boundaries are shared by the footer's container rules and its tests.
-export const FOOTER_WIDTHS = Object.freeze({ voice: 1100, identity: 680, compact: 700, number: 360 });
+export const FOOTER_WIDTHS = Object.freeze({ voice: 1100, identity: 600, compact: 700, number: 360 });
 export function footerMode(width) {
   return { voice: width >= FOOTER_WIDTHS.voice, identity: width >= FOOTER_WIDTHS.identity,
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };
+}
+
+/** Measure real host copy before yielding optional footer content, in Tick's order. */
+export function fitFooter(footer) {
+  const row = footer.querySelector('.display-foot__row');
+  for (const mode of ['full', 'identity', 'timer', 'role']) {
+    footer.dataset.fit = mode;
+    const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
+    const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
+    const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
+    // Popup overlays can extend scrollWidth without occupying the footer row.
+    if (clear) break;
+  }
+  return footer.dataset.fit;
 }
 
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
@@ -150,6 +164,16 @@ export class PhoneComposerViewport {
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
+      const footer = root.querySelector('.display-foot');
+      const fitKey = () => JSON.stringify([footer.clientWidth, ...[...footer.querySelector('.display-foot__row').children]
+        .map(zone => [zone.hidden, zone.getBoundingClientRect().width])]);
+      // Host columns and scrollbars can resize the row without resizing the window.
+      // Fixed-width timers/status reserves can change text without changing
+      // row geometry. Cache the fitted zone widths too: fitting itself may hide
+      // optional labels, and must not make the next scroll refit them again.
+      if (this.footerFitKey !== fitKey()) {
+        fitFooter(footer); this.footerFitKey = fitKey();
+      }
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;
@@ -213,6 +237,16 @@ export class PhoneComposerViewport {
     if (Observer) {
       this.observer = new Observer(this.paint);
       for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
+    }
+    this.footerObserver?.disconnect();
+    const FooterMutation = this.view?.MutationObserver;
+    if (FooterMutation) {
+      this.footerObserver = new FooterMutation(() => {
+        if (this.connected) this.paint();
+      });
+      this.footerObserver.observe(this.root.querySelector('.display-foot__row'), {
+        subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'],
+      });
     }
     this.noticesObserver?.disconnect();
     const Mutation = this.view?.MutationObserver;
@@ -308,6 +342,7 @@ export class PhoneComposerViewport {
     this.root.removeEventListener('pointerout', this.noticePointerOut);
     this.noticesObserver?.disconnect();
     this.observer?.disconnect();
+    this.footerObserver?.disconnect();
     this.view?.removeEventListener('resize', this.paint);
     this.view?.visualViewport?.removeEventListener('resize', this.paint);
     this.view?.visualViewport?.removeEventListener('scroll', this.paint);

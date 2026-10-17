@@ -37,6 +37,9 @@ export async function scrollbarFirstPaintCheck(t) {
   await page.goto(`${demo.url}/ait276`, { waitUntil: 'domcontentloaded' });
   // One page and one local session; no host bootstrap, voice startup or provider dispatch.
   await page.evaluate(async () => {
+    // Pin elapsed connection copy; the fit measurement below still spans a
+    // full animation frame, after the initial network status has settled.
+    const footerNow = Date.now(); Date.now = () => footerNow;
     window.scrollbarSession = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale: 'de' }) }).then(r => r.json());
     window.bandGeometry = () => {
       const c = document.querySelector('aithema-session'), mounted = c.hasAttribute('data-aithema-mounted');
@@ -57,6 +60,11 @@ export async function scrollbarFirstPaintCheck(t) {
     await mkdir(evidence, { recursive: true });
     cases.push(...[1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ actions: 216, width, theme, locale, classic: true })))));
   }
+  cases.push(...[false, true].flatMap(classic => [1250, 1251, 1272, 1273].flatMap(width => ['de', 'en'].map(locale =>
+    ({ actions: 216, width, locale, theme: 'light', classic, boundary294: true, status294: true })))));
+  // AIT-294 r3: reuse the same page for the full status/startup matrix.
+  cases.push(...[600, 700, 768, 820, 1024, 1180].flatMap(width => ['de', 'en'].flatMap(locale =>
+    ['light', 'dark'].map(theme => ({ actions: 216, width, locale, theme, classic: false, status294: true })))));
   // Preserve today's default host geometry without a classic scrollbar as well.
   cases.push(...[760, 768, 780, 790, 800, 1024, 1440, 390].map(width => ({ actions: 216, width, locale: 'de', theme: 'light', classic: false })));
   // Older hosts override the actions property without the new reservation helper.
@@ -89,14 +97,50 @@ export async function scrollbarFirstPaintCheck(t) {
       await import('/packages/ui/src/session-element.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = structuredClone(window.scrollbarSession); session.locale = locale;
+      window.scrollbarConnected = copy.connected;
       document.querySelector('aithema-session').configure({ copy, session, voiceClient: {}, host: { library: true } });
     }, locale);
-    await page.waitForFunction(() => document.querySelector('aithema-session').hasAttribute('data-aithema-mounted'));
+    await page.waitForFunction(() => document.querySelector('aithema-session').hasAttribute('data-aithema-mounted')
+      && document.querySelector('aithema-session').shadowRoot.querySelector('.status__label').textContent === window.scrollbarConnected);
     await settleEvidenceFrame(page);
     const mounted = await page.evaluate(() => { cancelAnimationFrame(window.scrollbarFrame); return { ...window.bandGeometry(), frames: window.scrollbarFrames }; });
     if (capture) await page.screenshot({ path: join(evidence, `${name}-mounted.png`), fullPage: false, captureBeyondViewport: false });
     assert.equal(mounted.intersection, 0, `${name}: mounted rail/actions box intersection is 0`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
+    if (scene.status294) {
+      const scrollFits = await page.evaluate(async () => {
+        const footer = document.querySelector('aithema-session').shadowRoot.querySelector('.display-foot');
+        const changes = []; const observer = new MutationObserver(records => changes.push(...records));
+        observer.observe(footer, { attributes:true, attributeFilter:['data-fit'] });
+        for (let i = 0; i < 5; i++) visualViewport.dispatchEvent(new Event('scroll'));
+        await new Promise(resolve => requestAnimationFrame(resolve)); observer.disconnect();
+        return changes.length;
+      });
+      assert.equal(scrollFits, 0, `${name}: visual viewport scrolling does not refit the footer`);
+      const labels = await page.evaluate(async locale => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const root = document.querySelector('aithema-session').shadowRoot;
+        const label = root.querySelector('.voice-state'), signal = root.querySelector('.voice-signal');
+        const texts = [...new Set([copy.notConfigured, ...Object.values(copy.voiceStates), copy.voiceMoved, copy.voiceClosureUncertain])];
+        return texts.map(text => {
+          label.textContent = text;
+          const range = document.createRange(); range.selectNodeContents(label);
+          const rects = [...range.getClientRects()].filter(b => b.width > 0);
+          const b = label.getBoundingClientRect(), s = signal.getBoundingClientRect();
+          return { text, lines: new Set(rects.map(b => b.y)).size, whiteSpace: getComputedStyle(label).whiteSpace,
+            width: b.width, textWidth: Math.max(...rects.map(b => b.width)), signalWidth: s.width,
+            inside: rects.every(r => r.left >= s.left && r.right <= s.right && r.top >= s.top && r.bottom <= s.bottom),
+            overflow: label.scrollWidth > label.clientWidth || label.scrollHeight > label.clientHeight };
+        });
+      }, locale);
+      checks.push({ head: evidenceCommit, ...scene, labels });
+      for (const label of labels) {
+        assert.equal(label.whiteSpace, 'nowrap', `${name}: status is nowrap: ${JSON.stringify(label)}`);
+        assert.equal(label.lines, 1, `${name}: one status line: ${JSON.stringify(label)}`);
+        assert.equal(label.overflow, false, `${name}: status does not overflow: ${JSON.stringify(label)}`);
+        assert.equal(label.inside, true, `${name}: status stays inside signal: ${JSON.stringify(label)}`);
+      }
+    }
     const resized = [];
     if (noHelper) {
       // Reuse this mounted element through both directions of the row boundary.
@@ -116,7 +160,47 @@ export async function scrollbarFirstPaintCheck(t) {
         assert.deepEqual(frame.band, initial.band, `${name}: band stays stable through mount`);
         assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);
       }
-      if (!classic) assert.equal(mounted.band[3], width < 600 ? 124 : width < 768 ? 150 : 90, `${name}: existing default host geometry`);
+      if (!classic && !scene.boundary294) assert.equal(mounted.band[3], width < 600 ? 124 : width <= 1180 ? 150 : 90, `${name}: status-inclusive default host geometry`);
+    }
+    if (scene.boundary294) assert.equal(mounted.row, width < (classic ? 1273 : 1251) ? '2' : '1', `${name}: measured status reservation switches at the content boundary`);
+    if (scene.status294 && width === 1180 && theme === 'light') {
+      await page.evaluate(() => {
+        const c = document.querySelector('aithema-session'), legal = document.createElement('span');
+        legal.slot = 'legal'; legal.innerHTML = '<a href="#privacy">Privacy</a> · <a href="#legal">Legal</a>'; c.append(legal);
+      });
+      await settleEvidenceFrame(page);
+      const footerWidths = await page.evaluate(async () => {
+        const c = document.querySelector('aithema-session'), footer = c.shadowRoot.querySelector('.display-foot');
+        const row = footer.querySelector('.display-foot__row'), links = c.querySelectorAll('[slot="legal"] a');
+        const changes = [], observer = new MutationObserver(records => changes.push(...records));
+        observer.observe(footer, { attributes:true, attributeFilter:['data-fit'] });
+        const measure = () => {
+          const bounds = row.getBoundingClientRect();
+          return { windowWidth:innerWidth, width:footer.clientWidth, fit:footer.dataset.fit, refits:changes.length,
+            legalInside:[...links].every(link => {
+              const b = link.getBoundingClientRect(); return b.width > 0 && b.left >= bounds.left && b.right <= bounds.right;
+            }) };
+        };
+        const states = [measure()];
+        for (const width of ['600px', '']) {
+          changes.length = 0; footer.style.width = width;
+          // ResizeObserver delivers after layout; allow the resulting paint and mutation delivery to settle.
+          for (let i = 0; i < 3; i++) await new Promise(resolve => requestAnimationFrame(resolve));
+          states.push(measure());
+        }
+        observer.disconnect(); return states;
+      });
+      const [before, narrow, restored] = footerWidths;
+      assert.ok(narrow.width < before.width, `${name}: footer container really narrows`);
+      for (const state of [narrow, restored]) {
+        assert.equal(state.windowWidth, before.windowWidth, `${name}: footer resize keeps innerWidth unchanged`);
+        assert.ok(state.refits > 0, `${name}: changed footer width refits: ${JSON.stringify(footerWidths)}`);
+        assert.equal(state.legalInside, true, `${name}: legal links stay inside the resized footer: ${JSON.stringify(state)}`);
+      }
+      assert.notEqual(narrow.fit, before.fit, `${name}: narrowing yields optional footer content`);
+      assert.equal(restored.fit, before.fit, `${name}: widening restores optional footer content`);
+      checks.push({ head:evidenceCommit, ...scene, footerWidths, pass:true });
+      console.log(`AIT-294 PASS ${name}: footer shrinks/restores at fixed innerWidth, refits both ways, legal links inside: ${JSON.stringify(footerWidths)}`);
     }
     checks.push({ head: evidenceCommit, ...scene, initial, mounted, resized, pass: true,
       shiftPx: Math.max(...mounted.band.map((value, i) => Math.abs(value - initial.band[i])),

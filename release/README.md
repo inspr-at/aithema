@@ -10,11 +10,11 @@ archive packing is checked against Git packing byte for byte. Only use archives
 from the trusted Git transport; the marker is source metadata, not a signature.
 
 ```sh
-npm run release:candidate -- /retained/ait105
+npm run release:candidate -- /retained/ait278
 # Equivalent pack/verify entrypoints (use new output directories):
-npm run release:pack -- /retained/ait105/first --candidate SOURCE_COMMIT
-npm run release:verify -- /retained/ait105/first
-npm run release:consumer -- /retained/ait105/first
+npm run release:pack -- /retained/ait278/first --candidate SOURCE_COMMIT
+npm run release:verify -- /retained/ait278/first
+npm run release:consumer -- /retained/ait278/first
 ```
 
 `release:candidate` packs twice through `release:pack`, verifies both through
@@ -50,6 +50,40 @@ BSD and GNU tar encode different bytes. PR CI's Linux candidate is qualification
 and retention evidence for that CI source commit, not a promise that a later tag
 build has the same digests.
 
+## Second October candidate (AIT-278 / START-545)
+
+The round-4 reserved coordinate is `261017133413.0.0`, stable sequence 13. Markus's
+Desk `74ae723c` (2026-10-17) authorizes preparation; OPS publishes only after
+Tick's consolidated QA under Markus's Desk go. The marketing name remains
+**Aithema 2026.10** (LEAD, 2026-10-17); the exact coordinate is printed below the
+notes title. The first October release, `v261015164601.0.0` (sequence 12), is
+recorded in `history.json`. Its migration anchor and published bytes stay fixed.
+The approved shared presentation source is still
+`bd0a13816f728ad91c36d849f88168bcac4fdc6e`; `presentation.json` and the complete
+offline bundle retain their existing pins and Aithema overrides.
+
+Round 4 replaces the unpublished round-3 reservation `261017100846.0.0`: the
+`reserveVersion` rule in `packages/server/src/release-version.js` requires a new
+source reservation for changed outputs. The published history still ends at
+sequence 12, so this candidate retains sequence 13 and the existing migration
+anchor. The tag gate in `release/gate.mjs` requires the exact reserved coordinate;
+the round-6 final-head evidence step below does not reserve again.
+
+Run a candidate only after PR #265 (AIT-294), following merged PRs #263
+(AIT-291) and #262 (AIT-290), reports `MERGED`, and after
+`git merge --signoff origin/main` and committing the work.
+On mbp2607, use the assigned `remote-browser.sh` with
+`EVIDENCE_OUT="$PWD/dist/ait278-r4-checkpoint"` and arguments
+`"$PWD" unit --test-concurrency=2 test/release-candidate.test.js test/release-workflow.test.js test/calver.test.js test/version-presentation.test.js`.
+The candidate test runs `npm run release:candidate -- <retained dir>` on
+mbp2606; the script copies the complete retained directory back. Commit that
+run's `candidate/candidate-evidence.json` as `release/evidence.json`. Then repeat
+the candidate test on the final committed head with
+`EVIDENCE_OUT="$PWD/dist/ait278-r4-final"`, retaining
+`dist/ait278-r4-final/candidate/` without another evidence-only commit. Its manifest
+and evidence must both bind the handed-over head. Retain the complete directory
+in owner storage; the PR's Linux artifacts remain separate qualification bytes.
+
 ## OPS publish route after Markus's Desk go
 
 OPS owns the exact-SHA rehearsal, clean-clone `v*` tag push, release run,
@@ -58,6 +92,48 @@ The builder only prepares the candidate, notes and reservation through the PR.
 The route is **public GitHub release tarballs**, SHA256SUMS and GitHub artifact
 attestations, using only the workflow's `GITHUB_TOKEN`. No npm registry account,
 npm publication, GitHub Packages registry or consumer token is required.
+
+After Tick's consolidated QA and Markus's Desk go, OPS runs the following on
+mbp2606 or an authorized build runner. Set `FINAL_CANDIDATE` to the retained
+AIT-278 final directory above, and enable repository immutable releases before
+the tag push. These commands are a handoff, not builder authorization to run them.
+
+```sh
+set -eu
+export FINAL_CANDIDATE=/absolute/owner-storage/ait278-r4-final/candidate
+RELEASE_HEAD=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").source.commit')
+RELEASE_VERSION=$(node -p 'require(process.env.FINAL_CANDIDATE + "/first/release-set.json").version')
+RELEASE_TAG="v$RELEASE_VERSION"
+OPS_WORK=$(mktemp -d)
+git clone https://github.com/inspr-at/aithema.git "$OPS_WORK/source"
+cd "$OPS_WORK/source"
+git checkout --detach "$RELEASE_HEAD"
+git merge-base --is-ancestor "$RELEASE_HEAD" origin/main
+node release/gate.mjs tag "refs/tags/$RELEASE_TAG"
+npm ci --ignore-scripts --no-audit --no-fund
+npm run release:candidate -- "$OPS_WORK/ait278-rehearsal"
+git tag "$RELEASE_TAG" "$RELEASE_HEAD"
+git push origin "refs/tags/$RELEASE_TAG"
+# Once the tag-triggered release run appears:
+gh run list --repo inspr-at/aithema --workflow release.yml --commit "$RELEASE_HEAD"
+RELEASE_RUN_ID=$(gh run list --repo inspr-at/aithema --workflow release.yml --commit "$RELEASE_HEAD" --json databaseId --jq '.[0].databaseId')
+gh run watch "$RELEASE_RUN_ID" --repo inspr-at/aithema --exit-status
+gh release view "$RELEASE_TAG" --repo inspr-at/aithema --json isImmutable,url
+mkdir "$OPS_WORK/published"
+cd "$OPS_WORK/published"
+gh release download "$RELEASE_TAG" --repo inspr-at/aithema
+for asset in SHA256SUMS release-set.json consumer-evidence.json \
+  consumer-package-lock.json deployment-pin.json *.tgz; do
+  gh attestation verify "$asset" --repo inspr-at/aithema
+done
+# GNU/Linux; on macOS use: shasum -a 256 --check SHA256SUMS
+sha256sum --check SHA256SUMS
+```
+
+The tag push starts the existing release workflow, which creates and publishes
+the release. OPS does not run a second manual `gh release create` command.
+Retain the verified published set, its manifest digest and the portable consumer
+deployment from the release run in durable owner storage for START's re-pin.
 
 Before pushing the authorized tag, OPS must enable **immutable releases** in the
 repository settings. It was disabled at the round-2 read-only check. This is an

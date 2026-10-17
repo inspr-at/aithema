@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
+import { contrast } from '../contrast.js';
 
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn) => page.waitForFunction(fn, { timeout: 20_000, polling: 40 });
@@ -125,6 +126,14 @@ export async function visitorCreditMatrix(t, locales) {
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
+      const ait292Capture = async state => {
+        if (!evidence || locale !== 'de' || ![1440, 390].includes(width)) return;
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1); await settle(page);
+        const file = `ait292-${label}-${state}.png`;
+        await page.screenshot({ path: join(evidence, file), fullPage: false });
+        captures.push({ locale, theme, width, state, file, capture: 'viewport' });
+      };
       const actions = async state => {
         const metrics = await shadow(page, c => {
           const r = c.shadowRoot, row = r.querySelector('.host-verify .m-view.on .m-acts');
@@ -163,6 +172,15 @@ export async function visitorCreditMatrix(t, locales) {
         }
         await page.mouse.move(-1, -1);
         await settle(page); states.push({ locale, theme, width, state });
+        if (state === 'credit-used-up-give' && theme === 'dark') {
+          const primary = await shadow(page, c => {
+            const out = c.shadowRoot.querySelector('.composer-out'), button = out.querySelector('.composer-out__upgrade');
+            return { hostLimit: out.hasAttribute('data-host-limit'), visible: getComputedStyle(button).visibility,
+              background: getComputedStyle(button).backgroundColor, color: getComputedStyle(button).color };
+          });
+          assert.deepEqual(primary, { hostLimit: false, visible: 'visible', background: 'rgb(18, 144, 140)', color: 'rgb(11, 26, 38)' }, `${label}: dark filled primary outside host-limit`);
+          uiChecks.push({ locale, theme, width, state: 'dark-filled-primary', pass: true, ...primary });
+        }
         if (state === 'credits-used-up-give') {
           const popup = await shadow(page, c => {
             const r = c.shadowRoot, note = r.querySelector('.host-credits__limit'), unit = r.querySelector('.host-credits__equivalence');
@@ -248,6 +266,29 @@ export async function visitorCreditMatrix(t, locales) {
       await click(page, '.credits-email'); await settle(page);
       const fixed = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.host-verify', '.settings-context', '.settings__footer'];
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true, 'the credit link opened Settings');
+      await click(page, 'dialog.settings [data-tab="model"]'); await settle(page);
+      const vial = await shadow(page, c => {
+        const gauge = c.shadowRoot.querySelector('[data-gauge="quality"]'), mark = gauge.querySelector('.gauge__unrated'),
+          inside = getComputedStyle(gauge.querySelector('.gauge__inside')), ink = getComputedStyle(mark);
+        return { vialState: gauge.dataset.state, unrated: gauge.classList.contains('gauge--unrated'), mark: mark.textContent,
+          display: ink.display, hatch: inside.backgroundImage, foreground: ink.color, background: ink.backgroundColor,
+          hatchInk: getComputedStyle(c).getPropertyValue('--aithema-muted').trim(),
+          liquidHidden: getComputedStyle(gauge.querySelector('.gauge__level')).visibility === 'hidden' };
+      });
+      assert.equal(vial.unrated, true, `${label}: no-rating quality vial`);
+      assert.equal(vial.mark, '–'); assert.equal(vial.display, 'block'); assert.equal(vial.liquidHidden, true);
+      assert.match(vial.hatch, /repeating-linear-gradient/u);
+      const hex = rgb => '#' + rgb.match(/\d+/gu).slice(0, 3).map(n => Number(n).toString(16).padStart(2, '0')).join('');
+      const markContrast = contrast(hex(vial.foreground), hex(vial.background)), hatchContrast = contrast(vial.hatchInk, hex(vial.background));
+      assert.ok(markContrast >= 4.5, `${label}: dash contrast ${markContrast}`);
+      assert.ok(hatchContrast >= 3, `${label}: hatch contrast ${hatchContrast}`);
+      const gaugeFixed = ['.gauge-panel', '.settings__footer', ...['quality', 'speed', 'cost', 'privacy', 'voice', 'images'].map(kind => `[data-gauge="${kind}"]`)];
+      const vialBefore = await boxes(page, gaugeFixed);
+      await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } })); await settle(page);
+      uiChecks.push({ locale, theme, width, state: 'unrated-vials', pass: true, ...vial, markContrast, hatchContrast,
+        displacementPx: unchanged(vialBefore, await boxes(page, gaugeFixed), `${label}/unrated-vials`) });
+      await ait292Capture('unrated-vials');
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(page);
       const before = await boxes(page, fixed);
       const check = async state => { await settle(page); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
       await check('no-email');
@@ -472,14 +513,33 @@ export async function visitorCreditMatrix(t, locales) {
       assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).backgroundColor), 'rgba(0, 0, 0, 0)', 'the host-limit primary stays a text link in both themes');
       passLines.push({ locale, theme, width, state: 'run-out', displacementPx: unchanged(liveBefore, await boxes(page, liveFixed), `${label}/run-out`), pass: true }); await shot('run-out');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
+      await fixture(page, locale);
+      const hourBefore = await boxes(page, liveFixed);
+      await shadow(page, c => {
+        for (const type of ['credits.limit-reached', 'conversation.end-requested']) {
+          c.receive({ seq: c.session.seq + 1, type, data: { reason: 'one-hour' } });
+        }
+      }); await settle(page);
+      const oneHour = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return { title: r.querySelector('.composer-out__title').textContent, body: r.querySelector('.composer-out__body').textContent,
+          announcement: r.querySelector('.credit-announcement').textContent, polite: r.querySelector('.credit-announcement').getAttribute('aria-live'),
+          duplicateToast: Boolean(r.querySelector('.composer-dock > .status__label')) };
+      });
+      assert.equal(oneHour.duplicateToast, false); assert.equal(oneHour.polite, 'polite');
+      assert.equal(oneHour.announcement, `${oneHour.title} ${oneHour.body}`);
+      uiChecks.push({ locale, theme, width, state: 'one-hour-single-announcement', pass: true, ...oneHour,
+        displacementPx: unchanged(hourBefore, await boxes(page, liveFixed), `${label}/one-hour`) });
+      if (theme === 'light') await ait292Capture('one-hour');
     }
     assert.deepEqual(problems, []);
     await browser.close(); browser = null;
   }
   assertMatrixCaseCount('visitor-credit', states.length);
   const stamp = rows => rows.map(row => ({ head, branchHead, ...row }));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head, branchHead, passLines: stamp([...passLines, ...uiChecks]) }, null, 2));
   if (evidence) await writeFile(join(evidence, `a2-${locales.join('-')}-pass-lines.json`), JSON.stringify({ head, branchHead, runner: 'remote/CI', source: 'shipped component with owner-route fixtures; language selected through the picker', passLines: stamp(passLines), uiChecks: stamp(uiChecks), states, captures }, null, 2));
-  for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog'].includes(row.state))) {
+  for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog', 'unrated-vials', 'one-hour-single-announcement', 'dark-filled-primary'].includes(row.state))) {
     t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state}${row.displacementPx === 0 ? ' 0 px layout shift' : ''} ${JSON.stringify(row)}`);
   }
   t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all ${new Set(states.map(row => `${row.locale}/${row.theme}/${row.width}`)).size} viewport/theme/language combinations`);

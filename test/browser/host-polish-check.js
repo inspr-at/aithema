@@ -5,12 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
-import { fullMatrix } from './matrix-coverage.js';
+import { fullMatrix, a11yEvidenceMode } from './matrix-coverage.js';
 import { shadow, until, boxes, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 
 export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
+  // AIT-293: axe is manual evidence tooling, never part of the CI browser path.
+  // Nightly deliberately unsets CI for full matrices; it is still automated CI.
+  if (evidenceDirectory && a11yEvidenceMode) {
+    const { auditMainSurfaces } = await import('./a11y-evidence.js');
+    await auditMainSurfaces(t, evidenceDirectory);
+  }
   const directory = await mkdtemp(join(tmpdir(), 'aithema-host-polish-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
@@ -18,7 +24,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-286-composer');
   const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
+  const cdp = await page.createCDPSession(), checks = [], failure294Checks = [], shots = [], passLines = [], problems = [];
   // CI already requests light artifacts; preserve its cost while remote evidence adds dark.
   const themes = evidence && fullMatrix ? ['light', 'dark'] : ['light'];
   page.on('pageerror', error => problems.push(error.message));
@@ -45,9 +51,25 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
         if (window.polish280State === 'pause') c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
         return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
       }
+      if (window.ait294Settings && path.endsWith('/settings') && init.method === 'POST') {
+        const body = JSON.parse(init.body), settings = { revision: c.session.settings.revision + 1,
+          model: body.model, effort: body.effort, voice: body.voice, visuals: body.visuals, origin: 'chosen', at: new Date().toISOString() };
+        const engine = { preset: 'best', origin: 'chosen', effort: settings.effort, voice: 'off', visuals: 'off',
+          model: { id: settings.model, label: settings.model === 'mock' ? 'Mock reasoning' : 'Deep (mock)', offered: true } };
+        return Response.json({ processingPreset: 'best', settings, engine, unchanged: false,
+          event: { sessionId: c.session.id, seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best', settings } },
+          featureMatrix: c.session.featureMatrix, consent: { required: false, features: [] } });
+      }
       if (path.endsWith('/settings') && (init.method ?? 'GET') === 'GET') {
         const result = await original(url, init), catalog = await result.json();
         Object.assign(catalog, { processingPreset: 'best', settings: c.session.settings, engine: c.session.engine });
+        if (window.ait294Settings) {
+          const base = catalog.presets.best.models[0];
+          catalog.presets.best.models = [
+            { ...base, id: 'mock', label: 'Mock reasoning', efforts: ['none'], effort: 'none' },
+            { ...base, id: 'mock/deep', label: 'Deep (mock)', efforts: ['low', 'medium', 'high'], effort: 'medium' },
+          ];
+        }
         catalog.presets.eu = { offered: false, status: 'unavailable', reason: 'not configured' };
         catalog.presets.custom = { offered: false, status: 'unavailable', reason: 'not configured' };
         return Response.json(catalog);
@@ -313,10 +335,43 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
               return n.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n;
             }), visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved') };
           });
-          assert.equal(retained.text, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+          assert.equal(retained.text, `${copy.failed}${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
           assert.deepEqual(retained.actions, [true, true]); assert.equal(retained.visibleSaved, false);
           assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure with retained upload shifts 0 px`);
           await shot(label, theme, 'failure-retained-upload');
+          if (!touch && width === 390 && theme === 'light') {
+            for (const failureTheme of ['light', 'dark']) for (const failureWidth of [320, 360, 390, 1440]) {
+              await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: failureTheme }]);
+              await cdp.send('Emulation.setDeviceMetricsOverride', { width: failureWidth, height: 900, deviceScaleFactor: 1, mobile: false }); await settle();
+              const fit = await shadow(page, c => {
+                const line = c.shadowRoot.querySelector('.composer-reason'), copy = line.querySelector('.upload-retry-copy'), actions = line.querySelector('.upload-retry-actions');
+                const textRects = n => {
+                  const range = document.createRange(); range.selectNodeContents(n);
+                  return [...range.getClientRects()].filter(b => b.width > 1 && b.height > 1).map(b => [b.left,b.top,b.right,b.bottom]);
+                };
+                const detail = line.querySelector('.send-failure-detail'), hiddenDetail = getComputedStyle(detail).clipPath === 'inset(50%)';
+                const sentenceRects = textRects(line.querySelector('.question-why')).concat(hiddenDetail ? [] : textRects(detail));
+                const actionRects = textRects(actions);
+                return { height: line.clientHeight, scrollHeight: line.scrollHeight, width: line.clientWidth, scrollWidth: line.scrollWidth,
+                  copyHeight: copy.clientHeight, copyScrollHeight: copy.scrollHeight, hiddenDetail,
+                  short: line.querySelector('.send-failure-short')?.dataset.text ?? line.querySelector('.question-why').textContent, full: copy.textContent,
+                  separate: sentenceRects.every(a => actionRects.every(b => a[3] <= b[1])),
+                  actionsOneLine: actionRects.every(b => b[1] === actionRects[0][1]),
+                  noTrailingSeparator: !copy.textContent.trimEnd().endsWith('·') && !actions.textContent.trimEnd().endsWith('·') };
+              });
+              const failureLabel = `ait294-${locale}-${failureTheme}-${failureWidth}-send-failure`;
+              assert.ok(fit.scrollHeight <= fit.height && fit.copyScrollHeight <= fit.copyHeight, `${failureLabel}: no clipping ${JSON.stringify(fit)}`);
+              assert.ok(fit.scrollWidth <= fit.width, `${failureLabel}: no horizontal clipping ${JSON.stringify(fit)}`);
+              assert.equal(fit.separate, true, `${failureLabel}: no overlapping line boxes ${JSON.stringify(fit)}`);
+              assert.equal(fit.actionsOneLine, true); assert.equal(fit.noTrailingSeparator, true);
+              assert.equal(fit.hiddenDetail, failureWidth < 600); assert.equal(fit.short, copy.failedShort); assert.equal(fit.full, copy.failed);
+              failure294Checks.push({ pass: true, label: failureLabel, ...fit });
+              if (locale === 'de' && failureTheme === 'light' && [390,1440].includes(failureWidth)) await shot(failureLabel, failureTheme, 'retained-upload');
+            }
+            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }); await settle();
+          }
+
           await shadow(page, c => {
             window.polish280Verdict = { available: false, reason: 'current processing consent required' };
             c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
@@ -382,8 +437,85 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       passLines.push(`AIT-280 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights at 390/1280 with 24px safe area; ${evidence ? 144 : 0} viewport captures.`);
     }
   }
+  // AIT-294 r2: reuse this page after the native mouse/touch checks. Puppeteer
+  // viewport emulation resets Chrome’s native hover profile, so this matrix runs last.
+  const settings294Checks = [];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width: 390, height: 844 }); await page.select('#theme', theme);
+    await configure(locale, 'live');
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      window.ait294Settings = true;
+      const session = c.session; session.settings = { ...session.settings, model: 'mock', effort: 'none', origin: 'chosen' };
+      c.configure({ session, copy }); c.openSettings();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role="option"]').length === 2);
+    let baseline;
+    for (const model of ['fixed', 'adjustable', 'fixed']) {
+      await shadow(page, (c, model) => {
+        const r = c.shadowRoot;
+        r.querySelector('[data-select="model"] .select__button').click();
+        r.querySelector(`[data-select="model"] [data-value="${model === 'fixed' ? 'mock' : 'mock/deep'}"]`).click();
+      }, model);
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').getAttribute('aria-busy') === 'false');
+      const selection = await shadow(page, c => ({ model: c.session.settings.model, failed: c.shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed' }));
+      assert.equal(selection.failed, false, 'AIT-294: model switch is acknowledged without a save error');
+      assert.equal(selection.model, model === 'fixed' ? 'mock' : 'mock/deep', 'AIT-294: geometry follows the acknowledged model');
+      // Re-select the active preset to show its consequence line without changing the model.
+      await shadow(page, c => {
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+        c.shadowRoot.querySelector('.preset-option[data-preset="best"]').click();
+      });
+      await settle();
+      await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+      await page.mouse.move(-1, -1); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), { de, en }[locale].help.best,
+        'AIT-294: the preset consequence stays visible without phone gauges');
+      const metric = await shadow(page, c => {
+        const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x,b.y,b.width,b.height]; };
+        const model = r.querySelector('[data-text="model"]'), info = r.querySelector('.context-message');
+        const from = model.getBoundingClientRect().top, to = info.getBoundingClientRect().top, intervals = [];
+        const walker = document.createTreeWalker(r.querySelector('[data-panel="model"]'), NodeFilter.SHOW_TEXT);
+        for (let text; (text = walker.nextNode());) {
+          if (!text.textContent.trim() || !text.parentElement.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
+          const range = document.createRange(); range.selectNodeContents(text);
+          for (const b of range.getClientRects()) if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
+        }
+        // Painted controls occupy space too: the slider is content, not an empty text run.
+        for (const control of r.querySelectorAll('[data-panel="model"] :is(button,input)')) {
+          if (!control.checkVisibility({ visibilityProperty:true, opacityProperty:true })) continue;
+          const b = control.getBoundingClientRect();
+          if (b.bottom > from && b.top < to) intervals.push([Math.max(from,b.top),Math.min(to,b.bottom)]);
+        }
+        intervals.sort((a,b) => a[0]-b[0]); let end = from, maxEmptyPx = 0;
+        for (const [top,bottom] of intervals) { maxEmptyPx = Math.max(maxEmptyPx,top-end); end = Math.max(end,bottom); }
+        maxEmptyPx = Math.max(maxEmptyPx,to-end);
+        return { info: box(info), maxEmptyPx, intervals,
+          gauges: r.querySelector('.settings-overview').getBoundingClientRect().height,
+          slot: box(r.querySelector('.effort-area')), slider: box(r.querySelector('.effort')),
+          note: box(r.querySelector('.effort-note')),
+          areas: ['.settings__body','.settings-panel','.notice-area','.settings-overview','.settings-context','.context-text'].map(s => [s,box(r.querySelector(s))]) };
+      });
+      baseline ??= metric.info;
+      settings294Checks.push({ locale, theme, model, ...metric });
+      assert.equal(metric.gauges, 0, 'AIT-294: below 600px the entire gauge column has no footprint');
+      assert.ok(metric.maxEmptyPx <= 24, `AIT-294: no empty run taller than 24px: ${JSON.stringify(metric)}`);
+      assert.deepEqual(metric.info, baseline, 'AIT-294: info line moves exactly 0px between model types');
+      assert.equal(metric.slot[3], metric.slider[3], 'AIT-294: reservation is exactly the real slider height');
+      if (evidence && locale === 'de' && theme === 'dark') await shot('ait294-de-dark-390', theme, `settings-${model}`);
+    }
+    for (const width of [599, 600, 1024]) {
+      await page.setViewport({ width, height: 900 }); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.settings-overview').checkVisibility()), width >= 600,
+        `AIT-294: gauges follow the exact 600px breakpoint at ${width}`);
+    }
+    await shadow(page, c => { c.shadowRoot.querySelector('dialog.settings .done').click(); window.ait294Settings = false; });
+  }
+  assert.equal(settings294Checks.length, 12, 'AIT-294: both model directions in each locale and palette');
+  passLines.push('AIT-294 r2 PASS: Settings 390 DE/EN light/dark; empty runs <=24px; info line/model switch 0px; slider slot exact; gauges absent below 600px, retained at 600/1024.');
   assert.deepEqual(problems, []); assert.equal(checks.length, 18 * themes.length);
-  if (evidence) assert.equal(shots.length, 144 * themes.length);
+  assert.equal(failure294Checks.length, 16, 'AIT-294: every phone/desktop failure width, locale and palette');
+  if (evidence) assert.equal(shots.filter(s => !s.file.startsWith('ait294-')).length, 144 * themes.length);
   passLines.push('AIT-266 PASS: visuals absent/present; DE/EN, 1440/1280x860/390, touch/mouse.',
     'AIT-266 PASS: Mac/other keycaps; touch hint hidden; inline Saved 1600ms; composer/Send 0 px; 44 px Send.',
     'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all tested heights.');
@@ -392,8 +524,9 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   passLines.push('AIT-280 PASS: polite live-region reads count 1 for two saves within 10s; no typing announcements; text clears on hide.',
     'AIT-280 PASS: upload notice, retry and pause win visually; saved confirmation remains assistive-only; failure replaces hint/notice.',
     'AIT-280 PASS: composer/Send shift 0 px in every new state; short host legal links stay on one line at 390px.');
+  passLines.push('AIT-294 PASS: 320/360/390/1440 DE/EN light/dark send failure; short phone copy, full polite sentence, separate actions, no trailing separator, clipping or overlapping line boxes.');
   passLines.push('AIT-286 PASS: send failure and retained-upload failure share warning glyph/ink; consent opener underlined, native button, 44px coarse hit area; all transitions 0 px.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,
-    blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks, shots }, null, 2) + '\n');
+    blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks: [...checks, ...failure294Checks, ...settings294Checks], shots }, null, 2) + '\n');
 }

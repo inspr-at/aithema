@@ -51,7 +51,7 @@ test('migration gate keeps current legacy metadata and live evidence pending bef
 
 test('owner candidate authorization reserves without claiming publication or measured qualifications', () => {
   const candidate = reserveVersion(source, { now: '2026-10-15T16:46:01Z', candidateGo: true });
-  assert.equal(candidate.version, declared.version);
+  assert.equal(candidate.version, '261015164601.0.0');
   const gate = migrationGate(candidate, {});
   assert.equal(gate.authoritative, false);
   assert.ok(gate.pending.includes('presentation-pin'));
@@ -61,6 +61,18 @@ test('owner candidate authorization reserves without claiming publication or mea
   });
   const claimed = migrationGate(candidate, { 'AIT-139': { status: 'verified' }, 'AIT-160': { status: 'verified' } });
   assert.deepEqual(claimed.qualifications, gate.qualifications);
+});
+
+test('later candidate reservations advance the sequence while preserving the first calendar anchor', () => {
+  const first = reserveVersion(source, { now: '2026-10-15T16:46:01Z', candidateGo: true });
+  const next = reserveVersion({ ...first, status: 'unreserved' }, {
+    now: '2026-10-17T07:31:56Z', candidateGo: true, previous: first,
+  });
+  assert.equal(next.version, '261017073156.0.0');
+  assert.equal(next.release_sequence, 13);
+  assert.deepEqual(next.migration, first.migration);
+  assert.equal(compareVersions(first, next), -1);
+  assertReleaseTag('refs/tags/v261017073156.0.0', next);
 });
 
 test('historical release-manifest scheme declarations remain explicit, unchanged legacy records', () => {

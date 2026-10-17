@@ -11,6 +11,7 @@ import { EmailAsk } from '../src/email-ask.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+test.after(() => window.happyDOM.close());
 const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
@@ -19,7 +20,15 @@ function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480,
 const draftBytes = revision => new TextEncoder().encode(`<!doctype html><html><head><title>Draft</title></head><body><p>Revision ${revision}</p></body></html>`);
 function draft(id, extra = {}) { return item(id, { mediaType: 'text/html', width: undefined, height: undefined, visualKind: 'html',
   provenance: { origin: 'ai-generated', modality: 'html', generator: { provider: 'local-demo-fake' } }, ...extra }); }
-function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse, imageResponse } = {}) {
+function blurFixtureFocus() {
+  // Happy DOM cannot read a sibling ShadowRoot.activeElement while another
+  // fixture owns focus. Blur through the actual owner before mounting a peer.
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  active?.blur();
+}
+function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse, imageResponse, postResponse } = {}) {
+  blurFixtureFocus();
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
   session.transcript = [{ id: 'first', role: 'user', content: 'An API dashboard' }]; session.inputRevision = 1;
   session.concepts = concepts; session.conceptCost = { maxMicro: 1234 };
@@ -36,13 +45,21 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
     if (url.endsWith('/html')) return new Response(draftBytes(/(\d+)\/html$/u.exec(url)?.[1] ?? 0), { headers: { 'content-type': 'application/octet-stream' } });
     if (!options.body) return Response.json(c.session);
     if (refuse) return Response.json(refuse.body, { status: refuse.status });
+    if (postResponse) return postResponse(url, options);
     const body = JSON.parse(options.body); let event;
     if (url.endsWith('/feedback') || url.endsWith('/reject')) event = { seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: /\/concepts\/([^/]+)\/(?:feedback|reject)$/u.exec(url)[1],
       vote: body.vote, chips: body.chips, archived: url.endsWith('/reject') } };
     else event = { seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'waiting' } } };
     return Response.json({ event });
   });
-  c.configure({ copy, session, sessionToken, baseUrl }); t.after(() => c.remove());
+  c.configure({ copy, session, sessionToken, baseUrl });
+  t.after(async () => {
+    blurFixtureFocus();
+    // Most concept tests deliberately render without the session SSE transport.
+    // Native remove() has no lifecycle callback for an unattached fixture.
+    if (c.isConnected) c.remove(); else c.disconnectedCallback();
+    await tick();
+  });
   return { c, root: c.shadowRoot, calls, downloads, revoked };
 }
 test('viewer opens cached bytes without spending and has accessible title, count, keyboard navigation and disclosure', async t => {
@@ -108,6 +125,32 @@ test('a live pending update that disables the focused Regenerate keeps focus in 
     assert.ok(dialog.contains(root.activeElement), `${order}: focus is still inside after the new concept arrives`);
     c.remove();
   }
+});
+test('AIT-298: reject withdrawal timer is cancelled when its fixture disconnects', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const timeouts = t.mock.method(globalThis, 'setTimeout');
+  const clears = t.mock.method(globalThis, 'clearTimeout');
+  const { c, root } = setup(t); document.body.append(c);
+  root.querySelector('.concept-tab').click(); await tick();
+  root.querySelector('.concept-reject').click(); await tick();
+  const withdrawal = timeouts.mock.calls.find(call => call.arguments[1] === 4000);
+  assert.ok(withdrawal, 'reject schedules the withdrawal notice expiry');
+  c.remove();
+  assert.ok(clears.mock.calls.some(call => call.arguments[0] === withdrawal.result), 'disconnect cancels the withdrawal callback before another fixture owns focus');
+});
+test('AIT-298: a reject response after disconnect cannot restart the withdrawal timer', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const timeouts = t.mock.method(globalThis, 'setTimeout'), reply = Promise.withResolvers();
+  const { c, root } = setup(t, { postResponse: () => reply.promise }); document.body.append(c);
+  t.after(() => reply.resolve(Response.json({})));
+  root.querySelector('.concept-tab').click(); await tick();
+  root.querySelector('.concept-reject').click(); await tick();
+  const seq = c.session.seq + 1;
+  c.remove();
+  const before = timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length;
+  reply.resolve(Response.json({ event: { seq, type: 'concept.feedback', data: { artifactId: 'image1', vote: 'down', chips: [], archived: true } } }));
+  await tick();
+  assert.equal(timeouts.mock.calls.filter(call => call.arguments[1] === 4000).length, before, 'late POST completion cannot schedule work on the disconnected view');
 });
 test('reject archives the exact item and returns to conversation without a paid request', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();

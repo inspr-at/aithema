@@ -38,6 +38,10 @@ export const themeStyles = `:host { ${tokens('light')} }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) { ${tokens('dark')} } }`;
 
 export const styles = `${themeStyles}
+.gauge__unrated { display:none; }
+.gauge--unrated .gauge__inside { background:repeating-linear-gradient(135deg,var(--aithema-surface) 0 6px,var(--aithema-muted) 6px 7px,var(--aithema-surface) 7px 12px); }
+.gauge--unrated .gauge__level, .gauge--unrated .gauge__etch, .gauge--unrated .gauge__glint { visibility:hidden; }
+.gauge--unrated .gauge__unrated { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:block; padding:.1rem .25rem; border-radius:.2rem; background:var(--aithema-surface); color:var(--aithema-ink); font:600 1.4rem/1 var(--aithema-font); }
 :host { --aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; --aithema-mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
   --aithema-radius-sm:10px; --aithema-radius-md:18px; --aithema-radius-lg:28px;
@@ -371,6 +375,18 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
 .upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 .upload-retry-actions { flex:none; }
+.composer-reason[data-send-failed] { max-height:none; overflow:visible; }
+.composer-reason[data-send-failed]:has(.upload-discard) { padding-bottom:8px; }
+.composer-reason[data-send-failed] .upload-retry-copy { flex:none; overflow:visible; }
+.composer-reason[data-send-failed] .upload-retry-actions { white-space:nowrap; }
+.send-failure-short { display:none; }
+.send-failure-short::before { content:attr(data-text); }
+@media(width < 600px) {
+  .send-failure-short { display:inline; }
+  /* Visually omit the retry sentence, while the polite region retains it. */
+  .composer-reason[data-send-failed] :is(.send-failure-first,.send-failure-detail) { position:absolute; width:1px; height:1px;
+    padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+}
 .upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; overflow:visible; }
 .upload-retry-copy .consent-line-copy { min-width:0; max-height:1.25em; overflow-y:auto; }
 .upload-retry-copy .consent-action { flex:none; }
@@ -385,6 +401,9 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 @media(max-width:340px) {
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
+  .composer-actions:has(.composer-reason[data-send-failed]) { gap:0; }
+  .composer-reason[data-send-failed] { letter-spacing:-.03em; }
+  .composer-reason[data-send-failed] .consent-action { letter-spacing:inherit; }
   /* Keep the 12px DE label on one line with the wider Linux baseline font. */
   .composer-reason[data-consent-feature="text"] { letter-spacing:-.03em; }
   .composer-reason[data-consent-feature="text"] .consent-wide { display:none; }
@@ -535,6 +554,7 @@ summary:hover { background:color-mix(in srgb,var(--aithema-accent-soft) 50%,tran
 blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--aithema-muted); }
 .overview-retry, .reaction-failure > .retry { display:inline; padding:0; border:0; background:none; color:inherit; font:inherit; text-decoration:underline; text-underline-offset:.15em; cursor:pointer; }
 .understanding > .foot { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:1rem; row-gap:0; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
+.export { white-space:nowrap; flex:none; }
 .export, .create-project { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
 .understanding > .foot > .export { grid-area:1/1; justify-self:start; }
 .understanding > .foot > :is(.create-project,.retry) { grid-area:1/2; justify-self:end; }
@@ -552,7 +572,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 /* Reserve the action slot until the overview can become a project. */
 .understanding:not([data-overview="current"]) > .foot > .create-project { visibility:hidden; }
 .export:hover, .create-project:hover { color:var(--aithema-accent); background:transparent; }
-.export svg, .create-project svg { width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
+.export svg, .create-project svg { flex:none; width:1rem; height:1rem; } .retry { font-size:.75rem; white-space:nowrap; }
 
 /* Neutral scrollbars only during interaction. A stable gutter prevents hover from changing line wraps. */
 :is(.transcript-shell,.analysis-content):is(:hover,:focus-within,[data-scrolling]) { scrollbar-color:var(--aithema-line-strong) transparent; }

@@ -4,7 +4,7 @@ import { ConsentSettings } from './consent-settings.js';
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
 import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort, isConsentReason } from '../../core/src/settings.js';
-import { modelDisplayName } from './display.js';
+import { modelDisplayName, gaugeVialState } from './display.js';
 import { OperatorSettings } from './operator-settings.js';
 import { icon } from './icons.js';
 
@@ -141,7 +141,7 @@ export class SettingsDialog {
       <div class="gauge__glass" aria-hidden="true"><div class="gauge__inside"><div class="gauge__level">
         ${WAVES.map((d, i) => `<svg class="gauge__wave gauge__wave--${i ? 'front' : 'back'}" viewBox="0 0 400 36" preserveAspectRatio="none"><path d="${d}"/></svg>`).join('')}
         <div class="gauge__fluid"></div><span class="gauge__bubbles"></span></div><span class="gauge__glint"></span></div>
-        <span class="gauge__rim"></span><span class="gauge__etch">${svg(ETCH[kind], '0 0 32 32')}</span></div>
+        <span class="gauge__unrated">–</span><span class="gauge__rim"></span><span class="gauge__etch">${svg(ETCH[kind], '0 0 32 32')}</span></div>
       <figcaption><span class="gauge__label"></span><small class="gauge__detail"></small></figcaption></figure>`;
     const select = name => `<div class="select" data-select="${name}"><button type="button" class="select__button" id="settings-select-${name}"
       aria-haspopup="listbox" aria-expanded="false" aria-controls="settings-options-${name}" data-help="${name}"><span class="select__value"></span>${ICONS.chevron}</button>
@@ -659,6 +659,8 @@ export class SettingsDialog {
     node.dataset.help = 'gauge'; node.dataset.helpText = `${g.labels[kind]}${reasonSeparator}${value}${detail ? `: ${detail}` : ''}`;
     node.setAttribute('aria-label', `${g.labels[kind]}: ${value}${detail ? `, ${detail}` : ''}`);
     node.dataset.state = gauge.state;
+    node.classList.remove('gauge--unrated', 'gauge--measured');
+    node.classList.add(gaugeVialState(kind, gauge));
     if (kind === 'privacy' && gauge.state === 'hostCountries') node.tabIndex = 0; else node.removeAttribute('tabindex');
     const key = String(gauge.fill), changed = level.dataset.fill !== undefined && level.dataset.fill !== key;
     level.dataset.fill = key; level.style.setProperty('--empty', `${100 - gauge.fill}%`);

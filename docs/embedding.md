@@ -215,17 +215,26 @@ The overview controls follow these states:
 ## Host retention contract
 
 Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
-sessions**, without possessing visitor tokens. `before` is a nonnegative Unix
-millisecond timestamp; eligibility is strictly `lastActivity < before`. `limit`
+sessions** and finish removing visitor-erased conversations, without possessing
+visitor tokens. `before` is a nonnegative Unix millisecond timestamp; live-session
+eligibility is strictly `lastActivity < before`. Erased sessions are eligible on
+the next sweep after erase cancellation and the
+`host.erased` hook finish, regardless of `before`. Visitor erase and library delete
+queue retirement after that cleanup; direct storage erasure queues in the tombstone
+transaction. A crash before queuing leaves a tombstone for startup backfill.
+There is no additional idle window after erase or library delete. `limit`
 is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
 `retired` counts completed core erasures; `failed` counts sessions that failed
-this call; `more` means another eligible or due retry batch exists. Repeated and overlapping calls are safe. An interrupted
+this call; `more` means another eligible, due retry or historical tombstone batch
+exists. Repeated and overlapping calls are safe. An interrupted
 retirement is durably queued and retried, including the host cleanup hook.
 Hooks must therefore be idempotent. A failing session stays tombstoned and
 pending with a durable attempt count and exponential backoff (1 second up to
 1 hour); the batch continues. Deferred retries do not set `more`: call again
 on the maintenance schedule even when `more` is false. Monitor `failed`;
-host failures can delay deletion beyond the intended retention window.
+host failures and pending reconciliation for erased sessions can delay deletion
+beyond the intended retention window. Live-session retirement keeps its existing
+accounting behavior and does not wait for billing reconciliation.
 
 Last activity is the latest **server timestamp** of person- or host-initiated
 activity: session creation, turns and other committed session changes, authorized
@@ -273,8 +282,17 @@ for sessions already purged even if another session's hook fails.
 | Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
 
 SQLite uses `secure_delete` and truncates its WAL before acknowledging the
-full erase. Unreconciled deployment holds remain conservatively charged in
-aggregate; their deleted receipts can no longer be reconciled. Retained totals
+full erase. Visitor-erased sessions defer retirement while a budget attempt is open,
+while an associated spend reservation remains reserved or dispatched without an
+actual amount, or while a provider cost receipt has a non-null `retryAt`. Session
+and accounting metadata remain available during that pending work; content stays
+erased. Retirement checks before host cleanup and again in the core purge
+transaction, using durable backoff until those conditions clear. Terminal estimates
+with no scheduled retry, uncertain receipts with no future settlement, and voice
+`costEstimated` receipts alone do not block retirement. Their spend reservations
+are aggregated into `retired_spend` using the existing spent/reserved/uncertain
+categories, preserving conservative estimated amounts. Live-session retirement
+uses the same aggregation without the billing deferral. Retained totals
 are deployment spend/reserved/uncertain amounts and breach flags per account,
 render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
 On low-volume days, a daily total may reveal one session's usage. Daily buckets
@@ -332,10 +350,26 @@ const retentionTimer = setInterval(() => void retainIdleSessions().catch(reportR
 A 15-minute schedule normally deletes after 24 hours of inactivity **plus up to
 15 minutes and backlog/maintenance delays**. Privacy copy must reflect that
 window and distinguish idle retention from a fixed lifetime. The demo keeps its
-existing one-minute schedule and 365-day cutoff, retiring at most 100 sessions
-per tick. The older `expire(before)` only withdraws old turns/uploads; it is not
-a full-erasure contract. Both sweeps query an indexed live-session set, excluding
-tombstones and retired sessions without scanning historical session rows.
+existing one-minute schedule and 365-day cutoff for live sessions, retiring at
+most 100 sessions per tick. Visitor erase and library delete clear content
+immediately. After erase cleanup finishes, the next scheduled sweep attempts
+complete removal (the demo ticks every minute; the example above every 15 minutes).
+Actual removal waits for an eligible batch, any pending reconciliation described
+above, successful host retirement cleanup and the core purge/checkpoint; backlog,
+retry backoff and maintenance outages can delay it. Until successful retirement, the tombstoned
+session, value-free journal, hashes and accounting links remain. Afterward all
+core session rows are gone; only the deployment totals described above remain.
+Host privacy copy must describe these conditions and delays together with
+separate host/provider retention.
+
+Existing databases need no manual data rewrite: an additive partial index finds
+historical tombstones, and each `retire` call queues at most `limit` of them in ID
+order. Reopening safely restarts this bounded pass without resetting pending
+attempt counts or backoff. Run the sweep at startup and continue scheduled ticks
+even when `more` is false. The older `expire(before)` only withdraws old
+turns/uploads; it is not a full-erasure contract. Expiry and live retirement
+candidates use the indexed live-session set; tombstone backfill uses its own
+index and never hydrates the historical session set.
 
 ## Web components
 
@@ -824,12 +858,13 @@ alone does not guarantee extractability.
 ## Version source, release mapping and rollback
 
 `release/version.json` is the sole authority. The owner-authorized candidate reserves
-one UTC second with `status: reserved`, sequence 12 and scheme `inspr-calver-3`.
+one UTC second with `status: reserved`, an increasing `release_sequence` and
+scheme `inspr-calver-3`.
 `reserveVersion` accepts explicit candidate authorization separately from a
 publish go. A candidate reservation authorizes no tag or registry publication.
-The fixed `dry_run_version` remains test input only. Reuse it in every
-output; build machines never choose their own coordinate. The channel's next
-reservation must be strictly later; a same-second collision waits for the next
+The fixed `dry_run_version` remains test input only. Reuse the reserved
+coordinate in every candidate/release output; build machines never choose their
+own coordinate. The channel's next reservation must be strictly later; a same-second collision waits for the next
 second. Retain the candidate source commit and manifest digest; rebuild that exact commit
 with the same toolchain. The source-commit argument to `release:pack` allows that
 reproduction after evidence-only commits. Changed product bytes require a new
@@ -837,25 +872,28 @@ candidate and a new coordinate before publication.
 
 New reservations declare `inspr-calver-3` (**INSPR-CalVer3**),
 `YYMMDDhhmmss.0.0`; npm accepts this syntax. MINOR/PATCH stay zero and caret/tilde
-compatibility semantics do not apply. The packer derives package versions,
-exact internal dependency pins, lock entries and public plugin manifest versions
-without changing the development
-workspace manifests. External dependencies retain their exact lock closure.
+compatibility semantics do not apply. Workspace manifests and lock entries mirror
+the reserved coordinate with exact internal dependency pins. The packer also
+derives public plugin manifest versions from that source. External dependencies
+retain their exact lock closure.
 
-The historical release-order mapping is in `release/history.json` (the 11
-existing v0.x releases, ending `0.10.1`). It establishes ordinal 11 as the legacy
-anchor and ordinal 12 as the first reset release. The first calendar coordinate
-remains unset until actual reservation. Mixed-era ordering requires the explicit
-anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
+The historical release-order mapping is in `release/history.json`: the 11
+legacy v0.x releases, ending `0.10.1`, followed by the first October release,
+`261015164601.0.0` at ordinal 12. The migration anchor keeps that first calendar
+coordinate fixed; AIT-278 reserves the next release at ordinal 13. Mixed-era
+ordering requires the explicit anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
 identifier; v1 dates and legacy stable SemVer remain tagged types. No old tag,
 release, artifact or signed attestation is renamed, rewritten or republished.
 
-The existing PR unit job also acts as the dry-run job, retaining the seven CI checks. It runs `release/dry-run.mjs`: pack twice, compare exact bytes and manifest,
-verify every member, no upload. `release.yml` can build only on an already pushed
-tag, requires its commit to be an ancestor of `origin/main`, and checks that its exact name matches the reserved version before building
-one workspace tarball. Manual dispatch on a branch skips the pack job. The
-workflow has no npm/forge publication or tag-creation step. Its upload is only
-an ephemeral CI transfer after a future tag; it does not retain a forge release.
+The PR unit job runs `release/dry-run.mjs`: pack twice, compare exact bytes and
+manifest, and verify every member. It also runs the candidate and isolated
+consumer checks; CI retains preparation artifacts for 90 days. `release.yml`
+accepts only a pushed tag whose exact name matches the reservation and whose
+commit belongs to `origin/main`. That tag job builds and tests the shipped
+archives, attests them and publishes the immutable GitHub release. There is no
+manual publication trigger or npm publication. The builder creates no tag;
+OPS follows [the release runbook](../release/README.md) after Tick's QA and
+Markus's Desk go.
 Canonical release bytes use Node 24/GNU tar in CI. Byte reproducibility is
 verified per runner; reproducibility across machines is out of scope. BSD tar
 can prove two local packs identical but is not claimed to reproduce GNU bytes.
@@ -1028,7 +1066,7 @@ proof. They are omitted from module tarballs. Exact source-to-target proof edges
 in the boundary checker retain their internal imports while avoiding a public
 composed-component API. Neither `/composed-voice` nor `/voice-components` is
 exported. The packer rejects admitted runtime modules that import unpublished
-code. See [next-release notes](../release/next-notes.md) for the identity API change.
+code. See [release notes](../release/notes.md) for the identity API change.
 
 
 ### Core subpath decisions (AIT-202)
@@ -1039,7 +1077,7 @@ These are explicit public contracts, not permission to import arbitrary `src/`
 files. The root remains the normal host entrypoint. AIT-202 adds no core or
 server package subpath. The public server `/local-voice-identity` retains only
 `isLocalVoice`; AIT-218's always-throwing `markLocalVoice` compatibility export is
-removed in the next release. Hosts cannot enroll providers as the simulator.
+removed in this release. Hosts cannot enroll providers as the simulator.
 
 | Core subpath | Keep reason and actual consumer |
 | --- | --- |

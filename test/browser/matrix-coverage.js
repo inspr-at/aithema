@@ -1,6 +1,8 @@
 // AIT-192: CI artifact directories must not accidentally enable the full matrix.
 // Nightly invokes the browser command with CI unset and an evidence directory.
 export const fullMatrix = Boolean(process.env.AITHEMA_EVIDENCE_DIR) && !process.env.CI;
+// AIT-293: nightly unsets CI for its matrix, but must never run the manual axe audit.
+export const a11yEvidenceMode = fullMatrix && !process.env.GITHUB_ACTIONS;
 
 // Keep every state in each original locale/theme. A state group includes any
 // transitions whose geometry must be compared at the same width. Group offsets

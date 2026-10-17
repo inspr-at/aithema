@@ -280,7 +280,7 @@ export async function displayMatrix(t, section) {
         }
         assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
         assert.ok(footer.amount >= 600); assert.equal(footer.total, 400); assert.equal(footer.unit, 400);
-        assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 680);
+        assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 600);
         const before = await boxes(page, ['.connection-timer', '.engine-info', '.ai-notice', '.host-credits']);
         await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '1:00:00'; });
         sameBoxes(before, await boxes(page, ['.connection-timer', '.engine-info', '.ai-notice', '.host-credits']), 'reserve after digits prevents jitter');
@@ -567,7 +567,7 @@ export async function displayMatrix(t, section) {
       assert.ok(row.items.every(b => b.left >= 0 && b.right <= width + .5), `${width}-${theme}-${locale}: footer fits`);
       assert.ok(row.items.every(b => Math.abs(b.top - row.items[0].top) <= .5), 'one footer line');
       assert.ok(row.items[0].right <= row.items[1].left + .5 && row.items[1].right <= row.items[2].left + .5, 'footer zones never overlap');
-      assert.equal(row.short, width < 680); assert.equal(row.version, width >= 680); assert.equal(row.unit, width >= 360);
+      assert.equal(row.short, width < 600); assert.equal(row.version, width >= 600); assert.equal(row.unit, width >= 360);
       await shot('footer-narrow', width, theme);
       for (const [selector, name] of [['.engine-info', 'flag-hover-open'], ['.ai-notice', 'footer-popup-open'], ['.host-credits', 'credits-popup-open']]) {
         await page.hover(`aithema-session >>> ${selector}`); await settle();

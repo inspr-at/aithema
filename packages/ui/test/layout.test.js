@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, ConnectionTimer, footerMode, ConversationFold } from '../src/layout.js';
+import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, ConnectionTimer, footerMode, fitFooter, PhoneComposerViewport, ConversationFold } from '../src/layout.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 import { palette } from '../src/styles.js';
@@ -28,16 +28,51 @@ test('connection time crosses minute and hour boundaries, pads fields and uses e
   now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00', 'a reconnect starts a new interval'); timer.destroy();
 });
 
-test('footer narrowing reserves the 1024 credit gap with 1100/680 boundaries', () => {
+test('footer narrowing reserves the 1024 credit gap and keeps product identity down to 600px', () => {
   assert.deepEqual(footerMode(1440), { voice: true, identity: true, limit: true, connected: true, unit: true });
   assert.equal(footerMode(1100).voice, true); assert.equal(footerMode(1099).voice, false); assert.equal(footerMode(1024).voice, false);
   assert.deepEqual(footerMode(768), { voice: false, identity: true, limit: true, connected: true, unit: true });
-  assert.equal(footerMode(680).identity, true); assert.equal(footerMode(679).identity, false);
+  assert.equal(footerMode(600).identity, true); assert.equal(footerMode(599).identity, false);
   for (const width of [700, 701]) assert.deepEqual(footerMode(width), { voice: false, identity: true, limit: true, connected: true, unit: true });
-  for (const width of [680, 699]) assert.deepEqual(footerMode(width), { voice: false, identity: true, limit: false, connected: false, unit: true });
-  assert.deepEqual(footerMode(600), { voice: false, identity: false, limit: false, connected: false, unit: true });
+  for (const width of [600, 680, 699]) assert.deepEqual(footerMode(width), { voice: false, identity: true, limit: false, connected: false, unit: true });
   for (const width of [599, 390, 360]) assert.deepEqual(footerMode(width), { voice: false, identity: false, limit: false, connected: false, unit: true });
   for (const width of [359, 320]) assert.deepEqual(footerMode(width), { voice: false, identity: false, limit: false, connected: false, unit: false });
+});
+
+test('AIT-294: measured footer drops AI copy, then timer, then role and restores them when space returns', () => {
+  let available = 1000;
+  const measured = [], widths = { full: 1000, identity: 800, timer: 700, role: 500 };
+  const footer = { dataset: {}, querySelector: () => ({
+    children: [{ hidden:false, getClientRects: () => [1], getBoundingClientRect: () => {
+      measured.push(footer.dataset.fit); return { left:0, right:widths[footer.dataset.fit] };
+    } }], getBoundingClientRect: () => ({ left:0, right:available }),
+    get clientWidth() { return available; },
+    get scrollWidth() { return widths[footer.dataset.fit]; },
+  }) };
+  for (const [width, mode, attempts] of [[1000, 'full', ['full']], [999, 'identity', ['full', 'identity']],
+    [799, 'timer', ['full', 'identity', 'timer']], [699, 'role', ['full', 'identity', 'timer', 'role']],
+    [1000, 'full', ['full']]]) {
+    available = width; measured.length = 0;
+    assert.equal(fitFooter(footer), mode); assert.deepEqual(measured, attempts);
+  }
+});
+
+test('AIT-294: footer collisions yield the timer even when scrollWidth fits', () => {
+  const footer = { dataset: {}, querySelector: () => row };
+  const zone = (left, right) => ({ hidden:false, clientWidth:100, scrollWidth:100,
+    getClientRects: () => [1], getBoundingClientRect: () => ({ left, right }) });
+  const row = { clientWidth:600, scrollWidth:600, getBoundingClientRect: () => ({ left:0, right:600 }),
+    get children() { return [zone(0, 100), zone(200, 350), zone(footer.dataset.fit === 'timer' ? 374 : 330, 600)]; } };
+  assert.equal(fitFooter(footer), 'timer');
+});
+
+test('AIT-294: an open absolute popover does not consume footer space', () => {
+  const zone = { hidden:false, clientWidth:100, scrollWidth:372, getClientRects: () => [1],
+    getBoundingClientRect: () => ({ left:0, right:100 }) };
+  const row = { children:[zone], clientWidth:600, scrollWidth:900,
+    getBoundingClientRect: () => ({ left:0, right:600 }) };
+  const footer = { dataset:{}, querySelector: () => row };
+  assert.equal(fitFooter(footer), 'full');
 });
 
 test('fold hides the whole middle, updates its two-line message and restores both scroll positions through incoming content', async t => {
@@ -73,4 +108,29 @@ test('round-2 band, strip and footer text tokens retain 4.5:1 contrast in both t
 
 test('AIT-188 L2c: composer ellipsis stays attached to the preceding word in DE/EN', () => {
   for (const copy of [de, en]) assert.match(copy.placeholder, /\u00a0…$/u);
+});
+
+
+test('AIT-298: same-width footer text mutations keep the fit cache; changed zone width refits', async t => {
+  const window = new Window();
+  t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><span>0:01</span><span>Connected</span></div></footer></div>`;
+  const footer = root.querySelector('footer'), zone = footer.querySelector('span');
+  let width = 40;
+  zone.getBoundingClientRect = () => ({ width, left: 0, right: width });
+  zone.getClientRects = () => [zone.getBoundingClientRect()];
+  const viewport = new PhoneComposerViewport(root);
+  t.after(() => viewport.destroy());
+  const changes = [], observer = new window.MutationObserver(records => changes.push(...records));
+  observer.observe(footer, { attributes: true, attributeFilter: ['data-fit'] });
+  t.after(() => observer.disconnect());
+  zone.textContent = '0:02';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes.length, 0, 'a timer tick with the same geometry does not refit');
+  width = 80; zone.textContent = 'Longer text';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(changes.length > 0, 'text that changes a zone width must refit');
 });

@@ -50,6 +50,7 @@ export function paintFailureLine(line, words, suffix = '') {
 
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
+  #lifetime = 0;
   #session; #selected; #latest; #seen = new Set(); #seenLoaded = false; #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #canvasEpoch = 0; #canvasCopy; #stageFeature;
   #unbound = false; #imageLayout = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
@@ -169,6 +170,7 @@ export class ConceptView {
     if (!this.#timer) { this.#timer = setInterval(() => this.progress(), 1000); this.#timer.unref?.(); }
   }
   suspend() {
+    this.#lifetime++; this.#busy = false;
     this.#phone.removeEventListener('change', this.#placeAccess);
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
@@ -635,28 +637,30 @@ export class ConceptView {
     if (this.#busy || !this.feature().available || !draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature: this.feature() }).action || this.#session.conceptStatus?.phase === 'pending') return;
     const sourceTurnId = this.#session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id;
     if (!sourceTurnId) return;
-    const focused = this.root.activeElement; this.#busy = true; this.#requestError = null; this.gates(); const sessionId = this.#session.id;
+    const focused = this.root.activeElement; this.#busy = true; this.#requestError = null; this.gates(); const sessionId = this.#session.id, lifetime = this.#lifetime;
+    const active = () => lifetime === this.#lifetime && sessionId === this.#session.id;
     try {
       const response = await postJson(this.sameOrigin(this.path(artifactId ? `/${artifactId}/regenerate` : '')),
         { clientEventId: crypto.randomUUID(), intent: true, sourceTurnId }, { sessionToken: this.sessionToken });
       if (!response.ok) throw Object.assign(new Error(), { reason: (await response.json().catch(() => null))?.reason });
-      const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
+      const ack = await response.json(); if (active()) this.receive(ack.event);
     } catch (error) {
       // A refusal with a known reason (a limit, the spending cap) says so in plain words.
-      if (sessionId === this.#session.id) { this.#requestError = typeof error.reason === 'string' ? sentence(reasonText(this.copy, error.reason, this.visualKind() === 'html' ? 'html' : 'images')) : this.copy.conceptFailed; this.render(); }
+      if (active()) { this.#requestError = typeof error.reason === 'string' ? sentence(reasonText(this.copy, error.reason, this.visualKind() === 'html' ? 'html' : 'images')) : this.copy.conceptFailed; this.render(); }
     }
-    finally { this.#busy = false; this.gates(); this.refocus(focused); }
+    finally { if (active()) { this.#busy = false; this.gates(); this.refocus(focused); } }
   }
   async feedback(vote, chips, reject = false) {
     const current = this.current(); if (this.#busy || !current || !this.feature().available || chips.length > 8) return;
-    const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id;
+    const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id, lifetime = this.#lifetime;
+    const active = () => lifetime === this.#lifetime && sessionId === this.#session.id;
     try {
       const response = await postJson(this.sameOrigin(this.path(`/${current.id}/${reject ? 'reject' : 'feedback'}`)),
         { clientEventId: crypto.randomUUID(), vote, chips }, { sessionToken: this.sessionToken });
       if (!response.ok) throw new Error(); const ack = await response.json();
-      if (sessionId === this.#session.id) { this.receive(ack.event); if (reject) this.close(); }
-    } catch { this.root.querySelector('.concept-viewer-message').textContent = this.copy.controlFailed; }
-    finally { this.#busy = false; this.gates(); this.refocus(focused); }
+      if (active()) { this.receive(ack.event); if (reject) this.close(); }
+    } catch { if (active()) this.root.querySelector('.concept-viewer-message').textContent = this.copy.controlFailed; }
+    finally { if (active()) { this.#busy = false; this.gates(); this.refocus(focused); } }
   }
   async download() {
     const current = this.current(); if (!current) return;

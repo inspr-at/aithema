@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
-import { assertMatrixCaseCount, fullMatrix, matrixWidths } from './matrix-coverage.js';
+import { assertMatrixCaseCount, fullMatrix, a11yEvidenceMode, matrixWidths } from './matrix-coverage.js';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -1426,7 +1426,16 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       if (state === 'hover') await notice.hover();
       else { await notice.focus(); await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift'); await page.keyboard.press('Tab');
         assert.equal(await notice.evaluate(n => n.getRootNode().activeElement === n && n.matches(':focus-visible')), true); }
-      await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
+      try {
+        await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
+      } catch (error) {
+        const footer = await shadow(page, c => {
+          const r = c.shadowRoot, entry = r.querySelector('.footer-info'), row = r.querySelector('.display-foot__row');
+          return { fit:r.querySelector('.display-foot').dataset.fit, scrollWidth:row.scrollWidth, clientWidth:row.clientWidth,
+            hover:entry.matches(':hover'), focus:entry.matches(':focus-within'), dismissed:entry.hasAttribute('data-dismissed'), active:r.activeElement?.className };
+        });
+        error.message += ` (${locale}/${width}/${state}: ${JSON.stringify(footer)})`; throw error;
+      }
       const metrics = await popupMetrics();
       for (const data of Object.values(metrics.textLines)) assert.ok(data.contrast >= 4.5);
       assert.deepEqual(metrics.rhythm, [8, 2, 2, 8]);
@@ -1917,4 +1926,4 @@ import { hostChromeCheck } from './host-chrome-check.js';
 test('AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN', { timeout: fullMatrix ? 300_000 : 90_000 }, hostChromeCheck);
 
 import { hostPolishCheck } from './host-polish-check.js';
-test('AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390', { timeout: 120_000 }, t => hostPolishCheck(t, { evidenceDirectory: process.env.AITHEMA_EVIDENCE_DIR }));
+test('AIT-266: host polish five decisions, DE/EN touch/mouse 1440/1280x860/390', { timeout: a11yEvidenceMode ? 600_000 : 120_000 }, t => hostPolishCheck(t, { evidenceDirectory: process.env.AITHEMA_EVIDENCE_DIR }));

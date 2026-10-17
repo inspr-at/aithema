@@ -940,3 +940,20 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     }
   });
 }
+
+for (const copy of [de, en]) for (const rated of [false, true]) {
+  test(`AIT-292 ${copy.display.locale}: ${rated ? 'real zero' : 'no rating'} renders the correct vial class`, async t => {
+    const h = await opened(fixture(t, { copy, loadCatalog(catalog) {
+      catalog.presets.best.models[0].facts.quality = rated
+        ? { score: 0, source: { name: 'Fixture', url: 'https://example.test/rating', asOf: '2026-10-17' } } : null;
+      return catalog;
+    } }));
+    const gauge = h.q('[data-gauge="quality"]');
+    assert.equal(gauge.classList.contains('gauge--unrated'), !rated);
+    assert.equal(gauge.classList.contains('gauge--measured'), rated);
+    assert.equal(gauge.querySelector('.gauge__unrated').textContent, '–');
+    assert.equal(gauge.querySelector('.gauge__glass').getAttribute('aria-hidden'), 'true');
+    assert.equal(gauge.querySelector('.gauge__level').dataset.fill, '0');
+    assert.equal(h.q('[data-gauge="cost"]').classList.contains('gauge--measured'), true, 'known free cost is a real zero');
+  });
+}

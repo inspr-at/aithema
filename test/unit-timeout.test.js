@@ -9,6 +9,10 @@ import { UNIT_FILE_TIMEOUT_MS } from '../scripts/unit-watchdog.js';
 
 const watchdog = fileURLToPath(new URL('../scripts/unit-watchdog.js', import.meta.url));
 
+function workerEnvironment() {
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT; return env;
+}
+
 test('AIT-193: npm test applies the three-minute deadline and watchdog to every worker', () => {
   const command = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts.test;
   assert.equal(UNIT_FILE_TIMEOUT_MS, 180_000);
@@ -24,7 +28,7 @@ for (const [name, body] of [
   try {
     const fixture = join(directory, `${name}.test.cjs`);
     writeFileSync(fixture, `const test = require('node:test');\nconst { armUnitWatchdog } = require(${JSON.stringify(watchdog)});\narmUnitWatchdog(200);\n${body}\n`);
-    const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
+    const childEnv = workerEnvironment();
     const result = spawnSync(process.execPath, ['--test', '--test-timeout=200', '--import', watchdog, fixture], {
       env: childEnv, encoding: 'utf8', timeout: 5000, detached: true,
     });
@@ -35,5 +39,40 @@ for (const [name, body] of [
     assert.match(output, new RegExp(`${name}\\.test\\.cjs`, 'u'));
     assert.match(output, /timed out|testTimeoutFailure/u);
     assert.match(output, /Active resources:/u);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('AIT-298: file timeout identifies the completed subtest and open-handle creation site', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-diagnostic-'));
+  try {
+    const fixture = join(directory, 'owned-handle.test.cjs');
+    writeFileSync(fixture, `const test = require('node:test');
+const { armUnitWatchdog } = require(${JSON.stringify(watchdog)});
+armUnitWatchdog(200);
+test('leaking wallet poll', () => { setInterval(function walletPoll() {}, 1000); });`);
+    const childEnv = workerEnvironment();
+    const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /Last completed subtest: leaking wallet poll/);
+    assert.match(output, /Open Timeout .*created in leaking wallet poll/);
+    assert.match(output, /owned-handle\.test\.cjs:4/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('AIT-298: late uncaught callbacks print their error stack and originating subtest', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-uncaught-'));
+  try {
+    const fixture = join(directory, 'late-callback.test.cjs');
+    writeFileSync(fixture, `const test = require('node:test');
+test('reject concept', () => { setTimeout(function withdrawalNotice() { throw new TypeError('gone getRootNode'); }, 40); });`);
+    const childEnv = workerEnvironment();
+    const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /Unit uncaught error:/);
+    assert.match(output, /Async origin: reject concept/);
+    assert.match(output, /TypeError: gone getRootNode/);
+    assert.match(output, /withdrawalNotice .*late-callback\.test\.cjs:2/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
