@@ -162,7 +162,7 @@ export async function hostChromeCheck(t) {
     await shadow(page, async c => {
       const session = c.session; session.transcript = []; session.settings.origin = null;
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ copy, session, host: { library: true, credits } });
+      c.configure({ copy, session, host: { library: true } });
     });
     await settle();
     const { result } = await accessibility.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".status")' });

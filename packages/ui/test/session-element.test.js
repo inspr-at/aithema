@@ -562,7 +562,7 @@ test('pause and consent gate sends and preset rows immediately while cached unde
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
   assert.match(root.querySelector('.features').textContent, /Conversation paused/);
-  assert.equal(root.querySelector('.status__label').textContent, en.connecting, 'the status line keeps its connection state during pause');
+  assert.equal(root.querySelector('.status__label').textContent, en.connectionLabels.connecting, 'the status line keeps its connection state during pause');
   assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
   assert.equal(root.querySelector('.readiness').style.visibility, '');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
