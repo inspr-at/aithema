@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { Window } from 'happy-dom';
-import { createSession } from '@inspr/aithema-core';
+import { createSession, inputRevision } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 const window = new Window({ url: 'http://localhost/' });

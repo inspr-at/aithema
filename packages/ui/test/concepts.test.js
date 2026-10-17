@@ -20,7 +20,15 @@ function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480,
 const draftBytes = revision => new TextEncoder().encode(`<!doctype html><html><head><title>Draft</title></head><body><p>Revision ${revision}</p></body></html>`);
 function draft(id, extra = {}) { return item(id, { mediaType: 'text/html', width: undefined, height: undefined, visualKind: 'html',
   provenance: { origin: 'ai-generated', modality: 'html', generator: { provider: 'local-demo-fake' } }, ...extra }); }
+function blurFixtureFocus() {
+  // Happy DOM cannot read a sibling ShadowRoot.activeElement while another
+  // fixture owns focus. Blur through the actual owner before mounting a peer.
+  let active = document.activeElement;
+  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+  active?.blur();
+}
 function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse, imageResponse, postResponse } = {}) {
+  blurFixtureFocus();
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
   session.transcript = [{ id: 'first', role: 'user', content: 'An API dashboard' }]; session.inputRevision = 1;
   session.concepts = concepts; session.conceptCost = { maxMicro: 1234 };
@@ -45,7 +53,7 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
     return Response.json({ event });
   });
   c.configure({ copy, session, sessionToken, baseUrl }); document.body.append(c);
-  t.after(async () => { c.remove(); await tick(); });
+  t.after(async () => { if (document.activeElement === c) blurFixtureFocus(); c.remove(); await tick(); });
   return { c, root: c.shadowRoot, calls, downloads, revoked };
 }
 test('viewer opens cached bytes without spending and has accessible title, count, keyboard navigation and disclosure', async t => {

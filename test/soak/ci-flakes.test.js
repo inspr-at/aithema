@@ -8,8 +8,9 @@ import { join } from 'node:path';
 const files = ['packages/ui/test/concepts.test.js', 'packages/ui/test/host-surface.test.js',
   'packages/ui/test/host-credits.test.js', 'packages/ui/test/host-settlement.test.js', 'packages/ui/test/host-limits.test.js',
   'packages/ui/test/layout.test.js', 'plugins/codex-imagegen/test/codex-imagegen.test.js', 'test/unit-timeout.test.js'];
-async function run(label, args, extra = {}) {
-  const env = { ...process.env, ...extra }; delete env.NODE_TEST_CONTEXT;
+async function run(label, args) {
+  const env = { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
+    CHROME_PATH: process.env.CHROME_PATH, AITHEMA_EVIDENCE_DIR: process.env.AITHEMA_EVIDENCE_DIR };
   if (label.startsWith('browser-')) delete env.AITHEMA_EVIDENCE_DIR;
   const started = performance.now();
   const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
