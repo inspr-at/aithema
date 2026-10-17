@@ -1,3 +1,4 @@
+import { evidenceCommit, settleEvidenceFrame } from './start2-display-helpers.js';
 import { mockConsent } from './consent-helpers.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 // AIT-104 B2: the host surface in a real browser against the default mock demo with its labelled
@@ -8,7 +9,7 @@ import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -427,13 +428,41 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url); await shadow(page, '.composer');
   const original = await inShadow(page, c => c.session);
+  const export294Checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const assertExport = async (locale, surface) => {
+    for (const width of [320, 360, 390]) {
+      await page.setViewport({ width, height: 844 }); await settleEvidenceFrame(page);
+      const metric = await inShadow(page, (c, surface) => {
+        const link = c.shadowRoot.querySelector(surface), b = link.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(link.querySelector('span') ?? link);
+        const lines = [...range.getClientRects()].filter(r => r.width > 0);
+        const icon = link.querySelector('svg'), i = icon.getBoundingClientRect();
+        const container = link.closest('.composer-out') ?? link.closest('.foot'), p = container.getBoundingClientRect();
+        return { lines: new Set(lines.map(r => r.y)).size, left: b.left, right: b.right, width: b.width,
+          contained: b.left >= p.left && b.right <= p.right && b.bottom <= p.bottom,
+          icon: icon.checkVisibility({ visibilityProperty:true }), iconAligned: i.right <= lines[0]?.left && i.top >= b.top && i.bottom <= b.bottom,
+          overflow: container.scrollWidth - container.clientWidth };
+      }, surface);
+      assert.equal(metric.lines, 1, `AIT-294: ${locale}/${width}/${surface} export has one line box: ${JSON.stringify(metric)}`);
+      assert.equal(metric.icon, true); assert.equal(metric.iconAligned, true);
+      assert.equal(metric.contained, true, `AIT-294: export stays in its surface: ${JSON.stringify(metric)}`);
+      assert.equal(metric.overflow, 0); assert.ok(metric.left >= 0 && metric.right <= width);
+      export294Checks.push({ head: evidenceCommit, locale, width, surface, pass: true, ...metric });
+    }
+  };
+  const shot294 = async name => {
+    if (!evidence) return;
+    await mkdir(evidence, { recursive:true }); await settleEvidenceFrame(page);
+    await page.screenshot({ path: join(evidence, name), fullPage:false, captureBeyondViewport:false });
+  };
   // Reuse a single page/browser for this state-only matrix. The server's actual
   // deadline and spend paths are covered with fake clocks in the unit suite.
   for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
     const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason].body;
     await page.setViewport({ width: 390, height: 844 });
     await inShadow(page, (c, { original, locale, reason, copy }) => {
-      const session = { ...original, locale, credits: null, transcript: [] };
+      const session = { ...original, locale, credits: null, transcript: [],
+        understanding: { ...original.understanding, summary: 'A website for our bakery.', readinessAssessed: true } };
       // AIT-260: preserve the bound-voice terminal-disable path.
       c.configure({ copy, session, voiceClient: {}, host: { credits: true } });
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
@@ -461,6 +490,9 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     assert.ok(state.transcript.length > 0);
     assert.equal(await page.evaluate(async href => (await fetch(href)).status, state.href), 200);
     assert.equal(await overflow(page), 0);
+    await assertExport(locale, '.composer-out__export');
+    await assertExport(locale, '.export');
+    if (locale === 'de' && reason === 'one-hour') await shot294('390-de-one-hour-light.png');
     if (process.env.AITHEMA_EVIDENCE_DIR && locale === 'de' && reason !== 'session') {
       await page.setViewport({ width: 1440, height: 1000 });
       await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
@@ -524,6 +556,10 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       assert.ok(geometry.heights.every(height => height >= 44), 'both actions retain 44 px touch targets');
       assert.equal(await overflow(page), 0);
       t.diagnostic(`PASS AIT-291 r2 ${locale}/${width}/${variant}: 0 px; primary upgrade + independent export; 44 px targets`);
+      if (width === 390) {
+        await assertExport(locale, '.composer-out__export');
+        if (locale === 'de' && variant === 'upgrade') await shot294('390-de-host-limit-upgrade-light.png');
+      }
       if (process.env.AITHEMA_EVIDENCE_DIR && locale === 'de' && width === 1440) {
         const [x, y, cropWidth, height] = geometry.clip;
         assert.ok(y >= 0 && y + height <= 1000, 'crop stays inside the viewport');
@@ -532,6 +568,10 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       }
     }
   }
+  assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
+  const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
+  t.diagnostic(export294Pass);
+  if (evidence) await writeFile(join(evidence, 'ait294-r2-export-checks.json'), JSON.stringify({ head:evidenceCommit, passLines:[export294Pass], checks:export294Checks }, null, 2));
   // AIT-291 release evidence reuses this browser and page; unit tests own the gauge matrix.
   if (process.env.AITHEMA_EVIDENCE_DIR) {
     await page.setViewport({ width: 1440, height: 1000 });

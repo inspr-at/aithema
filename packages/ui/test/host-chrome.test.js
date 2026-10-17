@@ -85,6 +85,16 @@ test('AIT-260: changing device connector and voice binding keeps teardown render
   }
 });
 
+for (const copy of [de, en]) test(`AIT-294: ${copy.display.locale} footer reserves the same short labels before/after voice binds`, () => {
+  const c = configure(copy.display.locale), session = c.session;
+  const reservation = () => [...c.shadowRoot.querySelectorAll('.status__sizer > span')].map(n => n.textContent);
+  const before = reservation();
+  assert.deepEqual(before, Object.values(copy.connectionLabels));
+  for (const voiceClient of [{}, undefined]) {
+    c.configure({ copy, session, voiceClient }); assert.deepEqual(reservation(), before);
+  }
+});
+
 for (const locale of ['de', 'en']) {
   test(`AIT-260: no-voice resume is acknowledged, retryable and preserves the draft, ${locale}`, async t => {
     const c = configure(locale), root = c.shadowRoot, copy = { en, de }[locale];
