@@ -44,6 +44,12 @@ export const browserTestWeights = readBrowserTestWeights();
 browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
   browserTestWeights['test/browser/start2-display-geometry.test.js'], 110.564);
 
+// AIT-282: mbp2606 run 7b8241674c-23959 measured the expanded existing
+// html-preview workload at 6.032196s + 16.802788s = 22.834984s. Reserve its
+// measured total plus the usual 25% warmup margin until rolling CI catches up.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 28.544);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;

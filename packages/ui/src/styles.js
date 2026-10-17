@@ -234,6 +234,7 @@ svg { display:block; flex:none; }
 .workspace[data-concept-layout="image"] .drafts-reason-reserve { display:none; }
 .workspace[data-concept-layout="image"] .concept-rail .concept-request { grid-area:1/2; align-self:center; margin-left:0; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { grid-template-columns:22px minmax(0,1fr) auto; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:" · "; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { grid-area:1/3; }
 .workspace[data-concept-layout="image"] .concept-access:is([data-state="ready"],[data-state="gone"],[data-state="none"],[data-state="empty"]) .concept-rail { visibility:hidden; }
@@ -264,8 +265,9 @@ svg { display:block; flex:none; }
   .workspace[data-concept-layout="image"] .concept-bottom { position:static; width:auto; align-self:center; margin-left:66px; }
   .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { grid-template-columns:22px minmax(0,1fr); }
   .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity { align-self:start; }
+  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:none; }
   .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { font-size:13px; line-height:17px; }
-  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { grid-area:1/2; align-self:end; min-height:22px; padding:0; font-size:13px; line-height:22px; }
+  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { grid-area:1/2; align-self:stretch; min-height:44px; padding:17px 0 0; font-size:13px; line-height:22px; }
 }
 :host([motion="off"]) :is(.concept-backdrop,.concept-preview) img { transition:none; }
 @media(prefers-reduced-motion:reduce) { :is(.concept-backdrop,.concept-preview) img { transition:none; } }

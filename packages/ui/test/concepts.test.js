@@ -506,10 +506,11 @@ test('AIT-282: an old conversation response cannot paint a new conversation, eve
   let resolve; const oldBytes = new Promise(r=>{resolve=r;});
   const png=()=>new Response(new Uint8Array([137,80,78,71]),{headers:{'content-type':'image/png'}});
   const {c,root:oldRoot,calls}=setup(t,{session:{id:'owner-one'},imageResponse:url=>url.includes('/owner-one/')?oldBytes:png()});
+  const oldSurfaces=[...oldRoot.querySelectorAll('.concept-backdrop img,.concept-preview img')];
   const session={...c.session,id:'owner-two',concepts:[item('image1')]};
   c.configure({session,copy:en,sessionToken:'second-owner'});await tick();
   resolve(png());await tick();
-  assert.equal(oldRoot.querySelectorAll('.concept-backdrop img[src],.concept-preview img[src]').length,0);
+  assert.ok(oldSurfaces.every(image=>!image.hasAttribute('src')));
   assert.equal(c.shadowRoot.querySelectorAll('.concept-backdrop img[src]').length,1);
   assert.equal(URL.createObjectURL.mock.callCount(),1);
   const read=calls.find(call=>call.url.includes('/owner-two/concepts/'));
