@@ -47,7 +47,7 @@ test('AIT-298 browser file 20 times under bounded CPU pressure', { timeout: 840_
 test('AIT-299 controlled regressions under bounded CPU pressure', { timeout: 230_000 }, async t => {
   pressure(t);
   assert.equal(await run('ait299-red-before', [...args, '--test-name-pattern=AIT-299',
-    'packages/ui/test/host-limits.test.js', 'packages/ui/test/layout.test.js', 'packages/ui/test/concepts.test.js']), 0);
+    'packages/ui/test/host-limits.test.js', 'packages/ui/test/layout.test.js', 'packages/ui/test/concepts.test.js', 'test/unit-timeout.test.js']), 0);
 });
 
 test('AIT-299 host-limit and layout 20 times under bounded CPU pressure', { timeout: 230_000 }, async t => {

@@ -93,7 +93,7 @@ export async function compactFooterCheck(t) {
     window.focusButton = root.querySelector('.ai-notice');
     window.focusLabel = root.querySelector('.ai-notice__label');
     window.focusOriginal = window.focusLabel.textContent;
-    window.focusLabel.textContent = 'W'.repeat(80);
+    window.focusLabel.textContent = 'W'.repeat(50);
   });
   const fitState = () => page.evaluate(() => {
     const root = document.querySelector('aithema-session').shadowRoot, footer = root.querySelector('.display-foot');

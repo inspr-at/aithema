@@ -101,6 +101,8 @@ for (const trace of [false, true]) test(`AIT-299 r2: watchdog creates ${trace ? 
   try {
     const fixture = join(directory, 'hook-count.test.cjs');
     writeFileSync(fixture, `const assert = require('node:assert/strict');
+// Initialize Node's own lazy runner hook before counting watchdog hooks.
+require('node:test').beforeEach(() => {});
 const hooks = require('node:async_hooks'), original = hooks.createHook;
 let created = 0;
 hooks.createHook = (...args) => { created++; return original(...args); };
