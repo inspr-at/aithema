@@ -55,7 +55,7 @@ export async function hostPolishCheck(t) {
   });
   if (evidence) await mkdir(evidence, { recursive: true });
   const shot = async label => {
-    if (!evidence) return;
+    if (!evidence || process.env.CI) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
     await page.mouse.move(-1, -1); await settle();
     await page.screenshot({ path: join(evidence, `${label}.png`), fullPage: false, captureBeyondViewport: false });
@@ -89,13 +89,14 @@ export async function hostPolishCheck(t) {
       return [n.getAttribute('aria-disabled'), n.getAttribute('aria-pressed'), n.tabIndex, n.querySelector('.chooser-option__note').textContent, n.checkVisibility()];
     }));
     for (const row of disabled) assert.deepEqual(row, ['true', 'false', -1, copy.chooser.unavailable, true]);
+    // Check application scroll before the visitor's keyboard focus can scroll a card into view.
+    assert.equal(await page.evaluate(() => scrollY), 0, `${label}: no automatic entrance scroll`);
     await shadow(page, c => c.shadowRoot.querySelector('.chooser-option[data-preset="best"]').focus());
     await page.keyboard.press('ArrowLeft');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.dataset.preset), 'device');
     await page.keyboard.press('ArrowRight');
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.dataset.preset), 'best');
     // A visitor can scroll to Continue at short heights; the app never scrolls on their behalf.
-    assert.equal(await page.evaluate(() => scrollY), 0, `${label}: no automatic entrance scroll`);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight)); await settle();
     const clearance = await shadow(page, c => {
       const r = c.shadowRoot, button = r.querySelector('.chooser__continue'), a = button.getBoundingClientRect(), footer = r.querySelector('.display-foot').getBoundingClientRect();
