@@ -331,6 +331,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out[data-host-limit] .composer-out__title { position:relative; font-size:11.5px; }
   .composer-out[data-host-limit] .composer-out__title > span { position:absolute; inset:0; height:2lh; line-height:1.35; letter-spacing:-.025em; }
   .composer-out[data-host-limit] .composer-out__body > span { top:calc(2 * 11.5px * 1.35 - 15.5px * 1.35); font-size:12px; line-height:1.3; }
+  /* Spend the existing bottom gutter on clearance for the taller copy block. */
+  .composer-out[data-host-limit] .composer-out__bar { transform:translateY(22px); }
 }
 @media(389px <= width <= 600px) {
   .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
