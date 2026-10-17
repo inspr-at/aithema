@@ -167,3 +167,16 @@ for (const label of ['ai-notice__label', 'connection-timer', 'actor-role']) test
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(changes.length, 0, 'equal natural geometry does not refit');
 });
+
+test('AIT-299: a footer refit reads shadow focus only when its host owns document focus', async t => {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const root = window.document.createElement('div');
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><span>Connected</span></div></footer></div>`;
+  Object.defineProperty(root, 'activeElement', { get() { throw new Error('Another shadow root owns focus'); } });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  root.querySelector('footer span').textContent = 'Still connected';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(viewport.connected, true);
+});
