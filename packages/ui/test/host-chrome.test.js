@@ -123,3 +123,31 @@ for (const locale of ['de', 'en']) {
     }
   });
 }
+
+for (const locale of ['de', 'en']) for (const source of ['host', 'budget']) {
+  test(`AIT-260: used-up panel takes precedence over pause and survives resume, ${locale}/${source}`, () => {
+    const session = createSession({ locale, demo: true }), copy = { en, de }[locale];
+    session.paused = true;
+    session.featureMatrix = { best: { text: { available: false, reason: 'session paused',
+      unpaused: { available: false, reason: 'budget denied' } } } };
+    if (source === 'host') session.credits = { status: 'ended', endReason: 'session' };
+    const c = configure(locale, { session, host: source === 'host' ? { library: true } : undefined }), r = c.shadowRoot;
+    const check = () => {
+      assert.equal(r.querySelector('.composer-shell').hasAttribute('data-used-up'), true);
+      assert.equal(r.querySelector('form.composer').inert, true);
+      assert.equal(r.querySelector('form.composer').getAttribute('aria-hidden'), 'true');
+      assert.equal(r.querySelector('.composer-out').inert, false);
+      assert.equal(r.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+      assert.equal(r.querySelector('.composer-out__title').textContent, copy.hostSurface.usedUp.title);
+      assert.equal(r.querySelector('.composer-paused').hidden, true);
+      assert.equal(r.querySelector('.qcard').inert, true);
+    };
+    check();
+    // A programmatic click cannot resume a terminal composer, either.
+    r.querySelector('.composer-resume').click();
+    assert.equal(c.session.paused, true); check();
+    c.session.featureMatrix.best.text = { available: false, reason: 'budget denied' };
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); check();
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'limits' } }); check();
+  });
+}

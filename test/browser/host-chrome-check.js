@@ -24,7 +24,7 @@ export async function hostChromeCheck(t) {
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { window.chromeSeed = c.session; });
-  const evidence = fullMatrix && join(process.env.AITHEMA_EVIDENCE_DIR, 'ait260-round3');
+  const evidence = fullMatrix && join(process.env.AITHEMA_EVIDENCE_DIR, 'ait260-round4');
   if (evidence) await mkdir(evidence, { recursive: true });
   const checks = [];
   const settle = () => shadow(page, async c => {
@@ -103,9 +103,14 @@ export async function hostChromeCheck(t) {
         return { disabled: r.querySelector('textarea').disabled, line: r.querySelector('.composer-paused span').textContent,
           visible: r.querySelector('.composer-paused').checkVisibility(), resume: button.textContent, label: send.getAttribute('aria-label'), title: send.title,
           targets: [button, send].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
+          resumeColor: getComputedStyle(button).color, primaryColor: getComputedStyle(send).backgroundColor,
+          resumeWeight: getComputedStyle(button).fontWeight, pausedColor: getComputedStyle(r.querySelector('.composer-paused span')).color,
           restoreFocus: r.activeElement === button, active: r.activeElement?.className ?? null, documentActive: document.activeElement?.tagName, inert: r.querySelector('form').inert, resumeDisabled: button.disabled };
       });
       assert.equal(state.disabled, true); assert.equal(state.visible, true);
+      assert.equal(state.resumeColor, state.primaryColor, `${label}: primary teal`);
+      assert.equal(state.resumeWeight, '500', `${label}: medium weight`);
+      assert.notEqual(state.pausedColor, state.resumeColor, `${label}: paused copy stays muted`);
       assert.equal(state.line, locale === 'de' ? 'Gespräch pausiert.' : 'Conversation paused.');
       assert.equal(state.resume, resume); assert.equal(state.label, resume); assert.equal(state.title, resume);
       assert.ok(state.targets.every(([w, h]) => w >= 44 && h >= 44), `${label}: 44 px controls`);
@@ -158,9 +163,11 @@ export async function hostChromeCheck(t) {
         const rail = box(r.querySelector('.audio-rail'));
         const others = [r.querySelector('.band-identity'), ...r.querySelectorAll('.header-actions, .header-actions button, .host-account')].map(box);
         return { rail, others, row: r.querySelector('.band').hasAttribute('data-rail-row'),
+          pageOverflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth, document.body.scrollWidth - innerWidth),
           railOverflowPx: Math.max(0, rail.right - innerWidth, -rail.left) };
       });
       assert.ok(fit.rail.width >= 208, `${brandMode}/${width}: rail minimum 208 px`);
+      assert.equal(fit.pageOverflowPx, 0, `${brandMode}/${width}: no page-wide horizontal overflow ${JSON.stringify(fit)}`);
       assert.equal(fit.railOverflowPx, 0, `${brandMode}/${width}: no rail overflow`);
       assert.ok(fit.rail.left >= 0 && fit.rail.right <= width, `${brandMode}/${width}: rail stays in viewport ${JSON.stringify(fit)}`);
       for (const b of fit.others) assert.ok(fit.rail.right <= b.left || fit.rail.left >= b.right || fit.rail.bottom <= b.top || fit.rail.top >= b.bottom,
@@ -276,5 +283,5 @@ export async function hostChromeCheck(t) {
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
 }
