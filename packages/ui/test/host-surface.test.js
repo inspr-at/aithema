@@ -1589,4 +1589,3 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const variant of [
     }
   });
 }
-
