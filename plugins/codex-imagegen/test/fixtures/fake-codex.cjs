@@ -49,7 +49,7 @@ async function main() {
   }
   mkdirSync(process.env.FAKE_TRACE_DIR, { recursive: true });
   writeFileSync(join(process.env.FAKE_TRACE_DIR, `${process.pid}.json`), JSON.stringify(record));
-  if (['hang', 'ignoreterm', 'descendant'].includes(mode)) { setInterval(() => {}, 1000); return; }
+  if (['hang', 'ignoreterm', 'descendant'].includes(mode)) { setInterval(() => {}, 1000); process.send?.('fixture-stall'); return; }
   if (mode === 'none') return;
   if (mode === 'nonzero') { process.stderr.write('private-provider-detail'); process.exit(7); }
   if (mode === 'crash') { process.kill(process.pid, 'SIGKILL'); return; }

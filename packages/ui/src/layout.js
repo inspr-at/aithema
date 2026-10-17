@@ -164,10 +164,15 @@ export class PhoneComposerViewport {
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
-      const footer = root.querySelector('.display-foot'), fitWidth = footer.clientWidth;
+      const footer = root.querySelector('.display-foot');
+      const fitKey = () => JSON.stringify([footer.clientWidth, ...[...footer.querySelector('.display-foot__row').children]
+        .map(zone => [zone.hidden, zone.getBoundingClientRect().width])]);
       // Host columns and scrollbars can resize the row without resizing the window.
-      if (this.footerFitWidth !== fitWidth) {
-        fitFooter(footer); this.footerFitWidth = fitWidth;
+      // Fixed-width timers/status reserves can change text without changing
+      // row geometry. Cache the fitted zone widths too: fitting itself may hide
+      // optional labels, and must not make the next scroll refit them again.
+      if (this.footerFitKey !== fitKey()) {
+        fitFooter(footer); this.footerFitKey = fitKey();
       }
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
@@ -237,7 +242,7 @@ export class PhoneComposerViewport {
     const FooterMutation = this.view?.MutationObserver;
     if (FooterMutation) {
       this.footerObserver = new FooterMutation(() => {
-        this.footerFitWidth = undefined; this.paint();
+        if (this.connected) this.paint();
       });
       this.footerObserver.observe(this.root.querySelector('.display-foot__row'), {
         subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'],
