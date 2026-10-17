@@ -217,8 +217,10 @@ The overview controls follow these states:
 Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
 sessions** and finish removing visitor-erased conversations, without possessing
 visitor tokens. `before` is a nonnegative Unix millisecond timestamp; live-session
-eligibility is strictly `lastActivity < before`. Erased sessions are durably queued
-in the tombstone transaction and eligible on the next sweep, regardless of `before`.
+eligibility is strictly `lastActivity < before`. Erased sessions are eligible on the next sweep after erase cancellation and the
+`host.erased` hook finish, regardless of `before`. Visitor erase and library delete
+queue retirement after that cleanup; direct storage erasure queues in the tombstone
+transaction. A crash before queuing leaves a tombstone for startup backfill.
 There is no additional idle window after erase or library delete. `limit`
 is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
 `retired` counts completed core erasures; `failed` counts sessions that failed
@@ -229,7 +231,9 @@ Hooks must therefore be idempotent. A failing session stays tombstoned and
 pending with a durable attempt count and exponential backoff (1 second up to
 1 hour); the batch continues. Deferred retries do not set `more`: call again
 on the maintenance schedule even when `more` is false. Monitor `failed`;
-host failures and unsettled billing can delay deletion beyond the intended retention window.
+host failures and pending reconciliation for erased sessions can delay deletion
+beyond the intended retention window. Live-session retirement keeps its existing
+accounting behavior and does not wait for billing reconciliation.
 
 Last activity is the latest **server timestamp** of person- or host-initiated
 activity: session creation, turns and other committed session changes, authorized
@@ -277,13 +281,17 @@ for sessions already purged even if another session's hook fails.
 | Host-owned visitor accounts, mail, handover systems, backups and provider copies | Host controls their own retention; see below |
 
 SQLite uses `secure_delete` and truncates its WAL before acknowledging the
-full erase. Open budget attempts, unsettled spend reservations, uncertain charges
-and pending or estimated cost/voice reconciliations block retirement. Their
-session and accounting metadata remain available for settlement; content stays
-erased. The same durable backoff retries retirement once billing is final, before
-host cleanup and again inside the core purge transaction. A hold that never
-settles can delay complete removal indefinitely; hosts must monitor reconciliation.
-Only settled accounting links are deleted. Retained totals
+full erase. Visitor-erased sessions defer retirement while a budget attempt is open,
+while an associated spend reservation remains reserved or dispatched without an
+actual amount, or while a provider cost receipt has a non-null `retryAt`. Session
+and accounting metadata remain available during that pending work; content stays
+erased. Retirement checks before host cleanup and again in the core purge
+transaction, using durable backoff until those conditions clear. Terminal estimates
+with no scheduled retry, uncertain receipts with no future settlement, and voice
+`costEstimated` receipts alone do not block retirement. Their spend reservations
+are aggregated into `retired_spend` using the existing spent/reserved/uncertain
+categories, preserving conservative estimated amounts. Live-session retirement
+uses the same aggregation without the billing deferral. Retained totals
 are deployment spend/reserved/uncertain amounts and breach flags per account,
 render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
 On low-volume days, a daily total may reveal one session's usage. Daily buckets
@@ -343,13 +351,15 @@ A 15-minute schedule normally deletes after 24 hours of inactivity **plus up to
 window and distinguish idle retention from a fixed lifetime. The demo keeps its
 existing one-minute schedule and 365-day cutoff for live sessions, retiring at
 most 100 sessions per tick. Visitor erase and library delete clear content
-immediately and queue complete removal for the next tick (normally within one
-minute in the demo, or within 15 minutes in the example above), plus backlog,
-billing and maintenance delays. Until successful retirement, the tombstoned
+immediately. After erase cleanup finishes, the next scheduled sweep attempts
+complete removal (the demo ticks every minute; the example above every 15 minutes).
+Actual removal waits for an eligible batch, any pending reconciliation described
+above, successful host retirement cleanup and the core purge/checkpoint; backlog,
+retry backoff and maintenance outages can delay it. Until successful retirement, the tombstoned
 session, value-free journal, hashes and accounting links remain. Afterward all
 core session rows are gone; only the deployment totals described above remain.
-Hosts can say "deleted conversations are removed completely" while explaining
-this timing, the billing exception and their separate host/provider retention.
+Host privacy copy must describe these conditions and delays together with
+separate host/provider retention.
 
 Existing databases need no manual data rewrite: an additive partial index finds
 historical tombstones, and each `retire` call queues at most `limit` of them in ID
