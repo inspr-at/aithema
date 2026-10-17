@@ -90,15 +90,6 @@
     ],
     "reason": "Linux headless Chrome sandbox selection"
   },
-  "test/browser/orb-reveal.test.js": {
-    "reads": [
-      "CI",
-      "CI",
-      "CI",
-      "CI"
-    ],
-    "reason": "Linux headless Chrome sandbox selection"
-  },
   "test/browser/question-card.test.js": {
     "reads": [
       "CI",

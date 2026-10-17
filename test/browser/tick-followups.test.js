@@ -1,21 +1,26 @@
 // AIT-186: Tick's binding follow-ups. Viewport evidence only, remote runner only.
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { after, test } from 'node:test';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
-import { browserPath, shadow, until, settle, boxes, evidenceCommit } from './start2-display-helpers.js';
+import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-display-helpers.js';
 
-async function fixture(t) {
+// Every scene reconfigures from tickSeed; keep the expensive host and page for
+// the file, including the genuinely open SSE connection checked by F8.
+let fileFixture, cleanup;
+after(() => cleanup?.());
+const fixture = () => fileFixture ??= createFixture();
+async function createFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-tick-followups-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
+  cleanup = async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); };
   const page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
@@ -26,23 +31,37 @@ async function fixture(t) {
   await shadow(page, c => { globalThis.tickSeed = c.session; });
   return page;
 }
-async function scene(page, locale, theme, width) {
+// Reduced motion is configured before navigation. Drain actual rendering and
+// finite transitions instead of sleeping 120 ms after every matrix action.
+const settle = page => shadow(page, async c => {
+  await document.fonts.ready;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+    .filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime))
+    .map(a => a.finished.catch(() => {})));
+  await new Promise(resolve => requestAnimationFrame(resolve));
+});
+async function scene(page, locale, theme, width, { reset = true, ready = true } = {}) {
   await page.setViewport({ width, height: width < 600 ? 844 : 900 }); await page.select('#theme', theme);
-  await page.evaluate(async locale => {
+  await page.evaluate(async ({ locale, reset }) => {
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { paintUtilities } = await import('/demo/page-preferences.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
     session.locale = locale;
-    c.configure({ copy, session, host: { library: true } });
+    if (reset) c.configure({ copy, session, host: { library: true } });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     scrollTo(0, 0);
-  }, locale);
-  await settle();
+  }, { locale, reset });
+  if (ready) await settle(page);
 }
-async function evidence(finding, page, label, values) {
+async function evidence(finding, page, label, values, { hoverSelector } = {}) {
   const root = process.env.AITHEMA_EVIDENCE_DIR;
   if (root) {
     const dir = join(root, finding); await mkdir(dir, { recursive: true });
+    await page.mouse.move(-1, -1);
+    await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    if (hoverSelector) await page.hover(hoverSelector);
+    await settle(page);
     await page.screenshot({ path: join(dir, `${label}.png`), fullPage: false, captureBeyondViewport: false });
     await writeFile(join(dir, `${label}.json`), JSON.stringify({ head: evidenceCommit, finding, label, ...values, pass: true }, null, 2));
   }
@@ -69,12 +88,12 @@ test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 1
     await page.hover('aithema-session >>> .conversations-toggle');
     assert.deepEqual(await boxes(page, selectors), before, `${label}: hover shift 0 px`);
     const values = { ...metrics, shiftPx: 0 };
-    await evidence('F1', page, label, values); t.diagnostic(`PASS F1 ${label}: ${JSON.stringify(values)}`);
+    await evidence('F1', page, label, values, { hoverSelector: 'aithema-session >>> .conversations-toggle' }); t.diagnostic(`PASS F1 ${label}: ${JSON.stringify(values)}`);
   }
 });
 
 async function voiceScene(page, locale, theme, width) {
-  await scene(page, locale, theme, width);
+  await scene(page, locale, theme, width, { reset: false, ready: false });
   await page.evaluate(async locale => {
     const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
     if (!globalThis.tickRailHook) {
@@ -98,7 +117,7 @@ async function voiceScene(page, locale, theme, width) {
     document.documentElement.lang = locale;
   }, locale);
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
-  await settle();
+  await settle(page);
 }
 const railBoxes = ['.band', '.audio-rail', '.voice-cell--output', '.voice-signal', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'];
 
@@ -113,7 +132,7 @@ test('AIT-186 F3: both used-up paths share idle controls and a drawn line, 0 px 
       if (state === 'voice-used-up') { rail.state = 'waiting'; rail.paused = true; rail.session = { callId: 'used-up-call', providerSessionId: 'used-up-provider' }; }
       rail.usedUp = () => true; rail.render(); rail.waveform.baseline();
     }, state);
-    await settle();
+    await settle(page);
     const view = await shadow(page, c => {
       const r = c.shadowRoot, visible = selector => getComputedStyle(r.querySelector(selector)).visibility === 'visible';
       return { visible: ['.pause', '.pause .voice-icon', '.pause .voice-icon--resume', '.voice-input', '.voice-close', '.voice-retry'].filter(visible),
@@ -136,9 +155,9 @@ test('AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic', 
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
     await voiceScene(page, locale, theme, width);
-    await page.evaluate(() => globalThis.tickRail.start()); await settle();
+    await page.evaluate(() => globalThis.tickRail.start()); await settle(page);
     const before = await boxes(page, railBoxes);
-    await page.evaluate(() => globalThis.tickRail.close()); await settle();
+    await page.evaluate(() => globalThis.tickRail.close()); await settle(page);
     const view = await shadow(page, c => {
       const root = c.shadowRoot, n = root.querySelector('.voice-state'), range = document.createRange(); range.selectNodeContents(n);
       const rects = [...range.getClientRects()], mic = root.querySelector('.voice-cell--mic').getBoundingClientRect(), band = root.querySelector('.band').getBoundingClientRect();
@@ -162,7 +181,7 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
     await voiceScene(page, locale, theme, width);
     const before = await boxes(page, railBoxes);
     await page.evaluate(() => { globalThis.tickRail.state = 'failed'; globalThis.tickRail.failure(new Error('fixture voice outage')); });
-    await settle();
+    await settle(page);
     const view = await shadow(page, c => {
       const r = c.shadowRoot, n = r.querySelector('.voice-state'), b = n.getBoundingClientRect(), style = getComputedStyle(n);
       const bubble = r.querySelector('li.turn').getBoundingClientRect();
@@ -189,7 +208,7 @@ test('AIT-186 F8: purpose pause keeps Connected with the real open event stream'
     await voiceScene(page, locale, theme, width);
     const before = await boxes(page, [...railBoxes, '.display-foot', '.status']);
     await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } }));
-    await settle();
+    await settle(page);
     const view = await shadow(page, c => {
       const root = c.shadowRoot;
       return { footer: root.querySelector('.status__label').textContent, connected: root.querySelector('.status').hasAttribute('data-connected'),
