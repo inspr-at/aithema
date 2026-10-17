@@ -80,9 +80,9 @@ export const questionCardStyles = `
      as well, leaving a strip of the latest reply above the answer chips. */
   /* This is a viewport decision, independent of the question's presence or size. */
   .workspace[data-phone-short][data-phone-overlay] .display-foot { display:none; }
-  .workspace[data-phone-short] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px; }
+  .workspace[data-phone-short] .composer { grid-template-columns:minmax(0,1fr) auto; padding:6px; gap:6px 2px; }
   .workspace[data-phone-short] textarea { height:44px; min-height:44px; padding-block:10px; }
-  .workspace[data-phone-short] .composer-actions { gap:6px; }
+  .workspace[data-phone-short] .composer-actions { gap:0; }
   .workspace[data-phone-short] .composer-shell:not([data-used-up]) .composer-out { position:absolute; inset:0; }
   .workspace[data-phone-short] .composer-reason { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
   /* Keep its expanded height measurable without giving it a grid row or a

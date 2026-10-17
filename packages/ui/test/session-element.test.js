@@ -1291,3 +1291,11 @@ for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: no bound visu
     assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, false);
   }
 });
+
+for (const visualsBound of [false, true]) test(`AIT-266: explicit host visuals capability ${visualsBound} wins over a preset refusal`, () => {
+  const c = setup(), session = c.session;
+  session.visualsBound = visualsBound;
+  session.featureMatrix.best.html = { available: false, reason: 'preset not configured' };
+  c.configure({ copy: en, session });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, !visualsBound);
+});

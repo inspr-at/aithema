@@ -15,7 +15,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
   const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-266');
-  const browser = await browserForFile(evidence ? { args: evidenceBrowserArgs } : {}), page = await browser.newPage();
+  const browser = await browserForFile({ args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], passLines = [], problems = [];
   page.on('pageerror', error => problems.push(error.message));
@@ -64,6 +64,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     await shadow(page, async (c, { locale, stage, visuals }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = structuredClone(window.polish266Seed);
+      session.visualsBound = visuals;
       session.locale = locale; session.paused = false; session.pauseReason = null;
       session.transcript = stage === 'live' ? [{ id: 'polish-person', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' }] : [];
       session.settings = { ...session.settings, origin: 'default', voice: 'off', visuals: 'off' };
@@ -134,7 +135,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           coarse: matchMedia('(pointer:coarse)').matches, hoverNone: matchMedia('(hover:none)').matches };
       });
       assert.equal(hint.text, copy.shortcut.replace('{key}', key)); assert.deepEqual(hint.keys, [key, 'Enter']);
-      assert.equal(hint.visible, !touch); assert.equal(hint.coarse, touch); assert.equal(hint.hoverNone, touch);
+      assert.equal(hint.visible, !touch, `${label}: ${JSON.stringify(hint)}`); assert.equal(hint.coarse, touch); assert.equal(hint.hoverNone, touch);
     }
     await shot(`${label}-live-no-visuals`);
     const selectors = ['.composer', '.composer-feedback', '.send', '.attach', '.display-foot'];

@@ -187,7 +187,7 @@ export class ConceptView {
   visualKind() { return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image'; }
   progress() {
     if (!this.#session) return;
-    const unbound = Object.values(this.#session.featureMatrix ?? {}).every(matrix => ['html', 'images'].every(kind => {
+    const unbound = this.#session.visualsBound === false || this.#session.visualsBound !== true && Object.values(this.#session.featureMatrix ?? {}).every(matrix => ['html', 'images'].every(kind => {
       const value = matrix[kind], verdict = value?.reason === 'session paused' ? value.unpaused ?? value : value;
       return !verdict || !verdict.available && ['not configured', this.copy.notConfigured, 'preset not configured', 'unavailable on device'].includes(verdict.reason);
     }));

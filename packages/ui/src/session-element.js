@@ -1063,11 +1063,12 @@ export class AithemaSession extends HTMLElement {
       reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       const feedback = root.querySelector('.composer-feedback');
-      feedback.toggleAttribute('data-saved', this.#saved);
+      const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
+      feedback.toggleAttribute('data-saved', showSaved);
       setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
       setText(root.querySelector('.composer-saved span'), copy.saved);
-      root.querySelector('.composer-saved').setAttribute('aria-hidden', String(!this.#saved));
-      reason.setAttribute('aria-hidden', String(this.#saved));
+      root.querySelector('.composer-saved').setAttribute('aria-hidden', String(!showSaved));
+      reason.setAttribute('aria-live', showSaved ? 'off' : 'polite');
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#composerPaused ? '' : this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
@@ -2224,6 +2225,7 @@ export class AithemaSession extends HTMLElement {
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
+      if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
       if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.

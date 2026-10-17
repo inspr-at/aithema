@@ -552,6 +552,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         return { ...result, extractor: plugin.manifest.id };
       } catch (error) { await invocation.finish(false); throw error; }
     },
+    // Host capability is independent of the selected preset, pause, consent and admission.
+    visualsBound: () => PROCESSING_PRESETS.some(preset => choicesFor(preset)?.visuals.some(option => Boolean(option.binding))),
     /** Hosts withhold On my device with `presets.device = false`; other presets exist when configured. */
     offered: preset => preset === 'device' ? presets.device !== false : Boolean(presets[preset]),
     async matrix(session) {

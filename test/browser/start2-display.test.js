@@ -1467,7 +1467,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
     const configure = (state, reason) => shadow(page, async (c, { locale, state, reason }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { inputRevision } = await import('/packages/core/src/session.js');
-      const s = structuredClone(window.polishSeed);
+      const s = structuredClone(window.polishSeed); s.visualsBound = true;
       s.locale = locale; s.processingPreset = state === 'device' ? 'device' : 'best';
       s.settings = { ...s.settings, origin: 'chosen' }; s.paused = false; s.pauseReason = null;
       s.transcript = [{ id: 'polish-user', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' },
@@ -1613,7 +1613,7 @@ test('AIT-246 round 2 regressions: visible export reason, device preset destinat
   const configure = (device, items = []) => shadow(page, async (c, { device, items }) => {
     const { en } = await import('/packages/ui/src/i18n/en.js');
     const { inputRevision } = await import('/packages/core/src/session.js');
-    const s = structuredClone(window.round2Seed);
+    const s = structuredClone(window.round2Seed); s.visualsBound = true;
     s.paused = false; s.pauseReason = null;
     s.transcript = [{ id: 'round2-user', role: 'user', content: 'A bakery website.' }, { id: 'round2-reply', role: 'assistant', content: 'How should customers order?' }];
     s.transcript[1].inputRevision = inputRevision(s);
@@ -1752,7 +1752,7 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
       await shadow(page, async (c, { locale, state, reason }) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const { inputRevision } = await import('/packages/core/src/session.js');
-        const s = structuredClone(window.narrowDraftSeed);
+        const s = structuredClone(window.narrowDraftSeed); s.visualsBound = true;
         s.locale = locale; s.processingPreset = state === 'device' ? 'device' : 'best';
         s.settings = { ...s.settings, origin: 'chosen' }; s.paused = false; s.pauseReason = null;
         s.transcript = [{ id: 'narrow-user', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' },
