@@ -115,11 +115,6 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
     }, { theme, locale, legal });
     await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.status__label').textContent === window.footerConnected);
     await settleEvidenceFrame(page);
-    if (legal) await page.evaluate(() => {
-      const style = document.createElement('style');
-      style.textContent = '.display-foot[data-fit]:not([data-fit="full"]) .host-legal { visibility:hidden !important; }';
-      document.querySelector('aithema-session').shadowRoot.append(style);
-    }); // AIT-301 temporary red-before mutation; remove after the remote proof.
     await page.evaluate(width => {
       const root = document.querySelector('aithema-session').shadowRoot;
       window.footerLabel = root.querySelector(width >= 1100 ? '.ai-notice__label' : '.connection-timer');
