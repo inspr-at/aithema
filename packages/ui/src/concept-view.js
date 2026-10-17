@@ -39,6 +39,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 // AIT-274's retry glyph and status markup also serve the composer and access error.
 export const WARNING_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.9v3.6M8 11.1v.05"/></svg>';
 export function paintFailureLine(line, words, suffix = '') {
+  if (line.querySelector('.question-status.warning') && line.textContent === words + suffix) return;
   const status = document.createElement('span'), why = document.createElement('span');
   status.className = 'question-status warning'; why.className = 'question-why';
   status.innerHTML = WARNING_ICON;

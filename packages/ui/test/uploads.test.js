@@ -666,6 +666,9 @@ for (const copy of [de, en]) for (const notice of [false, true])
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
     assert.equal(root.querySelector('textarea').value, 'Hello');
+    const warning = root.querySelector('.composer-reason .warning');
+    root.querySelector('textarea').dispatchEvent(new window.Event('input'));
+    assert.equal(root.querySelector('.composer-reason .warning'), warning, 'typing does not remount the live warning');
     c.receive({ type: 'lane.status', data: { running: [], failures: [] } });
     assert.equal(root.querySelector('.composer-reason').textContent, copy.failed, 'unrelated repaint cannot clear the failure');
     await submit(); assert.equal(root.querySelector('.composer-reason').textContent, copy.failed, 'failed retry retains it');
