@@ -83,13 +83,12 @@ function footerGeometry(footer, cache) {
       try {
         const full = footerRowGeometry(probe);
         cache.footerNaturalWidths = full.zones;
-        cache.footerFullClear = full.clear;
         cache.footerNaturalSource = source;
       } finally { probe.remove(); }
     }
     natural = cache.footerNaturalWidths;
   }
-  return { key: JSON.stringify([width, zones, natural, clear]), width, clear, fullClear: compact ? cache.footerFullClear : clear };
+  return { key: JSON.stringify([width, zones, natural, clear]), width, clear };
 }
 
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
@@ -208,10 +207,11 @@ export class PhoneComposerViewport {
       const footer = root.querySelector('.display-foot');
       const geometry = footerGeometry(footer, this);
       const footerFocused = root.ownerDocument.activeElement === root.host && footer.contains(root.activeElement);
-      // Protect only a safe compact-to-full expansion at the same width.
+      // A clear compact row can only expand at the same width, even if full
+      // still does not fit. Keep every such expansion out from under the user.
       // Resize, overflow and overlap always refit, even with held focus/hover.
       const deferExpansion = (footer.matches(':hover') || footerFocused) &&
-        this.footerFitWidth === geometry.width && geometry.clear && geometry.fullClear && footer.dataset.fit !== 'full';
+        this.footerFitWidth === geometry.width && geometry.clear && footer.dataset.fit !== 'full';
       if (this.footerFitKey !== geometry.key && !deferExpansion) {
         fitFooter(footer); this.footerFitKey = footerGeometry(footer, this).key;
         this.footerFitWidth = geometry.width;

@@ -201,7 +201,7 @@ function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short', modeWidt
     if (owner && owner !== footer) probeReads++;
     let left = 0, size = 0;
     if (this.matches('.display-foot__row')) size = width;
-    if (this.matches('.footer-left')) size = modeWidths[owner.dataset.fit][owner.querySelector('span').textContent.length > 5 ? 1 : 0];
+    if (this.matches('.footer-left')) size = modeWidths[owner.dataset.fit ?? 'full'][owner.querySelector('span').textContent.length > 5 ? 1 : 0];
     if (this.matches('.footer-right')) { size = 100; left = width - size; }
     return { width: size, height: 0, left, right: left + size };
   });
