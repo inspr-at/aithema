@@ -719,10 +719,13 @@ idempotent PATCH with the current configured value. No restart or DB edit is
 needed. One stray request or an expired group cannot trigger repair.
 
 Repairs are limited in memory to one per thirty minutes, including failed or
-ambiguous PATCH attempts. Transient failures use the existing unref'd backoff
-timer, delayed until the write cooldown expires; permanent failures stay off.
+ambiguous PATCH attempts. Any failed repair goes off with `transient: true` and
+uses the existing unref'd backoff timer, delayed until the write cooldown expires,
+so a later successful ensure restores the prepared runtime without a restart.
+While no binding exists, the orphan sweep catches `closeOrphan`'s
+`AgentEnsureError`, retains the durable pending call and retries later.
 The detector stores at most three timestamps and starts no extra timers. A fresh
-threshold is required after cooldown; shutdown disconnects detection and cancels
+threshold is required for a new repair after cooldown; shutdown disconnects detection and cancels
 retries. Restart resets the in-memory limit, and an invalidated receipt also makes
 the next boot repair the value. Hosts without the shared store have no detector.
 Each repair logs only `{event: 'voice-secret-repair', name}`. Bad requests remain
