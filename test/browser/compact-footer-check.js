@@ -78,11 +78,16 @@ export async function compactFooterCheck(t, { legal = false } = {}) {
           [rect.left + .5, rect.bottom - .5], [rect.right - .5, rect.bottom - .5]];
         return { text: link.textContent, rect, visible: link.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
           hidden, clipping, insideRow: inside(rect, row), insideFooter: inside(rect, footer), insideViewport: inside(rect, viewport),
+          hits: points.map(([x, y]) => {
+            const describe = n => n ? { tag: n.localName, class: n.className, text: n.textContent.slice(0, 80) } : null;
+            return { document: describe(document.elementFromPoint(x, y)), shadow: describe(root.elementFromPoint(x, y)) };
+          }),
           unobscured: points.every(([x, y]) => link.contains(document.elementFromPoint(x, y))) };
       });
       return { fit: root.querySelector('.display-foot').dataset.fit, row, footer, viewport, links };
     });
     const name = `ait301-footer-${width}-${theme}-${locale}-${state}`;
+    if (evidence) await heldShot(name);
     assert.deepEqual(result.links.map(link => link.text), locale === 'de' ? ['Impressum', 'Datenschutz'] : ['Imprint', 'Privacy'], `${name}: both direct legal anchors remain slotted`);
     for (const link of result.links) {
       const context = `${name}: ${link.text} ${JSON.stringify(link)}`;
