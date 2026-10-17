@@ -91,7 +91,7 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 #demo-legal { display:flex; gap:1rem; }
 /* Nested slotted links are host-owned. Reserve touch targets for every pointer
    so pointer changes cannot resize the footer; labels can wrap within each target. */
-#demo-legal a { display:inline-flex; align-items:center; min-width:44px; min-height:44px; white-space:normal; overflow-wrap:anywhere; color:var(--accent); }
+#demo-legal a { display:inline-flex; align-items:center; min-width:44px; min-height:44px; line-height:1.15; white-space:normal; overflow-wrap:anywhere; color:var(--accent); }
 @media(max-width:600px) { #demo-legal a { min-height:max(44px,3lh); } }
 #demo-footer { margin:0; color:var(--muted); }
 #outbox { width:min(34rem,calc(100vw - 1rem)); border:1px solid var(--line); border-radius:1rem; background:var(--surface); color:var(--ink); padding:1rem 1.25rem; }
