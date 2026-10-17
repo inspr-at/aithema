@@ -333,7 +333,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot .ai-notice__short { display:none; }
   .display-foot .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:inline; }
   .display-foot[data-fit]:not([data-fit="full"]) .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:none; }
-  .display-foot:is([data-fit="timer"],[data-fit="role"]) .status { grid-template-columns:6px auto; }
+  .display-foot:is([data-fit="timer"],[data-fit="role"]) .footer-right > .status { grid-template-columns:6px auto; }
   .display-foot:is([data-fit="timer"],[data-fit="role"]) .status .connection-timer { display:none; }
   .display-foot[data-fit="role"] .actor-role { display:none; }
   .display-foot[data-fit="role"] .footer-left { gap:0; }
