@@ -89,7 +89,8 @@ export class HostSurface {
     const state = this.endReason === 'host-limit' && next
       ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
       : credits.ended[this.endReason] ?? usedUp;
-    return { ...state, announce: `${state.title} ${state.body}` };
+    // Restored host limits wait for the tier receipt before announcing their variant.
+    return { ...state, announce: this.endReason === 'host-limit' && this.#options.credits && !this.#credits ? '' : `${state.title} ${state.body}` };
   }
   get usedUp() { return Boolean(this.endReason) || this.#credits?.exhausted === true; }
   get fullHold() {

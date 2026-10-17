@@ -662,7 +662,7 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, question, blocked = false, voiceClient, waitingCall, confirmed = false } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, question, blocked = false, voiceClient, waitingCall, confirmed = false, endReason = null } = {}) {
   let saved = address, raised = false;
   const allowances = () => ({ ...a2Allowances, anonymous: raised ? 18_000_000 : 12_000_000 });
   const tiers = () => ({ allowancesMicro: allowances(), current: confirmed ? 'emailConfirmed' : saved ? 'emailGiven' : 'anonymous',
@@ -673,7 +673,7 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
     available: visitor().limitMicro > spent + reserved, reason: visitor().limitMicro > spent + reserved ? null : 'budget denied',
   }])) });
   const h = setup(t, { copy, voiceClient, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
-    session: { demo: false, ...(blocked || voiceClient ? { featureMatrix: features() } : {}), ...(waitingCall ? { voiceLifecycle: waitingCall } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+    session: { demo: false, ...(endReason ? { credits: { status: 'ended', endReason } } : {}), ...(blocked || voiceClient ? { featureMatrix: features() } : {}), ...(waitingCall ? { voiceLifecycle: waitingCall } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
       'GET ': () => Response.json({ ...h.c.session, featureMatrix: features() }),
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => { const read = () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }); return visitorRead ? visitorRead(read) : read(); },
@@ -1545,17 +1545,17 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
 }
 
 
-for (const [locale, copy] of Object.entries({ de, en })) for (const variant of ['missing', 'unconfirmed', 'no-next', 'operator-budget']) {
-  test(`AIT-291 r2 ${locale}: host-limit ${variant} has one announcement and independent upgrade/export`, async t => {
+for (const [locale, copy] of Object.entries({ de, en })) for (const variant of ['missing', 'unconfirmed', 'no-next', 'operator-budget']) for (const restored of [false, true]) {
+  test(`AIT-291 r2 ${locale}: host-limit ${variant}, restored ${restored} has one announcement and independent upgrade/export`, async t => {
     const next = variant === 'missing' ? 'give' : variant === 'unconfirmed' ? 'confirm' : 'none';
     const { c, root } = a2Setup(t, { copy, delivery: variant === 'unconfirmed',
       address: ['unconfirmed', 'no-next'].includes(variant) ? 'reader@example.test' : null,
-      privacy: variant !== 'operator-budget', confirmed: variant === 'no-next' });
-    await tick(10); userTurn(c);
+      privacy: variant !== 'operator-budget', confirmed: variant === 'no-next', endReason: restored ? 'host-limit' : null });
     const announcement = root.querySelector('.credit-announcement'), changes = [];
     const observer = new window.MutationObserver(records => changes.push(...records));
     observer.observe(announcement, { childList: true, characterData: true, subtree: true });
-    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+    await tick(10); userTurn(c);
+    if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
     await tick(8);
     const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
     const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'

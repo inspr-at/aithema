@@ -999,8 +999,9 @@ export class AithemaSession extends HTMLElement {
     }
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
-    if (usedUp && !this.#creditEnding && !this.#creditAnnounced) {
-      this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#host.limitCopy.announce);
+    const announcement = this.#host.limitCopy.announce;
+    if (usedUp && !this.#creditEnding && announcement && this.#creditAnnounced !== announcement) {
+      this.#creditAnnounced = announcement; setText(this.shadowRoot.querySelector('.credit-announcement'), announcement);
     }
     if (usedUp && this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') this.#render('transcript');
     this.#render('composer'); this.#render('transcript'); this.#rail?.render(); this.#dialog?.sync();
