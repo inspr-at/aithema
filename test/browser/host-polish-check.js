@@ -335,8 +335,8 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           await shadow(page, c => c.shadowRoot.querySelector('.upload-discard').click()); await settle();
           const consent = await shadow(page, c => {
             const r = c.shadowRoot, n = r.querySelector('.composer-reason .consent-action'), b = n.getBoundingClientRect();
-            return { text: r.querySelector('.composer-reason').textContent, sendDisabled: r.querySelector('.send').disabled,
-              actionHit: r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n,
+            return { text: r.querySelector('.composer-reason').innerText, sendDisabled: r.querySelector('.send').disabled,
+              actionHit: r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('button') === n,
               visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved'),
               button: n.tagName, underline: getComputedStyle(n).textDecorationLine, hitHeight: parseFloat(getComputedStyle(n, '::after').height) };
           });
