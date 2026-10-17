@@ -1,64 +1,568 @@
 {
-  "seconds": 83.083,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 67.318,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38964295803-1, 38966907643-1, 38968110440-1, 38968973333-1, 38972348710-1, 38973311216-1, 38974274631-1, 38974908331-1, 38977655464-1, 38989994446-1, 38995053246-1, 38996124444-1, 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005037245-1, 39005018928-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "28fe9e4229663ceadd58c6831a093bcd6c90963596666fa11e7da0a21e1d16b4",
+    "workload": "eadb73951a92bf95e48279791d8eba1e233dfded9fb57c8bdddd3e8f8876dbdc",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "38964295803",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:43.317Z",
+        "sha": "47792c3a124276e4bf0eba8ec45ef3264b073a08",
+        "observedAt": "2026-10-16T20:43:51.202Z",
         "tests": [
           {
             "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
-            "seconds": 12.291551746
+            "seconds": 9.32837516
           },
           {
             "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
-            "seconds": 16.052672183000002
+            "seconds": 13.327515308
           },
           {
             "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
-            "seconds": 21.019899021
+            "seconds": 15.325889135999999
           },
           {
             "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
-            "seconds": 15.434276103
+            "seconds": 10.955318206
           },
           {
             "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
-            "seconds": 1.3917604940000001
+            "seconds": 2.02462394
           }
         ]
       },
       {
-        "runId": "38913449964",
+        "runId": "38966907643",
         "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:36.430Z",
+        "sha": "0fffdcf92f10ae90ea530c2bb105070651916900",
+        "observedAt": "2026-10-16T21:05:47.324Z",
         "tests": [
           {
             "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
-            "seconds": 11.993356946
+            "seconds": 12.111789681
           },
           {
             "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
-            "seconds": 16.318383235
+            "seconds": 15.370314323
           },
           {
             "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
-            "seconds": 20.956543313999997
+            "seconds": 20.361156148
           },
           {
             "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
-            "seconds": 14.52382186
+            "seconds": 14.024017923999999
           },
           {
             "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
-            "seconds": 1.401650239
+            "seconds": 1.352379969
+          }
+        ]
+      },
+      {
+        "runId": "38968110440",
+        "attempt": 1,
+        "sha": "e2b607eb0dd424be2d1859b85eaf17448c70909f",
+        "observedAt": "2026-10-16T21:15:54.220Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.670250464999999
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.410358011
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 19.832663871
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.238581376
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.311278263
+          }
+        ]
+      },
+      {
+        "runId": "38968973333",
+        "attempt": 1,
+        "sha": "90bf5ced47212144e25d4eb6e318ab716b45e915",
+        "observedAt": "2026-10-16T21:23:17.098Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.376101801
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 16.391998836
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.795236677000002
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.594148948
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.388865333
+          }
+        ]
+      },
+      {
+        "runId": "38972348710",
+        "attempt": 1,
+        "sha": "6398b930f7171285f4c68dcff355b5c01158da63",
+        "observedAt": "2026-10-16T21:53:48.038Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.395856401
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.864879691
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 21.840791437
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 15.083242844
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 2.303825016
+          }
+        ]
+      },
+      {
+        "runId": "38973311216",
+        "attempt": 1,
+        "sha": "55e29502eef433dae16d59423aea0e3ea2c9a1d4",
+        "observedAt": "2026-10-16T22:02:57.174Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.121757914
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.518839341000001
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.625145724000003
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.434173951999998
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.537933434
+          }
+        ]
+      },
+      {
+        "runId": "38974274631",
+        "attempt": 1,
+        "sha": "f4958e7b38438d1fb0a109a8d2273878f99d7609",
+        "observedAt": "2026-10-16T22:12:10.758Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.689918677
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.845574312999998
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 18.673397068
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 13.44200938
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.306996764
+          }
+        ]
+      },
+      {
+        "runId": "38974908331",
+        "attempt": 1,
+        "sha": "1e77636c5496712b5e315989a5eab60a240e6c57",
+        "observedAt": "2026-10-16T22:18:21.219Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.809483017
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.211569785
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.333591565
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.24774824
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.318332153
+          }
+        ]
+      },
+      {
+        "runId": "38977655464",
+        "attempt": 1,
+        "sha": "b1ce032954a740a27dc3f0d45e0782c110a9e0c1",
+        "observedAt": "2026-10-16T22:46:04.541Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 10.795709138
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 14.523637987
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 16.881633626
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 12.777809606
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.3836502579999999
+          }
+        ]
+      },
+      {
+        "runId": "38989994446",
+        "attempt": 1,
+        "sha": "4611339dc21b0e976c0e0507070047d487a103e3",
+        "observedAt": "2026-10-17T01:14:42.858Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.423907515000002
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 14.87098961
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.986896325
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.410851999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.456853893
+          }
+        ]
+      },
+      {
+        "runId": "38995053246",
+        "attempt": 1,
+        "sha": "b6319880ea1b640d3190421d77967486d07837d0",
+        "observedAt": "2026-10-17T02:28:49.189Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 8.609638744
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 12.241513481
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 13.580767654999999
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 9.705431930000001
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.1446913280000002
+          }
+        ]
+      },
+      {
+        "runId": "38996124444",
+        "attempt": 1,
+        "sha": "fc2e7ea8350878353a221b72e21587311ea564db",
+        "observedAt": "2026-10-17T02:45:06.467Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 8.539182819
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 12.634013171000001
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 15.384933223
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 9.783701172999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.0468781440000001
+          }
+        ]
+      },
+      {
+        "runId": "38997673082",
+        "attempt": 1,
+        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
+        "observedAt": "2026-10-17T03:09:26.178Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.040617273
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.079116522
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 21.181457065
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.532619624999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.35912353
+          }
+        ]
+      },
+      {
+        "runId": "38999250028",
+        "attempt": 1,
+        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
+        "observedAt": "2026-10-17T03:33:55.196Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 8.249792915
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 11.73032847
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 12.384278148
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 9.171346246999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 0.782300668
+          }
+        ]
+      },
+      {
+        "runId": "39003014289",
+        "attempt": 1,
+        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
+        "observedAt": "2026-10-17T04:33:53.235Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.917994661
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.294420662
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.864926897
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.599269146000001
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.233598781
+          }
+        ]
+      },
+      {
+        "runId": "39004584443",
+        "attempt": 1,
+        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
+        "observedAt": "2026-10-17T04:59:25.989Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 9.829448647
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 12.905905289
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 15.440455335000001
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 10.817452016999999
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 0.9212800959999999
+          }
+        ]
+      },
+      {
+        "runId": "39005037245",
+        "attempt": 1,
+        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
+        "observedAt": "2026-10-17T05:06:44.919Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 8.495346658
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 11.985970660000001
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 14.000072732000001
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 9.412535501
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 0.8695182499999999
+          }
+        ]
+      },
+      {
+        "runId": "39005018928",
+        "attempt": 1,
+        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
+        "observedAt": "2026-10-17T05:06:46.750Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 11.722052301
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.110880793
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 20.538302212999998
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 14.471368592000001
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.210612186
+          }
+        ]
+      },
+      {
+        "runId": "39005522082",
+        "attempt": 1,
+        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
+        "observedAt": "2026-10-17T05:14:43.282Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 12.463891835
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 15.987613310999999
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 21.826193237
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 15.798958837
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 1.31122717
+          }
+        ]
+      },
+      {
+        "runId": "39006638133",
+        "attempt": 1,
+        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
+        "observedAt": "2026-10-17T05:33:00.504Z",
+        "tests": [
+          {
+            "name": "AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift",
+            "seconds": 8.548486467999998
+          },
+          {
+            "name": "AIT-171: latch open Settings through delayed/failed credits and both policy flips",
+            "seconds": 12.149342928
+          },
+          {
+            "name": "AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN",
+            "seconds": 13.336758711
+          },
+          {
+            "name": "AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main geometry and mail pixels",
+            "seconds": 9.356322786
+          },
+          {
+            "name": "AIT-237: a held Done save preserves reopened Settings and its email scroll",
+            "seconds": 0.843765926
           }
         ]
       }

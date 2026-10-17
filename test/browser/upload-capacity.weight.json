@@ -1,64 +1,232 @@
 {
-  "seconds": 41.569,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 35.606,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005018928-1, 39005037245-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "6e84c038f7390c6d76f794dec262e47e8f37f8492dc26da5a56f6c101ae781aa",
+    "workload": "1e5051f5b659d52785bb08aa8e578303627a663cd0f86af140b4b7d0a406372d",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "38997673082",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:40.128Z",
+        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
+        "observedAt": "2026-10-17T03:09:25.602Z",
         "tests": [
           {
             "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
-            "seconds": 4.602582900000001
+            "seconds": 5.156726546
           },
           {
             "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
-            "seconds": 3.778870743
+            "seconds": 4.364580435
           },
           {
             "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.375886547
+            "seconds": 8.60666011
           },
           {
             "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
-            "seconds": 7.8893309689999995
+            "seconds": 8.142435028
           },
           {
             "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.467587778999999
+            "seconds": 8.877968725
           }
         ]
       },
       {
-        "runId": "38913449964",
+        "runId": "38999250028",
         "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:35.492Z",
+        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
+        "observedAt": "2026-10-17T03:33:56.903Z",
         "tests": [
           {
             "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
-            "seconds": 4.716878328
+            "seconds": 4.4278428540000005
           },
           {
             "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
-            "seconds": 3.8052438619999998
+            "seconds": 3.519829397
           },
           {
             "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.335694100000001
+            "seconds": 8.020061269
           },
           {
             "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
-            "seconds": 7.79596196
+            "seconds": 7.547073529
           },
           {
             "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.352338393
+            "seconds": 8.886878476
+          }
+        ]
+      },
+      {
+        "runId": "39003014289",
+        "attempt": 1,
+        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
+        "observedAt": "2026-10-17T04:33:50.509Z",
+        "tests": [
+          {
+            "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
+            "seconds": 5.488468169
+          },
+          {
+            "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
+            "seconds": 4.173659541
+          },
+          {
+            "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.614526890999999
+          },
+          {
+            "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
+            "seconds": 7.9611489330000005
+          },
+          {
+            "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.643256536
+          }
+        ]
+      },
+      {
+        "runId": "39004584443",
+        "attempt": 1,
+        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
+        "observedAt": "2026-10-17T04:59:29.918Z",
+        "tests": [
+          {
+            "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
+            "seconds": 5.164323151
+          },
+          {
+            "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
+            "seconds": 3.890214081
+          },
+          {
+            "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.399679878999999
+          },
+          {
+            "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
+            "seconds": 7.799330782
+          },
+          {
+            "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.50257766
+          }
+        ]
+      },
+      {
+        "runId": "39005018928",
+        "attempt": 1,
+        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
+        "observedAt": "2026-10-17T05:06:45.875Z",
+        "tests": [
+          {
+            "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
+            "seconds": 3.709167829
+          },
+          {
+            "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
+            "seconds": 3.060261816
+          },
+          {
+            "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 6.542257207
+          },
+          {
+            "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
+            "seconds": 6.13692015
+          },
+          {
+            "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 6.601763036
+          }
+        ]
+      },
+      {
+        "runId": "39005037245",
+        "attempt": 1,
+        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
+        "observedAt": "2026-10-17T05:06:46.543Z",
+        "tests": [
+          {
+            "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
+            "seconds": 4.492534259
+          },
+          {
+            "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
+            "seconds": 3.529572979
+          },
+          {
+            "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.723148737999999
+          },
+          {
+            "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
+            "seconds": 7.530071662999999
+          },
+          {
+            "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.273839232
+          }
+        ]
+      },
+      {
+        "runId": "39005522082",
+        "attempt": 1,
+        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
+        "observedAt": "2026-10-17T05:14:44.366Z",
+        "tests": [
+          {
+            "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
+            "seconds": 4.556976826
+          },
+          {
+            "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
+            "seconds": 3.482170169
+          },
+          {
+            "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.015195089
+          },
+          {
+            "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
+            "seconds": 7.434961609
+          },
+          {
+            "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.005553844
+          }
+        ]
+      },
+      {
+        "runId": "39006638133",
+        "attempt": 1,
+        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
+        "observedAt": "2026-10-17T05:33:01.980Z",
+        "tests": [
+          {
+            "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
+            "seconds": 5.437187539
+          },
+          {
+            "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
+            "seconds": 4.066633109
+          },
+          {
+            "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.613982062
+          },
+          {
+            "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.003299869000001
+          },
+          {
+            "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
+            "seconds": 8.48545093
           }
         ]
       }

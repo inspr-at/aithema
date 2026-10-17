@@ -1,32 +1,248 @@
 {
-  "seconds": 60.287,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 49.264,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38964295803-1, 38966907643-1, 38968110440-1, 38968973333-1, 38972348710-1, 38973311216-1, 38974274631-1, 38974908331-1, 38977655464-1, 38989994446-1, 38995053246-1, 38996124444-1, 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005018928-1, 39005037245-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "68094664a2a54bce72495f952522b77fc28b19f11fbb883549b02009efdc7207",
+    "workload": "85b9d66e9b0bb3c37017542174cce81c2d02e96ac1fa84047df09f2dbaeff167",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "38964295803",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T13:57:46.515Z",
+        "sha": "47792c3a124276e4bf0eba8ec45ef3264b073a08",
+        "observedAt": "2026-10-16T20:43:48.891Z",
         "tests": [
           {
             "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
-            "seconds": 48.228512948
+            "seconds": 48.641647179
           }
         ]
       },
       {
-        "runId": "38913449964",
+        "runId": "38966907643",
         "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:09:37.823Z",
+        "sha": "0fffdcf92f10ae90ea530c2bb105070651916900",
+        "observedAt": "2026-10-16T21:05:46.286Z",
         "tests": [
           {
             "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
-            "seconds": 46.506087067
+            "seconds": 47.920344777
+          }
+        ]
+      },
+      {
+        "runId": "38968110440",
+        "attempt": 1,
+        "sha": "e2b607eb0dd424be2d1859b85eaf17448c70909f",
+        "observedAt": "2026-10-16T21:15:57.004Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.318530059
+          }
+        ]
+      },
+      {
+        "runId": "38968973333",
+        "attempt": 1,
+        "sha": "90bf5ced47212144e25d4eb6e318ab716b45e915",
+        "observedAt": "2026-10-16T21:23:18.447Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.940403623
+          }
+        ]
+      },
+      {
+        "runId": "38972348710",
+        "attempt": 1,
+        "sha": "6398b930f7171285f4c68dcff355b5c01158da63",
+        "observedAt": "2026-10-16T21:53:50.353Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.161505998
+          }
+        ]
+      },
+      {
+        "runId": "38973311216",
+        "attempt": 1,
+        "sha": "55e29502eef433dae16d59423aea0e3ea2c9a1d4",
+        "observedAt": "2026-10-16T22:02:57.143Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.152866235000005
+          }
+        ]
+      },
+      {
+        "runId": "38974274631",
+        "attempt": 1,
+        "sha": "f4958e7b38438d1fb0a109a8d2273878f99d7609",
+        "observedAt": "2026-10-16T22:12:10.127Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.413570735
+          }
+        ]
+      },
+      {
+        "runId": "38974908331",
+        "attempt": 1,
+        "sha": "1e77636c5496712b5e315989a5eab60a240e6c57",
+        "observedAt": "2026-10-16T22:18:20.995Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.268173536
+          }
+        ]
+      },
+      {
+        "runId": "38977655464",
+        "attempt": 1,
+        "sha": "b1ce032954a740a27dc3f0d45e0782c110a9e0c1",
+        "observedAt": "2026-10-16T22:46:03.453Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.335847588
+          }
+        ]
+      },
+      {
+        "runId": "38989994446",
+        "attempt": 1,
+        "sha": "4611339dc21b0e976c0e0507070047d487a103e3",
+        "observedAt": "2026-10-17T01:14:40.281Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.863364645000004
+          }
+        ]
+      },
+      {
+        "runId": "38995053246",
+        "attempt": 1,
+        "sha": "b6319880ea1b640d3190421d77967486d07837d0",
+        "observedAt": "2026-10-17T02:28:49.291Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.389985464999995
+          }
+        ]
+      },
+      {
+        "runId": "38996124444",
+        "attempt": 1,
+        "sha": "fc2e7ea8350878353a221b72e21587311ea564db",
+        "observedAt": "2026-10-17T02:45:07.904Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.228319461
+          }
+        ]
+      },
+      {
+        "runId": "38997673082",
+        "attempt": 1,
+        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
+        "observedAt": "2026-10-17T03:09:24.379Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 45.138094158
+          }
+        ]
+      },
+      {
+        "runId": "38999250028",
+        "attempt": 1,
+        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
+        "observedAt": "2026-10-17T03:33:56.091Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 46.603572856
+          }
+        ]
+      },
+      {
+        "runId": "39003014289",
+        "attempt": 1,
+        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
+        "observedAt": "2026-10-17T04:33:50.509Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 49.263539463
+          }
+        ]
+      },
+      {
+        "runId": "39004584443",
+        "attempt": 1,
+        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
+        "observedAt": "2026-10-17T04:59:29.918Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 49.173914055000004
+          }
+        ]
+      },
+      {
+        "runId": "39005018928",
+        "attempt": 1,
+        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
+        "observedAt": "2026-10-17T05:06:45.875Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 46.321123025
+          }
+        ]
+      },
+      {
+        "runId": "39005037245",
+        "attempt": 1,
+        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
+        "observedAt": "2026-10-17T05:06:46.543Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.377547594999996
+          }
+        ]
+      },
+      {
+        "runId": "39005522082",
+        "attempt": 1,
+        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
+        "observedAt": "2026-10-17T05:14:44.366Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 48.087800910999995
+          }
+        ]
+      },
+      {
+        "runId": "39006638133",
+        "attempt": 1,
+        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
+        "observedAt": "2026-10-17T05:33:01.980Z",
+        "tests": [
+          {
+            "name": "AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024/1440; 0 px shift",
+            "seconds": 50.488739108000004
           }
         ]
       }

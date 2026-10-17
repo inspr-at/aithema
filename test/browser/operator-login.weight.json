@@ -1,40 +1,328 @@
 {
-  "seconds": 61.567,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 62.616,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38964295803-1, 38966907643-1, 38968110440-1, 38968973333-1, 38972348710-1, 38973311216-1, 38974274631-1, 38974908331-1, 38977655464-1, 38989994446-1, 38995053246-1, 38996124444-1, 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005018928-1, 39005037245-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "71fe1d34d4fa739c5f65479d3ec6479cde0a1575018af8873a758d32b5cd4e2d",
+    "workload": "ceec0401cbd1512a665a44c7f603103b69a1968054a86b69de85600939f911e4",
     "samples": [
       {
-        "runId": "38911873685",
+        "runId": "38964295803",
         "attempt": 1,
-        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
-        "observedAt": "2026-10-16T14:01:17.791Z",
+        "sha": "47792c3a124276e4bf0eba8ec45ef3264b073a08",
+        "observedAt": "2026-10-16T20:47:52.144Z",
         "tests": [
           {
             "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
-            "seconds": 28.276383609
+            "seconds": 38.307447509999996
           },
           {
             "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
-            "seconds": 12.954973378
+            "seconds": 16.897765482
           }
         ]
       },
       {
-        "runId": "38913449964",
+        "runId": "38966907643",
         "attempt": 1,
-        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
-        "observedAt": "2026-10-16T14:13:38.682Z",
+        "sha": "0fffdcf92f10ae90ea530c2bb105070651916900",
+        "observedAt": "2026-10-16T21:10:02.456Z",
         "tests": [
           {
             "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
-            "seconds": 34.079157230999996
+            "seconds": 42.456121374000006
           },
           {
             "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
-            "seconds": 15.173663406
+            "seconds": 18.978980259
+          }
+        ]
+      },
+      {
+        "runId": "38968110440",
+        "attempt": 1,
+        "sha": "e2b607eb0dd424be2d1859b85eaf17448c70909f",
+        "observedAt": "2026-10-16T21:20:18.382Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.653323438
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.194714598999997
+          }
+        ]
+      },
+      {
+        "runId": "38968973333",
+        "attempt": 1,
+        "sha": "90bf5ced47212144e25d4eb6e318ab716b45e915",
+        "observedAt": "2026-10-16T21:27:39.825Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.168220195
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.236795689999997
+          }
+        ]
+      },
+      {
+        "runId": "38972348710",
+        "attempt": 1,
+        "sha": "6398b930f7171285f4c68dcff355b5c01158da63",
+        "observedAt": "2026-10-16T21:57:41.532Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 37.686486857000006
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 17.645890386999998
+          }
+        ]
+      },
+      {
+        "runId": "38973311216",
+        "attempt": 1,
+        "sha": "55e29502eef433dae16d59423aea0e3ea2c9a1d4",
+        "observedAt": "2026-10-16T22:07:28.820Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 43.969596066
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.497162239
+          }
+        ]
+      },
+      {
+        "runId": "38974274631",
+        "attempt": 1,
+        "sha": "f4958e7b38438d1fb0a109a8d2273878f99d7609",
+        "observedAt": "2026-10-16T22:16:13.531Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 37.890646161999996
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 17.371772818
+          }
+        ]
+      },
+      {
+        "runId": "38974908331",
+        "attempt": 1,
+        "sha": "1e77636c5496712b5e315989a5eab60a240e6c57",
+        "observedAt": "2026-10-16T22:21:57.823Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 31.250158058
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 14.771675467
+          }
+        ]
+      },
+      {
+        "runId": "38977655464",
+        "attempt": 1,
+        "sha": "b1ce032954a740a27dc3f0d45e0782c110a9e0c1",
+        "observedAt": "2026-10-16T22:50:22.995Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.870684187
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.105788596
+          }
+        ]
+      },
+      {
+        "runId": "38989994446",
+        "attempt": 1,
+        "sha": "4611339dc21b0e976c0e0507070047d487a103e3",
+        "observedAt": "2026-10-17T01:19:12.588Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.388803294
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.377318909000003
+          }
+        ]
+      },
+      {
+        "runId": "38995053246",
+        "attempt": 1,
+        "sha": "b6319880ea1b640d3190421d77967486d07837d0",
+        "observedAt": "2026-10-17T02:33:25.894Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 43.118496154
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.856010114
+          }
+        ]
+      },
+      {
+        "runId": "38996124444",
+        "attempt": 1,
+        "sha": "fc2e7ea8350878353a221b72e21587311ea564db",
+        "observedAt": "2026-10-17T02:48:44.400Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 31.055829027
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 13.970745605
+          }
+        ]
+      },
+      {
+        "runId": "38997673082",
+        "attempt": 1,
+        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
+        "observedAt": "2026-10-17T03:13:55.963Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.966371571
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.214766776
+          }
+        ]
+      },
+      {
+        "runId": "38999250028",
+        "attempt": 1,
+        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
+        "observedAt": "2026-10-17T03:36:23.979Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 31.177068761999998
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 13.980280266
+          }
+        ]
+      },
+      {
+        "runId": "39003014289",
+        "attempt": 1,
+        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
+        "observedAt": "2026-10-17T04:38:13.097Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 40.083876141
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 17.985402629
+          }
+        ]
+      },
+      {
+        "runId": "39004584443",
+        "attempt": 1,
+        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
+        "observedAt": "2026-10-17T05:04:00.916Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 41.097160196
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 18.670109831999998
+          }
+        ]
+      },
+      {
+        "runId": "39005018928",
+        "attempt": 1,
+        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
+        "observedAt": "2026-10-17T05:11:27.532Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 41.674060259
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 18.862500001
+          }
+        ]
+      },
+      {
+        "runId": "39005037245",
+        "attempt": 1,
+        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
+        "observedAt": "2026-10-17T05:11:53.356Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 42.099732091999996
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 19.078505633
+          }
+        ]
+      },
+      {
+        "runId": "39005522082",
+        "attempt": 1,
+        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
+        "observedAt": "2026-10-17T05:19:19.719Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 35.695546579
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 16.006782606999998
+          }
+        ]
+      },
+      {
+        "runId": "39006638133",
+        "attempt": 1,
+        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
+        "observedAt": "2026-10-17T05:37:26.400Z",
+        "tests": [
+          {
+            "name": "AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift",
+            "seconds": 31.478837997
+          },
+          {
+            "name": "AIT-223 signed-in operator: demo admin link and host without adminUrl; DE/EN light/dark 390/1024/1440, final first frame",
+            "seconds": 14.668980518
           }
         ]
       }
