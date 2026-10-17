@@ -240,9 +240,9 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
       assert.deepEqual(text, [['Qualifiziert', 'Vom Host geprüft'], ['Geprüft', 'Betreiberpreis']]);
       await shot('ait262', 'gauges', { target: '.gauges' });
       for (const kind of ['quality', 'cost']) {
-        await page.focus(`aithema-session >>> [data-gauge="${kind}"]`);
+        await page.hover(`aithema-session >>> [data-gauge="${kind}"]`);
         assert.ok((await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent)).endsWith(de.gauges.details[kind][kind === 'quality' ? 'hostQualified' : 'hostPriceReviewed']));
-        await shot('ait262', `${kind}-detail`, { target: '.settings-context' });
+        await shot('ait262', `${kind}-detail`, { target: '.settings-context', hover: `[data-gauge="${kind}"]` });
       }
     }
     return `PASS: all four provisional values/captions and both full detail lines; ${report.gaugeKeyCount} gauge keys with DE/EN and exact source lines in gauge-keys.md.`;
@@ -271,13 +271,13 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
     for (const cfg of matrix) {
       await scene({ ...cfg, live: true, concept: true });
       assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.clarify-action').length), 3);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.actor-value').textContent), 'noch offen');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.actor-trigger .actor-value').textContent), 'noch offen');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-access').dataset.state), 'ready');
       assert.equal(await shadow(page, c => c.querySelectorAll('[slot="legal"] a').length), 2);
       await shot('integration-a', 'overview-concept-ready');
       if (cfg.width === 390) await shot('integration-a', 'overview-three-items', { target: '.understanding' });
       await shadow(page, c => { const input = c.shadowRoot.querySelector('textarea'); input.value = 'Bitte helfen Sie uns bei der Freigabe.'; c.shadowRoot.querySelector('form').requestSubmit(); });
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent.includes('gesendet'));
+      await until(page, expected => document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').textContent === expected, de.failed);
       const { result: component } = await cdp.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session")' });
       const { privateProperties } = await cdp.send('Runtime.getProperties', { objectId: component.objectId });
       await cdp.send('Runtime.callFunctionOn', { objectId: privateProperties.find(p => p.name === '#retryFiles').value.objectId,
