@@ -245,6 +245,7 @@ export const bandStyles = `
   .conversations-wrap, .host-bar { min-width:0; }
   .conversations-wrap { position:static; }
   .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
+  .band:has(> .audio-rail) .conversations-menu { top:50px; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
   .voice-state { max-width:100%; }
