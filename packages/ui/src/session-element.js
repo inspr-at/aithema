@@ -401,10 +401,6 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.composer-resume').addEventListener('click', () => { void this.#resumeComposer(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
-      const feedback = root.querySelector('.composer-feedback');
-      feedback.toggleAttribute('data-saved', this.#saved);
-      setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
-      setText(root.querySelector('.composer-saved span'), this.#saved ? copy.saved : '');
       if (e.key === 'Enter' && (mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing) { e.preventDefault(); void this.#send(); }
     });
     root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice && !this.#retryFiles.length) { this.#uploadNotice = ''; this.#render('composer'); } });
