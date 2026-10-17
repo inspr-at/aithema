@@ -167,6 +167,7 @@ export class ActorRole {
     const unset = this.#view?.role == null, inferred = !unset && this.#view?.source === 'inferred';
     const value = this.element.querySelector('.actor-trigger .actor-value');
     setText(value, unset ? c.unset : labels?.[this.#view.role] ?? ''); value.toggleAttribute('data-unset', unset);
+    value.classList.toggle('actor-value-muted', unset);
     const spark = this.element.querySelector('.actor-trigger .actor-spark'); spark.hidden = !inferred; spark.setAttribute('aria-label', c.inferred); spark.setAttribute('role', 'img');
     for (const surface of this.#surfaces()) {
       surface.dataset.phase = this.#phase;

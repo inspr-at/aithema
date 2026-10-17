@@ -10,7 +10,7 @@ export const actorRoleStyles = `
 .actor-trigger:hover,.actor-trigger[aria-expanded=true] { color:var(--aithema-ink); background:none; }
 .actor-spark { display:inline-grid; width:11px; height:11px; margin-left:5px; color:var(--aithema-accent); }
 .actor-value { font-weight:500; color:color-mix(in srgb,var(--aithema-ink) 80%,var(--aithema-muted)); }
-.actor-value[data-unset] { color:var(--aithema-muted); }
+.actor-value-muted { color:var(--aithema-muted); font-weight:400; }
 .actor-trigger-text { white-space:pre; }
 .actor-spark svg { width:11px; height:11px; } .actor-chevron { width:10px; height:10px; margin-left:6px; color:var(--aithema-muted); }
 .actor-popover { --role-paper:#102b42; --role-ink:${palette.dark.ink}; --role-muted:${palette.dark.muted}; --role-accent:${palette.dark.accent}; --role-error:${palette.dark.error}; --role-line:rgba(234,241,246,.12);

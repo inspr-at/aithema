@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { reasonSeparator } from '../src/consent-line.js';
 import { ActorRole } from '../src/actor-role.js';
+import { actorRoleStyles } from '../src/actor-role-styles.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 const window = new Window({ url: 'http://localhost' });
@@ -29,6 +30,27 @@ function fixture(t, options = {}) {
 const key = (element, key) => element.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 
 for (const [locale, copy] of [['de', de], ['en', en]]) {
+  test(`AIT-281: ${locale} only the null role value uses muted ink and regular weight`, t => {
+    const f = fixture(t, { locale, initial: { ...initial, role: null, reasoning: null } });
+    const style = document.createElement('style'); style.textContent = actorRoleStyles; f.root.prepend(style);
+    f.actor.element.style.setProperty('--aithema-muted', '#687888');
+    f.actor.element.style.setProperty('--aithema-ink', '#102b42');
+    const value = f.root.querySelector('.actor-trigger .actor-value');
+    const key = f.root.querySelector('.actor-key');
+    const reservation = f.root.querySelector('.actor-reservation').innerHTML;
+    for (const source of [null, 'inferred', 'chosen', null]) {
+      f.actor.set({ ...initial, role: source ? 'company' : null, source: source ?? 'inferred' });
+      assert.equal(value.classList.contains('actor-value-muted'), source === null);
+      assert.equal(window.getComputedStyle(value).fontWeight, source === null ? '400' : '500');
+      if (source === null) assert.equal(window.getComputedStyle(value).color, 'rgb(104, 120, 136)');
+      else assert.notEqual(window.getComputedStyle(value).color, 'rgb(104, 120, 136)');
+      assert.equal(key.classList.contains('actor-value-muted'), false);
+      assert.equal(key.textContent, copy.actorRole.label+': ');
+      assert.equal(f.root.querySelector('.actor-reservation').innerHTML, reservation);
+      assert.equal(f.root.querySelector('.actor-reservation .actor-value-muted'), null);
+    }
+  });
+
   test(`AIT-281: ${locale} null role has no inference, unchecked radios and a first roving stop on both surfaces`, async t => {
     const f = fixture(t, { locale, initial: { ...initial, role: null, reasoning: null } });
     f.actor.open(true); await tick();

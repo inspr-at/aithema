@@ -299,6 +299,7 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
             checked: surface.querySelector('input:checked')?.value, footer: root.querySelector('.actor-trigger-text').textContent,
             sparkle: !root.querySelector('.actor-trigger .actor-spark').hidden,
             muted: getComputedStyle(root.querySelector('.actor-trigger .actor-value')).color === getComputedStyle(root.querySelector('.actor-chevron')).color,
+            valueWeight: getComputedStyle(root.querySelector('.actor-trigger .actor-value')).fontWeight,
             triggerVisible: getComputedStyle(root.querySelector('.actor-role')).display !== 'none' && !root.querySelector('.actor-trigger').hidden,
             open: width === 390 ? surface.open : !surface.hidden, account: root.querySelector('.actor-account').hidden,
             reasoning: surface.querySelector('.actor-reason').textContent, status: surface.querySelector('.actor-status').textContent,
@@ -317,6 +318,8 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
           assert.ok(measured.rowHeights.every(height => height === (width === 390 ? 50 : 44)));
           assert.equal(measured.open, true);
           assert.equal(measured.triggerVisible, width !== 390);
+          assert.equal(measured.valueWeight, state === 'null' ? '400' : '500');
+          assert.equal(measured.muted, state === 'null');
           if (state === 'null') {
             assert.equal(measured.footer, locale === 'de' ? 'Rolle: noch offen' : 'Role: not set');
             assert.equal(measured.reasoning, locale === 'de' ? 'Noch nicht eingeschätzt.' : 'Not assessed yet.');
