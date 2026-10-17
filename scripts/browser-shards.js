@@ -79,9 +79,13 @@ browserTestWeights['test/browser/start2-display.test.js'] = Math.max(
 // AIT-290: all 29 consent tests passed in PR #262 CI 39014917676 and
 // 39015342356 (heads aff955f108 / 3c84d426f6). Sum of nearest-rank per-test
 // p95 across those two file executions: 112.589432365s; 25% margin: 140.737s.
-// Keep this floor until rolling main reflects the expanded narrow matrix.
+// Round 3 adds the cached-final/scoping/200% text regression. That test
+// passed in CI 39018865149 at 4.334407704s (the separate DE one-line test
+// failed there and is not used as timing evidence). Add its 25% margin,
+// 5.419s, to the prior green-workload floor: 146.156s. Keep this conservative
+// floor until rolling main reflects the expanded narrow matrix.
 browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
-  browserTestWeights['test/browser/consent-lines.test.js'], 140.737);
+  browserTestWeights['test/browser/consent-lines.test.js'], 146.156);
 
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
