@@ -71,9 +71,10 @@ export async function compactFooterCheck(t) {
     const [x, y, w, h] = before.boxes[3]; await page.mouse.move(x + w / 2, y + h / 2);
     await page.evaluate(() => { window.footerLabel.textContent = window.footerShortText; });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    const held = await page.evaluate(() => ({ boxes: window.footerBoxes(), hit: document.querySelector('aithema-session').shadowRoot.elementFromPoint(...(() => {
-      const b = document.querySelector('aithema-session').shadowRoot.querySelector('.engine-info').getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2];
-    })())?.closest('.engine-info') !== null }));
+    const held = await page.evaluate(point => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      return { boxes: window.footerBoxes(), hit: Boolean(root.elementFromPoint(...point)?.closest('.engine-info')) };
+    }, [x + w / 2, y + h / 2]);
     assert.deepEqual(held.boxes, before.boxes, `${name}: controls move 0px while the pointer rests on the footer`);
     assert.equal(held.hit, true);
     await settleEvidenceFrame(page); // Blurs controls and moves the pointer out before the after shot.
