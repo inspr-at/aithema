@@ -2402,6 +2402,10 @@ export class AithemaSession extends HTMLElement {
       this.#session.operations = event.data; this.#restoreFailure();
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
+      if (this.#clarify?.requestId && event.data.lane === 'reaction') {
+        if (event.data.retryable === false) this.#clarify = null;
+        else this.#clarify.state = 'retry';
+      }
       this.#host?.receive(event);
     }
     this.#syncClarify();
