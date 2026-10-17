@@ -262,7 +262,9 @@ export async function hostChromeCheck(t) {
         const footer = r.querySelector('.display-foot'), row = r.querySelector('.display-foot__row');
         const composer = r.querySelector('.composer').getBoundingClientRect(), foot = footer.getBoundingClientRect();
         const links = [...c.querySelectorAll('[slot="legal"] a')].map(box);
+        const zones = [...row.children].filter(n => !n.hidden).map(box);
         return { footerWidth: row.clientWidth, footerScrollWidth: row.scrollWidth, composerBottom: composer.bottom, footerTop: foot.top,
+          zonesClear: zones.every(([x,,w], i) => !i || zones[i-1][0] + zones[i-1][2] <= x),
           links, legalInside: links.every(([x,y,w,h]) => x >= 0 && x+w <= innerWidth && y >= 0 && y+h <= innerHeight),
           flag: r.querySelector('.engine__flag').checkVisibility({ visibilityProperty:true }),
           dot: r.querySelector('.status__dot').checkVisibility({ visibilityProperty:true }),
@@ -273,6 +275,7 @@ export async function hostChromeCheck(t) {
       });
       const label = `ait294-${locale}-${theme}-${width}-${voice ? 'voice' : 'text'}-${frames.length}`;
       assert.ok(metric.footerScrollWidth <= metric.footerWidth, `${label}: footer fits ${JSON.stringify(metric)}`);
+      assert.equal(metric.zonesClear, true, `${label}: footer zones do not overlap ${JSON.stringify(metric)}`);
       assert.equal(metric.legalInside, true, `${label}: both legal links inside viewport ${JSON.stringify(metric)}`);
       assert.ok(metric.composerBottom <= metric.footerTop, `${label}: composer above footer ${JSON.stringify(metric)}`);
       assert.equal(metric.flag, true); assert.equal(metric.dot, true); assert.equal(metric.identity, true);

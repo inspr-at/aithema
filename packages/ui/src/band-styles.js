@@ -256,6 +256,7 @@ slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit !importan
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 .footer-right { grid-column:3; min-width:0; }
 .display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
+.display-foot:has(.host-credits[hidden]) .display-foot__row { grid-template-columns:minmax(0,1fr) auto auto; }
 .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
 .host-legal { display:flex; align-items:center; min-width:0; margin-left:10px; font:inherit; color:inherit; }
 slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }

@@ -395,6 +395,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
   .composer-actions:has(.composer-reason[data-send-failed]) { gap:0; }
+  .composer-reason[data-send-failed] { letter-spacing:-.03em; }
   /* Keep the 12px DE label on one line with the wider Linux baseline font. */
   .composer-reason[data-consent-feature="text"] { letter-spacing:-.03em; }
   .composer-reason[data-consent-feature="text"] .consent-wide { display:none; }

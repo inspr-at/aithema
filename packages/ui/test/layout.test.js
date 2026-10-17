@@ -43,6 +43,7 @@ test('AIT-294: measured footer drops AI copy, then timer, then role and restores
   let available = 1000;
   const measured = [], widths = { full: 1000, identity: 800, timer: 700, role: 500 };
   const footer = { dataset: {}, querySelector: () => ({
+    children: [], getBoundingClientRect: () => ({ left:0, right:available }),
     get clientWidth() { return available; },
     get scrollWidth() { measured.push(footer.dataset.fit); return widths[footer.dataset.fit]; },
   }) };
@@ -53,6 +54,15 @@ test('AIT-294: measured footer drops AI copy, then timer, then role and restores
     assert.equal(fitFooter(footer), mode); assert.deepEqual(measured, attempts);
   }
   assert.equal(fitFooter(footer, true), 'identity', 'tablet identity reservation is independent of voice binding');
+});
+
+test('AIT-294: footer collisions yield the timer even when scrollWidth fits', () => {
+  const footer = { dataset: {}, querySelector: () => row };
+  const zone = (left, right) => ({ hidden:false, clientWidth:100, scrollWidth:100,
+    getClientRects: () => [1], getBoundingClientRect: () => ({ left, right }) });
+  const row = { clientWidth:600, scrollWidth:600, getBoundingClientRect: () => ({ left:0, right:600 }),
+    get children() { return [zone(0, 100), zone(200, 350), zone(footer.dataset.fit === 'timer' ? 374 : 330, 600)]; } };
+  assert.equal(fitFooter(footer, true), 'timer');
 });
 
 test('fold hides the whole middle, updates its two-line message and restores both scroll positions through incoming content', async t => {

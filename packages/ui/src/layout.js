@@ -42,7 +42,10 @@ export function fitFooter(footer, compactIdentity = false) {
   const row = footer.querySelector('.display-foot__row');
   for (const mode of compactIdentity ? ['identity', 'timer', 'role'] : ['full', 'identity', 'timer', 'role']) {
     footer.dataset.fit = mode;
-    if (row.scrollWidth <= row.clientWidth) break;
+    const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
+    const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
+    const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
+    if (row.scrollWidth <= row.clientWidth && clear && zones.every(n => n.scrollWidth <= n.clientWidth)) break;
   }
   return footer.dataset.fit;
 }
