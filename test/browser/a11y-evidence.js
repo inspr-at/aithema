@@ -273,13 +273,17 @@ export async function auditMainSurfaces(t, evidence) {
       await page.keyboard.press('Escape');
       manual.push({ locale, theme, width, dialogsClosedByEscape: true, consentFocusReturned: true, actorFocusReturned: true, conceptFocusReturned: true, ariaControls: controls });
     }
-    // Exercise the <=340px label branch without repeating the whole matrix.
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
-      await page.setViewport({ width: 320, height: 844 });
+    // AIT-297: prove legal target sizes at each phone width, including the narrow label branch.
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 360, 390]) {
+      await page.setViewport({ width, height: 844 });
       await configure(locale, theme, 'consent');
-      await audit('conversation', 'consent-narrow', locale, theme, 320, false, narrowConsentRuns);
-      narrowConsentRuns.at(-1).accessibleName = await consentName(locale, true);
-      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.consent-action .consent-narrow')).display), 'inline', '320px exposes the narrow consent label');
+      await audit('conversation', 'consent-narrow', locale, theme, width, false, narrowConsentRuns);
+      const result = narrowConsentRuns.at(-1);
+      result.accessibleName = await consentName(locale, width <= 340);
+      const seriousTargets = result.violations.filter(rule => rule.id === 'target-size' && rule.impact === 'serious').reduce((sum, rule) => sum + rule.count, 0);
+      assert.equal(seriousTargets, 0, `AIT-297 ${locale}/${theme}/${width}: zero serious target-size findings`);
+      console.log(`AIT-297 target-size ${locale}/${theme}/${width}: ${seriousTargets} serious`);
+      if (width === 320) assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.consent-action .consent-narrow')).display), 'inline', '320px exposes the narrow consent label');
     }
     // The consent page is a host route; use the same browser/page and local server.
     const session = await shadow(page, c => structuredClone(c.session));
@@ -308,7 +312,7 @@ export async function auditMainSurfaces(t, evidence) {
     assert.deepEqual(errors, []);
     assert.equal(runs.length, 264, 'all eight surfaces, image/draft and voice variants retain the full evidence matrix');
     assert.equal(draftFrames.length, 8, 'all draft-viewer scenes scan the sandboxed document');
-    assert.equal(narrowConsentRuns.length, 4, '320px consent names checked in DE/EN and light/dark');
+    assert.equal(narrowConsentRuns.length, 12, '320/360/390px consent names and legal targets checked in DE/EN and light/dark');
     // Persist accessible names added after the final narrow scene scan.
     await writeFile(join(evidence, 'a11y-audit.json'), JSON.stringify({ head: evidenceCommit, productBase: base, tags,
       scope: 'shell including open shadow roots; sandboxed draft documents scanned separately; counts are node observations per scene', runs, narrowConsentRuns, draftFrames }, null, 2));
