@@ -187,6 +187,11 @@ export class ConceptView {
   visualKind() { return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image'; }
   progress() {
     if (!this.#session) return;
+    const unbound = Object.values(this.#session.featureMatrix ?? {}).every(matrix => ['html', 'images'].every(kind => {
+      const verdict = matrix[kind];
+      return !verdict || !verdict.available && ['not configured', this.copy.notConfigured, 'unavailable on device'].includes(verdict.reason);
+    }));
+    this.root.querySelector('.concept-rail').hidden = unbound && !this.items.length;
     const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
     const initial = this.#stageFeature === undefined;

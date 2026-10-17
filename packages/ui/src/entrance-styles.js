@@ -3,6 +3,7 @@
 // the promise and the orb, the four processing choices, then readiness with an explicit start.
 // START's hover lifts and arrow nudges are left out: nothing moves under the pointer.
 export const entranceStyles = `
+.workspace:not([data-stage="live"]) { padding-bottom:calc(var(--phone-footer,57px) + env(safe-area-inset-bottom,0px)); }
 .intro { position:relative; display:grid; justify-items:center; align-content:start; gap:1.5rem; padding:clamp(.5rem,3svh,2.5rem) 0 2rem; }
 .intro__prompt { display:grid; justify-items:center; gap:.25rem; width:min(100%,48rem); text-align:center; }
 .intro__orb { line-height:0; margin-bottom:.35rem; } .intro__orb .orb { --orb-size:clamp(4rem,9svh,6rem); }

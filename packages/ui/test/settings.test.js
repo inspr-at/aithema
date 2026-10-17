@@ -880,3 +880,26 @@ test('AIT-234: an invalid consent document keeps the shared Done button disabled
   assert.equal(h.q('.done').getAttribute('aria-disabled'), 'true');
   assert.equal(h.q('.done').hasAttribute('aria-describedby'), false, 'consent failure is not catalog loading');
 });
+
+for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: unavailable Custom agrees at entrance and Settings and arrow keys skip it`, async t => {
+  const h = fixture(t, { copy, matrix: { custom: { text: refused('not configured') } }, loadCatalog(catalog) {
+    catalog.presets.custom = { offered: true, status: 'unavailable', reason: 'not configured' }; return catalog;
+  } });
+  const entrance = h.root.querySelector('.chooser-option[data-preset="custom"]');
+  assert.equal(entrance.getAttribute('aria-disabled'), 'true'); assert.equal(entrance.tabIndex, -1);
+  assert.equal(entrance.querySelector('.chooser-option__note').textContent, copy.chooser.unavailable);
+  entrance.click(); assert.equal(entrance.getAttribute('aria-pressed'), 'false'); assert.equal(h.posts.length, 0);
+  const best = h.root.querySelector('.chooser-option[data-preset="best"]');
+  best.focus(); best.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.equal(h.root.activeElement.dataset.preset, 'device');
+  best.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  assert.equal(h.root.activeElement.dataset.preset, 'device');
+  await opened(h);
+  const custom = h.q('.preset-option[data-preset="custom"]');
+  assert.equal(custom.getAttribute('aria-disabled'), 'true');
+  assert.equal(custom.querySelector('.option-status').textContent, copy.chooser.unavailable);
+  custom.click(); await tick(); assert.equal(h.posts.length, 0);
+  const selected = h.q('.preset-option[data-preset="best"]');
+  selected.focus(); selected.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.equal(h.root.activeElement.dataset.preset, 'device');
+});

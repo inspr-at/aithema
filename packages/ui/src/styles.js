@@ -182,6 +182,7 @@ svg { display:block; flex:none; }
 /* One grid for the line: scene, state, the thumbnail once there is a concept, and Request at the right edge, so the
    thumbnail arriving narrows the state's column and never moves Request. */
  .concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.5rem; min-height:44px; }
+.concept-bar:has(.concept-rail[hidden]):has(.concept-preview:disabled):not(:has(.voice-notices:not(:empty))) { display:none; }
 .concept-rail { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; column-gap:.65rem; min-height:44px; }
 .concept-scene { grid-area:1/1; width:22px; height:22px; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
 .concept-scene i { background:var(--aithema-line-strong); border-radius:2px; }
@@ -268,7 +269,19 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-actions small { font-size:.72rem; color:var(--aithema-muted); }
 /* A long reason wraps to a second line rather than ending in "…"; a longer upload refusal scrolls in its two lines. */
 .composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
-@media(pointer:coarse) { .composer-reason[data-shortcut] { visibility:hidden; } }
+/* Both messages share a cell; hidden sizing copy reserves the longer label. */
+.composer-feedback { display:grid; flex:0 1 auto; margin-right:auto; min-width:0; align-items:center; }
+.composer-feedback > * { grid-area:1/1; }
+.composer-reason { transition:opacity 120ms ease; }
+.composer-reason kbd { font:inherit; padding:0 .2em; border:1px solid var(--aithema-line-strong); border-radius:3px; }
+.composer-saved, .composer-saved-sizer { display:flex; align-items:center; gap:.35em; width:max-content; max-width:100%; line-height:1.3; }
+.composer-saved svg, .composer-saved-sizer svg { width:14px; height:14px; }
+.composer-saved-sizer { visibility:hidden; }
+.composer-saved { opacity:0; pointer-events:none; transition:opacity 120ms ease; }
+.composer-feedback[data-saved] .composer-reason { opacity:0; pointer-events:none; }
+.composer-feedback[data-saved] .composer-saved { opacity:1; }
+@media(hover:none), (pointer:coarse) { .composer-reason[data-shortcut] { visibility:hidden; width:0; overflow:hidden; } }
+@media(prefers-reduced-motion:reduce) { .composer-reason, .composer-saved { transition:none; } }
 /* Leave paint room for the shared action's 3px underline offset inside the scroll port. */
 .composer-reason:has(.upload-discard) { max-height:44px; line-height:1.25; padding-bottom:3px; }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
