@@ -50,6 +50,9 @@ export async function hostChromeCheck(t) {
     const nativeFetch = window.fetch;
     window.fetch = (url, init = {}) => {
       const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/events') && window.footerConnectionGate) {
+        return window.footerConnectionGate.then(() => nativeFetch(url, init));
+      }
       if (path.endsWith('/pause')) {
         window.resumeBody = JSON.parse(init.body);
         return new Promise(resolve => { window.ackResume = () => resolve(Response.json({ event: {
@@ -238,6 +241,9 @@ export async function hostChromeCheck(t) {
         await shadow(page, async (c, { locale, voice, brandMode }) => {
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
           const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+          // Hold a real transport response until interaction: a visitor can open
+          // the notice while connecting, independently of catalog/feature paint.
+          window.footerConnectionGate = new Promise(resolve => { window.connectFooter = resolve; });
           const session = structuredClone(window.chromeSeed); session.locale = locale; session.transcript = []; session.uploads = [];
           session.settings.voice = voice ? 'offered' : 'off';
           session.engine.voice = { id: voice ? 'offered' : 'off', offered: voice, label: 'Local evidence' };
@@ -314,7 +320,10 @@ export async function hostChromeCheck(t) {
           const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
         }));
         const baseline = await frame(), footerBefore = await footerSnapshot(true);
-        await page.click('aithema-session >>> .ai-notice'); await settle();
+        await page.click('aithema-session >>> .ai-notice');
+        await page.evaluate(() => window.connectFooter());
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+        await settle();
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-version').checkVisibility({ checkVisibilityCSS: true })), true);
         if (width < 600) assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.phone-status').checkVisibility({ checkVisibilityCSS: true })), true);
         assert.deepEqual(await frame(), baseline, `${label}: popup opens with 0 px movement ${JSON.stringify({ before: footerBefore, after: await footerSnapshot() })}`);
