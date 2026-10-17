@@ -240,7 +240,7 @@ export class AithemaSession extends HTMLElement {
       clearTimeout(this.#clarifyNoticeTimer);
       this.#clarifyNoticeTimer = setTimeout(() => { this.#clarifyNotice = false; this.#render('aside'); }, 4000);
     } else if (error.reason === 'reply-in-flight') {
-      this.#clarify.state = 'requesting';
+      this.#clarify.state = 'requesting'; this.#clarify.waitingForReply = true;
     } else if (error.reason === 'paused' || error.reason === 'consent-required' || error.admissionReason === 'one-hour') {
       this.#clarify.state = 'refused';
       this.#clarify.reason = error.reason === 'paused' ? 'paused' : error.reason === 'consent-required' ? 'consent' : 'deadline';
@@ -253,7 +253,15 @@ export class AithemaSession extends HTMLElement {
   async #retryClarify() {
     if (this.#clarify?.state !== 'retry' || this.#clarify.pending) return;
     const focus = this.#clarify, sessionId = this.#session.id;
-    focus.pending = true; focus.state = 'requesting'; this.#render('aside');
+    focus.pending = true; focus.state = 'requesting';
+    // Retire the failure being retried before sending, so a newer failure that
+    // arrives ahead of the HTTP acknowledgement cannot be erased by that ack.
+    const operations = this.#session.operations;
+    if (operations) {
+      operations.failures = (operations.failures ?? []).filter(f => f.lane !== 'reaction');
+      operations.lastFailure = operations.failures.at(-1) ?? null;
+    }
+    this.#failure = Boolean(operations?.lastFailure); this.#render('aside');
     try {
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
       if (sessionId !== this.#session.id || this.#clarify !== focus) return;
@@ -261,13 +269,6 @@ export class AithemaSession extends HTMLElement {
         const result = await response.json();
         throw Object.assign(new Error(result.reason ?? result.error), result);
       }
-      // Clear only the failed reaction this action owns, until lane.status arrives.
-      const operations = this.#session.operations;
-      if (operations) {
-        operations.failures = (operations.failures ?? []).filter(f => f.lane !== 'reaction');
-        operations.lastFailure = operations.failures.at(-1) ?? null;
-      }
-      this.#failure = Boolean(operations?.lastFailure);
     } catch (error) {
       if (sessionId === this.#session.id && this.#clarify === focus) {
         if (['paused', 'consent-required'].includes(error.reason) || error.admissionReason === 'one-hour') await this.#clarifyRefused(error);
@@ -2399,12 +2400,13 @@ export class AithemaSession extends HTMLElement {
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
         content: (existing?.content ?? '') + event.data.delta,
         ...(this.#clarify?.requestId && this.#clarify.inputRevision === inputRevision(this.#session) ? { focusRequestId: this.#clarify.requestId } : {}) });
-      if (this.#clarify?.requestId && !['asked', 'refused'].includes(this.#clarify.state)) {
+      if (this.#clarify?.requestId && !['selected', 'asked', 'refused'].includes(this.#clarify.state)) {
         this.#clarify.state = 'selected';
         if (globalThis.matchMedia?.('(max-width: 599px)').matches) this.shadowRoot.querySelector('.transcript-shell').scrollIntoView?.({ block: 'start', behavior: 'instant' });
       }
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
+      if (this.#clarify?.waitingForReply && !event.data.running.includes('reaction')) this.#clarify = null;
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
       if (this.#clarify?.requestId && event.data.lane === 'reaction') {

@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, inputRevision } from '@inspr/aithema-core';
+import { voiceEvents } from '../../core/src/live-voice.js';
+import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 const window = new Window();
@@ -76,6 +78,7 @@ test('duplicate backend reply-in-flight is requesting, not a failure', async t =
   f.lane(['reaction']);
   assert.equal(f.rows()[1].dataset.state, 'requesting');
   assert.equal(f.root.querySelector('.reaction-failure').hidden, true);
+  f.lane(); assert.equal(f.rows()[1].dataset.state, 'rest', 'the existing reply finishing releases the actions');
 });
 for (const reason of ['stale-question', 'stale-revision']) test(`${reason} refreshes the list and reserves the heading notice for exactly 4 seconds`, async t => {
   const f = fixture(t);
@@ -140,4 +143,23 @@ test('host pane title wins and no visuals line is introduced on an unbound host'
   f.c.configure({ session: f.c.session, copy });
   assert.equal(f.root.querySelector('#understanding-title').textContent, 'Our host title');
   assert.equal(f.root.querySelector('.drafts-notice'), null);
+});
+
+test('AIT-263 Low: removed focus is never passed to the active voice adapter', async t => {
+  const f = fixture(t), contexts = [], events = voiceEvents();
+  const session = f.c.session; session.featureMatrix.best.voice = { available: true };
+  f.c.configure({ session, copy: en, voiceClient: { manifest, async start(request) {
+    return { callId: request.callId, providerSessionId: 'clarify-voice', events,
+      async setInput() {}, async setOutput() {}, async updateContext(context) { contexts.push(context); },
+      async close() { events.end(); return { closureConfirmed: true }; } };
+  } } });
+  t.after(() => f.c.configure({ session: createSession(), copy: en }));
+  f.c.shadowRoot.querySelector('.voice-start').click(); await tick();
+  f.event('question.focused', { question: 'Who approves invoices?', questionId: f.c.openQuestionItems[1].id,
+    requestId: 'voice-focus', chosenBy: 'user', inputRevision: inputRevision(f.c.session) });
+  await tick(); assert.equal(contexts.at(-1).focusedQuestion, 'Who approves invoices?');
+  const understanding = f.c.session.understanding; understanding.openQuestions = ['PDF or paper?'];
+  f.event('understanding.updated', understanding); await tick();
+  assert.equal(f.c.session.focusedQuestion, 'Who approves invoices?', 'the later automatic focus event has not arrived yet');
+  assert.equal(contexts.at(-1).focusedQuestion, null, 'the intermediate voice update already excludes the removed question');
 });
