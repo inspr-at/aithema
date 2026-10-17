@@ -435,7 +435,7 @@ test('AIT-282: the priced retry is the confirmation; one click makes one request
     const { root, calls } = setup(t, { copy, concepts: [], session: { visualsBound: true, conceptCost: { maxMicro: 30000 }, conceptStatus: { phase: 'failed' } },
       refuse: { status: 409, body: { reason: 'OpenRouter spend cap exhausted' } } });
     const retry = root.querySelector('.concept-request');
-    assert.equal(retry.textContent, `${copy.conceptRetry} · ${creditCost(30000, copy)}`);
+    assert.equal(retry.textContent, `${copy.conceptRetry}\u00a0· ${creditCost(30000, copy)}`);
     retry.click(); await tick();
     assert.equal(calls.filter(call => call.options.body).length, 1);
     assert.equal(JSON.parse(calls.find(call => call.options.body).options.body).intent, true);

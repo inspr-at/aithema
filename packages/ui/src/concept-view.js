@@ -173,11 +173,13 @@ export class ConceptView {
   update(session) {
     const changedOwner = this.#session && this.#session.id !== session.id;
     const previous = this.items.at(-1), wasPending = this.#session?.conceptStatus?.phase === 'pending';
+    const lostSource = wasPending && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn &&
+      !session.transcript.some(next => next.id === turn.id && !next.erased && !next.withdrawn));
     if (changedOwner) this.#stageFeature = undefined;
     this.#session = session;
     const valid = new Set((session.concepts ?? []).filter(c => !c.erased && !c.archived && !c.withdrawn).map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
-    if (changedOwner || previous && !valid.has(previous.id) || session.consentWithdrawn || session.tombstone || wasPending && session.conceptStatus?.error === 'source-removed') {
+    if (changedOwner || previous && !valid.has(previous.id) || session.consentWithdrawn || session.tombstone || lostSource || wasPending && session.conceptStatus?.error === 'source-removed') {
       this.#epoch++; this.#loads.clear(); this.clearBackdrop();
       clearTimeout(this.#withdrawnTimer);
       this.#withdrawnUntil = changedOwner ? 0 : Date.now() + 4000;
@@ -396,7 +398,7 @@ export class ConceptView {
   }
   paintBackdropState(unbound) {
     const access = this.root.querySelector('.concept-access'), phase = this.#session?.conceptStatus?.phase;
-    const state = unbound ? 'none' : this.#withdrawnUntil > Date.now() ? 'gone' : phase === 'pending' ? 'gen' :
+    const state = unbound ? 'none' : this.#withdrawnUntil > Date.now() ? 'gone' : phase === 'pending' && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn) ? 'gen' :
       phase === 'failed' && this.#session.conceptStatus.error === 'source-removed' ? 'empty' : phase === 'failed' || this.#requestError ? 'err' : this.items.length ? 'ready' : 'idle';
     access.dataset.state = state;
     if (this.visualKind() === 'image' && state === 'err' && !this.#requestError && !this.#session.conceptStatus?.reason)
