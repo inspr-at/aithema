@@ -370,12 +370,20 @@ On startup failure, move the host title outside the hidden component, remove
 also uses a 15-second deadline if `aithema-session` never defines; definition
 cancels that deadline so session/network latency does not trigger it.
 
-The default host geometry uses the component's 1520px shell, responsive gutters,
-and a 96px desktop actions column. If the host customizes `--aithema-shell-max`,
-`--aithema-gutter`, or `--aithema-header-actions-width` (for an account slot), set
-those properties on `.aithema-shell > :is(aithema-session,
-.aithema-first-paint)` so both receive the same overrides. Supply the host
-palette through `--paper`, `--surface`, `--accent` and `--line`; use the same theme selection before the stylesheet paints.
+The default geometry uses a 1520px shell, responsive gutters and 216px desktop
+/ 88px phone actions. The shell uses inline-size containment: its width must
+come from its container, never shrink-to-fit its content. Keep `.aithema-shell`
+and its band the same width; apply
+`--aithema-shell-max`, `--aithema-gutter` and `--aithema-header-actions-width`
+overrides to the shell and both direct children. First paint reserves voice rows
+using shell content width (including classic scrollbars) and a 27vw brand bound.
+For wider actions, append CSS from
+`headerRailReservation({ actionsWidth: '280px' })` in
+`@inspr/aithema-ui/first-paint` after `firstPaintStyles`; pass matching `gutter`
+and `brandWidth` bounds when customized. Arguments must be literal CSS lengths
+or expressions because queries cannot read custom properties. Stay within these
+bounds so mount never adds an unreserved row. Supply `--paper`, `--surface`,
+`--accent` and `--line` with the same theme selection before paint.
 
 The browser configures the element already present in that shell:
 
