@@ -156,6 +156,8 @@ export async function visitorCreditMatrix(t, locales) {
       const shot = async state => {
         // Wait for fonts, rendered frames and real finite transitions instead
         // of sleeping 160 ms for each of the 148 CI / 444 evidence states.
+        await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+        await page.mouse.move(-1, -1);
         await settle(page); states.push({ locale, theme, width, state });
         if (state === 'credits-used-up-give') {
           const popup = await shadow(page, c => {
@@ -185,9 +187,6 @@ export async function visitorCreditMatrix(t, locales) {
         });
         const capture = async suffix => {
           const file = `a2-${label}-${state}${suffix}.png`;
-          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
-          await page.mouse.move(-1, -1);
-          await settle(page);
           await page.screenshot({ path: join(evidence, file), fullPage: false });
           captures.push({ locale, theme, width, state, file, capture: 'viewport',
             ...await page.evaluate(() => ({ height: innerHeight, scrollY })) });
