@@ -55,6 +55,12 @@ for (const [file, seconds] of Object.entries({
   'test/browser/start2-display-matrix.test.js': 65.560, // observed 52.447183619s
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
+// AIT-281: mbp2606 head fb558988f3, existing footer sweep 6.911011167s
+// plus the single-page 84-case role matrix 4.123058916s; retain a 25% floor
+// until successful PR CI remeasurement and then rolling main history replace it.
+browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 13.793);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;

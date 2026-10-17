@@ -1,8 +1,12 @@
 import { node, setText } from './dom.js';
 
 const ROLES = ['private', 'company', 'representative', 'agency'];
-const sparkle = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="m8 0 2.1 5.9L16 8l-5.9 2.1L8 16l-2.1-5.9L0 8l5.9-2.1Z"/></svg>';
-const spinner = '<svg class="actor-spin" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="30 14"/></svg>';
+const sparkle = '<svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+const chevron = '<svg class="actor-chevron" viewBox="0 0 10 10" aria-hidden="true"><path d="m2 3.5 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const spinner = '<svg class="actor-spin" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="1.5"/><path d="M8 1.75A6.25 6.25 0 0 1 14.25 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const alertIcon = '<svg class="actor-status-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.6v4.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.1" r=".9" fill="currentColor"/></svg>';
+const refreshIcon = '<svg class="actor-status-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 6.4A5.4 5.4 0 0 0 3.1 5.3M2.8 9.6a5.4 5.4 0 0 0 10.1 1.1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3 2.6v2.9h2.9M13 13.4v-2.9h-2.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 
 /** Host labels and account content, module mechanics. Only command acknowledgements
  * change the footer; focus movement never writes. No scenario/sample data lives here. */
@@ -12,7 +16,7 @@ export class ActorRole {
   constructor({ root, copy, options, session, request, settings }) {
     this.#root = root; this.#copy = copy; this.#options = options; this.#session = session; this.#request = request; this.#settings = settings;
     this.element = node('div', 'actor-role');
-    this.element.innerHTML = '<span class="actor-reservation" aria-hidden="true"></span><button class="actor-trigger" type="button" aria-expanded="false" aria-controls="actor-popover" hidden><span class="actor-trigger-text"></span><span class="actor-spark">'+sparkle+'</span><span class="actor-chevron" aria-hidden="true">⌄</span></button><div class="actor-popover actor-surface" id="actor-popover" hidden></div>';
+    this.element.innerHTML = '<span class="actor-reservation" aria-hidden="true"></span><button class="actor-trigger" type="button" aria-expanded="false" aria-controls="actor-popover" hidden><span class="actor-trigger-text"><span class="actor-key"></span><span class="actor-value"></span></span><span class="actor-spark">'+sparkle+'</span>'+chevron+'</button><div class="actor-popover actor-surface" id="actor-popover" hidden></div>';
     root.querySelector('.footer-left').append(this.element);
     this.sheet = node('dialog', 'actor-sheet');
     this.sheet.innerHTML = '<header><h2></h2><button type="button" class="actor-close" aria-label="'+copy.actorRole.close+'">×</button></header><section class="actor-sheet-section actor-surface"></section><section class="actor-processing"><h3></h3><button type="button"></button></section>';
@@ -65,11 +69,11 @@ export class ActorRole {
     this.sheet.querySelector('.actor-close').setAttribute('aria-label', copy.actorRole.close);
     setText(this.sheet.querySelector('.actor-title'), c.label);
     setText(this.sheet.querySelector('.actor-processing h3'), copy.actorRole.processing);
-    setText(this.sheet.querySelector('.actor-processing button'), copy.settings.open);
+    setText(this.sheet.querySelector('.actor-processing button'), copy.presets[this.#session().processingPreset] ?? copy.settings.open);
     const labels = this.#labels(); const reservation = this.element.querySelector('.actor-reservation'); reservation.replaceChildren();
     if (labels) for (const role of ROLES) {
-      const row = node('span'); row.append(node('span', '', c.label+': '+labels[role]));
-      const spark = node('span', 'actor-spark'); spark.innerHTML = sparkle; row.append(spark, node('span', 'actor-chevron', '⌄')); reservation.append(row);
+      const row = node('span'); row.append(node('span', '', c.label+': '), node('span', 'actor-value', labels[role]));
+      const spark = node('span', 'actor-spark'); spark.innerHTML = sparkle; row.append(spark); row.insertAdjacentHTML('beforeend', chevron); reservation.append(row);
     }
     for (const surface of this.#surfaces()) {
       setText(surface.querySelector('legend'), c.label);
@@ -148,12 +152,15 @@ export class ActorRole {
     this.element.toggleAttribute('data-unavailable', !this.available);
     if (!this.available) { this.close(); if (this.sheet.open) this.closeSheet(); }
     const c = this.#copy.actorRole, labels = this.#labels();
-    setText(this.element.querySelector('.actor-trigger-text'), c.label+': '+(labels?.[this.#view?.role] ?? ''));
+    setText(this.element.querySelector('.actor-key'), c.label+': ');
+    setText(this.element.querySelector('.actor-trigger .actor-value'), labels?.[this.#view?.role] ?? '');
     const spark = this.element.querySelector('.actor-spark'); spark.hidden = this.#view?.source !== 'inferred'; spark.setAttribute('aria-label', c.inferred); spark.setAttribute('role', 'img');
     for (const surface of this.#surfaces()) {
       surface.dataset.phase = this.#phase;
       const inferred = this.#view?.source === 'inferred'; surface.querySelector('.actor-why').dataset.kind = inferred ? 'inferred' : 'chosen';
-      setText(surface.querySelector('.actor-reason'), inferred ? c.why+' '+(this.#view?.reasoning ?? '') : c.chosen);
+      const reason = surface.querySelector('.actor-reason');
+      if (inferred) reason.replaceChildren(node('b', '', c.why), document.createTextNode(' '+(this.#view?.reasoning ?? '')));
+      else setText(reason, c.chosen);
       const why = surface.querySelector('.actor-why'); if (inferred && this.#view?.reasoning) why.title = this.#view.reasoning; else why.removeAttribute('title');
       for (const input of surface.querySelectorAll('input')) {
         input.checked = input.value === (this.#pending ?? this.#view?.role);
@@ -166,7 +173,13 @@ export class ActorRole {
       const key = this.#phase === 'idle' ? 'hint' : this.#phase;
       if (status.dataset.phase !== key) {
         status.dataset.phase = key; status.replaceChildren();
-        if (key === 'error') { status.append(node('span', '', '⚠ '+c.error), node('span', 'actor-status-sep', ' · ')); const retry = node('button', 'actor-retry', c.retry); retry.type = 'button'; status.append(retry); }
+        if (key === 'error') {
+          const message = node('span'); message.innerHTML = alertIcon; message.append(document.createTextNode(c.error));
+          status.append(message, node('span', 'actor-status-sep', ' · '));
+          const retry = node('button', 'actor-retry', c.retry); retry.type = 'button'; status.append(retry);
+        } else if (key === 'stale') {
+          const message = node('span'); message.innerHTML = refreshIcon; message.append(document.createTextNode(c.stale)); status.append(message);
+        }
         else setText(status, (key === 'saved' ? '✓ ' : '')+c[key]);
       }
     }

@@ -5,12 +5,14 @@ export const actorRoleStyles = `
 .actor-role { position:relative; display:grid; flex:none; font-size:12.5px; }
 .actor-reservation,.actor-trigger { grid-area:1/1; }
 .actor-reservation { visibility:hidden; display:grid; pointer-events:none; }
-.actor-reservation > span { grid-area:1/1; white-space:nowrap; min-height:44px; display:flex; align-items:center; }
+.actor-reservation > span { grid-area:1/1; white-space:pre; min-height:44px; display:flex; align-items:center; }
 .actor-trigger { display:flex; align-items:center; min-height:44px; padding:0; border-radius:0; font:inherit; white-space:nowrap; color:var(--aithema-muted); background:none; }
 .actor-trigger:hover,.actor-trigger[aria-expanded=true] { color:var(--aithema-ink); background:none; }
 .actor-spark { display:inline-grid; width:11px; height:11px; margin-left:5px; color:var(--aithema-accent); }
-.actor-spark svg { width:11px; height:11px; } .actor-chevron { margin-left:6px; }
-.actor-popover { --role-paper:#102b42; --role-ink:${palette.dark.ink}; --role-muted:${palette.dark.muted}; --role-accent:${palette.dark.accent}; --role-error:${palette.dark.warning}; --role-line:rgba(255,255,255,.14);
+.actor-value { font-weight:500; color:color-mix(in srgb,var(--aithema-ink) 80%,var(--aithema-muted)); }
+.actor-trigger-text { white-space:pre; }
+.actor-spark svg { width:11px; height:11px; } .actor-chevron { width:10px; height:10px; margin-left:6px; color:var(--aithema-muted); }
+.actor-popover { --role-paper:#102b42; --role-ink:${palette.dark.ink}; --role-muted:${palette.dark.muted}; --role-accent:${palette.dark.accent}; --role-error:${palette.dark.error}; --role-line:rgba(234,241,246,.12);
   position:absolute; left:-16px; bottom:calc(100% + 12px); z-index:16; box-sizing:border-box; width:372px; max-width:calc(100vw - 24px);
   padding:10px 6px 4px; border-radius:12px; background:var(--role-paper); color:var(--role-ink); font-size:12.5px; line-height:1.5; white-space:normal;
   box-shadow:0 0 0 1px var(--aithema-line),0 18px 40px -16px rgba(0,0,0,.5); }
@@ -18,6 +20,7 @@ export const actorRoleStyles = `
 .actor-account { padding:2px 10px 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--role-muted); }
 .actor-why { display:grid; grid-template-columns:11px minmax(0,1fr); gap:7px; height:3em; margin:0; overflow:hidden; }
 .actor-why-spark svg { width:11px; height:11px; color:var(--role-accent); margin-top:.32em; }
+.actor-reason b { font-weight:600; color:var(--role-ink); }
 .actor-reason { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .actor-why[data-kind=chosen] { grid-template-columns:minmax(0,1fr); align-content:center; }
 .actor-why[data-kind=chosen] .actor-why-spark { display:none; }
@@ -38,6 +41,7 @@ export const actorRoleStyles = `
 .actor-option:has(input:disabled):hover { background:none; }
 .actor-option input:disabled { box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--role-muted) 45%,var(--role-paper)); }
 .actor-status { display:flex; align-items:center; flex-wrap:wrap; align-content:center; box-sizing:border-box; height:36px; padding:0 10px; margin:0; border-top:1px solid var(--role-line); color:var(--role-muted); font-size:12.5px; line-height:1.35; }
+.actor-status-icon { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2.5px; }
 .actor-status-sep { white-space:pre; }
 .actor-status[data-phase=error] { color:var(--role-error); }
 .actor-status[data-phase=stale],.actor-status[data-phase=saved] { color:var(--role-ink); }
@@ -62,7 +66,8 @@ export const actorRoleStyles = `
 .actor-sheet .actor-status { margin:0 -8px; padding:0 8px; height:44px; border:0; font-size:14px; }
 .actor-sheet .actor-status[data-phase=error] { display:block; padding-top:2px; }
 .actor-sheet .actor-status[data-phase=error] > span { display:block; }
-.actor-sheet .actor-status[data-phase=error] .actor-status-sep { display:none; }
+.actor-sheet .actor-status[data-phase=error] .actor-status-icon { display:inline-block; width:14px; height:14px; margin-right:6px; vertical-align:-2.5px; }
+.actor-status-sep { display:none; }
 .actor-sheet .actor-retry { margin-left:20px; }
 .actor-processing { border-top:1px solid var(--aithema-line); margin-top:6px; padding-top:16px; }
 .actor-processing > button { display:flex; align-items:center; width:100%; min-height:50px; padding:0; text-align:left; color:var(--aithema-ink); font-size:16px; }
