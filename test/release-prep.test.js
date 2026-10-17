@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { moduleFiles } from '../release/lib/modules.mjs';
@@ -8,9 +8,112 @@ import { execFileSync } from 'node:child_process';
 import { reserveVersion } from '../release/lib/version.mjs';
 import { packRelease, verifyRelease, rollbackArtifact, releasePaths, admittedPath } from '../release/pack.mjs';
 import { startChild } from './helpers.js';
+import { installPackedOffline } from '../scripts/release-prep-install.js';
 const root = new URL('../', import.meta.url);
-test('dry-run pack repeats identical bytes and manifest, pins dependencies, and binds rollback to exact bytes', async () => {
+
+function installFixture(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-install-test-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const shared = join(directory, 'shared');
+  const digest = Buffer.alloc(64, 0xab);
+  const content = join('_cacache', 'content-v2', 'sha512', 'ab', 'ab', digest.toString('hex').slice(4));
+  mkdirSync(join(shared, content, '..'), { recursive: true });
+  writeFileSync(join(shared, content), 'cached tarball');
+  // This unrelated index entry must never enter the private cache.
+  mkdirSync(join(shared, '_cacache', 'index-v5'));
+  writeFileSync(join(shared, '_cacache', 'index-v5', 'unrelated'), 'private cache metadata');
+  const integrity = `sha512-${digest.toString('base64')}`;
+  writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: {
+    '': {}, 'node_modules/production': { integrity },
+    'node_modules/dev-only': { dev: true, integrity: 'sha512-not-supported-dev-entry' },
+    'node_modules/workspace': { link: true },
+  } }));
+  return { directory, shared, content };
+}
+
+test('packed offline install copies only locked production content into a unique cache and keeps temp dirs alive', t => {
+  const { directory, shared, content } = installFixture(t);
+  const caches = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let installs = 0;
+    installPackedOffline(directory, { run(command, args, options) {
+      assert.equal(command, 'npm');
+      assert.equal(options.cwd, directory);
+      const logs = args[args.indexOf('--logs-dir') + 1];
+      assert.ok(logs.endsWith('/cache/_logs'));
+      assert.ok(!logs.startsWith(shared));
+      if (args[0] === 'config') {
+        assert.deepEqual(args.slice(0, 5), ['config', 'get', 'cache', '--offline', '--logs-max=0']);
+        return `${shared}\n`;
+      }
+      installs++;
+      assert.deepEqual(args.slice(0, 6), ['ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund']);
+      const cache = args[args.indexOf('--cache') + 1]; caches.push(cache);
+      assert.ok(statSync(options.env.TMPDIR).isDirectory());
+      assert.equal(join(cache, '..'), join(options.env.TMPDIR, '..'));
+      assert.equal(readFileSync(join(cache, content), 'utf8'), 'cached tarball');
+      assert.notEqual(statSync(join(cache, content)).ino, statSync(join(shared, content)).ino);
+      assert.equal(existsSync(join(cache, '_cacache', 'index-v5')), false);
+      writeFileSync(join(cache, content), 'private mutation');
+      assert.equal(readFileSync(join(shared, content), 'utf8'), 'cached tarball');
+      return Buffer.alloc(0);
+    } });
+    assert.equal(installs, 1);
+    assert.equal(existsSync(join(caches.at(-1), '..')), false, 'cleanup follows child completion');
+  }
+  assert.notEqual(caches[0], caches[1]);
+  assert.equal(readFileSync(join(shared, '_cacache', 'index-v5', 'unrelated'), 'utf8'), 'private cache metadata');
+});
+
+test('packed offline install fails once with value-free SIGABRT, exit and missing-log diagnostics', async t => {
+  for (const failure of [
+    { status: null, signal: 'SIGABRT', stdout: '', stderr: '', log: true },
+    { status: 1, signal: null, stdout: 'private stdout', stderr: 'private stderr', log: true },
+    { code: 'ENOENT', log: false },
+  ]) await t.test(failure.signal ?? failure.code ?? 'exit 1', t => {
+    const { directory, shared } = installFixture(t);
+    let installs = 0, cache;
+    assert.throws(() => installPackedOffline(directory, { run(command, args) {
+      if (args[0] === 'config') return shared;
+      installs++; cache = args[args.indexOf('--cache') + 1];
+      if (failure.log) {
+        const logs = args[args.indexOf('--logs-dir') + 1]; mkdirSync(logs, { recursive: true });
+        writeFileSync(join(logs, '2026-10-17T00_00_00_000Z-debug-0.log'), [
+          '0 verbose title private old entry',
+          ...Array.from({ length: 22 }, (_, i) => `${i + 1} silly reify private config/path/url`),
+          '23 verbose argv private token arguments', '24 error code ENOTCACHED',
+          '25 error stack private credential payload', 'private multiline continuation',
+          '27 verbose node v24.20.0', '28 verbose npm 11.10.0', '29 verbose exit 1',
+        ].join('\n'));
+      }
+      throw Object.assign(new Error('private child error'), failure);
+    } }), error => {
+      assert.match(error.message, /failed during npm ci/u);
+      assert.ok(error.message.includes(`status=${failure.status ?? 'null'}`));
+      assert.ok(error.message.includes(`signal=${failure.signal ?? 'none'}`));
+      assert.ok(error.message.includes(`code=${failure.code ?? 'none'}`));
+      assert.ok(error.message.includes(`stdout_bytes=${Buffer.byteLength(failure.stdout ?? '')}`));
+      assert.ok(error.message.includes(`stderr_bytes=${Buffer.byteLength(failure.stderr ?? '')}`));
+      if (failure.log) {
+        const tail = error.message.split('values omitted):\n')[1];
+        assert.equal(tail.split('\n').length, 20);
+        assert.match(tail, /24 error code ENOTCACHED/u);
+        assert.match(tail, /27 verbose node v24\.20\.0/u);
+        assert.doesNotMatch(tail, /0 verbose title/u);
+      } else assert.match(error.message, /npm debug log unavailable/u);
+      assert.doesNotMatch(error.message, /private|token|credential|payload/u);
+      assert.equal(error.cause, undefined);
+      return true;
+    });
+    assert.equal(installs, 1, 'an abort or ordinary failure is never retried');
+    assert.equal(existsSync(join(cache, '..')), false, 'diagnostics precede cleanup');
+    assert.equal(readFileSync(join(shared, '_cacache', 'index-v5', 'unrelated'), 'utf8'), 'private cache metadata');
+  });
+});
+
+test('dry-run pack repeats identical bytes and manifest, pins dependencies, and binds rollback to exact bytes', async t => {
   const fixture = mkdtempSync(join(tmpdir(), 'aithema-pack-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
   for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
   const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
   cpSync(new URL('.gitattributes', root), join(fixture, '.gitattributes'));
@@ -61,7 +164,7 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.throws(() => rollbackArtifact(a.directory, a.manifest, a.manifest.artifacts[0].coordinate), /dry-run/i);
   const extracted = join(fixture, 'extracted'); mkdirSync(extracted); execFileSync('tar', ['-xzf', a.artifactPath, '-C', extracted]);
   assert.equal(existsSync(join(extracted, 'package/plugins/composed-voice/ops')), false, 'OPS qualification stays source-only');
-  execFileSync('npm', ['ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: join(extracted, 'package'), stdio: ['ignore', 'pipe', 'pipe'] });
+  installPackedOffline(join(extracted, 'package'));
   const demo = await startChild(join(extracted, 'package/demo/server.js'), join(fixture, 'packed-demo.sqlite'));
   try {
     assert.equal((await fetch(`${demo.url}/healthz`)).status, 200);
