@@ -1,4 +1,6 @@
 import { evidenceCommit, settleEvidenceFrame } from './start2-display-helpers.js';
+import { normalComposerEvidence } from './normal-composer-evidence.js';
+import { createRequire } from 'node:module';
 import { mockConsent } from './consent-helpers.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 // AIT-104 B2: the host surface in a real browser against the default mock demo with its labelled
@@ -569,6 +571,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       }
     }
   }
+  await normalComposerEvidence(page, t);
   await postRelease297(page, t, legal297);
   assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
   const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
@@ -615,18 +618,34 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
 });
 
 // AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
-async function postRelease297(page, t, legalHTML) {
-  const checks = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320]) {
+async function postRelease297(browserPage, t, legalHTML) {
+  const checks = [], fractionalChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320, 388.5]) {
     const height = width < 600 ? 844 : 1000;
-    await page.setViewport({ width, height });
-    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+    await browserPage.setViewport({ width: Math.ceil(width), height });
+    await browserPage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+    let page = browserPage, frameElement;
+    if (!Number.isInteger(width)) {
+      // CDP viewport widths are integers. A real fractional iframe viewport
+      // exercises media queries at 388.5 CSS px without rounding to 389.
+      const handle = await browserPage.evaluateHandle(({ width, height }) => {
+        const frame = document.createElement('iframe'); frame.src = location.href;
+        frame.style.cssText = `position:fixed;inset:0;border:0;z-index:99999;width:${width}px;height:${height}px`;
+        document.body.append(frame); return frame;
+      }, { width, height });
+      frameElement = handle.asElement(); page = await frameElement.contentFrame();
+      await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+      // The frame shares its parent's pointer; all DOM work stays in the frame.
+      page.mouse = browserPage.mouse;
+      assert.equal(await page.evaluate(() => matchMedia('(width: 388.5px)').matches), true, 'exact fractional CSS viewport');
+      assert.equal(await page.evaluate(() => matchMedia('(width < 389px)').matches), true, 'fractional viewport selects the stacked range');
+    }
     let reserved;
     for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
       await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true,
         confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
       await inShadow(page, (c, { legalHTML, theme, labels }) => {
-        c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme;
+        c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme; document.documentElement.lang = c.session.locale;
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
         c.insertAdjacentHTML('beforeend', legalHTML);
         c.querySelector('#demo-legal').setAttribute('aria-label', labels.legal);
@@ -653,28 +672,50 @@ async function postRelease297(page, t, legalHTML) {
           const n = r.querySelector(selector), text = n.querySelector('[aria-hidden="false"]') ?? n.querySelector('span');
           const range = document.createRange(); range.selectNodeContents(text);
           return new Set([...range.getClientRects()].filter(b => b.width > 0).map(b => b.y)).size;
-        }), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
-          const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }) };
+        }), bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(...selectors.map(selector => r.querySelector(selector).getBoundingClientRect().top)),
+        overlap: (() => { const [a, b] = selectors.map(selector => r.querySelector(selector).getBoundingClientRect());
+          return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; })(),
+        licenceLines: (() => {
+          const node = c.querySelector('#demo-license').firstChild, start = node.textContent.indexOf('AGPL-3.0-only');
+          const range = document.createRange(); range.setStart(node, start); range.setEnd(node, start + 'AGPL-3.0-only'.length);
+          return new Set([...range.getClientRects()].map(b => b.y)).size;
+        })(), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
+          const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }), clipped: n.scrollWidth > n.clientWidth || n.scrollHeight > n.clientHeight };
         }), preset: (() => { const b = r.querySelector('.engine-info').getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width:b.width }; })() };
       });
       reserved ??= state.boxes;
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
+      assert.equal(state.bodyClear, true, `${label}: body clears both actions`);
+      assert.equal(state.overlap, false, `${label}: action targets do not overlap`);
+      assert.equal(state.licenceLines, 1, `${label}: AGPL-3.0-only stays unbroken`);
+      assert.ok(state.legal.every(n => !n.clipped && n.left >= 0 && n.right <= width && n.top >= 0 && n.bottom <= height), `${label}: legal targets stay unclipped in the viewport`);
+      assert.ok(state.legal.every(n => n.width >= 44 && n.height >= 44), `${label}: legal targets retain 44 px for touch too`);
       for (const [x, y, w, h] of state.boxes) { assert.ok(x >= 0 && x + w <= width && y >= 0 && y + h <= height, `${label}: action is in viewport`); assert.ok(h >= 44); }
       assert.equal(state.legal.length, 2);
       assert.equal(state.preset.width, 44, `${label}: preset target cannot shrink`);
       assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
       assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
-      checks.push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
+      (Number.isInteger(width) ? checks : fractionalChecks).push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
       if (evidence && variant === 'upgrade') {
         await mkdir(evidence, { recursive: true });
         await settleEvidenceFrame(page);
-        await page.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+        await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
+        // Axe is explicit remote evidence only; never add audits to CI workloads.
+        if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
+        const audit = await page.evaluate(async () => {
+          const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
+          return { version: result.testEngine.version, violations: result.violations.map(rule => ({ id: rule.id, impact: rule.impact, targets: rule.nodes.map(n => n.target) })) };
+        });
+        audits.push({ head: evidenceCommit, locale, theme, width, ...audit });
+        assert.deepEqual(audit.violations.filter(rule => ['serious', 'critical'].includes(rule.impact)), [], `${label}: axe serious/critical findings`);
       }
     }
+    if (frameElement) await frameElement.evaluate(frame => frame.remove());
   }
   assert.equal(checks.length, 48);
-  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/320; single-line actions, zero layout shift, legal targets >=24px.');
-  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks }, null, 2));
+  assert.equal(fractionalChecks.length, 12);
+  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
+  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, audits }, null, 2));
 }

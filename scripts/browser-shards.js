@@ -87,12 +87,13 @@ browserTestWeights['test/browser/start2-display.test.js'] = Math.max(
 browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
   browserTestWeights['test/browser/consent-lines.test.js'], 146.156);
 
-// AIT-297: PR #270 CI 39042146849, merge ref 954d50507a6b (head
-// 110e986380): all three host-surface tests passed at 56.338836063s.
-// Other files in that run failed; this floor uses only this passing file's
-// measured work, plus 25%, until rolling main covers the expanded matrix.
+// AIT-297 round 2: successful PR #270 CI 39044909058, head 5ac4d49475,
+// shard 4/6: all three final-matrix host-surface tests passed at
+// 5.882741572s + 6.063059898s + 42.397941083s = 54.343742553s.
+// Retain the observed work plus 25% (67.930s) until rolling main
+// measurements cover the expanded matrix; PR samples remain diagnostic.
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
-  browserTestWeights['test/browser/host-surface.test.js'], 70.424);
+  browserTestWeights['test/browser/host-surface.test.js'], 67.930);
 
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
