@@ -993,13 +993,14 @@ export class AithemaSession extends HTMLElement {
     } catch { this.#status(this.#copy.controlFailed); }
     finally { form.remove(); }
   }
-  #creditsChanged({ allowanceChanged = false, settledCall } = {}) {
+  #creditsChanged({ allowanceChanged = false, settledCall, receiptFailed = false } = {}) {
     if (!this.#host) return;
     if (settledCall) this.#rail?.settleLedger(settledCall);
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
     const textReason = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason;
     const deniedText = !this.#hasLiveCall() && ['budget denied', 'budget reconciling'].includes(textReason);
-    const refresh = (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
+    // A failed receipt can resolve fallback copy, but supplies no new admission facts.
+    const refresh = !receiptFailed && (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close(this.#host.endReason ?? 'host-limit');
@@ -1383,6 +1384,7 @@ export class AithemaSession extends HTMLElement {
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
       const card = root.querySelector('.qcard'); card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp);
       this.#host?.emailAsk?.paint();
+      this.#paintStatus();
       return;
     }
     if (part === 'features') {

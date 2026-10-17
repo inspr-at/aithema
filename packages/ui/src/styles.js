@@ -38,6 +38,10 @@ export const themeStyles = `:host { ${tokens('light')} }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) { ${tokens('dark')} } }`;
 
 export const styles = `${themeStyles}
+.gauge__unrated { display:none; }
+.gauge--unrated .gauge__inside { background:repeating-linear-gradient(135deg,var(--aithema-surface) 0 6px,var(--aithema-muted) 6px 7px,var(--aithema-surface) 7px 12px); }
+.gauge--unrated .gauge__level, .gauge--unrated .gauge__etch, .gauge--unrated .gauge__glint { visibility:hidden; }
+.gauge--unrated .gauge__unrated { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:block; padding:.1rem .25rem; border-radius:.2rem; background:var(--aithema-surface); color:var(--aithema-ink); font:600 1.4rem/1 var(--aithema-font); }
 :host { --aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; --aithema-mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
   --aithema-radius-sm:10px; --aithema-radius-md:18px; --aithema-radius-lg:28px;

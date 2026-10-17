@@ -153,3 +153,22 @@ test('AIT-131 withdraw x: a fixed 44 px target and 20 px glyph, opacity-only rev
   assert.equal(c.shadowRoot.querySelector('.turn:not(.user) .speaker-name').textContent, 'KI-Assistenz');
   c.remove();
 });
+
+test('AIT-292: unrated vial classes follow measurement state, including real zero quality and free cost', async () => {
+  const { gaugeVialState } = await import('../src/display.js');
+  for (const [kind, states] of Object.entries({ quality: ['none', 'unverified', 'qualified', 'hostQualified', 'local'],
+    speed: ['none', 'local'], cost: ['none', 'unverified', 'hostPriceReviewed', 'local'], privacy: ['unverified'],
+    voice: ['off', 'device', 'unverified'], images: ['off', 'device'] })) {
+    for (const state of states) assert.equal(gaugeVialState(kind, { state, fill: 0 }), 'gauge--unrated', `${kind}/${state}`);
+  }
+  for (const [kind, gauge] of [['quality', { state: 'rated', fill: 0 }], ['cost', { state: 'free', fill: 0 }],
+    ['cost', { state: 'reviewed', fill: 0 }], ['speed', { state: 'index', fill: 20 }], ['privacy', { state: 'eu', fill: 70 }],
+    ['voice', { state: 'qualified', fill: 0, total: 2 }], ['images', { state: 'qualified', fill: 0, operations: [] }]]) {
+    assert.equal(gaugeVialState(kind, gauge), 'gauge--measured', kind);
+  }
+  const { contrast } = await import('../../../test/contrast.js'), { palette } = await import('../src/styles.js');
+  for (const [theme, tokens] of Object.entries(palette)) {
+    assert.ok(contrast(tokens.ink, tokens.surface) >= 4.5, `${theme}: dash text`);
+    assert.ok(contrast(tokens.muted, tokens.surface) >= 3, `${theme}: neutral hatching`);
+  }
+});

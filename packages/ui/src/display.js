@@ -85,3 +85,11 @@ export function languageFlag(locale) {
   if (locale !== 'de') return settingsFlag('quality');
   return '<span class="settings-flag" aria-hidden="true"><svg viewBox="0 0 60 40"><path fill="#111" d="M0 0h60v14H0z"/><path fill="#d00" d="M0 13h60v14H0z"/><path fill="#ffce00" d="M0 26h60v14H0z"/></svg></span>';
 }
+
+/** A missing measurement has no numeric level; a measured zero remains a zero. */
+export function gaugeVialState(kind, gauge) {
+  const measured = ({ quality: () => gauge.state === 'rated', speed: () => gauge.state === 'index',
+    cost: () => ['free', 'reviewed'].includes(gauge.state), privacy: () => gauge.state !== 'unverified',
+    voice: () => gauge.total > 0, images: () => Array.isArray(gauge.operations) })[kind]?.();
+  return measured ? 'gauge--measured' : 'gauge--unrated';
+}
