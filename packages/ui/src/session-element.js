@@ -1419,15 +1419,16 @@ export class AithemaSession extends HTMLElement {
     // must not select a second row that would flash before the first visible fit.
     if (!band?.querySelector('.audio-rail') || !band.clientWidth) return;
     const style = this.ownerDocument.defaultView.getComputedStyle(band);
-    // A first-paint shell owns the reservation in CSS. Re-measuring its flex
-    // content (including empty account gaps) must not introduce another row.
-    const reserved = style.getPropertyValue('--aithema-header-rail-row').trim();
-    if (reserved) {
-      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth);
-      return;
-    }
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
     const railTrack = tracks.length === 3 ? tracks[1] : 0;
+    // Honor the CSS reservation, but keep older hosts with wider actions safe.
+    // The computed track ignores flex-content gaps and does not change with
+    // row placement, so this fallback cannot oscillate.
+    const reserved = style.getPropertyValue('--aithema-header-rail-row').trim();
+    if (reserved) {
+      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || railTrack < 208);
+      return;
+    }
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       - root.querySelector('.band-identity').getBoundingClientRect().width
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));

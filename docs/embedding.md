@@ -371,7 +371,9 @@ also uses a 15-second deadline if `aithema-session` never defines; definition
 cancels that deadline so session/network latency does not trigger it.
 
 The default geometry uses a 1520px shell, responsive gutters and 216px desktop
-/ 88px phone actions. Keep `.aithema-shell` and its band the same width; apply
+/ 88px phone actions. The shell uses inline-size containment: its width must
+come from its container, never shrink-to-fit its content. Keep `.aithema-shell`
+and its band the same width; apply
 `--aithema-shell-max`, `--aithema-gutter` and `--aithema-header-actions-width`
 overrides to the shell and both direct children. First paint reserves voice rows
 using shell content width (including classic scrollbars) and a 27vw brand bound.
