@@ -6,6 +6,7 @@ import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { creditCost } from '../src/display.js';
 import { ConceptView, conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
+import { EmailAsk } from '../src/email-ask.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -394,6 +395,66 @@ for (const copy of [de, en]) for (const enabled of [true, false]) for (const rea
 // AIT-282: state changes share a permanent access cell and the authenticated bytes.
 const conceptState = (c, status, artifact) => c.receive({ seq: c.session.seq + 1, type: 'concept.state',
   data: { intent: c.session.conceptIntent, status, ...(artifact ? { artifact } : {}) } });
+test('AIT-282 round 3: phone access stays inert behind the email ask through stage renders and moves', async t => {
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
+  const { c, root, calls } = setup(t, { session: { visualsBound: true, conceptCost: { maxMicro: 30000 } } });
+  const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
+  assert.ok(access.closest('.composer-dock'), 'the real access row is mounted in the phone dock');
+  const email = { canCollect: true, address: '', numbers: {}, paintNotice() {} };
+  const ask = new EmailAsk({ root, copy: en, verification: { email }, session: () => c.session, streaming: () => false, request: async () => ({ ok: false }) });
+  t.after(() => ask.destroy());
+  ask.open = true; ask.paint();
+  assert.equal(access.inert, true, 'the ready thumbnail is inert behind the modal email ask');
+  root.querySelector('.concept-preview').click();
+  assert.equal(root.querySelector('.concept-viewer').open, false);
+  conceptState(c, { phase: 'failed' });
+  assert.equal(access.inert, true, 'stage renders cannot reopen the paid retry behind the modal');
+  retry.click(); await tick();
+  assert.equal(calls.filter(call => call.options.body).length, 0, 'blocked retry cannot send a paid request');
+  window.happyDOM.setWindowSize({ width: 800, height: 844 });
+  assert.ok(access.closest('.concept-bar'));
+  assert.equal(access.inert, true, 'moving the same row retains its guard');
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  ask.open = false; ask.paint();
+  assert.equal(access.inert, false, 'live controls return after dismissal');
+  retry.click(); await tick();
+  assert.equal(calls.filter(call => call.options.body).length, 1, 'the existing one-click priced retry still works');
+});
+test('AIT-282 round 3: phone access is hidden and inert outside live, including after email-ask paint', t => {
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
+  for (const origin of ['default', 'chosen']) {
+    const { c, root, calls } = setup(t, { session: { transcript: [], visualsBound: true, settings: { origin }, conceptStatus: { phase: 'failed' } } });
+    const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
+    assert.ok(access.closest('.composer-dock'));
+    assert.equal(root.querySelector('.workspace').dataset.stage, origin === 'chosen' ? 'ready' : 'entrance');
+    const email = { canCollect: true, address: '', numbers: {}, paintNotice() {} };
+    const ask = new EmailAsk({ root, copy: en, verification: { email }, session: () => c.session, streaming: () => false, request: async () => ({ ok: false }) });
+    t.after(() => ask.destroy());
+    ask.paint();
+    assert.equal(access.inert, true, 'closed email ask cannot remove the stage guard');
+    assert.equal(window.getComputedStyle(access).display, 'none', 'image layout cannot override the not-live hide rule');
+    assert.ok(retry.closest('.concept-access').inert, 'retry has an inert ancestor');
+    retry.click();
+    assert.equal(calls.filter(call => call.options.body).length, 0);
+  }
+});
+test('AIT-282 round 3: phone accessible name matches visible ready text in DE and EN', t => {
+  window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
+  for (const copy of [de, en]) {
+    const { root } = setup(t, { copy, session: { visualsBound: true } });
+    const preview = root.querySelector('.concept-preview');
+    assert.equal(preview.querySelector('.concept-preview-label').textContent, copy.conceptPhoneReady);
+    assert.equal(preview.getAttribute('aria-label'), copy.conceptPhoneReady);
+  }
+});
+test('AIT-282 round 3: failure and restart copy name the current retry button in DE and EN', () => {
+  for (const copy of [de, en]) for (const text of [copy.conceptFailed, copy.conceptRestarted]) {
+    assert.ok(text.includes(`„${copy.conceptRetry}“`) || text.includes(`“${copy.conceptRetry}”`), text);
+  }
+});
 test('AIT-282: generating, ready, replacement, failure, withdrawal and empty keep the same access nodes', async t => {
   const { c, root } = setup(t, { concepts: [], session: { visualsBound: true } });
   const access = root.querySelector('.concept-access'), preview = root.querySelector('.concept-preview'), request = root.querySelector('.concept-request');
