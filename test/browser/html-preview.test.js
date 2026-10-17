@@ -10,6 +10,7 @@ import { HTML_PREVIEW_HOST_CSP, inspectHTML } from '@inspr/aithema-core';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
 // Set AITHEMA_EVIDENCE_DIR to keep screenshots of the sample click-dummy (wide light/dark, phone).
 const root = new URL('../../', import.meta.url).pathname;
+const isCI = Boolean(process.env.CI);
 const dummy = await readFile(join(root, 'test/fixtures/click-dummy.html'), 'utf8');
 import { browserPath } from '../../scripts/install-test-browser.js';
 const declaration = `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_HOST_CSP}">`;
@@ -79,7 +80,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   t.after(async () => { await browser?.close(); server.closeAllConnections(); server.close(); await rm(directory, { recursive: true, force: true }); });
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH },
-    args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    args: process.platform === 'linux' && isCI ? ['--no-sandbox'] : [] });
   t.diagnostic(`Browser: ${await browser.version()}`);
   const page = await browser.newPage(); await page.setViewport({ width: 1280, height: 1000 });
   // Missing policy fails visibly before any generated content can execute.
@@ -220,7 +221,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
 // in place, and the expensive screenshot matrix only in explicit evidence mode.
 test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN', { timeout: 180_000 }, async t => {
   const { writeFile } = await import('node:fs/promises');
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR && !process.env.CI;
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR && !isCI;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-backdrop-'));
   const pageHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
     body{margin:0;background:#f7f5ef} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
@@ -267,13 +268,13 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     catch { res.writeHead(404); res.end(); }
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  const browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[] });
+  const browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
   t.after(async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true}); });
   const page = await browser.newPage(), errors = [], shots = [], passes = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.ready, {timeout:5000}).catch(cause => { throw new Error(`Backdrop fixture startup: ${JSON.stringify(errors)}`, {cause}); });
-  const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'local';
+  const head = /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'local';
   if (evidence) await mkdir(evidence,{recursive:true});
   const settle = () => page.evaluate(async () => {
     await document.fonts.ready;

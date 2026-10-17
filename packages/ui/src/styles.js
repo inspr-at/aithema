@@ -1,3 +1,5 @@
+import { reasonSeparator } from './consent-line.js';
+
 // START's look (src/styles/app.css palette, type and shell; src/pages/index.astro workspace, transcript,
 // composer, conversation rail and understanding), adapted to the component; INSPR rights (D3).
 // The `--aithema-*` custom properties are the public token surface: hosts may override any of them.
@@ -234,7 +236,7 @@ svg { display:block; flex:none; }
 .workspace[data-concept-layout="image"] .drafts-reason-reserve { display:none; }
 .workspace[data-concept-layout="image"] .concept-rail .concept-request { grid-area:1/2; align-self:center; margin-left:0; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { grid-template-columns:22px minmax(0,1fr) auto; }
-.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:" · "; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:"${reasonSeparator}"; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { grid-area:1/3; }
 .workspace[data-concept-layout="image"] .concept-access:is([data-state="ready"],[data-state="gone"],[data-state="none"],[data-state="empty"]) .concept-rail { visibility:hidden; }

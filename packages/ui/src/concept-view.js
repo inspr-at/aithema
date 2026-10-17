@@ -92,7 +92,7 @@ export class ConceptView {
       if (access.parentNode !== parent) parent.prepend(access);
       if (event && this.#session) this.render();
     };
-    this.#phone.addEventListener('change', this.#placeAccess); this.#placeAccess();
+    this.#placeAccess();
     const thread = root.querySelector('.concept-thread');
     thread.addEventListener('pointermove', event => {
       const exposed = event.pointerType !== 'touch' && this.exposedAt(event.clientX, event.clientY, event.target);
@@ -153,11 +153,13 @@ export class ConceptView {
   // Every owner-authenticated concept request, GET or POST, passes here before it is sent.
   sameOrigin(path) { return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
   connect() {
+    this.#phone.addEventListener('change', this.#placeAccess); this.#placeAccess();
     this.root.ownerDocument.addEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);
     if (!this.#timer) { this.#timer = setInterval(() => this.progress(), 1000); this.#timer.unref?.(); }
   }
   suspend() {
+    this.#phone.removeEventListener('change', this.#placeAccess);
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
     this.clearBackdrop(); this.clearThumbnail(); clearTimeout(this.#withdrawnTimer); this.#epoch++; this.#loads.clear(); clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.suspendCanvas(); this.close();
@@ -640,5 +642,5 @@ export class ConceptView {
     } catch { this.root.querySelector('.concept-viewer-message').textContent = this.copy.conceptImageFailed; }
     finally { if (url) URL.revokeObjectURL(url); }
   }
-  destroy() { this.suspend(); this.#phone.removeEventListener('change', this.#placeAccess); this.dialog.remove(); }
+  destroy() { this.suspend(); this.dialog.remove(); }
 }

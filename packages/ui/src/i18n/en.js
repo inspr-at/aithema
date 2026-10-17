@@ -41,7 +41,7 @@ export const en = {
   },
   conceptBackdropRendering: 'Creating concept …',
   conceptBackdropCountdown: 'about {seconds} s',
-  conceptPhoneReady: 'Concept ready · View',
+  conceptPhoneReady: `Concept ready${reasonSeparator}View`,
   conceptWithdrawn: 'Concept withdrawn',
   conceptBackdropFailed: 'Concept could not be created',
   conceptTab: 'Draft', conceptView: 'View concept', conceptTitle: 'Visual concept {number}', conceptCount: '{current} of {count}',

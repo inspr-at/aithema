@@ -42,7 +42,7 @@ export const de = {
   },
   conceptBackdropRendering: 'Entwurf wird erstellt …',
   conceptBackdropCountdown: 'ca. {seconds} s',
-  conceptPhoneReady: 'Entwurf bereit · Ansehen',
+  conceptPhoneReady: `Entwurf bereit${reasonSeparator}Ansehen`,
   conceptWithdrawn: 'Entwurf zurückgezogen',
   conceptBackdropFailed: 'Entwurf konnte nicht erstellt werden',
   conceptTab: 'Entwurf', conceptView: 'Entwurf ansehen', conceptTitle: 'Visueller Entwurf {number}', conceptCount: '{current} von {count}',
