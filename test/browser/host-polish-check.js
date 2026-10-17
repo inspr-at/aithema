@@ -200,6 +200,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   // CI keeps its single light functional matrix. A second theme and PNGs are remote evidence only.
   // Keep native mouse emulation first: disabling touch resets hover on Linux.
   for (const touch of [false, true]) for (const theme of themes) {
+    await page.select('#theme', theme);
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) {
       const label = `${locale}-${width}x${height}-${touch ? 'touch' : 'mouse'}-${theme}`, copy = { de, en }[locale];
