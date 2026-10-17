@@ -430,6 +430,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   // deadline and spend paths are covered with fake clocks in the unit suite.
   for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
     const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason].body;
+    await page.setViewport({ width: 390, height: 844 });
     await inShadow(page, (c, { original, locale, reason, copy }) => {
       const session = { ...original, locale, credits: null, transcript: [] };
       // AIT-260: preserve the bound-voice terminal-disable path.
@@ -451,10 +452,16 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
         transcript: c.session.transcript[0].content };
     });
     assert.equal(state.inert, true); assert.equal(state.voiceDisabled, true); assert.equal(state.exportVisible, true);
+    const titleLines = await inShadow(page, c => {
+      const title = c.shadowRoot.querySelector('.composer-out__title');
+      return title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight);
+    });
+    assert.ok(titleLines <= 1.01, `${locale}/${reason}: title fits the existing single row at 390 px`);
     assert.ok(state.transcript.length > 0);
     assert.equal(await page.evaluate(async href => (await fetch(href)).status, state.href), 200);
     assert.equal(await overflow(page), 0);
     if (process.env.AITHEMA_EVIDENCE_DIR && locale === 'de' && reason !== 'session') {
+      await page.setViewport({ width: 1440, height: 1000 });
       await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
       await page.mouse.move(-1, -1);
       await inShadow(page, async c => {
@@ -467,6 +474,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   }
   // AIT-291 release evidence reuses this browser and page; unit tests own the gauge matrix.
   if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await page.setViewport({ width: 1440, height: 1000 });
     const catalog = await page.evaluate(async id => (await fetch(`/api/sessions/${id}/settings`)).json(), original.id);
     catalog.settings.voice = 'off'; catalog.settings.visuals = 'off';
     catalog.presets.best.defaults.voice = 'off'; catalog.presets.best.defaults.visuals = 'off';

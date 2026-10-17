@@ -1500,11 +1500,6 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
         routes: { 'GET /credits': () => Response.json({ balance, tiers: { current: 'anonymous', next: 'emailGiven',
           delta: 1_000_000, allowancesMicro: { anonymous: 5_000_000, emailGiven: 6_000_000 } } }) } });
       await tick(8); userTurn(c);
-      for (const field of ['title', 'body']) for (const measure of root.querySelectorAll(`[data-limit-${field}]`)) {
-        const key = field === 'title' ? measure.dataset.limitTitle : measure.dataset.limitBody;
-        assert.equal(measure.textContent, copy.hostSurface.credits.ended[key][field], 'all reason sizes are reserved before exhaustion');
-        assert.equal(measure.parentElement.getAttribute('aria-hidden'), 'true');
-      }
       const statusBefore = root.querySelector('.status__label').textContent;
       c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
       await tick(8);
