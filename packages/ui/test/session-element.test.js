@@ -1339,9 +1339,9 @@ for (const copy of [de, en]) test(`AIT-280 ${copy.display.locale}: successful tu
 test('AIT-286: shared failure sentence uses warning ink; composer consent keeps the action style and a coarse 44px target', () => {
   assert.match(styles, /:is\(\.composer-reason,\.concept-activity-text\) \.warning[^}]*color:var\(--aithema-warning\)/u);
   assert.ok(styles.includes('@media(hover:none), (pointer:coarse) {\n  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }'));
-  const c = setup(), root = c.shadowRoot;
-  c.session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
-  c.receive({ type: 'lane.status', data: { running: [], failures: [] } });
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' }, analysis: { available: true } } };
+  const c = setup({ session }), root = c.shadowRoot;
   const action = root.querySelector('.composer-reason .consent-action');
   assert.equal(action.tagName, 'BUTTON'); assert.equal(action.type, 'button');
   assert.equal(window.getComputedStyle(action).textDecorationLine || window.getComputedStyle(action).textDecoration, 'underline');

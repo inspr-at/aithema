@@ -616,3 +616,11 @@ for (const copy of [de, en]) test(`AIT-286 ${copy.display.locale}: access failur
   assert.equal(calls.filter(call => call.options.body).length, 1, 'existing one-click priced request');
   assert.equal(root.querySelector('.concept-activity-text .warning'), null, 'pending clears warning');
 });
+
+test('AIT-286: an error with a consent verdict preserves its native consent opener', t => {
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true } });
+  c.session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
+  conceptState(c, { phase: 'failed', reason: 'current processing consent required' });
+  assert.equal(root.querySelector('.concept-activity-text .consent-action').tagName, 'BUTTON');
+  assert.ok(root.querySelector('.concept-activity-text .warning svg'));
+});

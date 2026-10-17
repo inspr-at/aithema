@@ -438,7 +438,8 @@ export class ConceptView {
       this.root.querySelector('.concept-activity-text').textContent = this.copy.conceptBackdropFailed;
     if (this.#imageLayout && state === 'err') {
       const text = this.root.querySelector('.concept-activity-text');
-      paintFailureLine(text, text.textContent);
+      const failureCopy = text.querySelector('.consent-line-copy') ?? text;
+      paintFailureLine(failureCopy, failureCopy.textContent);
     }
     this.root.querySelector('.concept-withdrawn').textContent = state === 'gone' ? this.copy.conceptWithdrawn : '';
     const bottom = this.root.querySelector('.concept-bottom');
