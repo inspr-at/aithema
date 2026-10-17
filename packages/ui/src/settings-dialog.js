@@ -48,6 +48,11 @@ const countryNames = (countries, locale) => {
   return new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' })
     .format(countries.map(code => code === 'US' ? us : regions.of(code)));
 };
+// The vial value has room for two short region names; help keeps the complete list.
+const shortCountryNames = (countries, locale) => {
+  const regions = new Intl.DisplayNames(locale, { type: 'region', style: 'short' });
+  return countries.slice(0, 2).map(code => regions.of(code)).join(', ') + (countries.length > 2 ? ` +${countries.length - 2}` : '');
+};
 const helpMeasurements = copy => {
   const reason = ['text', 'uploads', 'images', 'html', 'voice', 'analysis'].map(feature => featureConsentText(copy, feature))
     .reduce((longest, text) => text.length > longest.length ? text : longest, '');
@@ -644,7 +649,8 @@ export class SettingsDialog {
   }
   #paintGauge(kind, gauge) {
     const g = this.#copy.gauges, node = this.#q(`[data-gauge="${kind}"]`), level = node.querySelector('.gauge__level');
-    const value = fill(g.values[gauge.state] ?? gauge.state, gauge);
+    const value = fill(g.values[gauge.state] ?? gauge.state, gauge.state === 'hostCountries'
+      ? { ...gauge, countries: shortCountryNames(gauge.countries, this.#copy.display.locale) } : gauge);
     const details = { ...gauge, source: gauge.source?.name, asOf: gauge.source?.asOf, countries: gauge.state === 'hostCountries' ? countryNames(gauge.countries, this.#copy.display.locale) : gauge.countries?.join(', '),
       operations: gauge.operations?.map(operation => g.operations?.[operation] ?? operation).join(', ') || g.values.none };
     const detail = fill(g.details[kind]?.[gauge.state] ?? '', details);

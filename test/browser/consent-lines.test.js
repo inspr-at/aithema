@@ -618,9 +618,9 @@ async function capture215(t, page, label, values, interaction = null) {
   }
 }
 
-for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent action opens the text item and saves in place, 390/1440`, async t => {
+for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent action opens the text item and saves in place, 320/340/390/1440`, async t => {
   const page = await fixture(t);
-  for (const width of [390, 1440]) {
+  for (const width of [320, 340, 390, 1440]) {
     await scene(page, locale, 'light', width, ['text']);
     await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
     await frame(page);
@@ -629,18 +629,55 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
       const r = c.shadowRoot, line = r.querySelector('.composer-reason');
       const range = document.createRange(); range.selectNodeContents(line);
       const ink = range.getBoundingClientRect(), slot = line.getBoundingClientRect();
-      return { text: line.textContent, expected: `${copy.featureConsent.text}\u00a0· ${copy.featureConsent.action}`,
-        action: line.querySelector('.consent-action')?.textContent, expectedAction: copy.featureConsent.action,
+      const action = line.querySelector('.consent-action'), button = action.getBoundingClientRect();
+      const pseudo = getComputedStyle(action, '::after'), transform = new DOMMatrixReadOnly(pseudo.transform);
+      const used = (value, size) => parseFloat(value) * (value.endsWith('%') ? size / 100 : 1);
+      const target = { left: button.left + used(pseudo.left, button.width) + transform.m41,
+        top: button.top + used(pseudo.top, button.height) + transform.m42,
+        width: parseFloat(pseudo.width), height: parseFloat(pseudo.height) };
+      target.right = target.left + target.width; target.bottom = target.top + target.height;
+      const overlap = selector => {
+        const box = r.querySelector(selector).getBoundingClientRect();
+        return Math.max(0, Math.min(target.right, box.right) - Math.max(target.left, box.left))
+          * Math.max(0, Math.min(target.bottom, box.bottom) - Math.max(target.top, box.top));
+      };
+      const fontSize = parseFloat(getComputedStyle(line).fontSize), lineHeight = parseFloat(getComputedStyle(line).lineHeight);
+      const visibleText = n => [...n.childNodes].map(child => child.nodeType === Node.TEXT_NODE ? child.textContent
+        : getComputedStyle(child).display === 'none' ? '' : visibleText(child)).join('');
+      const narrow = innerWidth <= 340;
+      return { text: visibleText(line), expected: `${narrow ? copy.featureConsent.textNarrow : copy.featureConsent.text}\u00a0· ${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}`,
+        expectedName: `${narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action}: ${copy.featureConsent.textActionReason}`,
+        underlined: getComputedStyle(action).textDecorationLine.includes('underline'),
+        lineCount: Math.round(ink.height / lineHeight), fontSize, target,
+        overlapAttach: overlap('.attach'), overlapSend: overlap('.send'),
+        action: visibleText(action), expectedAction: narrow ? copy.featureConsent.actionNarrow : copy.featureConsent.action,
         inputDisabled: r.querySelector('textarea').disabled, sendDisabled: r.querySelector('.send').disabled,
         reasonFits: ink.top >= slot.top - 1 && ink.bottom <= slot.bottom + 1 && ink.left >= slot.left - 1 && ink.right <= slot.right + 1,
         inkBox: [ink.x, ink.y, ink.width, ink.height], reasonBox: [slot.x, slot.y, slot.width, slot.height] };
     });
     assert.equal(state.text, state.expected); assert.equal(state.action, state.expectedAction);
+    const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
+    state.accessibleName = (await page.accessibility.snapshot({ root: opener })).name;
+    assert.equal(state.accessibleName, state.expectedName); assert.equal(state.underlined, true);
+    assert.ok(state.accessibleName.startsWith(`${state.action}: `), 'accessible name starts with the visible action at every width');
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: label-first name ${state.accessibleName}`);
+    const tree = await page.accessibility.snapshot({ interestingOnly: false });
+    const findButton = n => n.role === 'button' && n.name === state.expectedName || n.children?.some(findButton);
+    assert.ok(findButton(tree), `${locale}/${width}: full consent sentence is the accessible button name`);
     assert.equal(state.inputDisabled, true); assert.equal(state.sendDisabled, true);
     const selectors = ['.composer-shell', '.composer', 'textarea', '.send'];
     const before = await boxes(page, selectors);
-    await capture215(t, page, `${locale}-light-${width}-composer-action`, { locale, width, ...state, composerBox: before[1] });
+    if (width <= 340) assert.equal(state.lineCount, 1, `${locale}/${width}: consent stays on one line`);
+    assert.ok(state.lineCount <= 2, `${locale}/${width}: at most two lines: ${JSON.stringify(state)}`);
+    assert.ok(state.fontSize >= 12, `${locale}/${width}: 12px font floor`);
+    if (width <= 390) {
+      assert.ok(state.target.width >= 44, `${locale}/${width}: 44px consent hit width`);
+      assert.ok(state.target.height >= 44, `${locale}/${width}: 44px consent hit area`);
+      assert.equal(state.overlapAttach, 0, `${locale}/${width}: Attach intersection is 0 px²`);
+      assert.equal(state.overlapSend, 0, `${locale}/${width}: Send intersection is 0 px²`);
+    }
     assert.equal(state.reasonFits, true, `sentence and action fit the two-line reason: ${JSON.stringify(state)}`);
+    await capture215(t, page, `${locale}-light-${width}-composer-action`, { locale, width, ...state, composerBox: before[1] });
     await page.locator('aithema-session >>> .composer-reason .consent-action').click();
     await until(page, () => {
       const r = document.querySelector('aithema-session').shadowRoot;
@@ -667,6 +704,175 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     assert.deepEqual([...page.posts[0].processing.items].sort(), CONSENT_ITEMS.map(i => i.id).sort());
     assert.deepEqual(await boxes(page, selectors), before, 'composer, input and send move 0 px after saving consent');
     if (width === 390) await capture215(t, page, `${locale}-light-${width}-composer-enabled`, { locale, width, ...saved, ...target, layoutShiftPx: 0 });
+  }
+});
+
+
+test('AIT-290 round 4: overview label has no slot, matching section gap DE/EN 1440/1024/390', async t => {
+  const page = await fixture(t);
+  for (const locale of ['de', 'en']) for (const width of [1440, 1024, 390]) {
+    await scene(page, locale, 'light', width, []);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const session = structuredClone(c.session);
+      session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
+      session.transcript.push({ id: 'overview-reply', role: 'assistant', content: session.locale === 'de' ? 'Wer schreibt die Angebote heute?' : 'Who writes the quotes today?', inputRevision: inputRevision(session) });
+      Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: inputRevision(session),
+        summary: session.locale === 'de' ? 'Das Team verliert Zeit beim Schreiben von Angeboten.' : 'The team loses time writing quotes.',
+        signals: [session.locale === 'de' ? 'Angebote werden von Hand geschrieben' : 'Quotes are written by hand'] });
+      const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+      c.configure({ copy, session });
+    });
+    await frame(page);
+    await shadow(page, c => {
+      c.shadowRoot.querySelector('.analysis-content').scrollTop = 0;
+      const top = c.shadowRoot.querySelector('.understanding').getBoundingClientRect().top;
+      // Leave the overview below the sticky host header in viewport evidence.
+      scrollTo(0, innerWidth <= 640 ? Math.max(0, scrollY + top - 90) : 0);
+    });
+    await frame(page);
+    const overviewSelectors = ['.understanding', '.notice', '.summary', '.summary-text', '.understanding > .foot', '.composer', '.send'];
+    const overviewBefore = await boxes(page, overviewSelectors);
+    const overview = await shadow(page, c => {
+      const r = c.shadowRoot, section = r.querySelector('.summary'), heading = r.getElementById(section.getAttribute('aria-labelledby'));
+      const summary = r.querySelector('.summary-text').getBoundingClientRect();
+      const divider = r.querySelector('.readiness').getBoundingClientRect();
+      const next = r.querySelector('.signals-section'), nextHeading = next.querySelector('h3').getBoundingClientRect();
+      return { dividerVisible: divider.top >= 90 && divider.bottom <= innerHeight, summaryGap: summary.top - divider.bottom, nextHeadingGap: nextHeading.top - next.getBoundingClientRect().top - parseFloat(getComputedStyle(next).borderTopWidth),
+        noticeOutOfFlow: getComputedStyle(r.querySelector('.notice')).position === 'absolute', noticeVisible: getComputedStyle(r.querySelector('.notice-text')).visibility !== 'hidden',
+        regionName: heading.textContent, summaryVisible: !section.hidden, summary: r.querySelector('.summary-text').textContent };
+    });
+    assert.equal(overview.noticeVisible, false, 'completed overview has no visible current-assessment label');
+    assert.equal(overview.summaryVisible, true);
+    assert.equal(overview.dividerVisible, true, 'readiness divider is visible below the sticky header');
+    assert.equal(overview.noticeOutOfFlow, true);
+    assert.ok(Math.abs(overview.summaryGap - overview.nextHeadingGap) <= 2, `${locale}/${width}: divider-to-summary gap equals next divider-to-heading gap ±2px: ${JSON.stringify(overview)}`);
+    const ax = await page.accessibility.snapshot({ interestingOnly: false });
+    const namedRegion = n => n.role === 'region' && n.name === overview.regionName || n.children?.some(namedRegion);
+    assert.ok(namedRegion(ax), 'summary keeps its accessible region name');
+    for (const draft of [true, false]) {
+      await shadow(page, (c, draft) => c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...structuredClone(c.session.understanding), draft } }), draft);
+      await frame(page);
+      assert.deepEqual(await boxes(page, overviewSelectors), overviewBefore, 'draft/current label change moves summary and surrounding layout 0 px');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.notice-text')).visibility !== 'hidden'), draft);
+    }
+    t.diagnostic(`PASS AIT-290 ${evidenceCommit} ${locale}/${width}: gap ${overview.summaryGap}px = next section ${overview.nextHeadingGap}px ±2px; draft/current 0px; named region`);
+    if (width === 1440 || locale === 'de' && width === 390) await capture215(t, page, `${locale}-light-${width}-overview-no-label`, { locale, width, ...overview, layoutShiftPx: 0, accessibleRegion: true });
+  }
+});
+
+// The r2 composer changes are the only delta from main in this CSS block.
+// Disable those rules temporarily to compare actual boxes and computed targets.
+async function mainComposerComparison(page) {
+  return shadow(page, c => {
+    const r = c.shadowRoot, style = [...r.querySelectorAll('style')].find(n => n.textContent.includes('.composer-actions {'));
+    const measure = () => ({
+      boxes: ['.composer', '.composer-actions', '.attach', '.send', '.composer-reason'].map(selector => {
+        const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      }),
+      actions: [...r.querySelectorAll('.composer-reason button')].map(n => {
+        const b = n.getBoundingClientRect(), target = getComputedStyle(n, '::after');
+        return { text: n.textContent, box: [b.x, b.y, b.width, b.height],
+          fontSize: getComputedStyle(n).fontSize, target: [target.left, target.width, target.height] };
+      }),
+    });
+    const current = measure(), original = style.textContent;
+    style.textContent = original.split('\n').filter(line =>
+      !line.includes('.composer-reason[data-consent-feature="text"]') &&
+      !line.includes('.composer-actions:has(.composer-reason[data-consent-feature="text"])')).join('\n');
+    const main = measure(); style.textContent = original;
+    return { current, main };
+  });
+}
+
+test('AIT-290 round 3: cached final consent stays reachable; other composer states match main; large text wraps', async t => {
+  const page = await fixture(t);
+  for (const width of [1440, 390]) {
+    await scene(page, 'de', 'light', width, ['analysis']);
+    await shadow(page, async c => {
+      const { inputRevision } = await import('/packages/core/src/session.js');
+      const session = structuredClone(c.session), revision = inputRevision(session);
+      session.paused = true; session.pauseReason = null;
+      session.operations = { inputRevision: revision, running: [], failures: [] };
+      session.transcript.push({ id: 'cached-reply', role: 'assistant', content: 'Wer schreibt die Angebote?', inputRevision: revision });
+      Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: revision,
+        summary: 'Das Team verliert Zeit beim Schreiben von Angeboten.', signals: ['Angebote werden von Hand geschrieben'] });
+      const { de } = await import('/packages/ui/src/i18n/de.js');
+      c.configure({ copy: de, session });
+      c.shadowRoot.querySelector('.notice').scrollIntoView({ block: 'center' });
+    });
+    await frame(page);
+    const state = await shadow(page, c => {
+      const r = c.shadowRoot, notice = r.querySelector('.notice'), action = notice.querySelector('button');
+      action.focus();
+      return { current: notice.hasAttribute('data-current'), visible: action.checkVisibility({ visibilityProperty: true }),
+        keyboardReachable: r.activeElement === action, text: notice.textContent, summaryVisible: !r.querySelector('.summary').hidden };
+    });
+    assert.equal(state.current, false); assert.equal(state.visible, true); assert.equal(state.keyboardReachable, true);
+    assert.equal(state.summaryVisible, true);
+    await capture215(t, page, `de-light-${width}-paused-cached-final-consent`, { width, ...state });
+    await page.locator('aithema-session >>> .notice button').click();
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('dialog.settings').open && r.activeElement?.value === 'models-international';
+    });
+    await page.keyboard.press('Escape');
+  }
+  for (const width of [320, 340, 390]) for (const state of ['enabled', 'paused', 'purpose', 'unavailable']) {
+    await scene(page, 'de', 'light', width, []);
+    await shadow(page, async (c, state) => {
+      const session = structuredClone(c.session);
+      session.paused = state === 'paused' || state === 'purpose'; session.pauseReason = state === 'purpose' ? 'purpose' : null;
+      if (state === 'unavailable') session.featureMatrix.best.text = { available: false, reason: 'budget exhausted' };
+      const { de } = await import('/packages/ui/src/i18n/de.js');
+      c.configure({ copy: de, session });
+    }, state);
+    const { current, main } = await mainComposerComparison(page);
+    assert.deepEqual(current, main, `${width}/${state}: non-consent composer and Attach/Send differ from main by 0 px`);
+    t.diagnostic(`PASS AIT-290 ${width}/${state}: composer and Attach/Send 0 px versus main`);
+  }
+  for (const locale of ['de', 'en']) for (const width of [320, 340, 390]) {
+    await scene(page, locale, 'light', width, ['text']);
+    const enlarged = await shadow(page, c => {
+      const r = c.shadowRoot, line = r.querySelector('.composer-reason');
+      // Text-only enlargement is stricter than page zoom for this fixed viewport.
+      const ordinary = parseFloat(getComputedStyle(line).fontSize);
+      line.style.fontSize = `${ordinary * 2}px`;
+      const range = document.createRange(); range.selectNodeContents(line);
+      const ink = range.getBoundingClientRect(), box = line.getBoundingClientRect(), send = r.querySelector('.send').getBoundingClientRect();
+      const action = line.querySelector('button'), button = action.getBoundingClientRect(), pseudo = getComputedStyle(action, '::after');
+      const targetRight = button.left + parseFloat(pseudo.width);
+      return { wraps: box.height > ordinary * 2 * 1.3 + 1, fits: ink.right <= box.right + 1 && ink.bottom <= box.bottom + 1,
+        overlapSend: Math.max(0, targetRight - send.left), whiteSpace: getComputedStyle(line).whiteSpace };
+    });
+    assert.equal(enlarged.whiteSpace, 'normal'); assert.equal(enlarged.wraps, true);
+    assert.equal(enlarged.fits, true, JSON.stringify(enlarged)); assert.equal(enlarged.overlapSend, 0);
+    t.diagnostic(`PASS AIT-290 ${locale}/${width}: 200% text wraps, no Send overlap`);
+  }
+  await scene(page, 'de', 'light', 390, []);
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window), schedule = window.setTimeout.bind(window);
+    window.setTimeout = (callback, delay, ...args) => schedule(callback, new Error().stack.includes('#waitForUploadRetry') ? 0 : delay, ...args);
+    window.fetch = (url, options = {}) => String(url).endsWith('/uploads')
+      ? Promise.resolve(options.method === 'POST'
+        ? Response.json({ error: 'upload-rate-limit' }, { status: 429, headers: { 'Retry-After': '1' } })
+        : new Response(null, { status: 503 })) : original(url, options);
+    const c = document.querySelector('aithema-session'), input = c.shadowRoot.querySelector('.attach-input');
+    const transfer = new DataTransfer(); transfer.items.add(new File(['Angebote'], 'angebote.txt', { type: 'text/plain' }));
+    input.files = transfer.files; input.dispatchEvent(new Event('change'));
+  });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.upload-retry'));
+  await shadow(page, c => c.shadowRoot.querySelector('.composer').scrollIntoView({ block: 'center' }));
+  const upload = await mainComposerComparison(page);
+  assert.deepEqual(upload.current, upload.main, 'real retained-upload retry row unchanged versus main');
+  assert.equal(upload.current.actions[0].text, 'Erneut versuchen');
+  assert.equal(upload.current.actions[0].target[2], '24px', 'fine-pointer retry keeps its original target');
+  await capture215(t, page, 'de-light-390-upload-retry', { ...upload, layoutShiftPx: 0 });
+  // The same retained row at narrow widths must also preserve Attach and Send.
+  for (const width of [320, 340]) {
+    await page.setViewport({ width, height: 900 }); await frame(page);
+    const { current, main } = await mainComposerComparison(page);
+    assert.deepEqual(current, main, `${width}/upload retry: 0 px versus main`);
   }
 });
 
@@ -772,7 +978,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
       const lines = Object.fromEntries(['text', 'html', 'voice', 'analysis'].map(feature => {
         const selector = { text: '.composer-reason', html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
-        const element = c.shadowRoot.querySelector(selector), line = element.textContent;
+        const element = c.shadowRoot.querySelector(selector), line = element.innerText;
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), glyphs = [];
         while (walker.nextNode()) {
           const text = walker.currentNode;
