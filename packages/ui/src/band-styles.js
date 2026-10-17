@@ -63,7 +63,7 @@ export const bandStyles = `
   /* A permanent two-line row below the 44px controls also fits at 320px. */
   .voice-signal { height:44px; }
   .voice-wave { align-self:start; margin-top:7px; }
-  .audio-rail .voice-state, .audio-rail[data-message] .voice-state {
+  .band .audio-rail .voice-state, .audio-rail[data-message] .voice-state {
     position:absolute; top:44px; left:-48px; right:auto; width:calc(100% + 192px); max-width:none; height:36px;
     display:flex; flex-wrap:wrap; align-content:center; justify-content:center; column-gap:.35em;
     padding:3px 8px; border:0; border-radius:0; background:none; box-shadow:none;
