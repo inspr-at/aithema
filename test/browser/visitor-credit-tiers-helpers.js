@@ -270,7 +270,7 @@ export async function visitorCreditMatrix(t, locales) {
       const vial = await shadow(page, c => {
         const gauge = c.shadowRoot.querySelector('[data-gauge="quality"]'), mark = gauge.querySelector('.gauge__unrated'),
           inside = getComputedStyle(gauge.querySelector('.gauge__inside')), ink = getComputedStyle(mark);
-        return { state: gauge.dataset.state, unrated: gauge.classList.contains('gauge--unrated'), mark: mark.textContent,
+        return { vialState: gauge.dataset.state, unrated: gauge.classList.contains('gauge--unrated'), mark: mark.textContent,
           display: ink.display, hatch: inside.backgroundImage, foreground: ink.color, background: ink.backgroundColor,
           hatchInk: getComputedStyle(c).getPropertyValue('--aithema-muted').trim(),
           liquidHidden: getComputedStyle(gauge.querySelector('.gauge__level')).visibility === 'hidden' };
