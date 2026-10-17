@@ -620,3 +620,52 @@ test('a foreign baseUrl receives no owner-authenticated upload request: limits, 
   assert.equal(root.querySelector('.status__label').textContent, en.uploads.withdrawFailed);
   assert.equal(root.querySelector('.upload').dataset.state, 'pending');
 });
+
+for (const copy of [de, en]) for (const status of ['upload notice', 'retry', 'pause'])
+  test(`AIT-280 ${copy.display.locale}: ${status} wins visually while a saved turn announces politely`, async t => {
+    const { c, root } = setup(t, { copy, post: () => Response.json({ error: 'upload-rate-limit' }, { status: 429 }) });
+    if (status === 'upload notice') await choose(root, [file('blocked.exe')]);
+    if (status === 'retry') await exhaust(t, root);
+    const reason = root.querySelector('.composer-reason'), before = reason.textContent;
+    const fetch = globalThis.fetch;
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (!url.endsWith('/turns')) return fetch(url, options);
+      if (status === 'pause') c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+      return Response.json({ seq: c.session.seq + 1, type: 'turn.final',
+        data: { id: JSON.parse(options.body).clientEventId, role: 'user', content: 'Hello' } });
+    });
+    root.querySelector('textarea').value = 'Hello';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+    assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
+    assert.equal(root.querySelector('.composer-saved span').textContent, '');
+    assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved);
+    if (status === 'pause') { assert.equal(root.querySelector('.composer-paused').hidden, false); assert.equal(root.querySelector('.composer-paused span').textContent, copy.composerPaused); }
+    else assert.equal(reason.textContent, before, 'notice and its retry/discard actions remain intact');
+    assert.equal(root.querySelector('.composer-dock > .status__label'), null, 'no Saved elsewhere');
+  });
+
+for (const copy of [de, en]) for (const notice of [false, true])
+  test(`AIT-280 ${copy.display.locale}: failed send replaces ${notice ? 'upload notice' : 'shortcut'} until a successful retry`, async t => {
+    const { c, root } = setup(t, { copy });
+    if (notice) await choose(root, [file('blocked.exe')]);
+    const before = root.querySelector('.composer-reason').textContent, fetch = globalThis.fetch;
+    let fail = true;
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (!url.endsWith('/turns')) return fetch(url, options);
+      return fail ? Response.json({}, { status: 503 }) : Response.json({ seq: c.session.seq + 1, type: 'turn.final',
+        data: { id: JSON.parse(options.body).clientEventId, role: 'user', content: 'Hello' } });
+    });
+    const submit = async () => { root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(); };
+    root.querySelector('textarea').value = 'Hello'; await submit();
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.failed);
+    assert.equal(root.querySelector('.composer-reason').hasAttribute('data-shortcut'), false);
+    assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
+    assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
+    assert.equal(root.querySelector('textarea').value, 'Hello');
+    c.receive({ type: 'lane.status', data: c.session.operations });
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.failed, 'unrelated repaint cannot clear the failure');
+    await submit(); assert.equal(root.querySelector('.composer-reason').textContent, copy.failed, 'failed retry retains it');
+    fail = false; await submit();
+    assert.equal(root.querySelector('.composer-reason').textContent, before, 'successful retry restores the notice or hint');
+    assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved);
+  });

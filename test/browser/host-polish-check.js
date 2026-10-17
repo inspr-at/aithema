@@ -15,7 +15,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-266');
+  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-280');
   const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], shots = [], passLines = [], problems = [];
@@ -37,6 +37,8 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       } }));
       if (path.endsWith('/turns') && init.method === 'POST') {
         const body = JSON.parse(init.body);
+        if (window.polish280State === 'failure') return Response.json({}, { status: 503 });
+        if (window.polish280State === 'pause') c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
         return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
       }
       if (path.endsWith('/settings') && (init.method ?? 'GET') === 'GET') {
@@ -94,7 +96,19 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true },
         html: { available: visuals, reason: visuals ? null : 'not configured' }, images: { available: false, reason: 'not configured' } },
         eu: { text: { available: false, reason: 'not configured' } }, custom: { text: { available: false, reason: 'not configured' } } };
+      c.querySelectorAll('[slot="legal"], [slot="footer"]').forEach(n => n.remove());
+      const legal = document.createElement('nav'); legal.slot = 'legal'; legal.style.cssText = 'display:flex;gap:0';
+      for (const [href, text] of [['/imprint', locale === 'de' ? 'Impressum' : 'Imprint'], ['/privacy', locale === 'de' ? 'Datenschutz' : 'Privacy']]) {
+        const a = document.createElement('a'); a.href = href; a.textContent = text;
+        a.style.cssText = 'display:inline-flex;align-items:center;min-height:44px;padding:0 8px;color:inherit;text-decoration:underline;text-underline-offset:3px'; legal.append(a);
+      }
+      c.append(legal);
+      window.polish280State = ''; window.polish280Observer?.disconnect();
       c.setAttribute('motion', 'off'); c.configure({ copy, session });
+      window.polish280Announcements = [];
+      const live = c.shadowRoot.querySelector('.composer-saved-announcement');
+      window.polish280Observer = new MutationObserver(() => { if (live.textContent) window.polish280Announcements.push(live.textContent); });
+      window.polish280Observer.observe(live, { childList: true, subtree: true, characterData: true });
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       document.documentElement.lang = locale; window.scrollTo(0, 0);
@@ -133,6 +147,13 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       });
       assert.equal(clearance.clear, true, `${label}: ${JSON.stringify(clearance)}`); assert.equal(clearance.target, true); assert.equal(clearance.hit, true);
       assert.ok(clearance.padding >= clearance.footerHeight);
+      const legal = await shadow(page, c => {
+        const links = [...c.querySelectorAll('[slot="legal"] a')], rects = links.map(a => a.getBoundingClientRect());
+        return { oneLine: rects.length === 2 && rects[0].top === rects[1].top && links.every(a => a.getClientRects().length === 1),
+          withinViewport: rects.every(r => r.left >= 0 && r.right <= innerWidth) };
+      });
+      assert.equal(legal.oneLine, true, `${label}: short legal links stay on one line`);
+      assert.equal(legal.withinViewport, true);
       await shot(label, theme, 'entrance');
       await shadow(page, c => c.openSettings());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.preset-option[data-preset="custom"]').getAttribute('aria-disabled') === 'true');
@@ -185,34 +206,103 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       assert.deepEqual(saved, { text: copy.saved, opacity: '1', hintOpacity: '0', noToast: true, disjoint: true, target: true });
       assert.deepEqual(await boxes(page, selectors), before, `${label}: saved feedback shifts 0 px`);
       await shot(label, theme, 'saved');
+      const announcement = await shadow(page, c => {
+        const live = c.shadowRoot.querySelector('.composer-saved-announcement');
+        return { role: live.getAttribute('role'), politeness: live.getAttribute('aria-live'), atomic: live.getAttribute('aria-atomic'),
+          exposed: !live.hasAttribute('aria-hidden'), text: live.textContent, count: window.polish280Announcements.length };
+      });
+      assert.deepEqual(announcement, { role: 'status', politeness: 'polite', atomic: 'true', exposed: true, text: copy.saved, count: 1 });
+      // Another successful send in the same burst must leave the live region quiet.
+      await shadow(page, async c => {
+        const r = c.shadowRoot, input = r.querySelector('textarea'); input.value = 'Another';
+        input.dispatchEvent(new Event('input', { bubbles: true })); r.querySelector('form').requestSubmit();
+        while (input.value) await new Promise(resolve => setTimeout(resolve, 10));
+      });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-saved-announcement').textContent), '');
+      assert.equal(await page.evaluate(() => window.polish280Announcements.length), 1);
+
       // Timer duration is covered in units; observe a real expiry once per pointer mode.
       const expiryChecked = locale === 'de' && width === 1440;
       if (expiryChecked) {
         await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback').hasAttribute('data-saved'));
         assert.deepEqual(await boxes(page, selectors), before, `${label}: expiry shifts 0 px`);
       }
+      const stateChecks = [];
+      for (const state of ['upload-notice', 'retry', 'pause', 'failure']) {
+        await configure(locale, 'live');
+        if (state === 'upload-notice' || state === 'failure') {
+          await shadow(page, c => {
+            const transfer = new DataTransfer(); transfer.items.add(new File(['x'], 'blocked.exe'));
+            const input = c.shadowRoot.querySelector('.attach-input'); input.files = transfer.files; input.dispatchEvent(new Event('change'));
+          });
+          await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason').hasAttribute('data-shortcut'));
+        }
+        if (state === 'retry') {
+          // Retained retry storage only; the real three-attempt path is covered by units.
+          const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session")' });
+          const { privateProperties } = await cdp.send('Runtime.getProperties', { objectId: result.objectId });
+          await cdp.send('Runtime.callFunctionOn', { objectId: privateProperties.find(p => p.name === '#retryFiles').value.objectId,
+            functionDeclaration: 'function() { this.push(new File(["x"], "retained.txt")); }' });
+          await shadow(page, c => c.receive({ type: 'lane.status', data: c.session.operations }));
+        }
+        await settle();
+        const geometry = await boxes(page, ['.composer', '.send']);
+        const noticeBefore = await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent);
+        const result = await shadow(page, async (c, state) => {
+          window.polish280State = state;
+          const r = c.shadowRoot, input = r.querySelector('textarea'); input.value = 'Hello';
+          r.querySelector('form').requestSubmit();
+          while (r.querySelector('.send').disabled) await new Promise(resolve => setTimeout(resolve, 10));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          return { visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved'), savedText: r.querySelector('.composer-saved span').textContent,
+            announcement: r.querySelector('.composer-saved-announcement').textContent, announcementCount: window.polish280Announcements.length,
+            notice: r.querySelector('.composer-reason').textContent, paused: !r.querySelector('.composer-paused').hidden,
+            failureVisible: r.querySelector('.composer-reason').checkVisibility({ opacityProperty: true, visibilityProperty: true }) };
+        }, state);
+        assert.equal(result.visibleSaved, false); assert.equal(result.savedText, '');
+        assert.equal(result.announcement, state === 'failure' ? '' : copy.saved);
+        assert.equal(result.announcementCount, state === 'failure' ? 0 : 1);
+        if (state === 'pause') assert.equal(result.paused, true);
+        else if (state === 'failure') { assert.equal(result.notice, copy.failed); assert.equal(result.failureVisible, true); }
+        else assert.equal(result.notice, noticeBefore);
+        assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: ${state} shifts composer/Send 0 px`);
+        await shot(label, theme, state === 'failure' ? 'send-failure' : `saved-${state}`);
+        stateChecks.push({ state, ...result, shiftPx: 0 });
+      }
       await configure(locale, 'live', true);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').checkVisibility()), true);
       await shot(label, theme, 'visuals-on');
-      checks.push({ label, theme, pass: true, clearance, saved, expiryChecked, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
+      checks.push({ label, theme, pass: true, clearance, legal, saved, announcement, stateChecks, expiryChecked, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
     }
     if (touch) {
       // Height-only changes use the same page and do not add screenshot or server cost.
-      for (const height of [600, 720, 900]) {
-        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height, deviceScaleFactor: 1, mobile: false }); await configure('de', 'entrance');
+      for (const width of [1280, 390]) for (const height of [600, 720, 900]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+        await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 24 } }); await configure('de', 'entrance');
         assert.equal(await page.evaluate(() => scrollY), 0);
         await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); await settle();
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').getBoundingClientRect().bottom <= c.shadowRoot.querySelector('.display-foot').getBoundingClientRect().top), true);
-        checks.push({ label: `de-1280x${height}-${theme}`, theme, pass: true, footerClear: true });
+        const safeArea = await shadow(page, c => {
+          const r = c.shadowRoot, foot = r.querySelector('.display-foot');
+          return { footerPadding: parseFloat(getComputedStyle(foot).paddingBottom), height: foot.getBoundingClientRect().height,
+            reserved: parseFloat(getComputedStyle(r.querySelector('.workspace')).paddingBottom) };
+        });
+        assert.equal(safeArea.footerPadding, 30, '24px safe area is in the measured footer');
+        assert.equal(safeArea.reserved, safeArea.height, 'safe area is reserved exactly once');
+        checks.push({ label: `de-${width}x${height}-${theme}`, theme, pass: true, footerClear: true, safeArea });
       }
-      passLines.push(`AIT-266 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights; ${evidence ? 60 : 0} viewport captures.`);
+      await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 0 } });
+      passLines.push(`AIT-280 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights at 390/1280 with 24px safe area; ${evidence ? 108 : 0} viewport captures.`);
     }
   }
-  assert.deepEqual(problems, []); assert.equal(checks.length, 15 * themes.length);
-  if (evidence) assert.equal(shots.length, 60 * themes.length);
+  assert.deepEqual(problems, []); assert.equal(checks.length, 18 * themes.length);
+  if (evidence) assert.equal(shots.length, 108 * themes.length);
   passLines.push('AIT-266 PASS: visuals absent/present; DE/EN, 1440/1280x860/390, touch/mouse.',
     'AIT-266 PASS: Mac/other keycaps; touch hint hidden; inline Saved 1600ms; composer/Send 0 px; 44 px Send.',
     'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all tested heights.');
+  passLines.push('AIT-280 PASS: polite live-region reads count 1 for two saves within 10s; no typing announcements; text clears on hide.',
+    'AIT-280 PASS: upload notice, retry and pause win visually; saved confirmation remains assistive-only; failure replaces hint/notice.',
+    'AIT-280 PASS: composer/Send shift 0 px in every new state; short host legal links stay on one line at 390px.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,
     blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', themes, passLines, checks, shots }, null, 2) + '\n');

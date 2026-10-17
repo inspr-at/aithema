@@ -272,7 +272,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* Both messages share a cell; hidden sizing copy reserves the longer label. */
 .composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; }
 .composer-feedback:has(.composer-reason[data-shortcut]) { flex:0 1 auto; }
-.composer-feedback > * { grid-area:1/1; }
+.composer-feedback > :not(.sr-only) { grid-area:1/1; }
 .composer-reason { transition:opacity 120ms ease; }
 .composer-reason kbd { font:inherit; padding:0 .2em; border:1px solid var(--aithema-line-strong); border-radius:3px; }
 .composer-saved, .composer-saved-sizer { display:flex; align-items:center; gap:.35em; width:max-content; max-width:100%; line-height:1.3; }
