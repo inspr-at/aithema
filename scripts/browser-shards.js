@@ -44,6 +44,13 @@ export const browserTestWeights = readBrowserTestWeights();
 browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
   browserTestWeights['test/browser/start2-display-geometry.test.js'], 110.564);
 
+// AIT-282: PR CI 39003398813, shard 2, head 25d0608ccc measured the
+// existing html-preview workload at 7.923261s + 17.509594s = 25.432855s.
+// Keep the observed work plus the 25% warmup margin until main catches up;
+// PR diagnostics do not enter the trusted rolling-main measurement history.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 31.792);
+
 // AIT-283 round 2: successful PR CI 39001400566, head 78466ae367,
 // remeasured the changed display workloads. Follow AIT-276's provisional
 // floor pattern without importing PR samples into the trusted main history.
