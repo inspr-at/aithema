@@ -253,6 +253,29 @@ test('AIT-295: uncertain and estimated provider receipts remain reconcilable unt
   assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 0);
 });
 
+test('AIT-295: live retirement retries keep mainline billing behavior across restart', async t => {
+  const path = await temporaryDb();
+  let storage = new SQLiteStorage(path), handlers, calls = 0;
+  t.after(async () => { await handlers?.close(); storage.close(); });
+  const session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  ledger.admit({ attemptId: 'live-retry', sessionId: session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { generationId: 'live-generation' } });
+  const claim = ledger.claim('live-retry'); claim.consume();
+  ledger.settle(claim.claimId, { attemptId: 'live-retry', outcome: 'uncertain' });
+  ledger.acknowledgeCost('live-retry', Date.now() + 60_000);
+  handlers = createHandlers({ storage, consent: mockConsent, host: { retired() { calls++; throw new Error('offline'); } } });
+  age(storage, session.id);
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 0, failed: 1, more: false });
+  assert.equal(calls, 1, 'live retirement reaches the host despite a pending receipt');
+  await handlers.close(); storage.close();
+  storage = new SQLiteStorage(path);
+  handlers = createHandlers({ storage, consent: mockConsent, host: { retired() { calls++; } } });
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 2 }), { retired: 1, failed: 0, more: false });
+  assert.equal(calls, 2);
+  assert.throws(() => storage.get(session.id), /not found/i);
+});
+
 test('AIT-295: existing tombstones migrate in bounded pages without resetting pending retries', async t => {
   const path = await temporaryDb();
   let storage = new SQLiteStorage(path);

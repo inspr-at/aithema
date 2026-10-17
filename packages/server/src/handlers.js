@@ -255,11 +255,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   pluginRuntime.conversationLimits.configure({ publish: broadcast, now: voice?.now ?? host?.now,
     durationMs: host?.credits?.durationMs });
   async function eraseConversation(id, guard, ownerToken) {
-    const event = storage.erase(id, guard);
-    if (!event) return null;
-    await invalidate(id, event, 'session-erased');
-    if (!guard.retire) await host?.erased?.({ sessionId: id, ownerToken });
-    return event;
+    const release = guard.retire ? null : storage.holdErasedRetirement(id);
+    try {
+      const event = storage.erase(id, guard);
+      if (!event) return null;
+      await invalidate(id, event, 'session-erased');
+      if (!guard.retire) await host?.erased?.({ sessionId: id, ownerToken });
+      return event;
+    } finally { release?.(); }
   }
   async function consentDocument(session) {
     const document = validateConsentDocument(await consent.describe(session.id));
@@ -773,19 +776,22 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       // Retry host cleanup for tombstones too: a previous call may have failed
       // after the durable erase but before the host acknowledged its cleanup.
-      const live = new Set(ids);
-      await Promise.all(scope.map(async id => {
-        if (live.has(id)) return eraseConversation(id, {});
-        // storage.erase commits before truncating the WAL. If that checkpoint
-        // failed, retry it and the event/cancellation cascade before acknowledging.
-        storage.checkpointErasure();
-        const event = storage.read(id).findLast(event => event.type === 'session.erased');
-        await invalidate(id, event, 'session-erased');
-        await host?.erased?.({ sessionId: id });
-      }));
-      if (visitor) host.eraseVisitorForOwnerHash(session.ownerHash);
-      return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
-        erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
+      const releases = scope.map(id => storage.holdErasedRetirement(id));
+      try {
+        const live = new Set(ids);
+        await Promise.all(scope.map(async id => {
+          if (live.has(id)) return eraseConversation(id, {});
+          // storage.erase commits before truncating the WAL. If that checkpoint
+          // failed, retry it and the event/cancellation cascade before acknowledging.
+          storage.checkpointErasure();
+          const event = storage.read(id).findLast(event => event.type === 'session.erased');
+          await invalidate(id, event, 'session-erased');
+          await host?.erased?.({ sessionId: id });
+        }));
+        if (visitor) await host.eraseVisitorForOwnerHash(session.ownerHash);
+        return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
+          erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
+      } finally { for (const release of releases) release(); }
     },
     async reconcileUncertain({ apply = false, limit = 10 } = {}) {
       if (typeof apply !== 'boolean' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair request');
