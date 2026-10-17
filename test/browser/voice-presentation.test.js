@@ -278,6 +278,21 @@ async function checkPhoneVoiceHeader(t, widths) {
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
+  const stableViewport = async label => {
+    let previous;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await settle();
+      await shadow(page, async c => {
+        await Promise.all(c.shadowRoot.querySelector('.band').getAnimations({ subtree: true })
+          .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      const current = Buffer.from(await page.screenshot({ fullPage: false }));
+      if (previous?.equals(current)) return current;
+      previous = current;
+    }
+    assert.fail(`${label}: viewport must settle to consecutive identical paints`);
+  };
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
@@ -330,8 +345,8 @@ async function checkPhoneVoiceHeader(t, widths) {
           c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
           await document.fonts.ready;
           const root = c.shadowRoot;
-          await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          await Promise.all(root.querySelector('.band').getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
           const status = root.querySelector('.voice-state'), lines = new Map();
           const record = (rect, text) => {
             // Inline boxes and glyph ranges can differ slightly at the same baseline.
@@ -372,17 +387,18 @@ async function checkPhoneVoiceHeader(t, widths) {
           baseline ??= geometry.boxes; assert.deepEqual(geometry.boxes, baseline, `${label}: controls shift 0 px`);
         }
         const name = `ait302-${label}.png`;
-        if (width !== 600 && evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
+        if (width < 600 && evidence) await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false, optimizeForSpeed: true });
         if (width >= 600) {
           assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
-          const before = Buffer.from(await page.screenshot({ fullPage: false }));
+          const before = await stableViewport(`${label}/current`);
+          if (width !== 600 && evidence) await writeFile(join(evidence, name), before);
           // Restore precisely the old inline nodes, leaving the accepted desktop CSS untouched.
           await shadow(page, c => {
             const status = c.shadowRoot.querySelector('.voice-state'), full = status.querySelector('.consent-wide');
             if (full) full.replaceWith(document.createTextNode(full.textContent));
             status.querySelector('.consent-narrow')?.remove();
           });
-          const after = Buffer.from(await page.screenshot({ fullPage: false }));
+          const after = await stableViewport(`${label}/legacy`);
           if (!after.equals(before) && evidence) {
             await writeFile(join(evidence, `ait302-${label}-current.png`), before);
             await writeFile(join(evidence, `ait302-${label}-legacy.png`), after);
