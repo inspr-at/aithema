@@ -11,7 +11,8 @@ export async function scrollbarFirstPaintCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-scrollbar-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'sessions.sqlite'));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR;
-  const browser = await browserForFile(evidence ? { args: evidenceBrowserArgs } : {});
+  // Puppeteer's headless default otherwise suppresses even styled classic bars.
+  const browser = await browserForFile({ ignoreDefaultArgs: ['--hide-scrollbars'], ...(evidence ? { args: evidenceBrowserArgs } : {}) });
   t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
   const page = await browser.newPage(), checks = [], errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -25,7 +26,7 @@ export async function scrollbarFirstPaintCheck(t) {
     void request.respond({ status: 200, contentType: 'text/html', body: `<!doctype html><html lang="de"><head>
       <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,">
       <link rel="stylesheet" href="/demo/host.css"><style>
-      html { overflow-y:scroll; scrollbar-gutter:stable; } ::-webkit-scrollbar { width:15px; height:15px; }
+      html { overflow-y:scroll; } ::-webkit-scrollbar { width:15px; height:15px; }
       body { margin:0; } .aithema-shell { width:100%; }
       .aithema-shell > * { --aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
         --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; }
@@ -42,9 +43,7 @@ export async function scrollbarFirstPaintCheck(t) {
       const band = mounted ? c.shadowRoot.querySelector('.band') : document.querySelector('.aithema-first-paint');
       const rail = band.querySelector('.audio-rail'), b = band.getBoundingClientRect(), r = rail.getBoundingClientRect();
       return { band: [b.x, b.y, b.width, b.height], rail: [r.x, r.y, r.width, r.height], row: getComputedStyle(rail).gridRowStart,
-        scrollbar: innerWidth - document.documentElement.getBoundingClientRect().width,
-        scrollbarStyle: getComputedStyle(document.documentElement, '::-webkit-scrollbar').width,
-        documentClient: document.documentElement.clientWidth, shellWidth: document.querySelector('.aithema-shell').getBoundingClientRect().width };
+        scrollbar: innerWidth - document.documentElement.clientWidth };
     };
   });
   const cases = [216, 280].flatMap(actions => [760, 768, 780, 790, 800].map(width => ({ actions, width, locale: 'de', theme: 'light', classic: true })));
@@ -60,7 +59,6 @@ export async function scrollbarFirstPaintCheck(t) {
     await page.evaluate(({ scene, markup }) => {
       const { actions, locale, theme, classic } = scene;
       document.documentElement.style.overflowY = classic ? 'scroll' : 'hidden';
-      document.documentElement.style.scrollbarGutter = classic ? 'stable' : 'auto';
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       const shell = document.querySelector('.aithema-shell'); shell.classList.toggle('wide', actions === 280);
       shell.innerHTML = `<aithema-session theme="${theme}" motion="off"><h1 slot="brand">START · Augmentoring — a deliberately very long host brand for truncation</h1></aithema-session>${markup}`;
