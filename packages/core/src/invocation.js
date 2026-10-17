@@ -17,7 +17,7 @@ export function normalizedError(error, signal) {
   return error instanceof PluginError ? error : new PluginError('provider', 'Provider request failed');
 }
 // The claim authority is an in-process closure, never a browser-supplied id.
-export async function beginInvocation(options, { billable = true, authoritativeCost = false } = {}) {
+export async function beginInvocation(options, { billable = true, authoritativeCost = false, retainUncertainUsage = false } = {}) {
   let terminal = false, dispatched = false, usage = null, cancelled = false, servedModel, chargedMicro, observedGenerationId;
   if (billable && (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' || typeof options.report !== 'function')) {
     throw new PluginError('not-admitted');
@@ -44,7 +44,7 @@ export async function beginInvocation(options, { billable = true, authoritativeC
       const report = !dispatched ? { outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }
         : authoritativeCost ? chargedMicro !== undefined
           ? { outcome: completed ? 'completed' : 'cancelled', usage: usage ?? { inputTokens: 0, outputTokens: 0 }, chargedMicro }
-          : { outcome: 'uncertain' }
+          : { outcome: 'uncertain', ...(retainUncertainUsage && usage ? { usage } : {}) } // Preserve existing report shapes unless requested.
         : usage ? { outcome: completed ? 'completed' : 'cancelled', usage } : { outcome: 'uncertain' };
       await options?.report?.({ attemptId: options.attempt?.attemptId, ...report,
         ...(dispatched && observedGenerationId ? { generationId: observedGenerationId } : {}),
