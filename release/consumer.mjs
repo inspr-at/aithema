@@ -102,7 +102,14 @@ export function testConsumer(directory, { offline = true, bootOnly = false } = {
     assert.deepEqual(readFileSync(join(scratch, 'package-lock.json')), lockedBytes);
     // 0.10.1 is a private monolith with a different API, not the new split modules.
     // Exercise the actual dependency replacement boundary without claiming data/API compatibility.
-    const legacy = JSON.parse(readFileSync(new URL('./history.json', import.meta.url))).releases.at(-1);
+    // Calendar releases also enter history; the monolith stays at its explicit
+    // migration anchor rather than moving with the latest published release.
+    const legacy = JSON.parse(readFileSync(new URL('./history.json', import.meta.url))).releases.find(release =>
+      release.version_scheme === manifest.migration.last_legacy_scheme &&
+      release.version === manifest.migration.last_legacy_version &&
+      release.release_sequence === manifest.migration.last_legacy_sequence &&
+      release.release_channel === manifest.release_channel);
+    assert.ok(legacy, 'Release history must contain the explicit legacy migration anchor');
     assert.equal(legacy.version, '0.10.1');
     assert.equal(compareVersions({ ...legacy }, manifest, manifest.migration), -1);
     const retained = join(scratch, 'retained'); mkdirSync(retained);

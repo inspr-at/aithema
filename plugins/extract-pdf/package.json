@@ -6,13 +6,13 @@
     ".": "./src/index.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261015164601.0.0",
+    "@inspr/aithema-core": "261017133413.0.0",
     "unpdf": "1.8.0"
   },
   "engines": {
     "node": ">=24"
   },
-  "version": "261015164601.0.0",
+  "version": "261017133413.0.0",
   "license": "AGPL-3.0-only",
   "files": [
     "src/"
