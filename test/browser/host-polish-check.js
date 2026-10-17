@@ -161,12 +161,19 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       await shot(label, theme, 'entrance');
       // Hold the unmeasured CSS state: initial invalidates the custom property until the first measurement.
       await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: 24 } });
-      await shadow(page, c => c.shadowRoot.querySelector('.workspace').style.setProperty('--phone-footer', 'initial', 'important'));
+      await shadow(page, c => {
+        const hold = document.createElement('style'); hold.id = 'pre-measure-hold';
+        hold.textContent = '.workspace { --phone-footer:initial !important; }'; c.shadowRoot.append(hold);
+      });
       await settle();
-      const preMeasure = await shadow(page, c => parseFloat(getComputedStyle(c.shadowRoot.querySelector('.workspace')).paddingBottom));
-      assert.equal(preMeasure, 81, 'pre-measure fallback includes the 24px safe area exactly once');
+      const preMeasure = await shadow(page, c => {
+        const style = getComputedStyle(c.shadowRoot.querySelector('.workspace'));
+        return { footerVariable: style.getPropertyValue('--phone-footer').trim(), reserved: parseFloat(style.paddingBottom) };
+      });
+      assert.equal(preMeasure.footerVariable, '', 'the fallback, rather than the measured value, is active');
+      assert.equal(preMeasure.reserved, 81, 'pre-measure fallback includes the 24px safe area exactly once');
       await shot(label, theme, 'entrance-pre-measure-24px');
-      await shadow(page, c => c.shadowRoot.querySelector('.workspace').style.removeProperty('--phone-footer'));
+      await shadow(page, c => c.shadowRoot.querySelector('#pre-measure-hold').remove());
       await settle();
       const measured = await shadow(page, c => {
         const r = c.shadowRoot;
@@ -304,13 +311,22 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           assert.deepEqual(retained.actions, [true, true]); assert.equal(retained.visibleSaved, false);
           assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure with retained upload shifts 0 px`);
           await shot(label, theme, 'failure-retained-upload');
-          await shadow(page, c => c.shadowRoot.querySelector('.upload-discard').click());
           await shadow(page, c => {
             window.polish280Verdict = { available: false, reason: 'current processing consent required' };
             c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
           });
           await until(page, () => Boolean(document.querySelector('aithema-session').shadowRoot.querySelector('.composer-reason .consent-action')));
           await settle();
+          const blockedActions = await shadow(page, c => {
+            const r = c.shadowRoot, line = r.querySelector('.composer-reason');
+            return ['.upload-retry-copy .consent-action', '.upload-retry', '.upload-discard'].map(selector => {
+              const n = line.querySelector(selector), b = n.getBoundingClientRect();
+              return r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n;
+            });
+          });
+          assert.deepEqual(blockedActions, [true, true, true], 'consent opener and retained upload actions stay reachable together');
+          assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: consent with retained upload shifts 0 px`);
+          await shadow(page, c => c.shadowRoot.querySelector('.upload-discard').click()); await settle();
           const consent = await shadow(page, c => {
             const r = c.shadowRoot, n = r.querySelector('.composer-reason .consent-action'), b = n.getBoundingClientRect();
             return { text: r.querySelector('.composer-reason').textContent, sendDisabled: r.querySelector('.send').disabled,
@@ -327,7 +343,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
           });
           await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled);
           assert.notEqual(await shadow(page, c => c.shadowRoot.querySelector('.composer-reason').textContent), copy.failed);
-          result.retained = retained; result.consent = consent; result.recovered = true;
+          result.retained = retained; result.blockedActions = blockedActions; result.consent = consent; result.recovered = true;
         }
         stateChecks.push({ state, ...result, shiftPx: 0 });
       }
