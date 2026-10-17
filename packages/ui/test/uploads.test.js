@@ -669,3 +669,77 @@ for (const copy of [de, en]) for (const notice of [false, true])
     assert.equal(root.querySelector('.composer-reason').textContent, before, 'successful retry restores the notice or hint');
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved);
   });
+
+// Change the acknowledged verdict without configure (which resets send failures).
+for (const copy of [de, en]) for (const blockedReason of ['consent required', 'budget reconciling', 'budget denied', 'not admitted', 'session paused'])
+  test(`AIT-280 r2 ${copy.display.locale}: ${blockedReason} supersedes failure and recovery enables Send`, async t => {
+    const { c, root } = setup(t, { copy });
+    const clean = setup(t, { copy });
+    const fetch = globalThis.fetch;
+    let verdict = { available: true };
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (url.endsWith('/turns')) return Response.json({}, { status: 503 });
+      const component = url.endsWith(clean.c.session.id) ? clean.c : c;
+      if (url.endsWith(component.session.id)) return Response.json({ ...component.session,
+        featureMatrix: { best: { ...component.session.featureMatrix.best, text: verdict } } });
+      return fetch(url, options);
+    });
+    root.querySelector('textarea').value = 'Keep this draft';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.failed);
+    const refresh = async component => {
+      component.receive({ seq: component.session.seq + 1, type: 'session.paused', data: { paused: false } });
+      await tick(); await tick();
+    };
+    verdict = { available: false, reason: blockedReason };
+    await refresh(clean.c); await refresh(c);
+    assert.equal(root.querySelector('.composer-reason').textContent, clean.root.querySelector('.composer-reason').textContent,
+      'a blocking verdict renders exactly as it does without a previous failure');
+    assert.equal(root.querySelector('.send').disabled, true);
+    assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
+    assert.equal(Boolean(root.querySelector('.composer-reason .consent-action')), blockedReason === 'consent required');
+    if (blockedReason === 'consent required') {
+      root.querySelector('.composer-reason .consent-action').click();
+      assert.equal(root.querySelector('dialog.consent').open, true, 'the way out still opens');
+    }
+    verdict = { available: true }; await refresh(c);
+    assert.equal(root.querySelector('.composer-reason').hasAttribute('data-shortcut'), true);
+    assert.equal(root.querySelector('.composer-reason').textContent.includes(copy.failed), false);
+    assert.equal(root.querySelector('.send').disabled, false);
+    assert.equal(root.querySelector('textarea').value, 'Keep this draft');
+  });
+
+for (const copy of [de, en]) for (const action of ['retry', 'discard'])
+  test(`AIT-280 r2 ${copy.display.locale}: failure keeps retained upload ${action} reachable`, async t => {
+    let busy = true;
+    const { c, root } = setup(t, { copy, post: () => busy ? Response.json({ error: 'upload-rate-limit' }, { status: 429 }) : undefined });
+    await exhaust(t, root);
+    const fetch = globalThis.fetch;
+    let verdict = { available: true };
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+      if (url.endsWith('/turns')) return Response.json({}, { status: 503 });
+      if (url.endsWith(c.session.id)) return Response.json({ ...c.session,
+        featureMatrix: { best: { ...c.session.featureMatrix.best, text: verdict } } });
+      return fetch(url, options);
+    });
+    root.querySelector('textarea').value = 'Hello';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+    const line = root.querySelector('.composer-reason');
+    assert.equal(line.textContent, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+    assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
+    assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
+    assert.ok(line.querySelector('.upload-retry')); assert.ok(line.querySelector('.upload-discard'));
+    // Consent wins over both the failed send and the upload notice, preserving all available ways out.
+    verdict = { available: false, reason: 'consent required' };
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await tick(); await tick();
+    assert.ok(line.querySelector('.consent-line-copy'));
+    assert.ok(line.querySelector('.consent-action')); assert.ok(line.querySelector('.upload-discard'));
+    assert.equal(line.textContent.includes(copy.failed), false);
+    verdict = { available: true };
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } }); await tick(); await tick();
+    assert.equal(line.textContent.includes(copy.failed), false, 'superseded failure cannot return');
+    busy = false;
+    line.querySelector(`.upload-${action}`).click(); await tick(); await tick();
+    assert.deepEqual(await retainedFiles(c), []);
+    assert.equal(c.session.uploads.length, action === 'retry' ? 1 : 0);
+  });
