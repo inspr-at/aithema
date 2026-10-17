@@ -102,7 +102,7 @@ export class AithemaSession extends HTMLElement {
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
-  #savedTimer; #saved = false;
+  #savedTimer; #saved = false; #savedAnnouncement = false; #savedAnnouncedAt = -Infinity; #sendFailed = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
@@ -138,7 +138,7 @@ export class AithemaSession extends HTMLElement {
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#phoneViewport?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
-    clearTimeout(this.#savedTimer); this.#saved = false;
+    clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false; this.#savedAnnouncedAt = -Infinity; this.#sendFailed = false;
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.element.open;
@@ -193,7 +193,7 @@ export class AithemaSession extends HTMLElement {
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#questionCard?.destroy();
-    clearTimeout(this.#savedTimer); this.#saved = false;
+    clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
     this.#phoneViewport?.destroy(); this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     clearTimeout(this.#creditEndTimer); this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -463,7 +463,7 @@ export class AithemaSession extends HTMLElement {
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <span class="composer-feedback"><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" role="status" aria-live="polite" aria-atomic="true">${icon('check')}<span></span></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+            <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
@@ -823,8 +823,12 @@ export class AithemaSession extends HTMLElement {
   #status(value) { this.#notice = value; this.#paintStatus(); }
   #confirmSaved() {
     clearTimeout(this.#savedTimer); this.#saved = true;
+    // Successful sent turns only: keep repeated saves quiet for ten seconds.
+    const now = Date.now();
+    this.#savedAnnouncement = now - this.#savedAnnouncedAt >= 10_000;
+    if (this.#savedAnnouncement) this.#savedAnnouncedAt = now;
     this.#notice = ''; this.#paintStatus(); this.#render('composer');
-    this.#savedTimer = setTimeout(() => { this.#saved = false; this.#render('composer'); }, 1600);
+    this.#savedTimer = setTimeout(() => { this.#saved = false; this.#savedAnnouncement = false; this.#render('composer'); }, 1600);
   }
   #connectionStatus(value) { this.#connection = value; this.#notice = ''; this.#paintStatus(); }
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
@@ -1248,28 +1252,35 @@ export class AithemaSession extends HTMLElement {
         send.dataset.command = paused ? 'resume' : 'send';
       }
       send.disabled = paused ? this.#composerResuming : this.#sending || !text.available;
+      // A blocking verdict supersedes the failed attempt, including after it becomes available again.
+      if (!text.available || this.#rail?.moved) this.#sendFailed = false;
       const reason = root.querySelector('.composer-reason');
-      reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length);
+      reason.toggleAttribute('data-shortcut', text.available && !this.#rail?.moved && !this.#uploadNotice && !this.#retryFiles.length && !this.#sendFailed);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       const feedback = root.querySelector('.composer-feedback');
       const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
       feedback.toggleAttribute('data-saved', showSaved);
       setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
-      setText(root.querySelector('.composer-saved span'), copy.saved);
-      root.querySelector('.composer-saved').setAttribute('aria-hidden', String(!showSaved));
+      setText(root.querySelector('.composer-saved span'), showSaved ? copy.saved : '');
+      // Always mounted and exposed to AT, including while another notice wins visually.
+      setText(root.querySelector('.composer-saved-announcement'), this.#savedAnnouncement ? copy.saved : '');
       reason.setAttribute('aria-live', showSaved ? 'off' : 'polite');
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
-      const words = this.#composerPaused ? '' : this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
+      const words = this.#composerPaused ? '' : !text.available || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
+        : this.#uploadNotice || copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
+      setText(root.querySelector('#upload-retry-reason'), this.#retryFiles.length ? plural(copy.uploads.notUploaded, this.#retryFiles.length) : '');
       if (this.#retryFiles.length) {
         const refusal = this.#retryRefusal();
         if (!reason.querySelector('.upload-discard')) {
           const label = node('span'), discard = reasonAction('', () => {
             this.#retryFiles = []; this.#uploadNotice = ''; this.#render('composer');
           });
-          label.id = 'upload-retry-reason'; discard.classList.add('upload-discard');
-          discard.setAttribute('aria-describedby', label.id);
-          reason.replaceChildren(label, discard);
+          label.classList.add('upload-retry-copy'); label.tabIndex = 0; discard.classList.add('upload-discard');
+          discard.setAttribute('aria-describedby', 'upload-retry-reason');
+          const actions = node('span', 'upload-retry-actions'); actions.append(discard);
+          delete reason.dataset.consentFeature;
+          reason.replaceChildren(label, actions);
         }
         let action = reason.querySelector('.upload-retry');
         const discard = reason.querySelector('.upload-discard');
@@ -1279,15 +1290,22 @@ export class AithemaSession extends HTMLElement {
           action.classList.add('upload-retry'); action.setAttribute('aria-describedby', 'upload-retry-reason');
           // Buttons form atomic inline boxes; keep the following separator in the same no-wrap span.
           const joined = node('span'); joined.style.whiteSpace = 'nowrap';
-          joined.append(action, document.createTextNode(reasonSeparator)); reason.insertBefore(joined, discard);
+          joined.append(action, document.createTextNode(reasonSeparator)); discard.before(joined);
         }
-        const facts = refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
-        setText(reason.querySelector('span'), `${facts}${reasonSeparator}`);
+        // Failure replaces the notice, never the retained selection's actions. Consent keeps its opener too.
+        const facts = !text.available && !this.#session.paused || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
+          : refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
+        const retryLabel = reason.querySelector('.upload-retry-copy');
+        paintConsentLine(retryLabel, { copy, feature: 'text', text: `${facts}${reasonSeparator}`,
+          verdict: text, open: opener => this.#dialog.openConsent('text', opener) });
+        const consentCopy = retryLabel.querySelector('.consent-line-copy');
+        if (consentCopy) consentCopy.tabIndex = 0; else retryLabel.tabIndex = 0;
         if (!refusal) setText(action, copy.uploads.tryAgain);
         setText(discard, copy.uploads.discard);
       } else {
+        if (reason.querySelector('.upload-retry-copy')) reason.replaceChildren();
         paintConsentLine(reason, { copy, feature: 'text', text: words,
-          verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
+          verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
       }
       if (reason.hasAttribute('data-shortcut') && words) {
@@ -1295,7 +1313,7 @@ export class AithemaSession extends HTMLElement {
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');
         reason.replaceChildren(parts[0] ?? '', modifier, suffix[0], enter, suffix.slice(1).join('Enter'));
       }
-      reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
+      reason.title = !text.available || this.#rail?.moved ? unavailable : '';
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
       const purposePause = root.querySelector('.purpose-pause-copy');
       purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
@@ -2262,7 +2280,7 @@ export class AithemaSession extends HTMLElement {
     const voiceSession = this.#rail && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
-    clearTimeout(this.#savedTimer); this.#saved = false;
+    clearTimeout(this.#savedTimer); this.#saved = false; this.#savedAnnouncement = false;
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
@@ -2276,9 +2294,9 @@ export class AithemaSession extends HTMLElement {
         if (sessionId !== this.#session.id) return;
       }
       if (!option && input.value === content) input.value = '';
-      this.#pending = null;
+      this.#pending = null; this.#sendFailed = false;
       if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
-    } catch { if (sessionId === this.#session.id) this.#status(this.#copy.failed); }
+    } catch { if (sessionId === this.#session.id) { this.#sendFailed = true; this.#clearNotice(); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); this.#host?.update(); } }
   }
   async #sendDevice(content, clearInput = true) {

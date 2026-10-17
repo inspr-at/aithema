@@ -1262,7 +1262,8 @@ for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: saved acknowl
   assert.equal(root.querySelector('.composer-dock > .status__label'), null);
   t.mock.timers.tick(1599); assert.equal(feedback.hasAttribute('data-saved'), true);
   t.mock.timers.tick(1); assert.equal(feedback.hasAttribute('data-saved'), false);
-  assert.equal(root.querySelector('.composer-saved span').textContent, copy.saved);
+  assert.equal(root.querySelector('.composer-saved span').textContent, '');
+  assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
   assert.equal(root.querySelector('.composer-saved').getAttribute('aria-hidden'), 'true');
   c.configure({ copy, session: c.session });
   t.mock.timers.tick(1600); assert.equal(c.shadowRoot.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
@@ -1301,4 +1302,36 @@ for (const visualsBound of [false, true]) test(`AIT-266: explicit host visuals c
   session.paused = true;
   c.configure({ copy: en, session });
   assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, !visualsBound, 'a paused reload retains host capability presentation');
+});
+
+
+for (const copy of [de, en]) test(`AIT-280 ${copy.display.locale}: successful turns announce once per ten seconds, never while typing`, async t => {
+  const c = setup({ copy }), root = c.shadowRoot, live = root.querySelector('.composer-saved-announcement');
+  t.after(() => c.configure({ copy, session: c.session }));
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 100_000 });
+  t.mock.method(globalThis, 'fetch', async (_url, options) => Response.json({ seq: c.session.seq + 1, type: 'turn.final',
+    data: { id: JSON.parse(options.body).clientEventId, role: 'user', content: JSON.parse(options.body).content } }));
+  assert.equal(live.getAttribute('role'), 'status'); assert.equal(live.getAttribute('aria-live'), 'polite');
+  assert.equal(live.getAttribute('aria-atomic'), 'true'); assert.equal(live.hasAttribute('aria-hidden'), false);
+  assert.equal(live.textContent, '');
+  const send = async () => {
+    root.querySelector('textarea').value = 'Hello';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  const type = () => { root.querySelector('textarea').value += 'x'; root.querySelector('textarea').dispatchEvent(new window.Event('input')); };
+  let announcements = 0;
+  for (const [advance, announced] of [[0, true], [1600, false], [2000, false], [6399, false], [1, true]]) {
+    t.mock.timers.tick(advance); await send();
+    assert.equal(live.textContent, announced ? copy.saved : '');
+    if (live.textContent) announcements++;
+    for (let i = 0; i < 5; i++) type();
+    assert.equal(live.textContent, announced ? copy.saved : '', 'keystrokes do not change the live text');
+  }
+  assert.equal(announcements, 2, 'several saves inside 10s are one burst');
+  t.mock.timers.tick(1600); assert.equal(live.textContent, '');
+  for (let i = 0; i < 5; i++) type();
+  assert.equal(live.textContent, '', 'typing after expiry never announces');
+  c.configure({ copy, session: c.session });
+  await send(); assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved, 'new configuration resets the burst');
 });

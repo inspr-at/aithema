@@ -272,7 +272,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 /* Both messages share a cell; hidden sizing copy reserves the longer label. */
 .composer-feedback { display:grid; flex:1; margin-right:auto; min-width:0; align-items:center; }
 .composer-feedback:has(.composer-reason[data-shortcut]) { flex:0 1 auto; }
-.composer-feedback > * { grid-area:1/1; }
+.composer-feedback > :not(.sr-only) { grid-area:1/1; }
 .composer-reason { transition:opacity 120ms ease; }
 .composer-reason kbd { font:inherit; padding:0 .2em; border:1px solid var(--aithema-line-strong); border-radius:3px; }
 .composer-saved, .composer-saved-sizer { display:flex; align-items:center; gap:.35em; width:max-content; max-width:100%; line-height:1.3; }
@@ -284,7 +284,12 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 @media(hover:none), (pointer:coarse) { .composer-reason[data-shortcut] { position:absolute; visibility:hidden; width:0; overflow:hidden; } }
 @media(prefers-reduced-motion:reduce) { .composer-reason, .composer-saved { transition:none; } }
 /* Leave paint room for the shared action's 3px underline offset inside the scroll port. */
-.composer-reason:has(.upload-discard) { max-height:44px; line-height:1.25; padding-bottom:3px; }
+.composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
+.upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.upload-retry-actions { flex:none; }
+.upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; }
+.upload-retry-copy .consent-line-copy { min-width:0; max-height:1.25em; overflow-y:auto; }
+.upload-retry-copy .consent-action { flex:none; }
 .attach, .send { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border-radius:22px; }
 .attach { color:var(--aithema-muted); border:1px solid var(--aithema-line); } .attach svg { width:20px; height:20px; }
 .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
