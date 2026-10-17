@@ -1,1000 +1,256 @@
 {
-  "seconds": 115.452,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005037245-1, 39005018928-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 112.204,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "3eb01b2eeffc0f490bb890f0ef173f1f81a30df0da3b7e82f0a38a9ac2e6428a",
+    "workload": "13fb96eb4119c04ffc80f006a7625d7725107928600df41fba6b232b7c65757f",
     "samples": [
       {
-        "runId": "38997673082",
+        "runId": "38911873685",
         "attempt": 1,
-        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
-        "observedAt": "2026-10-17T03:09:25.347Z",
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:42.008Z",
         "tests": [
           {
             "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.785245682000001
+            "seconds": 8.557583842
           },
           {
             "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.529331856999999
+            "seconds": 7.432329273000001
           },
           {
             "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 1.197130694
+            "seconds": 0.774905786
           },
           {
             "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 1.1679466250000001
+            "seconds": 0.7557310220000001
           },
           {
             "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.233181729
+            "seconds": 0.852990559
           },
           {
             "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 1.0411059809999998
+            "seconds": 0.558164813
           },
           {
             "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.243395376
+            "seconds": 0.759181464
           },
           {
             "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.868170656
+            "seconds": 0.5188901220000001
           },
           {
             "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.934820699
+            "seconds": 0.557021156
           },
           {
             "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.695682713999999
+            "seconds": 4.6312393929999995
           },
           {
             "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 1.131374892
+            "seconds": 0.718988881
           },
           {
             "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 1.1433951930000001
+            "seconds": 0.720381846
           },
           {
             "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.162890792
+            "seconds": 0.712809212
           },
           {
             "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.914387157
+            "seconds": 5.139922957
           },
           {
             "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.275328461
+            "seconds": 4.889385748
           },
           {
             "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.901085179
+            "seconds": 5.935450889
           },
           {
             "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.489014741
+            "seconds": 4.9660574230000005
           },
           {
             "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 1.0541896670000002
+            "seconds": 0.636799431
           },
           {
             "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.9633803870000001
+            "seconds": 0.605312669
           },
           {
             "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.99155014
+            "seconds": 1.404330039
           },
           {
             "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.844105464
+            "seconds": 2.7362580779999996
           },
           {
             "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.769777320999999
+            "seconds": 4.05746151
           },
           {
             "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 2.030593098
+            "seconds": 1.435677786
           },
           {
             "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.7925035119999997
+            "seconds": 2.7332326360000003
           },
           {
             "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.80473402
+            "seconds": 4.034108224
           },
           {
             "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.309779153
+            "seconds": 5.800625384
           },
           {
             "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.4990684309999995
+            "seconds": 5.726865165
           },
           {
             "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 1.153159202
+            "seconds": 0.7337443429999999
           },
           {
             "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.365377653
+            "seconds": 0.856275537
           }
         ]
       },
       {
-        "runId": "38999250028",
+        "runId": "38913449964",
         "attempt": 1,
-        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
-        "observedAt": "2026-10-17T03:33:56.725Z",
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:37.823Z",
         "tests": [
           {
             "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.199990427000001
+            "seconds": 8.421826320000001
           },
           {
             "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 11.823096317
+            "seconds": 8.146141295
           },
           {
             "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 0.98484206
+            "seconds": 0.953654607
           },
           {
             "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 1.022746536
+            "seconds": 0.914990002
           },
           {
             "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.097097318
+            "seconds": 1.00626741
           },
           {
             "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 0.775387856
+            "seconds": 0.6896465150000001
           },
           {
             "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.0921513489999999
+            "seconds": 0.937175748
           },
           {
             "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.758027593
+            "seconds": 0.647882694
           },
           {
             "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.775879816
+            "seconds": 0.661358087
           },
           {
             "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.271698746
+            "seconds": 5.617484853
           },
           {
             "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 0.918187412
+            "seconds": 0.92044707
           },
           {
             "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 0.9131552940000001
+            "seconds": 0.850446935
           },
           {
             "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.029296526
+            "seconds": 0.8787679150000001
           },
           {
             "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 6.583175441000001
+            "seconds": 6.441669328
           },
           {
             "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 6.188350319
+            "seconds": 5.78763794
           },
           {
             "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 6.5402807009999995
+            "seconds": 6.222079584
           },
           {
             "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 6.058316917
+            "seconds": 5.797075344
           },
           {
             "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 0.851295857
+            "seconds": 0.819635357
           },
           {
             "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.79378377
+            "seconds": 0.7198939480000001
           },
           {
             "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.7424794220000002
+            "seconds": 1.5993265799999998
           },
           {
             "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.3403525370000002
+            "seconds": 3.120484884
           },
           {
             "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 4.761024556000001
+            "seconds": 4.684462828
           },
           {
             "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.7180902169999999
+            "seconds": 1.66995344
           },
           {
             "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.258467787
+            "seconds": 3.197151416
           },
           {
             "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 4.749909544
+            "seconds": 4.815661789
           },
           {
             "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 6.599649082
+            "seconds": 6.083347793
           },
           {
             "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 6.634614989
+            "seconds": 6.053506564
           },
           {
             "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 0.940423899
+            "seconds": 0.870082884
           },
           {
             "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.133181951
-          }
-        ]
-      },
-      {
-        "runId": "39003014289",
-        "attempt": 1,
-        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
-        "observedAt": "2026-10-17T04:33:51.885Z",
-        "tests": [
-          {
-            "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 8.852722202
-          },
-          {
-            "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 8.445702945
-          },
-          {
-            "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 0.998412234
-          },
-          {
-            "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 0.977398653
-          },
-          {
-            "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.118550363
-          },
-          {
-            "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 0.785430108
-          },
-          {
-            "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 0.973539794
-          },
-          {
-            "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.675301326
-          },
-          {
-            "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.74002001
-          },
-          {
-            "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 7.290991057
-          },
-          {
-            "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 1.101750765
-          },
-          {
-            "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 0.892633234
-          },
-          {
-            "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 0.943161389
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 6.372132325
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 6.046771896
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 6.848251057000001
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 5.912248229
-          },
-          {
-            "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 0.852801909
-          },
-          {
-            "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.744796187
-          },
-          {
-            "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.659914641
-          },
-          {
-            "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.186709264
-          },
-          {
-            "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 4.682126602
-          },
-          {
-            "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.734124507
-          },
-          {
-            "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.199548318
-          },
-          {
-            "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 4.790918325
-          },
-          {
-            "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 6.361184817000001
-          },
-          {
-            "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 6.349423748
-          },
-          {
-            "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 0.882068112
-          },
-          {
-            "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.0398520880000002
-          }
-        ]
-      },
-      {
-        "runId": "39004584443",
-        "attempt": 1,
-        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
-        "observedAt": "2026-10-17T04:59:27.949Z",
-        "tests": [
-          {
-            "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.834226867
-          },
-          {
-            "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.471388816000001
-          },
-          {
-            "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 1.311290853
-          },
-          {
-            "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 1.193394776
-          },
-          {
-            "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.2246269509999999
-          },
-          {
-            "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 1.033773654
-          },
-          {
-            "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.249784479
-          },
-          {
-            "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.884354543
-          },
-          {
-            "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.931394869
-          },
-          {
-            "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.678609607
-          },
-          {
-            "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 1.1059383760000001
-          },
-          {
-            "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 1.142089702
-          },
-          {
-            "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.1764364820000002
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.853490563
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.391174149
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.973241201
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.4409800409999995
-          },
-          {
-            "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 1.104804217
-          },
-          {
-            "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.982049047
-          },
-          {
-            "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.9864791110000002
-          },
-          {
-            "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.864943568
-          },
-          {
-            "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.748618991
-          },
-          {
-            "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.966035671
-          },
-          {
-            "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.9033982540000003
-          },
-          {
-            "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.7854421490000005
-          },
-          {
-            "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.373530971999999
-          },
-          {
-            "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.811906473
-          },
-          {
-            "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 1.28176719
-          },
-          {
-            "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.451369066
-          }
-        ]
-      },
-      {
-        "runId": "39005037245",
-        "attempt": 1,
-        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
-        "observedAt": "2026-10-17T05:06:40.458Z",
-        "tests": [
-          {
-            "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.733759923
-          },
-          {
-            "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.314576441
-          },
-          {
-            "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 1.1178846009999999
-          },
-          {
-            "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 1.116661775
-          },
-          {
-            "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.222003917
-          },
-          {
-            "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 0.983153048
-          },
-          {
-            "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.1960306660000002
-          },
-          {
-            "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.855490168
-          },
-          {
-            "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.910513874
-          },
-          {
-            "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.405528229
-          },
-          {
-            "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 1.0874043119999999
-          },
-          {
-            "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 1.046636267
-          },
-          {
-            "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.146761492
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.579439207
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.064936422
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.650420318
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.113389766
-          },
-          {
-            "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 1.0227852
-          },
-          {
-            "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.9703063919999999
-          },
-          {
-            "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.9230259699999999
-          },
-          {
-            "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.6650510119999997
-          },
-          {
-            "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.5286731069999995
-          },
-          {
-            "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.964218038
-          },
-          {
-            "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.7658607550000003
-          },
-          {
-            "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.588376019
-          },
-          {
-            "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.563699677
-          },
-          {
-            "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.691054909
-          },
-          {
-            "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 1.105358407
-          },
-          {
-            "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.358887143
-          }
-        ]
-      },
-      {
-        "runId": "39005018928",
-        "attempt": 1,
-        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
-        "observedAt": "2026-10-17T05:06:48.325Z",
-        "tests": [
-          {
-            "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.852096358
-          },
-          {
-            "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.394986747999999
-          },
-          {
-            "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 1.1363518670000001
-          },
-          {
-            "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 1.150517668
-          },
-          {
-            "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.200352471
-          },
-          {
-            "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 0.964527196
-          },
-          {
-            "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.199958745
-          },
-          {
-            "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.868133916
-          },
-          {
-            "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.906465879
-          },
-          {
-            "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.394125844
-          },
-          {
-            "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 1.062129814
-          },
-          {
-            "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 1.086296701
-          },
-          {
-            "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.152379635
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.7711266299999995
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.236379441
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.701122412
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.120362682
-          },
-          {
-            "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 1.043686474
-          },
-          {
-            "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.987137223
-          },
-          {
-            "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.901345391
-          },
-          {
-            "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.737600677
-          },
-          {
-            "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.73379731
-          },
-          {
-            "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.980622957
-          },
-          {
-            "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.838338893
-          },
-          {
-            "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.753696797
-          },
-          {
-            "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.287520007
-          },
-          {
-            "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.287992385
-          },
-          {
-            "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 1.1089649400000001
-          },
-          {
-            "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.2683855929999999
-          }
-        ]
-      },
-      {
-        "runId": "39005522082",
-        "attempt": 1,
-        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
-        "observedAt": "2026-10-17T05:14:45.525Z",
-        "tests": [
-          {
-            "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 10.705084992
-          },
-          {
-            "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.378474699
-          },
-          {
-            "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 1.1621827630000001
-          },
-          {
-            "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 1.134629314
-          },
-          {
-            "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.220559604
-          },
-          {
-            "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 0.9969461820000001
-          },
-          {
-            "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.231432982
-          },
-          {
-            "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.86637
-          },
-          {
-            "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.9308000550000001
-          },
-          {
-            "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.375836388
-          },
-          {
-            "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 1.080179358
-          },
-          {
-            "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 1.097397778
-          },
-          {
-            "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.164731171
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.643060066
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.140904839
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 7.765583716
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 7.26298334
-          },
-          {
-            "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 1.043478285
-          },
-          {
-            "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.938094378
-          },
-          {
-            "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.935636402
-          },
-          {
-            "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.799951951
-          },
-          {
-            "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.761791747999999
-          },
-          {
-            "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.9519016059999998
-          },
-          {
-            "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.866031713
-          },
-          {
-            "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 5.783223350999999
-          },
-          {
-            "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.452719587
-          },
-          {
-            "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 7.47756172
-          },
-          {
-            "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 1.1863834580000001
-          },
-          {
-            "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.344852013
-          }
-        ]
-      },
-      {
-        "runId": "39006638133",
-        "attempt": 1,
-        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
-        "observedAt": "2026-10-17T05:33:00.391Z",
-        "tests": [
-          {
-            "name": "AIT-197 C1 de: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.758789789
-          },
-          {
-            "name": "AIT-197 C1 en: each consent, focused Settings and in-place save, 390/1440 L/D",
-            "seconds": 9.963570692
-          },
-          {
-            "name": "AIT-197 C1: all three refusals have one action each; stage survives a paused reload",
-            "seconds": 0.989444162
-          },
-          {
-            "name": "AIT-197 C1: the local host consent editor saves through the real endpoint without navigating",
-            "seconds": 0.9841306080000001
-          },
-          {
-            "name": "AIT-197 R2 A and real save: consent starts overview and missing reply exactly once, with 0px invalidation",
-            "seconds": 1.0959946059999999
-          },
-          {
-            "name": "AIT-197 R2 B keyboard: the tinted target also retains the usual focus ring",
-            "seconds": 0.7929819260000001
-          },
-          {
-            "name": "AIT-197 R2 B: only the target is tinted, with unchanged boxes; normal Settings has no tint",
-            "seconds": 1.023742169
-          },
-          {
-            "name": "AIT-197 R2 C: all three actions have a 24px hit area and described feature sentence",
-            "seconds": 0.726118885
-          },
-          {
-            "name": "AIT-197 R2 D: only an empty transcript uses the new English placeholder",
-            "seconds": 0.75366655
-          },
-          {
-            "name": "AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN",
-            "seconds": 6.195874141
-          },
-          {
-            "name": "AIT-197 R2 High: removing only html keeps save wording and restores its consent line",
-            "seconds": 0.950955612
-          },
-          {
-            "name": "AIT-197 R2 High: removing only voice keeps save wording and restores its consent line",
-            "seconds": 0.924445254
-          },
-          {
-            "name": "AIT-197 R2 images: the stage uses image consent words",
-            "seconds": 1.003367985
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 6.5973728540000005
-          },
-          {
-            "name": "AIT-197 R3 de: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 6.150075836
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with earlier project, 390/1440 L/D",
-            "seconds": 6.714350970000001
-          },
-          {
-            "name": "AIT-197 R3 en: paused consent with only off-topic turns, 390/1440 L/D",
-            "seconds": 6.183471443
-          },
-          {
-            "name": "AIT-197 R3: idle person turns never claim preparing; empty transcript outranks missing consent",
-            "seconds": 0.870580347
-          },
-          {
-            "name": "AIT-197 R3: save consent visibly retains the check icon",
-            "seconds": 0.781099919
-          },
-          {
-            "name": "AIT-215 de: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.710932137
-          },
-          {
-            "name": "AIT-215 de: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.28060936
-          },
-          {
-            "name": "AIT-215 de: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 4.84538811
-          },
-          {
-            "name": "AIT-215 en: composer consent action opens the text item and saves in place, 390/1440",
-            "seconds": 1.734811221
-          },
-          {
-            "name": "AIT-215 en: consent-missing viewport evidence, 1440/1024/400/390 light/dark",
-            "seconds": 3.3003134409999997
-          },
-          {
-            "name": "AIT-215 en: no generic consent in AT, intake, Settings, hover or focus",
-            "seconds": 4.882742942
-          },
-          {
-            "name": "AIT-231 de: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 6.605418306
-          },
-          {
-            "name": "AIT-231 en: real and mock Settings editors, 1440/1024/390 light/dark",
-            "seconds": 6.500467343
-          },
-          {
-            "name": "AIT-231: a full mock document preserves described items and an invalid one fails closed in Settings",
-            "seconds": 0.931460198
-          },
-          {
-            "name": "AIT-231: demo host keeps its twelve-month mock wording at 1440 DE light",
-            "seconds": 1.1260818750000001
+            "seconds": 1.099119021
           }
         ]
       }

@@ -54,12 +54,13 @@ async function scene(page, locale, theme, width, { reset = true, ready = true } 
   }, { locale, reset });
   if (ready) await settle(page);
 }
-async function evidence(finding, page, label, values) {
+async function evidence(finding, page, label, values, { hoverSelector } = {}) {
   const root = process.env.AITHEMA_EVIDENCE_DIR;
   if (root) {
     const dir = join(root, finding); await mkdir(dir, { recursive: true });
     await page.mouse.move(-1, -1);
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+    if (hoverSelector) await page.hover(hoverSelector);
     await settle(page);
     await page.screenshot({ path: join(dir, `${label}.png`), fullPage: false, captureBeyondViewport: false });
     await writeFile(join(dir, `${label}.json`), JSON.stringify({ head: evidenceCommit, finding, label, ...values, pass: true }, null, 2));
@@ -69,7 +70,7 @@ async function evidence(finding, page, label, values) {
 test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 120_000 }, async t => {
   const page = await fixture(t);
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark', 'system']) for (const width of [390, 393, 400, 412, 430, 440, 447, 448, 460, 479, 480, 500, 550, 1024, 1440]) {
-    await scene(page, locale, theme, width, { reset: width === 390 });
+    await scene(page, locale, theme, width);
     const selectors = ['.band', '.conversations-toggle', '.host-account', '.settings-open'];
     const before = await boxes(page, selectors);
     const metrics = await shadow(page, c => {
@@ -87,7 +88,7 @@ test('AIT-186 F1: phone header controls never overlap; DE/EN, L/D', { timeout: 1
     await page.hover('aithema-session >>> .conversations-toggle');
     assert.deepEqual(await boxes(page, selectors), before, `${label}: hover shift 0 px`);
     const values = { ...metrics, shiftPx: 0 };
-    await evidence('F1', page, label, values); t.diagnostic(`PASS F1 ${label}: ${JSON.stringify(values)}`);
+    await evidence('F1', page, label, values, { hoverSelector: 'aithema-session >>> .conversations-toggle' }); t.diagnostic(`PASS F1 ${label}: ${JSON.stringify(values)}`);
   }
 });
 

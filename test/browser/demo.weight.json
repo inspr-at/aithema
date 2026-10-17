@@ -1,392 +1,104 @@
 {
-  "seconds": 54.202,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005037245-1, 39005018928-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 66.129,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "e4a6800f45459d9b1ef7e918e28e8547fb5bece47370d4c42fdc0f5a482a9d52",
+    "workload": "22a8d7044f8924922928c434c757dae115a40032160ea3c49b58c54b629246d4",
     "samples": [
       {
-        "runId": "38997673082",
+        "runId": "38911873685",
         "attempt": 1,
-        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
-        "observedAt": "2026-10-17T03:09:26.368Z",
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:40.128Z",
         "tests": [
           {
             "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.56553811
+            "seconds": 5.474603235
           },
           {
             "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.643237611
+            "seconds": 1.684538149
           },
           {
             "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 4.366453243
+            "seconds": 4.841839632
           },
           {
             "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 1.061946235
+            "seconds": 1.06581073
           },
           {
             "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 5.517158156000001
+            "seconds": 5.5572203369999995
           },
           {
             "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 6.157085264
+            "seconds": 5.664473878
           },
           {
             "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 3.719554357
+            "seconds": 3.6143760080000003
           },
           {
             "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 5.882063448
+            "seconds": 5.800383943
           },
           {
             "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 6.37250107
+            "seconds": 6.366718490999999
           },
           {
             "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 11.687797962000001
+            "seconds": 11.19941569
           }
         ]
       },
       {
-        "runId": "38999250028",
+        "runId": "38913449964",
         "attempt": 1,
-        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
-        "observedAt": "2026-10-17T03:33:56.725Z",
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:57.305Z",
         "tests": [
           {
             "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.169958586
+            "seconds": 5.654333138
           },
           {
             "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.615783964
+            "seconds": 1.7286954129999998
           },
           {
             "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 3.5472039239999997
+            "seconds": 5.086456814999999
           },
           {
             "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 0.9519559510000001
+            "seconds": 1.081388931
           },
           {
             "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 4.884796345
+            "seconds": 5.746724223
           },
           {
             "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 5.293447636
+            "seconds": 5.898629043
           },
           {
             "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 3.130833145
+            "seconds": 3.798422742
           },
           {
             "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 5.307126964
+            "seconds": 6.0063921559999995
           },
           {
             "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 5.538321234
+            "seconds": 6.0296772380000005
           },
           {
             "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 10.247657907999999
-          }
-        ]
-      },
-      {
-        "runId": "39003014289",
-        "attempt": 1,
-        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
-        "observedAt": "2026-10-17T04:33:51.885Z",
-        "tests": [
-          {
-            "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.066668711999999
-          },
-          {
-            "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.4986770550000001
-          },
-          {
-            "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 3.216764532
-          },
-          {
-            "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 0.880350818
-          },
-          {
-            "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 5.012281784
-          },
-          {
-            "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 5.512382554
-          },
-          {
-            "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 2.958698896
-          },
-          {
-            "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 5.595654695
-          },
-          {
-            "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 5.190972200999999
-          },
-          {
-            "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 10.599847357
-          }
-        ]
-      },
-      {
-        "runId": "39004584443",
-        "attempt": 1,
-        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
-        "observedAt": "2026-10-17T04:59:27.949Z",
-        "tests": [
-          {
-            "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.827645867999999
-          },
-          {
-            "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.7052134
-          },
-          {
-            "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 4.466667351
-          },
-          {
-            "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 1.124092425
-          },
-          {
-            "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 5.958346839
-          },
-          {
-            "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 6.201635793
-          },
-          {
-            "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 4.09571649
-          },
-          {
-            "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 6.2135218299999995
-          },
-          {
-            "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 6.270041729
-          },
-          {
-            "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 12.23659216
-          }
-        ]
-      },
-      {
-        "runId": "39005037245",
-        "attempt": 1,
-        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
-        "observedAt": "2026-10-17T05:06:40.458Z",
-        "tests": [
-          {
-            "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.630036981
-          },
-          {
-            "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.660592045
-          },
-          {
-            "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 4.1200040079999996
-          },
-          {
-            "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 1.1028997
-          },
-          {
-            "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 5.669004291
-          },
-          {
-            "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 6.028029378
-          },
-          {
-            "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 3.883173721
-          },
-          {
-            "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 6.015926803
-          },
-          {
-            "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 6.031435146
-          },
-          {
-            "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 11.799262049000001
-          }
-        ]
-      },
-      {
-        "runId": "39005018928",
-        "attempt": 1,
-        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
-        "observedAt": "2026-10-17T05:06:48.325Z",
-        "tests": [
-          {
-            "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.667043534
-          },
-          {
-            "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.6866243360000002
-          },
-          {
-            "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 4.220006461
-          },
-          {
-            "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 1.080978033
-          },
-          {
-            "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 5.822471426
-          },
-          {
-            "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 6.106720411
-          },
-          {
-            "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 3.907508271
-          },
-          {
-            "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 6.128024399
-          },
-          {
-            "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 6.092110554
-          },
-          {
-            "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 11.780530916
-          }
-        ]
-      },
-      {
-        "runId": "39005522082",
-        "attempt": 1,
-        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
-        "observedAt": "2026-10-17T05:14:45.525Z",
-        "tests": [
-          {
-            "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.732174554999999
-          },
-          {
-            "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.68826863
-          },
-          {
-            "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 4.316917752999999
-          },
-          {
-            "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 1.121036355
-          },
-          {
-            "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 5.881734765999999
-          },
-          {
-            "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 6.147380667
-          },
-          {
-            "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 4.026407707
-          },
-          {
-            "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 6.176350220000001
-          },
-          {
-            "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 6.142480245
-          },
-          {
-            "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 12.064490342
-          }
-        ]
-      },
-      {
-        "runId": "39006638133",
-        "attempt": 1,
-        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
-        "observedAt": "2026-10-17T05:33:00.391Z",
-        "tests": [
-          {
-            "name": "AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout",
-            "seconds": 5.308251467
-          },
-          {
-            "name": "AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)",
-            "seconds": 1.6415568550000001
-          },
-          {
-            "name": "AIT-117: a German processing-consent page contains START German copy and no English server reasons",
-            "seconds": 3.534795842
-          },
-          {
-            "name": "AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload",
-            "seconds": 0.890051515
-          },
-          {
-            "name": "AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1440/390",
-            "seconds": 4.902800826
-          },
-          {
-            "name": "clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)",
-            "seconds": 5.415208635
-          },
-          {
-            "name": "demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export",
-            "seconds": 3.181379298
-          },
-          {
-            "name": "document uploads: a text file and a PDF through the real file picker, pending then accepted, understanding refresh, drop, withdraw; nothing moves; German, 400 px, light and dark (AIT-100 B2)",
-            "seconds": 5.334731991
-          },
-          {
-            "name": "live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)",
-            "seconds": 5.558677751
-          },
-          {
-            "name": "the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)",
-            "seconds": 9.988977356
+            "seconds": 11.534840265000001
           }
         ]
       }

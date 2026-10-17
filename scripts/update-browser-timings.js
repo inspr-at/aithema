@@ -5,20 +5,15 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { browserWorkload, parseTimingArtifact, updateMeasurement, timingWindow, timingRepository,
-  assertTrustedTimingRun, assertPullRequestTimingRun, assertTimingArtifactRun, assertTimingMainHistory } from './browser-timings.js';
+  assertTrustedTimingRun, assertTimingArtifactRun, assertTimingMainHistory } from './browser-timings.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2), runIds = [];
-let pullNumber;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--run' && /^\d+$/u.test(args[i + 1] ?? '')) runIds.push(args[++i]);
-  else if (args[i] === '--pr' && /^\d+$/u.test(args[i + 1] ?? '') && !pullNumber) pullNumber = args[++i];
-  else throw new Error('Use [--run RUN_ID ...] [--pr PR_NUMBER]; only verified canonical main push or explicitly selected current PR artifacts are accepted');
+  else throw new Error('Use [--run RUN_ID ...]; only verified canonical main push artifacts are accepted');
 }
 const gh = (...args) => execFileSync('gh', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-if (pullNumber && runIds.length !== 1) throw new Error('--pr requires exactly one --run');
-const pull = pullNumber && JSON.parse(gh('api', `repos/${timingRepository}/pulls/${pullNumber}`));
-const head = pullNumber && execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const observations = new Map();
 function readDirectory(directory, expectedRun) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -37,15 +32,9 @@ const temporary = mkdtempSync(join(tmpdir(), 'aithema-browser-timings-'));
 try {
   for (const runId of runIds) {
     const run = JSON.parse(gh('api', `repos/${timingRepository}/actions/runs/${runId}`));
-    if (pull) assertPullRequestTimingRun(run, runId, pull, head);
-    else {
-      assertTrustedTimingRun(run, runId);
-      // Compare responses can include megabytes of unrelated file patches.
-      // Ancestry validation needs only these independently fetched fields.
-      const comparison = JSON.parse(gh('api', `repos/${timingRepository}/compare/${run.head_sha}...main`,
-        '--jq', '{status, merge_base_commit: {sha: .merge_base_commit.sha}}'));
-      assertTimingMainHistory(comparison, run);
-    }
+    assertTrustedTimingRun(run, runId);
+    const comparison = JSON.parse(gh('api', `repos/${timingRepository}/compare/${run.head_sha}...main`));
+    assertTimingMainHistory(comparison, run);
     const artifacts = JSON.parse(gh('api', `repos/${timingRepository}/actions/runs/${runId}/artifacts?per_page=100`)).artifacts
       .filter(artifact => /^browser-timings-[1-6]-of-6$/u.test(artifact.name) && !artifact.expired);
     if (!artifacts.length) { console.log(`CI ${runId}: predates timing artifacts or artifacts expired; skipped`); continue; }
@@ -54,9 +43,7 @@ try {
     const directory = join(temporary, runId);
     gh('run', 'download', runId, '--repo', timingRepository,
       ...artifacts.flatMap(artifact => ['--name', artifact.name]), '--dir', directory);
-    // GitHub PR jobs run the synthetic merge commit. Bind the payload to the
-    // independently fetched PR merge SHA, while artifact metadata binds the head.
-    readDirectory(directory, pull ? { ...run, head_sha: pull.merge_commit_sha } : run);
+    readDirectory(directory, run);
   }
   if (!observations.size) throw new Error('No complete CI timing observations found');
   const writes = [];

@@ -1,140 +1,32 @@
 {
-  "seconds": 8.403,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 38989994446-1, 38995053246-1, 38996124444-1, 38997673082-1, 38999250028-1, 39003014289-1, 39004584443-1, 39005037245-1, 39005018928-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 9.89,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "a756c8b84dc98a9cddd68e741d6377e5005168534bccf47660f359723c1d7174",
+    "workload": "346a72ab472309ae102d14c3f713a2c833f3bdc75dc34b172a8061195b5b69ee",
     "samples": [
       {
-        "runId": "38989994446",
+        "runId": "38911873685",
         "attempt": 1,
-        "sha": "4611339dc21b0e976c0e0507070047d487a103e3",
-        "observedAt": "2026-10-17T01:14:40.281Z",
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:40.128Z",
         "tests": [
           {
             "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.270209649
+            "seconds": 7.911358701
           }
         ]
       },
       {
-        "runId": "38995053246",
+        "runId": "38913449964",
         "attempt": 1,
-        "sha": "b6319880ea1b640d3190421d77967486d07837d0",
-        "observedAt": "2026-10-17T02:28:49.291Z",
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:34.094Z",
         "tests": [
           {
             "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.005966884000001
-          }
-        ]
-      },
-      {
-        "runId": "38996124444",
-        "attempt": 1,
-        "sha": "fc2e7ea8350878353a221b72e21587311ea564db",
-        "observedAt": "2026-10-17T02:45:07.904Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 7.893118344
-          }
-        ]
-      },
-      {
-        "runId": "38997673082",
-        "attempt": 1,
-        "sha": "fc6a6788b70f079b9ee2fa7c0d6fea53ea66990e",
-        "observedAt": "2026-10-17T03:09:24.379Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 6.629690127
-          }
-        ]
-      },
-      {
-        "runId": "38999250028",
-        "attempt": 1,
-        "sha": "d7127a26ad8ecabf7c6910afaa66f43194cd894b",
-        "observedAt": "2026-10-17T03:33:56.290Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.338081878999999
-          }
-        ]
-      },
-      {
-        "runId": "39003014289",
-        "attempt": 1,
-        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
-        "observedAt": "2026-10-17T04:33:53.235Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.21753996
-          }
-        ]
-      },
-      {
-        "runId": "39004584443",
-        "attempt": 1,
-        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
-        "observedAt": "2026-10-17T04:59:27.949Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.402155758000001
-          }
-        ]
-      },
-      {
-        "runId": "39005037245",
-        "attempt": 1,
-        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
-        "observedAt": "2026-10-17T05:06:40.458Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.038633997
-          }
-        ]
-      },
-      {
-        "runId": "39005018928",
-        "attempt": 1,
-        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
-        "observedAt": "2026-10-17T05:06:48.325Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.053226935
-          }
-        ]
-      },
-      {
-        "runId": "39005522082",
-        "attempt": 1,
-        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
-        "observedAt": "2026-10-17T05:14:45.525Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 8.195172715
-          }
-        ]
-      },
-      {
-        "runId": "39006638133",
-        "attempt": 1,
-        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
-        "observedAt": "2026-10-17T05:33:00.391Z",
-        "tests": [
-          {
-            "name": "AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift",
-            "seconds": 7.370775451
+            "seconds": 6.4372750530000005
           }
         ]
       }

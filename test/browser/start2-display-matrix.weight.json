@@ -1,80 +1,32 @@
 {
-  "seconds": 56.185,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39003014289-1, 39004584443-1, 39005037245-1, 39005018928-1, 39005522082-1, 39006638133-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 65.412,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 38911873685-1, 38913449964-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings. AIT-283 round-2 remeasurement: successful PR #251 CI run 39001400566, head 78466ae367, observed 52.447183619s for the current workload; scripts/browser-shards.js retains a 65.56s provisional floor. PR observations are diagnostic only and are not imported into the main-only rolling samples.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "9702fd70853aca8ef546356bea6e4058e229458f672402b1cbfe7b0eaf07e521",
+    "workload": "8f6dc38e762c32160816a640fd2f99b1a5484d1076ff48564e8849ab5507f92b",
     "samples": [
       {
-        "runId": "39003014289",
+        "runId": "38911873685",
         "attempt": 1,
-        "sha": "e42a220afaf2d8a0b8bb4f115f58614c5e197419",
-        "observedAt": "2026-10-17T04:33:50.922Z",
+        "sha": "5d1dc64e983daccaf5765a539fc66504c1deed2f",
+        "observedAt": "2026-10-16T13:57:46.515Z",
         "tests": [
           {
             "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 52.986698231000005
+            "seconds": 52.239848288000005
           }
         ]
       },
       {
-        "runId": "39004584443",
+        "runId": "38913449964",
         "attempt": 1,
-        "sha": "f9fe70a90c9b19fd804c305a346094641562c16b",
-        "observedAt": "2026-10-17T04:59:25.140Z",
+        "sha": "7a4fa3a2f5c4d24bfd95ffa040119642009de347",
+        "observedAt": "2026-10-16T14:09:33.605Z",
         "tests": [
           {
             "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 47.128418412
-          }
-        ]
-      },
-      {
-        "runId": "39005037245",
-        "attempt": 1,
-        "sha": "3377a07dbc66ab93f5f18253f24c605c04fcf91e",
-        "observedAt": "2026-10-17T05:06:48.563Z",
-        "tests": [
-          {
-            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 46.397478556
-          }
-        ]
-      },
-      {
-        "runId": "39005018928",
-        "attempt": 1,
-        "sha": "712b9f17ac1062e3c1cbeef90adad67a9a7e230e",
-        "observedAt": "2026-10-17T05:06:50.938Z",
-        "tests": [
-          {
-            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 48.31662817
-          }
-        ]
-      },
-      {
-        "runId": "39005522082",
-        "attempt": 1,
-        "sha": "5dd2f800032c6fc34c8af22ce7cd7c6876846e0d",
-        "observedAt": "2026-10-17T05:14:43.662Z",
-        "tests": [
-          {
-            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 56.184009872000004
-          }
-        ]
-      },
-      {
-        "runId": "39006638133",
-        "attempt": 1,
-        "sha": "d903c21fe4e2c50b7e1502c4f28a7d4af6ea0fe2",
-        "observedAt": "2026-10-17T05:33:08.527Z",
-        "tests": [
-          {
-            "name": "AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages",
-            "seconds": 53.557423523
+            "seconds": 52.328573751
           }
         ]
       }

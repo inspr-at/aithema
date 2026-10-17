@@ -95,21 +95,9 @@ export function assertTrustedTimingRun(run, expectedRunId) {
   }
 }
 
-// Explicit PR imports are provisional measurements of the checked-out head.
-// Default imports still accept canonical main push history only.
-export function assertPullRequestTimingRun(run, expectedRunId, pull, head) {
-  assertTrustedTimingRun({ ...run, event: 'push', head_branch: 'main' }, expectedRunId);
-  if (run.event !== 'pull_request' || pull?.state !== 'open' || pull.base?.ref !== 'main' ||
-      pull.base.repo?.full_name !== timingRepository || pull.head?.repo?.full_name !== timingRepository ||
-      pull.head.repo.id !== run.head_repository.id || pull.head.ref !== run.head_branch ||
-      pull.head.sha !== head || run.head_sha !== head || !/^[a-f\d]{40}$/u.test(pull.merge_commit_sha ?? '')) {
-    throw new Error(`Untrusted PR timing run ${expectedRunId}: require successful canonical PR CI for the checked-out head targeting main`);
-  }
-}
-
 export function assertTimingArtifactRun(artifact, run) {
   if (artifact?.workflow_run?.id !== run.id || artifact.workflow_run.head_sha !== run.head_sha ||
-      artifact.workflow_run.head_branch !== run.head_branch || artifact.workflow_run.head_repository_id !== run.head_repository.id) {
+      artifact.workflow_run.head_branch !== 'main' || artifact.workflow_run.head_repository_id !== run.head_repository.id) {
     throw new Error('Timing artifact run provenance mismatch');
   }
 }
