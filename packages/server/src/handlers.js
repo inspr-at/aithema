@@ -196,8 +196,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
         conceptHandlers.onUnderstanding(id);
-        const session = storage.get(id), question = pendingQuestionFocus(session) ? session.focusedQuestion : session.understanding.openQuestions[0] ?? null;
+        const session = storage.get(id), pending = pendingQuestionFocus(session);
+        const question = pending
+          ? session.understanding.openQuestions.includes(session.focusedQuestion) ? session.focusedQuestion : null
+          : session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
+          // Clearing the command makes its reaction stale before the lane can
+          // detect removal. Send the documented failure while it still owns it.
+          if (pending && question === null) broadcast(id, { sessionId: id, type: 'lane.failed', data: {
+            inputRevision: acceptedRevision, lane: 'reaction', error: 'reasoning-unavailable',
+            reason: 'focused-question-removed', retryable: false,
+          } });
           const focused = storage.append(id, 'question.focused', { question }, acceptedRevision);
           if (focused) broadcast(id, focused);
         }

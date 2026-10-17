@@ -2,6 +2,15 @@ import { reasonSeparator } from '../consent-line.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  clarify: {
+    action: 'Clarify now', asking: 'Asking …', chosen: 'Chosen', asked: 'Asked', clarifies: 'Clarifies:',
+    failed: 'Reply failed', failedShort: 'Reply failed', retry: 'Retry',
+    paused: 'Conversation paused', consent: 'Consent needed', review: 'Review', deadline: 'Time limit reached',
+    stale: 'That question is no longer open; the list has been updated.',
+    say: { requesting: 'Asking: {q}', selected: 'Chosen. The next reply clarifies: {q}', asked: 'Asked: {q}',
+      retry: 'Reply failed. You can retry.', paused: 'Conversation paused. Resume, then choose again.',
+      consent: 'Consent needed.', deadline: 'Time limit reached.' },
+  },
   questionCard: {
     heading: 'Open question', suggestion: 'Suggestion', likely: 'Most likely, based on the conversation so far',
     hint: 'One click sends the answer. Or just speak or type.',
