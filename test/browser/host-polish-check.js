@@ -93,7 +93,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       session.transcript = stage === 'live' ? [{ id: 'polish-person', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' }] : [];
       session.settings = { ...session.settings, origin: 'default', voice: 'off', visuals: 'off' };
       session.concepts = []; session.conceptStatus = { phase: 'idle' }; session.conceptVisualKind = 'html'; session.conceptCost = { maxMicro: 0 };
-      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true },
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, uploads: { available: true },
         html: { available: visuals, reason: visuals ? null : 'not configured' }, images: { available: false, reason: 'not configured' } },
         eu: { text: { available: false, reason: 'not configured' } }, custom: { text: { available: false, reason: 'not configured' } } };
       c.querySelectorAll('[slot="legal"], [slot="footer"]').forEach(n => n.remove());
