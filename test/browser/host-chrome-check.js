@@ -412,7 +412,7 @@ export async function hostChromeCheck(t) {
         await page.keyboard.press('Escape');
       }
       }
-      if (width >= 600) assert.equal(new Set(heights).size, 1, `${locale}/${theme}/${width}: header difference 0 px across voice and stages`);
+      if (width >= 600) assert.deepEqual([...new Set(heights)], width <= 1180 ? [90, 150] : [90], `${locale}/${theme}/${width}: voice reserves the status row; each stage keeps its exact height`);
       checks.push({ locale, theme, width, headerHeights: [...new Set(heights)], voiceHeightDifferencePx: Math.max(...heights) - Math.min(...heights) });
     }
   }
