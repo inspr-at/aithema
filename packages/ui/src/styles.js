@@ -372,6 +372,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 .upload-retry-actions { flex:none; }
 .composer-reason[data-send-failed] { max-height:none; overflow:visible; }
+.composer-reason[data-send-failed]:has(.upload-discard) { padding-bottom:8px; }
 .composer-reason[data-send-failed] .upload-retry-copy { flex:none; overflow:visible; }
 .composer-reason[data-send-failed] .upload-retry-actions { white-space:nowrap; }
 @media(width < 600px) {
