@@ -667,9 +667,11 @@ for (const copy of [de, en]) for (const notice of [false, true])
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');
     assert.equal(root.querySelector('textarea').value, 'Hello');
     const warning = root.querySelector('.composer-reason .warning');
+    const detail = root.querySelector('.send-failure-detail');
     c.receive({ type: 'lane.status', data: { running: [], failures: [] } });
     assert.equal(root.querySelector('.composer-reason').textContent, copy.failed, 'unrelated repaint cannot clear the failure');
     assert.equal(root.querySelector('.composer-reason .warning'), warning, 'unrelated repaint does not remount the live warning');
+    assert.equal(root.querySelector('.send-failure-detail'), detail, 'AIT-294: unrelated repaint preserves the full polite sentence node');
     await submit(); assert.equal(root.querySelector('.composer-reason').textContent, copy.failed, 'failed retry retains it');
     fail = false; await submit();
     assert.equal(root.querySelector('.composer-reason').textContent, before, 'successful retry restores the notice or hint');

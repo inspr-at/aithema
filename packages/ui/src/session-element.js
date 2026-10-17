@@ -839,8 +839,9 @@ export class AithemaSession extends HTMLElement {
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
     const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || this.#connection || this.#copy.connecting;
-    // Reserve only short labels, measured in the current font and language.
-    const states = ['connecting', 'connected', 'reconnecting', ...(this.#voiceBound ? ['paused', 'voiceInAnotherTab'] : [])];
+    // Reserve every short label in this font/language, including before voice
+    // binds, so its slightly wider tablet label cannot move the flag or dot.
+    const states = ['connecting', 'connected', 'reconnecting', 'paused', 'voiceInAnotherTab'];
     const labels = this.#copy.connectionLabels;
     const key = states.find(key => this.#copy[key] === words);
     reconcile(status.querySelector('.status__sizer'), states.map(key => [key, labels[key]]),
