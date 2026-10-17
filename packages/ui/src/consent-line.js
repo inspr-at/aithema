@@ -32,6 +32,9 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
     if (!label.querySelector('.consent-wide')) {
       label.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
       action.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
+      // These responsive labels carry the button's full name. Generic spans
+      // prohibit aria-label; nameable groups preserve the same label at each width.
+      for (const variant of action.children) variant.setAttribute('role', 'group');
       label.querySelector('.consent-narrow').setAttribute('aria-hidden', 'true');
     }
     setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${reasonSeparator}`);
