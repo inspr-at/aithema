@@ -37,6 +37,16 @@ export function footerMode(width) {
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };
 }
 
+/** Measure real host copy before yielding optional footer content, in Tick's order. */
+export function fitFooter(footer, compactIdentity = false) {
+  const row = footer.querySelector('.display-foot__row');
+  for (const mode of compactIdentity ? ['identity', 'timer', 'role'] : ['full', 'identity', 'timer', 'role']) {
+    footer.dataset.fit = mode;
+    if (row.scrollWidth <= row.clientWidth) break;
+  }
+  return footer.dataset.fit;
+}
+
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
 export class ConversationFold {
   constructor({ root, copy, onChange, canFold = () => true }) {
@@ -150,6 +160,7 @@ export class PhoneComposerViewport {
       // Pinch zoom is a reading gesture; do not move controls while zooming.
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
+      fitFooter(root.querySelector('.display-foot'), (view?.innerWidth ?? 0) < FOOTER_WIDTHS.voice);
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;
@@ -213,6 +224,14 @@ export class PhoneComposerViewport {
     if (Observer) {
       this.observer = new Observer(this.paint);
       for (const selector of ['.band', '.display-foot', '.composer-dock']) this.observer.observe(this.root.querySelector(selector));
+    }
+    this.footerObserver?.disconnect();
+    const FooterMutation = this.view?.MutationObserver;
+    if (FooterMutation) {
+      this.footerObserver = new FooterMutation(this.paint);
+      this.footerObserver.observe(this.root.querySelector('.display-foot__row'), {
+        subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'],
+      });
     }
     this.noticesObserver?.disconnect();
     const Mutation = this.view?.MutationObserver;
@@ -308,6 +327,7 @@ export class PhoneComposerViewport {
     this.root.removeEventListener('pointerout', this.noticePointerOut);
     this.noticesObserver?.disconnect();
     this.observer?.disconnect();
+    this.footerObserver?.disconnect();
     this.view?.removeEventListener('resize', this.paint);
     this.view?.visualViewport?.removeEventListener('resize', this.paint);
     this.view?.visualViewport?.removeEventListener('scroll', this.paint);

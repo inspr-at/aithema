@@ -731,7 +731,13 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     root.querySelector('textarea').value = 'Hello';
     root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
     const line = root.querySelector('.composer-reason');
-    assert.equal(line.textContent, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+    assert.equal(line.querySelector('.upload-retry-copy').textContent, copy.failed);
+    assert.equal(line.querySelector('.upload-retry-actions').textContent, `${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+    assert.equal(line.querySelector('.question-why').textContent, copy.failedShort);
+    assert.equal(copy.failedShort, copy === de ? 'Nicht gespeichert.' : 'Not saved.');
+    assert.equal(line.querySelector('.send-failure-detail').textContent, copy.failed.slice(copy.failedShort.length));
+    assert.equal(line.getAttribute('role'), 'status'); assert.equal(line.getAttribute('aria-live'), 'polite');
+    assert.equal(line.hasAttribute('data-send-failed'), true);
     assert.equal(line.querySelector('.upload-retry-copy .warning svg').outerHTML, warningFixture.firstChild.outerHTML);
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');

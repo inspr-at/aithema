@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, ConnectionTimer, footerMode, ConversationFold } from '../src/layout.js';
+import { motionPreference, rememberMotion, MOTION_KEY, connectionTime, ConnectionTimer, footerMode, fitFooter, ConversationFold } from '../src/layout.js';
 import { de } from '../src/i18n/de.js';
 import { en } from '../src/i18n/en.js';
 import { palette } from '../src/styles.js';
@@ -38,6 +38,22 @@ test('footer narrowing reserves the 1024 credit gap with 1100/680 boundaries', (
   assert.deepEqual(footerMode(600), { voice: false, identity: false, limit: false, connected: false, unit: true });
   for (const width of [599, 390, 360]) assert.deepEqual(footerMode(width), { voice: false, identity: false, limit: false, connected: false, unit: true });
   for (const width of [359, 320]) assert.deepEqual(footerMode(width), { voice: false, identity: false, limit: false, connected: false, unit: false });
+});
+
+test('AIT-294: measured footer drops AI copy, then timer, then role and restores them when space returns', () => {
+  let available = 1000;
+  const measured = [], widths = { full: 1000, identity: 800, timer: 700, role: 500 };
+  const footer = { dataset: {}, querySelector: () => ({
+    get clientWidth() { return available; },
+    get scrollWidth() { measured.push(footer.dataset.fit); return widths[footer.dataset.fit]; },
+  }) };
+  for (const [width, mode, attempts] of [[1000, 'full', ['full']], [999, 'identity', ['full', 'identity']],
+    [799, 'timer', ['full', 'identity', 'timer']], [699, 'role', ['full', 'identity', 'timer', 'role']],
+    [1000, 'full', ['full']]]) {
+    available = width; measured.length = 0;
+    assert.equal(fitFooter(footer), mode); assert.deepEqual(measured, attempts);
+  }
+  assert.equal(fitFooter(footer, true), 'identity', 'tablet identity reservation is independent of voice binding');
 });
 
 test('fold hides the whole middle, updates its two-line message and restores both scroll positions through incoming content', async t => {

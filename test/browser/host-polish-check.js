@@ -313,10 +313,43 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
               return n.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && r.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2) === n;
             }), visibleSaved: r.querySelector('.composer-feedback').hasAttribute('data-saved') };
           });
-          assert.equal(retained.text, `${copy.failed}\u00a0· ${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
+          assert.equal(retained.text, `${copy.failed}${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
           assert.deepEqual(retained.actions, [true, true]); assert.equal(retained.visibleSaved, false);
           assert.deepEqual(await boxes(page, ['.composer', '.send']), geometry, `${label}: failure with retained upload shifts 0 px`);
           await shot(label, theme, 'failure-retained-upload');
+          if (!touch && width === 390) {
+            for (const failureTheme of ['light', 'dark']) for (const failureWidth of [320, 360, 390, 1440]) {
+              await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: failureTheme }]);
+              await cdp.send('Emulation.setDeviceMetricsOverride', { width: failureWidth, height: 900, deviceScaleFactor: 1, mobile: false }); await settle();
+              const fit = await shadow(page, c => {
+                const line = c.shadowRoot.querySelector('.composer-reason'), copy = line.querySelector('.upload-retry-copy'), actions = line.querySelector('.upload-retry-actions');
+                const textRects = n => {
+                  const range = document.createRange(); range.selectNodeContents(n);
+                  return [...range.getClientRects()].filter(b => b.width > 1 && b.height > 1).map(b => [b.left,b.top,b.right,b.bottom]);
+                };
+                const detail = line.querySelector('.send-failure-detail'), hiddenDetail = getComputedStyle(detail).clipPath === 'inset(50%)';
+                const sentenceRects = textRects(line.querySelector('.question-why')).concat(hiddenDetail ? [] : textRects(detail));
+                const actionRects = textRects(actions);
+                return { height: line.clientHeight, scrollHeight: line.scrollHeight, width: line.clientWidth, scrollWidth: line.scrollWidth,
+                  copyHeight: copy.clientHeight, copyScrollHeight: copy.scrollHeight, hiddenDetail,
+                  short: line.querySelector('.question-why').textContent, full: copy.textContent,
+                  separate: sentenceRects.every(a => actionRects.every(b => a[3] <= b[1])),
+                  actionsOneLine: actionRects.every(b => b[1] === actionRects[0][1]),
+                  noTrailingSeparator: !copy.textContent.trimEnd().endsWith('·') && !actions.textContent.trimEnd().endsWith('·') };
+              });
+              const failureLabel = `ait294-${locale}-${failureTheme}-${failureWidth}-send-failure`;
+              assert.ok(fit.scrollHeight <= fit.height && fit.copyScrollHeight <= fit.copyHeight, `${failureLabel}: no clipping ${JSON.stringify(fit)}`);
+              assert.ok(fit.scrollWidth <= fit.width, `${failureLabel}: no horizontal clipping ${JSON.stringify(fit)}`);
+              assert.equal(fit.separate, true, `${failureLabel}: no overlapping line boxes ${JSON.stringify(fit)}`);
+              assert.equal(fit.actionsOneLine, true); assert.equal(fit.noTrailingSeparator, true);
+              assert.equal(fit.hiddenDetail, failureWidth < 600); assert.equal(fit.short, copy.failedShort); assert.equal(fit.full, copy.failed);
+              checks.push({ pass: true, label: failureLabel, ...fit });
+              if (locale === 'de' && failureTheme === 'light' && [390,1440].includes(failureWidth)) await shot(failureLabel, failureTheme, 'retained-upload');
+            }
+            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+            await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }); await settle();
+          }
+
           await shadow(page, c => {
             window.polish280Verdict = { available: false, reason: 'current processing consent required' };
             c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
@@ -392,6 +425,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   passLines.push('AIT-280 PASS: polite live-region reads count 1 for two saves within 10s; no typing announcements; text clears on hide.',
     'AIT-280 PASS: upload notice, retry and pause win visually; saved confirmation remains assistive-only; failure replaces hint/notice.',
     'AIT-280 PASS: composer/Send shift 0 px in every new state; short host legal links stay on one line at 390px.');
+  passLines.push('AIT-294 PASS: 320/360/390/1440 DE/EN light/dark send failure; short phone copy, full polite sentence, separate actions, no trailing separator, clipping or overlapping line boxes.');
   passLines.push('AIT-286 PASS: send failure and retained-upload failure share warning glyph/ink; consent opener underlined, native button, 44px coarse hit area; all transitions 0 px.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,

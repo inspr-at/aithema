@@ -1324,8 +1324,15 @@ export class AithemaSession extends HTMLElement {
           verdict: text,
           open: opener => this.#dialog.openConsent('text', opener) });
       }
-      if (this.#sendFailed && text.available && !this.#rail?.moved)
-        paintFailureLine(reason.querySelector('.upload-retry-copy') ?? reason, copy.failed, this.#retryFiles.length ? reasonSeparator : '');
+      reason.toggleAttribute('data-send-failed', this.#sendFailed && text.available && !this.#rail?.moved);
+      if (reason.hasAttribute('data-send-failed')) {
+        const line = reason.querySelector('.upload-retry-copy') ?? reason;
+        paintFailureLine(line, copy.failed);
+        // Keep the full sentence in the polite region; phones show its first sentence.
+        const short = copy.failedShort ?? line.querySelector('.question-why').textContent;
+        const detail = node('span', 'send-failure-detail', copy.failed.slice(short.length));
+        line.lastChild.replaceWith(detail);
+      }
       if (reason.hasAttribute('data-shortcut') && words) {
         const parts = copy.shortcut.split('{key}'), modifier = node('kbd', '', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
         const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');

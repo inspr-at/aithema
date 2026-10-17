@@ -317,6 +317,25 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) { padding-inline:4px; }
 }
+/* Tablet input ends above the measured footer, including the extra rail row.
+   The overview remains scrollable below this bounded conversation. */
+@media(600px < width < 960px) {
+  .workspace[data-stage="live"] .conversation { min-height:0;
+    height:calc(var(--phone-height,100dvh) - var(--phone-band,90px) - var(--phone-footer,57px) - 24px); }
+  .workspace[data-stage="live"] :is(.concept-thread,.transcript-shell) { min-height:0; height:auto; }
+}
+/* Preserve the product identity; measured host content yields before legal,
+   the preset flag or the named connection dot. Phones keep their AIT-281 frame. */
+@media(min-width:600px) {
+  .display-foot .display-version { display:inline; }
+  .display-foot .ai-notice__short { display:none; }
+  .display-foot .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:inline; }
+  .display-foot[data-fit]:not([data-fit="full"]) .ai-notice :is(.ai-notice__label,.ai-notice__voice) { display:none; }
+  .display-foot:is([data-fit="timer"],[data-fit="role"]) .status { grid-template-columns:6px auto; }
+  .display-foot:is([data-fit="timer"],[data-fit="role"]) .status .connection-timer { display:none; }
+  .display-foot[data-fit="role"] .actor-role { display:none; }
+  .display-foot[data-fit="role"] .footer-left { gap:0; }
+}
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }

@@ -371,6 +371,14 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(.upload-discard) { display:flex; flex-direction:column; max-height:44px; line-height:1.25; padding-bottom:3px; overflow:visible; }
 .upload-retry-copy { min-height:0; overflow-y:auto; overscroll-behavior:contain; }
 .upload-retry-actions { flex:none; }
+.composer-reason[data-send-failed] { max-height:none; overflow:visible; }
+.composer-reason[data-send-failed] .upload-retry-copy { flex:none; overflow:visible; }
+.composer-reason[data-send-failed] .upload-retry-actions { white-space:nowrap; }
+@media(width < 600px) {
+  /* Visually omit the retry sentence, while the polite region retains it. */
+  .composer-reason[data-send-failed] .send-failure-detail { position:absolute; width:1px; height:1px;
+    padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+}
 .upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; overflow:visible; }
 .upload-retry-copy .consent-line-copy { min-width:0; max-height:1.25em; overflow-y:auto; }
 .upload-retry-copy .consent-action { flex:none; }
@@ -385,6 +393,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 @media(max-width:340px) {
   /* Reclaim only gaps: Attach and Send keep their normal positions. */
   .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
+  .composer-actions:has(.composer-reason[data-send-failed]) { gap:0; }
   /* Keep the 12px DE label on one line with the wider Linux baseline font. */
   .composer-reason[data-consent-feature="text"] { letter-spacing:-.03em; }
   .composer-reason[data-consent-feature="text"] .consent-wide { display:none; }

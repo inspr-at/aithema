@@ -53,6 +53,11 @@ export async function hostChromeCheck(t) {
       if (path.endsWith('/events') && window.footerConnectionGate) {
         return window.footerConnectionGate.then(() => nativeFetch(url, init));
       }
+      if (path.endsWith('/credits') && window.rail294) return Promise.resolve(Response.json({
+        exhausted: false, tiers: { current: 'emailConfirmed', allowancesMicro: { emailConfirmed: 24_000_000 } },
+        balance: { owner: { limitMicro: 24_000_000, availableMicro: 18_000_000, committedMicro: 6_000_000, reservedMicro: 0 } },
+      }));
+      if (path.endsWith('/identity') && window.rail294) return Promise.resolve(Response.json({ roleChoice: c.session.roleChoice }));
       if (path.endsWith('/pause')) {
         window.resumeBody = JSON.parse(init.body);
         return new Promise(resolve => { window.ackResume = () => resolve(Response.json({ event: {
@@ -230,6 +235,58 @@ export async function hostChromeCheck(t) {
     }
     await page.setViewport({ width: 700, height: 1000 }); await settle(); await shot(`de-light-700-voice-${brandMode}`);
   }
+  // AIT-294: real host copy and measured rail rows, one reused page, no provider calls.
+  const rail294Checks = [];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [600, 700, 768, 820, 1024]) {
+    await page.setViewport({ width, height: 900 }); await page.select('#theme', theme);
+    const frames = [];
+    for (const voice of [false, true, false]) {
+      await scene({ locale, voice, credits: true });
+      await shadow(page, async (c, { locale, voice }) => {
+        window.rail294 = true;
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const session = c.session;
+        session.roleChoice = { available: true, role: 'representative', source: 'chosen', revision: 1 };
+        session.actor = { type: 'representative', evidence: 'selected' };
+        const labels = { private: 'Private visitor', company: 'Company', representative: locale === 'de'
+          ? 'Vertretung eines Unternehmens' : 'Representative of a company', agency: 'Agency' };
+        c.querySelectorAll('[slot="legal"] a').forEach((a, i) => {
+          a.textContent = locale === 'de' ? ['Impressum', 'Datenschutzerklärung'][i] : ['Legal information', 'Privacy policy'][i];
+        });
+        c.configure({ copy, session, voiceClient: voice ? {} : undefined, host: { library: true, credits: true, actorRole: { labels: { de: labels, en: labels } } } });
+      }, { locale, voice });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__value').textContent !== '…');
+      await settle();
+      const metric = await shadow(page, c => {
+        const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+        const footer = r.querySelector('.display-foot'), row = r.querySelector('.display-foot__row');
+        const composer = r.querySelector('.composer').getBoundingClientRect(), foot = footer.getBoundingClientRect();
+        const links = [...c.querySelectorAll('[slot="legal"] a')].map(box);
+        return { footerWidth: row.clientWidth, footerScrollWidth: row.scrollWidth, composerBottom: composer.bottom, footerTop: foot.top,
+          links, legalInside: links.every(([x,y,w,h]) => x >= 0 && x+w <= innerWidth && y >= 0 && y+h <= innerHeight),
+          flag: r.querySelector('.engine__flag').checkVisibility({ visibilityProperty:true }),
+          dot: r.querySelector('.status__dot').checkVisibility({ visibilityProperty:true }),
+          identity: r.querySelector('.display-version').checkVisibility({ visibilityProperty:true }),
+          roleReserved: Boolean(r.querySelector('.actor-reservation').textContent),
+          credits: r.querySelector('.host-credits').checkVisibility(),
+          frame: ['.composer','.send','.display-foot'].map(s => box(r.querySelector(s))), fit: footer.dataset.fit };
+      });
+      const label = `ait294-${locale}-${theme}-${width}-${voice ? 'voice' : 'text'}-${frames.length}`;
+      assert.ok(metric.footerScrollWidth <= metric.footerWidth, `${label}: footer fits ${JSON.stringify(metric)}`);
+      assert.equal(metric.legalInside, true, `${label}: both legal links inside viewport ${JSON.stringify(metric)}`);
+      assert.ok(metric.composerBottom <= metric.footerTop, `${label}: composer above footer ${JSON.stringify(metric)}`);
+      assert.equal(metric.flag, true); assert.equal(metric.dot, true); assert.equal(metric.identity, true);
+      assert.equal(metric.roleReserved, true); assert.equal(metric.credits, true);
+      if (frames.length) assert.deepEqual(metric.frame, frames[0], `${label}: voice bind/unbind shifts 0 px`);
+      frames.push(metric.frame); rail294Checks.push({ pass: true, label, ...metric, shiftPx: 0 });
+      if ((width === 700 && locale === 'de' && voice) || (width === 768 && locale === 'en' && theme === 'light' && frames.length <= 2)) await shot(label);
+    }
+  }
+  await shadow(page, () => { window.rail294 = false; });
+  checks.push(...rail294Checks);
+  const rail294Pass = 'AIT-294 PASS: 600/700/768/820/1024 DE/EN light/dark, long role/legal with credits; footer fits, legal/flag/dot visible, composer above footer; voice bind/unbind 0 px.';
+  console.log(rail294Pass);
+  if (evidence) await writeFile(join(evidence, 'ait-294-checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: [rail294Pass], checks: rail294Checks }, null, 2));
   console.log('AIT-260 PASS: 48 paused composer cases (restore/blur/limits, both controls, DE/EN, light/dark, 1440/390), acknowledged resume and focus, composer/Send 0 px; 58 rail-fit cases 320–1440; phone status and KI/AI accessible name.');
   for (const locale of ['de', 'en']) for (const width of fullMatrix ? [1440, 1024, 768, 390] : [1440, 768, 390]) {
     await page.setViewport({ width, height: width < 600 ? 844 : 1000 });
