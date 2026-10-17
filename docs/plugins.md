@@ -72,7 +72,7 @@ The typed operation envelope below is checked against
 
 ```ts
 export type Usage = { inputTokens: number; outputTokens: number };
-export type Terminal = { attemptId: string; servedModel?: string; chargedMicro?: number } & ({ outcome: 'completed' | 'cancelled'; usage: Usage } | { outcome: 'uncertain' });
+export type Terminal = { attemptId: string; servedModel?: string; chargedMicro?: number } & ({ outcome: 'completed' | 'cancelled'; usage: Usage } | { outcome: 'uncertain'; usage?: Usage });
 export interface OperationOptions {
   signal: AbortSignal;
   deadlineAt: number;

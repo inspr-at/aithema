@@ -44,7 +44,7 @@ export async function beginInvocation(options, { billable = true, authoritativeC
       const report = !dispatched ? { outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }
         : authoritativeCost ? chargedMicro !== undefined
           ? { outcome: completed ? 'completed' : 'cancelled', usage: usage ?? { inputTokens: 0, outputTokens: 0 }, chargedMicro }
-          : { outcome: 'uncertain', ...(usage ? { usage } : {}) }
+          : { outcome: 'uncertain', ...(usage ? { usage } : {}) } // Tokens are evidence, not a substitute for the cost receipt.
         : usage ? { outcome: completed ? 'completed' : 'cancelled', usage } : { outcome: 'uncertain' };
       await options?.report?.({ attemptId: options.attempt?.attemptId, ...report,
         ...(dispatched && observedGenerationId ? { generationId: observedGenerationId } : {}),
