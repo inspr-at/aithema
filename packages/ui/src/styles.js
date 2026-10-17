@@ -383,12 +383,13 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
 .consent-narrow { display:none; }
 @media(max-width:340px) {
+  .composer-actions { gap:0; }
   .composer-reason[data-consent-feature="text"] { white-space:nowrap; }
   .composer-reason .consent-wide { display:none; }
   .composer-reason .consent-narrow { display:inline; }
 }
 /* Keep the 44px target inside its text column, clear of Attach and Send. */
-.composer-reason .consent-action::after { left:0; width:100%; height:max(100%,44px); }
+.composer-reason .consent-action::after { left:0; width:max(100%,44px); height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
   .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
 }

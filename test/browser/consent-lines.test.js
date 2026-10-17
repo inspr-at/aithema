@@ -667,6 +667,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
     assert.ok(state.lineCount <= 2, `${locale}/${width}: at most two lines: ${JSON.stringify(state)}`);
     assert.ok(state.fontSize >= 12, `${locale}/${width}: 12px font floor`);
     if (width <= 390) {
+      assert.ok(state.target.width >= 44, `${locale}/${width}: 44px consent hit width`);
       assert.ok(state.target.height >= 44, `${locale}/${width}: 44px consent hit area`);
       assert.equal(state.overlapAttach, 0, `${locale}/${width}: Attach intersection is 0 px²`);
       assert.equal(state.overlapSend, 0, `${locale}/${width}: Send intersection is 0 px²`);
@@ -708,7 +709,8 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: composer consent act
         Object.assign(session.understanding, { readinessAssessed: true, draft: false, inputRevision: inputRevision(session),
           summary: session.locale === 'de' ? 'Das Team verliert Zeit beim Schreiben von Angeboten.' : 'The team loses time writing quotes.',
           signals: [session.locale === 'de' ? 'Angebote werden von Hand geschrieben' : 'Quotes are written by hand'] });
-        c.configure({ session });
+        const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
+        c.configure({ copy, session });
       });
       await frame(page);
       const overviewSelectors = ['.understanding', '.notice', '.summary', '.summary-text', '.understanding > .foot', '.composer', '.send'];
@@ -836,7 +838,7 @@ for (const locale of ['de', 'en']) test(`AIT-215 ${locale}: consent-missing view
       document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
       const lines = Object.fromEntries(['text', 'html', 'voice', 'analysis'].map(feature => {
         const selector = { text: '.composer-reason', html: '.concept-activity-text', voice: '.voice-state', analysis: '.notice' }[feature];
-        const element = c.shadowRoot.querySelector(selector), line = element.textContent;
+        const element = c.shadowRoot.querySelector(selector), line = element.innerText;
         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), glyphs = [];
         while (walker.nextNode()) {
           const text = walker.currentNode;
