@@ -1,5 +1,6 @@
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
+import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
 import { ReplyStream } from '../../core/src/reply.js';
@@ -458,8 +459,8 @@ export class AithemaSession extends HTMLElement {
 </header>
         <div class="intro" hidden><div class="intro__prompt"><div class="intro__orb"></div><div class="intro__promise"><slot name="promise"><h2 class="promise"></h2><p class="promise__lead"></p></slot></div></div>
           <div class="intro__card"></div></div>
-        <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div>${this.#voiceBound ? '<div class="voice-notices"></div>' : ''}</div>
-        <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
+        <div class="concept-bar"><div class="concept-access"><div class="concept-rail"></div><div class="concept-preview-slot"></div><span class="concept-withdrawn" role="status"></span></div>${this.#voiceBound ? '<div class="voice-notices"></div>' : ''}</div>
+        <div class="concept-thread"><div class="concept-backdrop" aria-hidden="true"><img alt="" aria-hidden="true" decoding="async"><img alt="" aria-hidden="true" decoding="async"></div><div class="concept-bottom"><span class="concept-bottom-label" role="status"></span><progress max="100" value="0" aria-hidden="true"></progress></div><div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div><span class="concept-backdrop-hint" aria-hidden="true"></span></div>
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
@@ -1736,7 +1737,8 @@ export class AithemaSession extends HTMLElement {
     }
     workspace.dataset.understanding = understanding; root.querySelector('.understanding').inert = understanding === 'absent';
     // Before the start only the entrance is operable: the call and concept rails wait for it.
-    for (const control of root.querySelectorAll('.audio-rail, .concept-bar')) control.inert = stage !== 'live';
+    for (const control of root.querySelectorAll('.audio-rail')) control.inert = stage !== 'live';
+    guardConceptControls(root);
     this.#placeOrb(stage);
     intro.dataset.mode = mode; intro.hidden = !mode;
     const card = intro.querySelector('.intro__card');

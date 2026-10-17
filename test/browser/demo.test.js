@@ -139,7 +139,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
     page.setDefaultTimeout(waitTimeout);
     const failure = Promise.withResolvers();
     const fail = error => failure.reject(error);
-    let reloading = false, exporting = false;
+    let reloading = false, exporting = false, smokeStep = 'session creation';
     const isSameOrigin = requestUrl => new URL(requestUrl).origin === new URL(url).origin;
     const consoleError = message => { if (message.type() === 'error') fail(new Error(`Browser console error: ${message.text()}`)); };
     const responseError = response => {
@@ -188,6 +188,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.ok(id);
         await waitForShadow(page, '.composer textarea');
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id);
+        smokeStep = 'processing choices';
         // AIT-128: START's four processing choices (LandingPresets), four columns, two on narrow screens;
         // hover or selection never moves or resizes an option. Positions are relative to the list,
         // since hovering may scroll it into view.
@@ -214,6 +215,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.setViewport({ width: 800, height: 600 });
         assert.match(await page.$eval('#provider', node => node.textContent), /Local demo, no AI provider/u);
 
+        smokeStep = 'consent grant/revoke/regrant';
         for (const [selector, enabled] of [['#grant', true], ['#revoke', false], ['#grant', true]]) {
           const consent = page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/consent`
             && response.request().method() === 'POST', { signal: controller.signal });
@@ -222,10 +224,12 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           await waitForShadow(page, '.composer textarea', { enabled });
         }
         // AIT-128: the composer opens with START's explicit start.
+        smokeStep = 'start typing';
         await startTyping(page);
         await page.mouse.move(0, 0);
         assert.equal(await page.$eval('aithema-session', component =>
           component.shadowRoot.querySelector('.summary-text').textContent), '');
+        smokeStep = 'first keyboard shortcut turn';
         // Keyboard input and the actual shortcut handler, inside the open shadow DOM.
         const composer = await page.$('aithema-session >>> .composer textarea');
         await composer.type(content);
@@ -241,6 +245,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
         await waitForShadow(page, 'ol li:not(.user) span', { text: 'What should improve first?' });
 
+        smokeStep = 'settings preset';
         // Settings: change preset, model and response style; every change waits for the server.
         const settingsSaved = () => page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/settings`
           && response.request().method() === 'POST', { signal: controller.signal });
@@ -250,6 +255,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         const [, presetSaved] = await Promise.all([page.click('aithema-session >>> .preset-option[data-preset="custom"]'), settingsSaved()]);
         assert.equal(presetSaved.status(), 200, 'the server acknowledges the preset');
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
+        smokeStep = 'settings model';
         await page.click('aithema-session >>> [data-select="model"] .select__button');
         const swift = await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot
           .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Demo only: quick replies'));
@@ -258,6 +264,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
         assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 2, confirm: true });
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
+        smokeStep = 'settings effort';
         const effort = await page.$('aithema-session >>> #settings-effort');
         await effort.focus();
         const [, effortSaved] = await Promise.all([page.keyboard.press('ArrowRight'), settingsSaved()]);
@@ -268,6 +275,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
         await waitForShadow(page, '.engine__value', { text: 'Custom' });
         await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test\u00a0· Voice: Off' });
+        smokeStep = 'next model reply';
         // The effect: the next reply comes from the newly chosen model.
         await composer.type('What about our data?');
         const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
@@ -276,6 +284,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.engine-tag')), null);
         assert.deepEqual(await page.$eval('aithema-session', c => ({ model: c.session.transcript.at(-1).engine.model, effort: c.session.transcript.at(-1).engine.effort })), { model: 'mock/swift', effort: 'low' });
 
+        smokeStep = 'reload restore';
         const restored = page.waitForResponse(`${url}/api/sessions/${id}`, { signal: controller.signal });
         let snapshot;
         reloading = true;
@@ -288,6 +297,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('#error', node => node.textContent), '');
         await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Demo only: quick replies\nUnderstanding: Demo only: quick replies\nvia local test\u00a0· Voice: Off' });
 
+        smokeStep = 'ZIP export';
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));
         exporting = true;
@@ -301,6 +311,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.ok(bytes.includes(Buffer.from(content)), 'The downloaded export must contain the person turn');
         exporting = false;
 
+        smokeStep = 'phone settings geometry';
         // At 400 px the dialog fits the viewport, scrolls inside, and hover moves nothing.
         await page.setViewport({ width: 400, height: 800 });
         // setViewport resolves before resize/ResizeObserver paints the phone dock.
@@ -346,6 +357,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'Escape returns focus to the Settings button');
 
+        smokeStep = 'loopback model';
         // Advanced: the browser connects straight to a loopback model; the host server is never involved.
         await page.setViewport({ width: 1280, height: 900 });
         const local = await loopbackModel(t);
@@ -368,6 +380,15 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.keyboard.press('Escape');
         t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Demo processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, settings (preset, model and effort acknowledged; next reply from Swift), reload, ZIP download, 400 px dialog layout/focus and a loopback local model (handshake, model choice, streamed test chat) passed.`);
       })()]);
+    } catch (error) {
+      const state = await page.$eval('aithema-session', c => {
+        const root=c.shadowRoot, input=root.querySelector('textarea'), r=input.getBoundingClientRect();
+        return { stage:root.querySelector('.workspace').dataset.stage, active:root.activeElement?.className,
+          sendDisabled:root.querySelector('.send').disabled, inputValue:input.value, dialog:root.querySelector('dialog.settings').open,
+          centerHit:root.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.className };
+      }).catch(() => null);
+      t.diagnostic(`Demo smoke failure: ${JSON.stringify({step:smokeStep,state})}`);
+      throw error;
     } finally {
       controller.abort();
       page.off('console', consoleError); page.off('pageerror', fail); page.off('error', fail);
