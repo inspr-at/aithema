@@ -1,69 +1,69 @@
 # Aithema 2026.10
 
-Version **261017133413.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261017195050.0.0**. Licensed under **AGPL-3.0-only**.
 
-Second October release: host integration, enforced conversation limits, clearer settings and privacy evidence, role selection, and “Jetzt klären” build on the first October release.
+Third October release: OpenRouter concept images, more accessible controls, complete retirement of erased conversations, and steadier limits and footer controls build on the second October release.
 
 ## What START notices
 
-- **Host chrome (AIT-260):** host branding and legal links stay visible; hosts
-  without a bound voice client get a text-only header and footer.
-- **Conversation limits (AIT-261/268/291):** the one-hour deadline survives pauses,
-  reconnects and restarts. Budget denials stop fresh work while admitted work
-  settles; pause controls keep their reserved space. Limit messages name the
-  actual reason, and host limits offer an email upgrade when a next tier exists.
-- **Settings gauges (AIT-262/291):** quality and privacy indicators reflect current
-  host binding evidence rather than model-name assumptions, with “Checked” and
-  “Set” wording and concise provider regions.
-- **Model and host details (AIT-265/267):** the footer uses the host's model label
-  and served version metadata, with the host coordinate below Aithema's version.
-- **Privacy and EU processing (AIT-270/271):** provider seats and processing
-  locations are distinguished. EU choices require both EU-only seats and an
-  EU-only processing guarantee; the privacy detail can link to the host policy.
-- **Consent editor (AIT-231):** Settings reads the host's validated consent
-  document; invalid or unavailable documents keep saving disabled.
-- **Consent on phones (AIT-290):** narrow phones use a short consent line with
-  a clear review action.
-- **Jetzt klären / Clarify now (AIT-263/274/288/290):** choose an open point for the
-  next reply, with selected, pending, stale and retry states. Empty overview
-  sections collapse, the redundant overview label is removed, and the overview
-  opens at its natural scroll position.
-- **Concept backdrop (AIT-282):** image concepts appear behind the transcript,
-  with one access button and stable generating, ready and failure states.
-- **Actor role (AIT-281):** visitors can choose a role using host-owned labels.
-  Explicit choices survive restart and take precedence over inference; a new
-  conversation shows that its role is not set.
-- **Footer status (AIT-283/285):** connection labels, dot and timer keep their
-  positions through status changes, notices and toasts.
-- **Tablet and phone layout (AIT-294):** legal links and Send stay visible on
-  tablets with a voice header; send-failure messages read fully on phones.
-- **Host polish (AIT-266/280/286):** clearer saved feedback, accessible controls
-  and consistent send/concept failure actions, including touch targets.
-- **First paint (AIT-276):** reserved scrollbar space prevents a width jump
-  when the conversation mounts.
-- **Voice recovery (AIT-226/279):** repeated facade authentication failures can
-  repair a changed secret in process, with bounded retries and cooldown.
+- **Concept images through OpenRouter (AIT-300 / START-549):** hosts can route
+  image generation and edits through their existing OpenRouter account, with
+  inline image results and provider-reported spend.
+- **Accessibility (AIT-293):** consent labels now have accessible group names,
+  following the WCAG 2.2 AA axe sweep. The sweep covers the component shell and
+  isolated draft preview; generated content still needs its own checks.
+- **Erased conversations (AIT-295/297):** erased and library-deleted conversations
+  enter complete retirement without another idle window. Removal waits for
+  pending accounting, host cleanup and successful maintenance; content stays erased.
+- **Concept storage (AIT-296/299):** viewed-state storage is read only when visuals
+  are bound and a concept appears or opens. Concept controls recover on re-attach.
+- **Limits and settings (AIT-292):** the one-hour limit announces once, without a
+  duplicate toast. Unrated quality and cost vials stay neutral with a “–”.
+- **Stable footer and limit announcements (AIT-299):** safe label expansion waits
+  while a control is hovered or focused, keeping it under the pointer. Resizes
+  and growing labels refit immediately to avoid overlap. Late credit receipts
+  no longer clear an active host limit or repeat its announcement.
+- **Phone links (AIT-297):** host-limit actions fit at 390 px and reserve stacked
+  targets on narrower phones. Demo legal links keep usable targets across
+  languages and pointer modes.
+- **Checks (AIT-298/299):** steadier CI cleanup and diagnostics, with detailed
+  unit handle tracing available on request.
+
+## For hosts
+
+- **OpenRouter image binding:** use `createOpenAIImages` with plugin
+  `openai-images`, model `openai/gpt-image-2`, effort `none` and endpoint
+  `https://openrouter.ai/api/v1`. Reuse the server-private key resolver via
+  `secretRef`; optional `routing.referer` and `routing.title` supply attribution.
+  Supply account-specific legal evidence and consent covering both OpenRouter
+  and OpenAI. Gateway results must contain inline PNG/WebP bytes; URL-only
+  results are refused. Provider `usage.cost` is authoritative; missing or invalid
+  cost remains uncertain rather than free. Qualification remains unverified.
+  See [OpenRouter image bindings](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md#openrouter-image-bindings).
+- **Retention:** keep `handlers.retire` on a maintenance schedule and run it at
+  startup, including when `more` is false. Existing databases backfill erased
+  tombstones in bounded batches. Cleanup hooks must be idempotent. Privacy copy
+  must describe accounting deferrals, retries, host cleanup and separate
+  host/provider retention; complete deletion has no unconditional time guarantee.
+  See the [host retention contract](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md#host-retention-contract).
+- **Legal-slot targets (AIT-297):** direct `<a slot="legal">` anchors receive the
+  module's 44 px targets. Nested anchors in a slotted wrapper remain host-owned:
+  give each at least 24×24 CSS px, and 44×44 px on touch. The
+  [embedding example](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md#web-components)
+  shows the required host CSS.
+- **Public packages:** the fifteen package export maps and subpaths are unchanged
+  since `v261017133413.0.0`. The shared `Terminal` type now permits optional
+  token `usage` on an `uncertain` result, preserving known usage without claiming
+  a settled cost. Plugin protocol `apiVersion` is unchanged.
 
 ## Breaking for hosts
 
-- **Removed `markLocalVoice` (AIT-202):** remove imports from
-  `@inspr/aithema-server/local-voice-identity`. The subpath retains `isLocalVoice`;
-  only the simulator factory creates private frozen identity pairings. Hosts
-  cannot enroll providers as the simulator.
-- **Role and account contracts (AIT-281):** enable
-  `host.identity.chooseRole = true` on the server and supply complete localized
-  `host.actorRole.labels` for `private`, `company`, `representative` and `agency`
-  in the component. Missing capability or labels hides the role control. Put
-  host-owned account content in `slot="account"`; it appears only in the desktop
-  role popover. The module supplies no account claims or default role labels.
-- **EU bindings and consent:** hosts using `eu` must supply qualified
-  `legal.processingCountries` alongside `legal.countries`. Editable consent
-  requires the authoritative port's `describe(sessionId)` contract. See the
-  [embedding guide](https://github.com/inspr-at/aithema/blob/v261017133413.0.0/docs/embedding.md)
-  for these contracts and the `data-aithema-privacy` legal-link marker.
-
-Composed voice and its generic core component helpers remain source-only proof
-code, without public package subpaths or admission to module tarballs.
+- **Image endpoint admission (AIT-300):** direct `gpt-image-2` bindings now accept
+  only `https://api.openai.com/v1` in production. Previously accepted custom
+  proxy hosts are refused. Use the admitted direct endpoint or the OpenRouter
+  binding above. An explicit `baseUrl` must match the binding; endpoint queries,
+  fragments and credentials are refused. Loopback endpoints remain available
+  for offline fixtures.
 
 ## What is included
 
@@ -87,10 +87,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261017133413.0.0` into a clean directory:
+Download the assets for `v261017195050.0.0` into a clean directory:
 
 ```sh
-gh release download v261017133413.0.0 --repo inspr-at/aithema
+gh release download v261017195050.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -113,7 +113,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261017133413.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261017195050.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -143,6 +143,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017133413.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.
