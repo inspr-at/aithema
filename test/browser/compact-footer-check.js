@@ -38,6 +38,19 @@ export async function compactFooterCheck(t) {
     };
   });
   if (evidence) await mkdir(evidence, { recursive: true });
+  const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const heldShot = async name => {
+    if (!evidence) return;
+    // Focus/hover is the subject: retain it while settling all finite motion.
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      const root = document.querySelector('aithema-session').shadowRoot;
+      await Promise.all(root.querySelector('.display-foot').getAnimations({ subtree: true })
+        .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+    });
+    await frames();
+    await page.screenshot({ path: join(evidence, `${name}.png`), fullPage: false, captureBeyondViewport: false });
+  };
   for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
     const name = `ait299-footer-${width}-${theme}-${locale}`;
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
@@ -84,6 +97,61 @@ export async function compactFooterCheck(t) {
     if (evidence) await page.screenshot({ path: join(evidence, `${name}-after.png`), fullPage: false, captureBeyondViewport: false });
     checks.push({ head: evidenceCommit, width, theme, locale, before, held, after, pass: true });
     console.log(`${name}: PASS compact refit; pointer controls and outer layout shift 0px`);
+
+    // Keep a focus-held viewport for every size/theme/language, including phones.
+    await page.evaluate(() => document.querySelector('aithema-session').shadowRoot.querySelector('.engine-info').focus());
+    await heldShot(`${name}-focus-held`);
+    await settleEvidenceFrame(page);
+    if (width < 600) continue; // Phones use their separate fixed footer frame.
+    await page.evaluate(() => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      window.partialAI = root.querySelector('.ai-notice__label');
+      window.partialTimer = root.querySelector('.connection-timer');
+      window.partialTimerText = window.partialTimer.textContent;
+      // The timer can fit again without the full AI label fitting yet.
+      window.partialAI.textContent = 'A deliberately long host label '.repeat(20);
+      window.partialTimer.textContent = 'A deliberately long timer label '.repeat(20);
+    });
+    await settleEvidenceFrame(page);
+    const partialState = () => page.evaluate(point => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      return { fit: root.querySelector('.display-foot').dataset.fit, boxes: window.footerBoxes(),
+        focused: root.activeElement === root.querySelector('.engine-info'),
+        hit: point ? Boolean(root.elementFromPoint(...point)?.closest('.engine-info')) : null };
+    }, windowPartialPoint);
+    let windowPartialPoint;
+    const compact = await partialState();
+    assert.equal(compact.fit, 'timer', `${name}: long timer compacts beyond identity`);
+    const [px, py, pw, ph] = compact.boxes[3]; windowPartialPoint = [px + pw / 2, py + ph / 2];
+    await page.mouse.move(...windowPartialPoint);
+    await page.evaluate(() => {
+      document.querySelector('aithema-session').shadowRoot.querySelector('.engine-info').focus();
+      window.partialTimer.textContent = window.partialTimerText;
+    });
+    await frames();
+    const partialHeld = await partialState();
+    assert.equal(partialHeld.fit, 'timer', `${name}: timer-to-identity expansion waits while pointer/focus are held`);
+    assert.deepEqual(partialHeld.boxes, compact.boxes, `${name}: partial expansion moves controls 0px under the pointer`);
+    assert.equal(partialHeld.hit, true); assert.equal(partialHeld.focused, true);
+    await page.mouse.move(-20, -20); await frames();
+    const focusOnly = await partialState();
+    assert.equal(focusOnly.fit, 'timer', `${name}: focus alone defers the partial expansion`);
+    assert.deepEqual(focusOnly.boxes, compact.boxes);
+    await heldShot(`${name}-timer-identity-focus-held`);
+    await page.mouse.move(...windowPartialPoint);
+    await page.evaluate(() => document.querySelector('aithema-session').shadowRoot.activeElement?.blur()); await frames();
+    const pointerOnly = await partialState();
+    assert.equal(pointerOnly.fit, 'timer', `${name}: pointer alone defers the partial expansion`);
+    assert.deepEqual(pointerOnly.boxes, compact.boxes, `${name}: controls still move 0px under the resting pointer`);
+    assert.equal(pointerOnly.hit, true);
+    await heldShot(`${name}-timer-identity-pointer-held`);
+    await settleEvidenceFrame(page);
+    const partialReleased = await partialState();
+    assert.equal(partialReleased.fit, 'identity', `${name}: leaving applies identity while full still does not fit`);
+    assert.deepEqual(partialReleased.boxes.slice(0, 3), compact.boxes.slice(0, 3));
+    if (evidence) await page.screenshot({ path: join(evidence, `${name}-timer-identity-released.png`), fullPage: false, captureBeyondViewport: false });
+    checks.push({ head: evidenceCommit, width, theme, locale, partialExpansion: true, compact, partialHeld, focusOnly, pointerOnly, partialReleased, pass: true });
+    console.log(`${name}: PASS timer-to-identity; held focus/pointer shift 0px, identity applied on leave`);
   }
   // Keep Chrome focus on the footer button through resize, growing copy and Escape.
   await page.setViewport({ width: 1440, height: 1000 });
@@ -102,7 +170,6 @@ export async function compactFooterCheck(t) {
     return { fit: footer.dataset.fit, focused: root.activeElement === window.focusButton,
       clear: boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left)) };
   });
-  const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await frames();
   assert.equal((await fitState()).fit, 'full', 'the widened label fits before narrowing');
   await page.evaluate(() => window.focusButton.focus());

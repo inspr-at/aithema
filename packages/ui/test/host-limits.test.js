@@ -238,3 +238,28 @@ for (const refused of [false, true]) test(`AIT-299 r2: releasing a full hold is 
   if (refused) assert.equal(surface.limitCopy.title, releaseLimits.en['host-limit'][0]);
   else { assert.equal(surface.usedUp, false, 'settlement never shows a host-limit title'); assert.equal(root.querySelector('.host-credits').dataset.ended, 'false'); }
 });
+
+test('AIT-299 r3: an explicit exhausted receipt recognises operator-budget recovery without a visitor allowance increase', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const fixture = setup(t, { host: {} }); await tick(8); fixture.c.remove();
+  const element = window.document.createElement('div'), root = element.attachShadow({ mode: 'open' });
+  root.innerHTML = fixture.root.innerHTML;
+  const session = createSession({ demo: false, locale: 'en' });
+  let exhausted = true, ack = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    // Visitor credit stays positive and unchanged through the operator top-up.
+    balance: { owner: { limitMicro: 12_000_000, committedMicro: 1_000_000, availableMicro: 11_000_000 } },
+    exhausted, reconciling: false, limitSlot: null,
+  }));
+  const surface = new HostSurface({ root, copy: en, options: { credits: true }, baseUrl: '', session: () => session,
+    onCredits: () => ack.resolve() });
+  t.after(() => surface.destroy()); surface.connect(); await ack.promise;
+  surface.receive({ type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  assert.equal(surface.endReason, 'host-limit'); assert.equal(surface.usedUp, true);
+  exhausted = false; ack = Promise.withResolvers();
+  surface.receive({ type: 'turn.final', data: { role: 'assistant' } });
+  t.mock.timers.tick(301); await ack.promise;
+  assert.equal(surface.endReason, null, 'exhausted true-to-false is an authoritative recovery signal');
+  assert.equal(surface.usedUp, false);
+  assert.equal(root.querySelector('.host-credits').dataset.ended, 'false');
+});

@@ -183,7 +183,7 @@ test('AIT-299: a footer refit reads shadow focus only when its host owns documen
 
 
 // A real shadow owner keeps held keyboard focus observable; only geometry is modeled.
-function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short') {
+function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short', modeWidths = { full: [160, 260], identity: [40, 40], timer: [40, 40], role: [40, 40] }) {
   const window = new Window();
   const host = window.document.createElement('div'); window.document.body.append(host);
   const root = host.attachShadow({ mode: 'open' });
@@ -201,7 +201,7 @@ function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short') {
     if (owner && owner !== footer) probeReads++;
     let left = 0, size = 0;
     if (this.matches('.display-foot__row')) size = width;
-    if (this.matches('.footer-left')) size = owner.dataset.fit === 'full' ? owner.querySelector('span').textContent.length > 5 ? 260 : 160 : 40;
+    if (this.matches('.footer-left')) size = modeWidths[owner.dataset.fit][owner.querySelector('span').textContent.length > 5 ? 1 : 0];
     if (this.matches('.footer-right')) { size = 100; left = width - size; }
     return { width: size, height: 0, left, right: left + size };
   });
@@ -233,6 +233,23 @@ test('AIT-299 r2: same-width expansion waits until both footer focus and pointer
   assert.equal(f.footer.dataset.fit, 'identity', 'the resting pointer still protects expansion');
   f.hover(false); f.footer.dispatchEvent(new f.window.Event('pointerleave'));
   assert.equal(f.footer.dataset.fit, 'full');
+});
+
+for (const hold of ['pointer', 'focus']) test(`AIT-299 r3: timer-to-identity at unchanged width waits for ${hold} to leave while full still overflows`, async t => {
+  const f = heldFooter(t, 'connection-timer', 'A much longer label', {
+    full: [230, 260], identity: [160, 220], timer: [40, 40], role: [40, 40],
+  });
+  assert.equal(f.footer.dataset.fit, 'timer');
+  if (hold === 'focus') f.button.focus(); else f.hover(true);
+  const boxes = () => [...f.footer.querySelector('.display-foot__row').children].map(n => n.getBoundingClientRect());
+  const before = boxes();
+  f.label.textContent = 'Short'; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'timer', 'a partial expansion also waits while the current row is clear');
+  assert.deepEqual(boxes(), before, 'held footer zones move 0px');
+  if (hold === 'focus') { f.button.blur(); await new Promise(resolve => setImmediate(resolve)); }
+  else { f.hover(false); f.footer.dispatchEvent(new f.window.Event('pointerleave')); }
+  assert.equal(f.footer.dataset.fit, 'identity', 'leaving applies the best fit even though full still overflows');
+  const [left, right] = boxes(); assert.ok(left.right <= right.left);
 });
 
 test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digit column remeasures', async t => {
