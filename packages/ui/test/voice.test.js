@@ -582,7 +582,9 @@ test('host voice presentation overrides the adapter label and follows the conver
     c.configure({ copy, session, voiceClient: client });
     assert.ok(c.shadowRoot.querySelector('.engine__detail').textContent.endsWith('Adapter label'));
     c.configure({ copy, session });
-    assert.ok(c.shadowRoot.querySelector('.engine__detail').textContent.endsWith('Host option'));
+    // A catalog label alone cannot bind a browser voice client (AIT-260).
+    assert.doesNotMatch(c.shadowRoot.querySelector('.engine__detail').textContent, /Host option/u);
+    assert.equal(c.shadowRoot.querySelector('.audio-rail'), null);
   }
 });
 test('component sends typed text through active voice, updates context and accepts a durable plain fallback', async t => {
@@ -921,7 +923,8 @@ async function reloadOrphan(t, { record, seq = 5, history = [], channel = true }
     c.remove(); globalThis.fetch = nativeFetch; globalThis.sessionStorage = nativeStorage;
     if (!channel) globalThis.BroadcastChannel = nativeChannel;
   });
-  document.body.append(c); c.configure({ copy: en, session });
+  // This reload fixture tests the bound-voice Resume path, so bind a client.
+  document.body.append(c); c.configure({ copy: en, session, voiceClient: {} });
   await until(() => voiceJournal(storage, session.id).read() === null, 'the journal was not settled');
   for (let i = 0; i < 20; i++) await tick();
   return { c, calls, session, storage };

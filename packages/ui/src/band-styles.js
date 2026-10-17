@@ -1,6 +1,7 @@
 import { headerGeometry } from './first-paint.js';
 import { FOOTER_WIDTHS } from './layout.js';
 import { palette } from './styles.js';
+import { reasonSeparator } from './consent-line.js';
 
 // AIT-131, approved round 2: edge-to-edge band, one edge column and three footer zones.
 export const bandStyles = `
@@ -49,7 +50,8 @@ export const bandStyles = `
   background:none; box-shadow:none; }
 .voice-state { max-width:50%; text-wrap:balance; }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
-@media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; } }
+@media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
+  .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
@@ -172,6 +174,7 @@ export const bandStyles = `
 .footer-popup .host-foot { display:grid; white-space:normal; color:inherit; }
 .host-credits__deadline { display:block; margin-top:4px; }
 [data-footer-popup]:not([data-dismissed]):is(:hover,:focus-within) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
+[data-footer-popup][data-pinned]:not([data-dismissed]) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
 [data-footer-popup][data-dismissed] .footer-popup { visibility:hidden; opacity:0; pointer-events:none; }
 @media(max-width:1099px) {
   .band { grid-template-columns:44px minmax(0,1fr); gap:8px 16px; }
@@ -222,6 +225,89 @@ export const bandStyles = `
   .drafts-canvas { min-height:60svh; }
 }
 ${headerGeometry('.band')}
+/* Beyond the shared first-paint reservation, measured host copy can add a row. */
+@media(min-width:600px) {
+  .band[data-rail-row] { --band-height:150px; grid-template-rows:60px 48px; }
+  .band[data-rail-row] > .audio-rail { grid-column:1/-1; grid-row:2; }
+}
+/* AIT-260: approved host frame. Host text gets only its natural width, capped
+   before it can squeeze the rail or the permanently reserved action targets. */
+.band > .header-actions { grid-column:3; grid-row:1; }
+.band-identity { display:flex; align-items:center; gap:12px; min-width:0; max-width:27vw; }
+.band-identity .band-orb { flex:none; }
+.band .wordmark { margin:0; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+  font:400 18px/1.25 var(--aithema-display); letter-spacing:.005em; }
+slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit !important; color:inherit !important; letter-spacing:inherit !important; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.conversations-toggle { width:168px; gap:8px; padding:0 12px; justify-content:center; font-size:15.5px; }
+.conversations-toggle span { display:inline; }
+.conversations-toggle > svg:first-child { display:block; }
+.conversations-toggle > svg:last-child { display:block; width:10px; height:10px; color:var(--aithema-muted); }
+.conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
+.footer-right { grid-column:3; min-width:0; }
+.display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
+.display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
+.host-legal { display:flex; align-items:center; min-width:0; margin-left:10px; font:inherit; color:inherit; }
+slot[name="legal"]::slotted(*) { min-width:0; margin:0; font:inherit; color:inherit; }
+slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-height:44px; padding:0 8px; text-decoration:underline; text-underline-offset:3px; }
+.version-details { display:grid; gap:2px; }
+.version-details #build-info { display:contents; }
+.version-details .version-row { order:1; }
+.host-version { order:2; white-space:normal; }
+.host-version__value::before { content:'${reasonSeparator}'; white-space:pre; }
+.version-details .build-label { order:3; }
+.footer-info .footer-popup { padding:11px 13px 12px; background:${palette.light.ink}; box-shadow:0 0 0 1px var(--aithema-line),0 12px 30px -14px rgba(0,0,0,.45); }
+.footer-popup .phone-status { display:none; color:var(--aithema-muted); }
+.connection-timer::before { content:'${reasonSeparator}'; }
+/* A legal host without a credit balance matches the approved two ends at
+   tablet widths too. Credit-enabled hosts retain their existing compact rules. */
+@media(min-width:900px) {
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.ai-notice,.status) { font-size:12.5px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .ai-notice__label { display:inline; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:auto minmax(8ch,max-content); gap:10px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__sizer,
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__label { display:grid; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .connection-timer { grid-column:2; }
+}
+@media(max-width:599px) {
+  .band > .header-actions { grid-column:2; }
+}
+@media(600px <= width < 1100px) {
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.ai-notice__label,.status__sizer,.host-credits__total,.host-credits__measure-total),
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .status:not([data-message]) .status__label { display:none; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .status { grid-template-columns:8ch; gap:0; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .connection-timer { grid-column:1; }
+}
+@media(width < 600px) {
+  .edge-column { top:12px; }
+  .fold { top:calc(var(--band-height,68px) - 8px); }
+  .concept-rail, .concept-bar .concept-preview-slot { padding-left:38px; }
+  .band-identity { gap:10px; max-width:none; }
+  .band .wordmark { font-size:16.5px; }
+  .conversations-toggle { width:44px; min-width:44px; padding:0; }
+  .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
+  .conversations-toggle > svg:first-child { display:block; }
+  .display-foot__row { grid-template-columns:auto minmax(0,1fr) auto; gap:8px; }
+  .footer-right, .display-foot:has(.host-credits[hidden]) .footer-right { gap:0; }
+  .footer-right .status { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .ai-notice { min-width:44px; font-size:12.5px; }
+  .ai-notice .speaker-sign { display:block; }
+  .engine-info { width:44px; }
+  .host-legal { margin-left:4px; }
+  .footer-info .phone-status { display:block; }
+  .footer-info .connection-timer { grid-column:auto; min-width:8ch; }
+  .display-foot:has(.host-legal:not([hidden])) .host-credits__track { display:none; }
+}
+/* Credit-enabled hosts also fit the existing 320px embedding contract. The
+   approved 390px frame retains its normal type and spacing. Targets stay 44px. */
+@media(width < 360px) {
+  /* At 320px Linux fallback fonts wrap the ready status at 13px, growing the
+     rail. Keep this reservation and its status at 12px to prevent movement. */
+  .concept-activity-text, .drafts-reason-reserve { font-size:12px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
+  .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) { padding-inline:4px; }
+}
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }

@@ -1,6 +1,9 @@
 // AIT-140: About Aithema. Styles and visual layers belong to this module; the band keeps its layout.
 let nextReveal = 0;
 const css = `
+/* Dissolved controls remain in layout while moving. Keep their transparent
+   transformed boxes inside the band so opening/closing never widens the page. */
+.aithema-reveal-band:is([data-aithema-reveal-state="open"],[data-aithema-reveal-state="exiting"]) { overflow-x:clip; }
 .aithema-reveal-band > .aithema-reveal__fx { position:absolute; inset:0 0 var(--ar-fx-bottom,0px); overflow:hidden; pointer-events:none; z-index:0; }
 /* Preserve the approved soft tint; full-white copy and faint glare provide AA contrast. */
 .aithema-reveal__glass { position:absolute; left:calc(var(--ar-x) - var(--ar-radius)); top:calc(var(--ar-y) - var(--ar-radius)); width:calc(var(--ar-radius) * 2); height:calc(var(--ar-radius) * 2); border-radius:50%; background:linear-gradient(to bottom,rgba(14,86,84,.86) var(--ar-top),rgba(18,104,100,.80) var(--ar-bottom)); backdrop-filter:blur(10px) saturate(1.1); transform:scale(0); opacity:0; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .85s cubic-bezier(.4,0,.2,1); }
@@ -69,6 +72,13 @@ const css = `
 @media(max-width:599px) {
   .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:max-content max-content minmax(0,1fr); gap:6px 12px; white-space:nowrap; }
   .aithema-reveal__subtitle { display:none; }
+}
+/* Three named links retain one row and 44px targets at the narrow host floor.
+   Omit only decorative external-link glyphs before reducing readable type. */
+@media(max-width:379px) {
+  .aithema-reveal-band > .aithema-reveal__row { left:108px; right:8px; column-gap:4px; grid-template-columns:max-content max-content minmax(max-content,1fr); }
+  .aithema-reveal__link { min-width:44px; }
+  .aithema-reveal__title svg { display:none; }
 }
 `;
 

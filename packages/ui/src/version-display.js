@@ -17,6 +17,17 @@ function warnOnce(reason) {
   if (warned.has(reason)) return;
   warned.add(reason); console.warn(`Aithema: ${reason}; version details hidden.`);
 }
+// The host coordinate shares the approved Pretty presentation; the brand label
+// stays in the session's reactive slot observer. No new version source or scheme.
+export function renderHostVersion(element, version) {
+  if (!version.version || !schemes.includes(version.version_scheme) ||
+      (['inspr-calendar-v2', 'inspr-calver-3'].includes(version.version_scheme) && (!parts(version.version, version.version_scheme) || version.version.startsWith('v')))) {
+    disposeVersion(element); element.replaceChildren(); return false;
+  }
+  renderVersion(element, version.version, version.version_scheme, { config: popupConfig, mode: version.display === 'semver' ? 'reduced' : 'pretty', interactive: false });
+  element.title = [version.version, parts(version.version, version.version_scheme) && utcLabel(parts(version.version, version.version_scheme))].filter(Boolean).join(reasonSeparator);
+  return true;
+}
 // One product adapter: product at rest, version/copy in one reserved popup slot.
 export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
   mounted.get(element)?.(); mounted.delete(element);

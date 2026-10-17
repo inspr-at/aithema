@@ -299,6 +299,7 @@ export const en = {
   ],
   purposeDirection: 'Is this more about a new solution, about how you work, or both?',
   conversation: 'Conversation', understanding: 'Overview', you: 'You', assistant: 'AI assistant',
+  composerPaused: 'Conversation paused.',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
   paused: 'Conversation paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',

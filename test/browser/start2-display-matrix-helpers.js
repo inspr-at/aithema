@@ -267,12 +267,12 @@ export async function displayMatrix(t, section) {
           return { zones: ['.ai-notice', '.host-credits', '.footer-right'].map(rect), flag: rect('.engine__flag'), label: rect('.status__label'),
             digits: digits.getBoundingClientRect().left, timer: rect('.connection-timer'), align: style.textAlign, numeric: style.fontVariantNumeric,
             amount: weight('.host-credits__amount'), total: weight('.host-credits__total'), unit: weight('.host-credits__unit'),
-            voice: visible('.ai-notice__voice'), short: visible('.ai-notice__short'), connected: visible('.status__label') };
+            voice: visible('.ai-notice__voice'), short: visible('.ai-notice__short'), legal: !root.querySelector('.host-legal').hidden, connected: visible('.status__label') };
         });
         const context = `${width}/${theme}/${locale}: ${JSON.stringify(footer)}`;
-        assert.ok(footer.zones[1].left - footer.zones[0].right >= 23.5 && footer.zones[2].left - footer.zones[1].right >= 23.5, context);
+        assert.ok(footer.zones[1].left - footer.zones[0].right >= (width < 600 && footer.legal ? 7.5 : 23.5) && footer.zones[2].left - footer.zones[1].right >= (width < 600 && footer.legal ? 7.5 : 23.5), context);
         assert.ok(footer.zones.every(n => n.left >= 0 && n.right <= width + .5 && Math.abs(n.top - footer.zones[0].top) <= .5), context);
-        if (footer.connected) { assert.ok(Math.abs(footer.digits - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
+        if (footer.connected) { assert.ok(Math.abs(footer.timer.left - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
         assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
         assert.ok(footer.amount >= 600); assert.equal(footer.total, 400); assert.equal(footer.unit, 400);
         assert.equal(footer.voice, width >= 1100); assert.equal(footer.short, width < 680);
@@ -285,12 +285,15 @@ export async function displayMatrix(t, section) {
     await t.test('B5: 320 flag hover has no slide-in label; 390 retains it without moving the credits', async () => {
       for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 390]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
-        const before = await boxes(page, ['.engine-info', '.host-credits__amount', '.connection-timer']);
+        // AIT-260: the phone timer lives in the closed info popup. Check the
+        // visible footer controls, independent of that hidden connection copy.
+        const selectors = ['.engine-info', '.host-credits__amount'];
+        const before = await boxes(page, selectors);
         await page.hover('aithema-session >>> .engine-info'); await settle();
         const label = await shadow(page, c => { const n = c.shadowRoot.querySelector('.engine__value'), style = getComputedStyle(n);
           return { displayed: style.display !== 'none', popup: getComputedStyle(c.shadowRoot.querySelector('.engine__detail')).visibility }; });
         assert.equal(label.displayed, width >= 360); assert.equal(label.popup, 'visible');
-        sameBoxes(before, await boxes(page, ['.engine-info', '.host-credits__amount', '.connection-timer']), 'flag hover');
+        sameBoxes(before, await boxes(page, selectors), 'flag hover');
         await shot('flag-hover-amended', width, theme);
       }
     });
@@ -325,7 +328,8 @@ export async function displayMatrix(t, section) {
         });
         const name = locale === 'de' ? 'Gespräche' : 'Conversations';
         assert.equal(menu.name, name); assert.equal(menu.title, name); assert.equal(menu.label, name); assert.equal(menu.icon, 16);
-        assert.equal(menu.visible, false); assert.notEqual(menu.overflow, 'ellipsis');
+        // AIT-260 restores the approved desktop label; phones keep the menu glyph.
+        assert.equal(menu.visible, width >= 600); assert.notEqual(menu.overflow, 'ellipsis');
         if (menu.visible) assert.equal(menu.fits, true, `${width}/${locale}: ${JSON.stringify(menu)}`);
         await shot('r2-band', width, 'light');
       }
@@ -413,7 +417,7 @@ export async function displayMatrix(t, section) {
       const edge = await boxes(page, ['.motion-toggle', '.fold', '.band']);
       assert.equal(edge[0][2], 44); assert.equal(edge[1][2], 44);
       assert.ok(Math.abs(edge[0][0] + 22 - 28) <= .5 && Math.abs(edge[1][0] + 22 - 28) <= .5, `${label}: edge controls share the 14 px column`);
-      assert.ok(Math.abs(edge[0][1] + 22 - (edge[2][1] + edge[2][3] / 2 - 3)) <= .5, `${label}: motion control follows the approved band centre`);
+      assert.ok(Math.abs(edge[0][1] + 22 - (width < 600 ? edge[2][1] + 34 : edge[2][1] + edge[2][3] / 2 - 3)) <= .5, `${label}: motion control follows the approved band centre`);
       await page.click('aithema-session >>> .settings-open');
       for (const selector of ['#locale', '#theme']) {
         const target = await page.$eval(selector, n => ({ width: n.getBoundingClientRect().width, height: n.getBoundingClientRect().height, title: n.title }));

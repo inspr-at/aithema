@@ -101,8 +101,8 @@ export class HostSurface {
     if (this.#options.credits) {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
       this.#creditsPoll = setInterval(() => {
-        const rail = this.#root.querySelector('.audio-rail'), running = rail.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
-        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || rail.hasAttribute('data-call-reconciling') || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
+        const rail = this.#root.querySelector('.audio-rail'), running = rail?.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
+        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || rail?.hasAttribute('data-call-reconciling') || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
       }, 15_000);
       this.#creditsPoll.unref?.();
     }
@@ -297,7 +297,7 @@ export class HostSurface {
     // Retained slot for the demo's host-owned end notice; never a minute countdown.
     const deadline = line.querySelector('.host-credits__deadline'); deadline.hidden = true; setText(deadline, '');
   }
-  // Legal and footer slots: the hairline row shows only when the host filled one of them.
+  // Host footer content stays in the info popup; legal links have their own standing bar slot.
   #mountFoot() {
     const foot = this.#root.querySelector('.host-foot');
     const sync = () => { foot.hidden = ![...foot.querySelectorAll('slot')].some(slot => slot.assignedNodes?.({ flatten: true }).length); };

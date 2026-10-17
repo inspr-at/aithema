@@ -225,13 +225,13 @@ test('AIT-131: detach removes reveal document, window and media listeners; reatt
 
 test('AIT-131: detach removes the conversations outside-click listener and reattach restores menu dismissal', async t => {
   const counts = track(t, document, ['click']); const { c, root } = fixture(t, { host: { library: true } });
-  assert.deepEqual(counts(), { click: 1 });
+  assert.deepEqual(counts(), { click: 2 });
   root.querySelector('.conversations-toggle').click(); assert.equal(root.querySelector('.conversations-menu').hidden, false);
   c.remove(); assert.deepEqual(counts(), { click: 0 }); assert.equal(root.querySelector('.conversations-menu').hidden, true);
-  document.body.append(c); await tick(); assert.deepEqual(counts(), { click: 1 });
+  document.body.append(c); await tick(); assert.deepEqual(counts(), { click: 2 });
   root.querySelector('.conversations-toggle').click(); assert.equal(root.querySelector('.conversations-menu').hidden, false);
   document.body.click(); assert.equal(root.querySelector('.conversations-menu').hidden, true);
-  c.remove(); document.body.append(c); assert.deepEqual(counts(), { click: 1 }, 'another reconnect does not duplicate the listener');
+  c.remove(); document.body.append(c); assert.deepEqual(counts(), { click: 2 }, 'another reconnect does not duplicate the listener');
 });
 
 for (const copy of [de, en]) for (const kind of ['html', 'image']) {

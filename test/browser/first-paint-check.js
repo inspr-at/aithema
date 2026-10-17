@@ -4,14 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { browserForFile } from './shared-browser.js';
 import { startChild } from '../helpers.js';
+import { evidenceBrowserArgs, evidenceCommit } from './start2-display-helpers.js';
 
 export async function firstPaintCheck(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-first-paint-'));
   const demo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'sessions.sqlite'));
-  const browser = await browserForFile();
-  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, results = [];
-  if (evidence) await mkdir(evidence, { recursive: true });
+  const browser = await browserForFile(process.env.AITHEMA_EVIDENCE_DIR ? { args: evidenceBrowserArgs } : {});
+  let textDemo;
+  t.after(async () => { await browser.close(); await demo.kill(); await textDemo?.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, results = [], checks = [];
+  const fitWidths = [600, 640, 680, 720, 760, 767, 768];
+  if (evidence) await mkdir(join(evidence, 'first-paint'), { recursive: true });
   let failureMode = null;
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -29,7 +32,7 @@ export async function firstPaintCheck(t) {
   });
   // Defer the real host import until after a painted frame. A pending module
   // network request can itself defer Chrome paint, so a tiny bootstrap owns it.
-  // One page and browser for all twelve states; no artificial startup sleeps.
+  // Reuse one page/browser; boundary widths add only the default DE/light state.
   await page.evaluateOnNewDocument(() => {
     const state = new URLSearchParams(location.search);
     localStorage.clear();
@@ -70,7 +73,9 @@ export async function firstPaintCheck(t) {
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     });
   };
-  for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
+  const cases = [1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ width, theme, locale }))));
+  cases.push(...fitWidths.map(width => ({ width, theme: 'light', locale: 'de' })));
+  for (const { width, theme, locale } of cases) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
     await page.goto(`${demo.url}?theme=${theme}&locale=${locale}`, { waitUntil: 'domcontentloaded' });
@@ -104,8 +109,29 @@ export async function firstPaintCheck(t) {
     await page.evaluate(() => { const c = document.querySelector('aithema-session'); c.parentElement.append(c); });
     await settle();
     assert.deepEqual(await page.evaluate(() => window.paintGeometry()), loaded.boxes, `${name}: reattachment never restores the loading shell`);
+    checks.push({ pass: true, name, voice: true, shiftPx: 0, everyFrameStable: true, initial: initial.boxes, mounted: loaded.boxes });
     console.log(`AIT-210 ${name}: header, rail and controls 0 px; no unstyled title; reattachment stable`);
   }
+  // AIT-260: a voice-off host must not paint voice placeholders or shrink a
+  // phone header on upgrade. Reuse this page/browser for the binding check.
+  textDemo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'text-sessions.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_ADMIN_SOCKET: join(directory, 'off') });
+  for (const width of [1440, 1024, 390, ...fitWidths]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    await page.goto(`${textDemo.url}?theme=light&locale=de`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.paintFrames?.length >= 2);
+    const initial = await page.evaluate(() => window.paintGeometry());
+    assert.equal(initial[0][3], width < 600 ? 68 : 90);
+    assert.ok(initial.slice(1).every(box => box === null), 'no voice placeholders before upgrade');
+    await page.evaluate(() => { void window.releaseAithema(); });
+    await page.waitForFunction(() => document.documentElement.hasAttribute('data-host-ready'));
+    await settle();
+    const loaded = await page.evaluate(() => { cancelAnimationFrame(window.paintRequest); return { boxes: window.paintGeometry(), frames: window.paintFrames }; });
+    assert.deepEqual(loaded.boxes, initial, `${width}/voice-off: first paint → mounted moves 0 px`);
+    for (const frame of loaded.frames) assert.deepEqual(frame, initial, `${width}/voice-off: every startup frame moves 0 px`);
+    checks.push({ pass: true, name: `${width}-light-de-voice-off`, voice: false, shiftPx: 0, everyFrameStable: true, initial, mounted: loaded.boxes });
+    console.log(`AIT-260 ${width}/voice-off: no placeholders; header upgrade 0 px`);
+  }
+  if (evidence) await writeFile(join(evidence, 'first-paint', 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: voice and no-voice first paint/mounted geometry 0 px at 600/640/680/720/760/767/768; every startup frame stable', 'PASS: desktop/phone DE/EN light/dark startup geometry retained'], checks }, null, 2) + '\n');
   // Reuse this page and browser; failures add no browser process or test file.
   for (const failure of ['mount', 'undefined']) for (const locale of ['de', 'en']) {
     failureMode = failure;

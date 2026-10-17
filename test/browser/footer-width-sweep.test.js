@@ -7,7 +7,7 @@ import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
-const widths = [...new Set([...Array.from({ length: 26 }, (_, i) => 600 + i * 20), 699, 700, 701])].sort((a, b) => a - b);
+const widths = [...new Set([320, 390, ...Array.from({ length: 26 }, (_, i) => 600 + i * 20), 699, 700, 701])].sort((a, b) => a - b);
 const shotWidths = [600, 680, 700, 701, 1024];
 const tolerancePx = .25;
 const settle = page => shadow(page, async () => {
@@ -25,10 +25,11 @@ const geometry = page => shadow(page, c => {
     return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
   };
   const visible = node => {
-    if (!node.getClientRects().length || getComputedStyle(node).visibility !== 'visible') return false;
+    if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible') return false;
     for (let parent = node; parent && parent !== root; parent = parent.parentElement) {
       const style = getComputedStyle(parent);
-      if (style.display === 'none' || Number(style.opacity) === 0) return false;
+      // Fully clipped live regions remain accessible, but paint no footer footprint.
+      if (style.display === 'none' || Number(style.opacity) === 0 || style.clipPath === 'inset(50%)') return false;
     }
     // The feature list is an intentional 1px screen-reader-only description,
     // not a painted footer item. Keep clipping checks for all visible labels.
@@ -78,6 +79,7 @@ const geometry = page => shadow(page, c => {
   }
   return { maxOverflowPx, maxOverlapPx, violations,
     compact: getComputedStyle(root.querySelector('.host-credits__total')).display === 'none',
+    legal: !root.querySelector('.host-legal').hidden,
     measureCompact: getComputedStyle(root.querySelector('.host-credits__measure-total')).display === 'none',
     amount: root.querySelector('.host-credits__amount').textContent };
 });
@@ -101,6 +103,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
       browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, locale),
         env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
       const page = await browser.newPage(), errors = [];
+      await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewport({ width: 1100, height: 900 });
       await page.evaluateOnNewDocument(locale => {
@@ -151,7 +154,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
           await page.setViewport({ width, height: 900 }); await settle(page);
           const measurement = await geometry(page), label = `HEAD ${evidenceCommit} ${locale}/${width}/${digits}`;
           assertFits(measurement, label);
-          assert.equal(measurement.compact, width < 700, `${label}: compact boundary`);
+          assert.equal(measurement.compact, width < (measurement.legal ? 1100 : 700), `${label}: compact boundary`);
           assert.equal(measurement.measureCompact, measurement.compact, `${label}: reserved total uses the same boundary`);
           passes.push({ head: evidenceCommit, locale, width, digits, ...measurement, pass: true }); summary.checks++;
           summary.maxOverflowPx = Math.max(summary.maxOverflowPx, measurement.maxOverflowPx);
@@ -161,7 +164,7 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
       // Prove the guard still sees an overlong string when its element clips.
       await page.setViewport({ width: 701, height: 900 }); await settle(page);
       const original = await shadow(page, c => {
-        const label = c.shadowRoot.querySelector('.ai-notice__label'), original = label.textContent;
+        const label = c.shadowRoot.querySelector('.display-version'), original = label.textContent;
         label.style.cssText = `width:${label.getBoundingClientRect().width}px;overflow:hidden;text-overflow:ellipsis;flex:none`;
         label.textContent += ' longer translated footer text'.repeat(12);
         return original;
@@ -169,14 +172,18 @@ test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fe
       const clippedMeasurement = await geometry(page);
       assert.throws(() => assertFits(clippedMeasurement, 'clipped longer string'), /footer overflow/u);
       await shadow(page, (c, original) => {
-        const label = c.shadowRoot.querySelector('.ai-notice__label'); label.textContent = original; label.removeAttribute('style');
+        const label = c.shadowRoot.querySelector('.display-version'); label.textContent = original; label.removeAttribute('style');
       }, original);
       await setBalance(24_000_000);
       for (const width of shotWidths) for (const theme of ['light', 'dark']) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await settle(page);
         const measurement = await geometry(page); assertFits(measurement, `HEAD ${evidenceCommit} ${locale}/${width}/${theme}/viewport`);
         const file = `ait164-fix2-footer-${locale}-${theme}-${width}.png`;
-        if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+        if (evidence) {
+          await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
+          await page.mouse.move(-1, -1); await settle(page);
+          await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
+        }
         shots.push({ head: evidenceCommit, locale, width, theme, file, captures: 'viewport', ...measurement, pass: true });
       }
       assert.deepEqual(errors, [], locale); summaries.push(summary);

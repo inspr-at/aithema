@@ -432,7 +432,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason];
     await inShadow(page, (c, { original, locale, reason, copy }) => {
       const session = { ...original, locale, credits: null, transcript: [] };
-      c.configure({ copy, session, host: { credits: true } });
+      // AIT-260: preserve the bound-voice terminal-disable path.
+      c.configure({ copy, session, voiceClient: {}, host: { credits: true } });
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'terminal-demo-input', role: 'user', content: locale === 'de' ? 'Wir brauchen eine App.' : 'We need an app.' } });
       c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });

@@ -403,12 +403,48 @@ element.configure({ copy: en, session, sessionToken: token, baseUrl: '' });
 locale and operator UI slots. It supplies presentation only; the server ports
 still authorize every action. `voiceClients` maps allowed option IDs to browser
 adapter clients; `voicePresentation` supplies that adapter's label and copy.
+A host has bound voice when `voiceClient` is truthy or `voiceClients` contains
+at least one truthy client under an option ID other than `off`. These clients represent the allowed catalog voice
+options. An off-only/unconfigured host supplies neither (including an empty
+`voiceClients` map); no rail, pause, microphone, synthetic-voice footer claim or
+reply replay/text-reading action is mounted. This condition deliberately ignores
+the currently selected voice, preset, consent and temporary availability verdicts:
+a bound host retains its voice controls when voice is switched off or interrupted.
+A catalog voice option without its browser client also mounts no voice chrome;
+Settings continues to describe the server catalog. The demo maps an unbound
+ElevenLabs runtime to `voiceMode: off`, so a setup `voiceDisabledReason` cannot
+accidentally mount its browser adapter.
+Hosts using the exported loading header can call
+`firstPaintMarkupFor({ voice: false })` before serving an unbound host; the original
+`firstPaintMarkup` export remains the bound-voice default. This keeps the phone
+loading header at 68 px without painting voice placeholders.
+The desktop header stays 90 px high through voice and conversation states;
+the phone frame follows the approved voice-specific rows.
+
+The host's `<h1 slot="brand">` is visible beside the orb and remains the page's
+heading; without it the default brand keeps its previous hidden presentation.
+Legal links in `slot="legal"` stand at the right of the footer bar on the entrance
+and in conversation. `slot="footer"` stays in the info popup. On phones (under
+600 px), the connection timer moves into that popup to leave room for legal links.
+The approved full AI label and connection status remain visible at 1024 px.
+Credit-enabled hosts retain compact balance details below 1100 px; phone footers
+use the short AI label, retain its marker and omit the decorative credit track.
+Host-owned legal navigation should use quiet underlined links with 44 px targets;
+styles for descendants of a slotted navigation element remain host-owned.
+
 The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
-the exact coordinate appears in the existing hover/focus details only. CalVer3
+the exact coordinate appears in the existing hover/focus details only. A new
+host-version row labels `host.version.version` with the brand slot's `textContent`
+(whitespace collapsed and trimmed), or `Host` in DE/EN without a brand. Brand text
+changes update that row in place; a host `product` value never replaces the
+Aithema label. The popup orders the AI notice, Aithema version, brand-labelled
+host coordinate and muted build details. Both coordinates use the existing Pretty
+presentation; the host coordinate has no additional copy control. CalVer3
 uses the pinned shared Pretty renderer there, with canonical copy, UTC tooltip,
 keyboard/touch interaction and reduced motion. The popup shows the notice, then
-`Version 26.10.14 · 08:00` on its own line, followed by muted UTC build details.
+`Version 26.10.14 · 08:00` on its own line, then the host row (for example
+`START · 26.10.14 · 08:00`), followed by muted UTC build details.
 Tick’s approved separators are passed to the shared renderer by the product
 adapter, with weight 1 for hours/minutes and dark ink for segments/separators;
 the upstream bundle and base config stay pinned. `release/presentation.json`

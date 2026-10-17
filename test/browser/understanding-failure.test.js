@@ -48,7 +48,7 @@ test('AIT-242 project action preserves the footer and Retry geometry, configured
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
       c.configure({ session, copy, ...(enabled ? { paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1 } : {}) });
     }, locale, enabled);
-    const targets = ['.understanding', '.understanding > .foot', '.composer-shell', '.display-foot', '.audio-rail'];
+    const targets = ['.understanding', '.understanding > .foot', '.composer-shell', '.display-foot', '.band'];
     let baseline, retryBaseline;
     for (const enabled of [false, true]) {
       await configure(enabled); await settle(page);
@@ -116,7 +116,7 @@ test('AIT-198 failed overview: DE/EN 390/1440, immediate free visitor settlement
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.includes('…'));
     await settle(page);
     if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
-    const targets = ['.understanding', '.composer-shell', '.display-foot', '.host-credits', '.audio-rail'];
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.host-credits', '.band'];
     const before = await boxes(page, targets);
     const held = await shadow(page, c => c.shadowRoot.querySelector('.host-credits__amount').textContent);
     await shadow(page, c => {
@@ -190,11 +190,11 @@ test('AIT-198 stuck overview: missing reply, nothing running, no failure; DE/EN 
       session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
       session.transcript.push({ id: 'stuck-person', role: 'user', content: 'Wir möchten die Auftragsbearbeitung vereinfachen.' });
       session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
-      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
     }, locale);
     await settle(page);
     if (width === 390) await shadow(page, c => c.shadowRoot.querySelector('.understanding').scrollIntoView({ block: 'start' }));
-    const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.band'];
     const before = await boxes(page, targets);
     await shadow(page, c => {
       const input = c.shadowRoot.querySelector('textarea'); input.focus({ preventScroll: true }); input.value = 'Ich schreibe weiter';
@@ -236,7 +236,7 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
       const session = createSession({ demo: true, locale });
       session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
       if (kind === 'live voice') session.voiceLifecycle = { callId: 'call', providerSessionId: 'provider', epoch: 1, state: 'active' };
-      c.setAttribute('motion', 'off'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.configure({ session, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.gapStates = [];
       window.captureGap = phase => {
         const r = c.shadowRoot;
@@ -250,7 +250,7 @@ for (const kind of ['typed', 'live voice', 'facade pending', 'spoken facade pend
       window.gapRevision = inputRevision(c.session);
     }, locale, kind);
     await settle(page);
-    const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.band'];
     const before = await boxes(page, targets);
     await shadow(page, (c, kind) => {
       window.captureGap('paint before lane.status');
@@ -299,7 +299,7 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
         ...(kind === 'facade pending' ? { voiceCallId: 'call', voiceProviderId: 'provider' } :
           kind === 'spoken facade pending' ? { callId: 'call', providerSessionId: 'provider' } : {}) });
       session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: null };
-      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, copy });
+      c.setAttribute('motion', 'off'); c.setAttribute('theme', 'light'); c.configure({ session, copy, voiceClient: session.voiceLifecycle ? {} : undefined });
       window.reactionFailureCopy = copy.reasoningFailed;
     }, locale, kind);
     await settle(page);
@@ -308,7 +308,7 @@ for (const kind of ['live voice', 'waiting voice', 'facade pending', 'spoken fac
     assert.equal(pending.inlineHidden, true, `${kind} ${locale}/${width}: no false inline Retry while waiting`);
     assert.equal(pending.footerHidden, true, `${kind} ${locale}/${width}: no footer Retry without a failure`);
     assert.doesNotMatch(pending.notice, /couldn't be built|konnte gerade nicht erstellt/iu, `${kind}: no false failure while waiting`);
-    const targets = ['.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const targets = ['.understanding', '.composer-shell', '.display-foot', '.band'];
     const before = await boxes(page, targets);
     await shadow(page, c => c.receive({ type: 'lane.status', data: { inputRevision: c.session.operations.inputRevision,
       running: [], lastFailure: { lane: 'reaction', error: 'reasoning-unavailable', retryable: true } } }));
@@ -468,7 +468,7 @@ test('AIT-221 two failures: Retry at the first failure recovers both lanes, over
     assert.equal(state.retries, 1); assert.equal(state.reply, state.expectedReply);
     assert.equal(state.overview, locale === 'de' ? 'Der Überblick konnte gerade nicht erstellt werden.' : "The overview couldn't be built just now.");
     assert.equal(state.inlineHidden, true);
-    const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.band'];
     const before = await boxes(page, targets);
     const statsBefore = await page.evaluate(async () => (await fetch('/stats')).json());
     await capture(locale, width, theme, 'two-failures');
@@ -580,7 +580,7 @@ test('AIT-212 R5 reply-only failure: pending overview, one Retry, preparing then
     assert.equal(state.notice, expected); assert.equal(state.occurrences, 1); assert.equal(state.actions, 0);
     assert.equal(state.color, state.quietInk); assert.equal(state.retries, 1); assert.equal(state.footerHidden, false);
     assert.equal(state.reply, locale === 'de' ? 'Die Auswertung ist gerade nicht verfügbar. Ihre Nachrichten sind gespeichert.' : 'Reasoning is unavailable. Your messages are saved.');
-    const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.audio-rail'];
+    const targets = ['.transcript-shell', '.understanding', '.composer-shell', '.display-foot', '.band'];
     const before = await boxes(page, targets);
     await shadow(page, c => c.receive({ type: 'lane.status', data: { ...c.session.operations } }));
     await settle(page);

@@ -1,22 +1,34 @@
+// A voice host reserves two rows below 768px before its brand can be measured.
+// At 768px the capped 27vw brand, default 216px actions, gutters and two 24px
+// gaps leave at least the 208px rail floor. Custom wider actions/brands can
+// still request the measured second row above this conservative reservation.
+export const voiceSingleRowMinWidth = 768;
+
 // Shared by the shadow header and the render-blocking host stylesheet. Keep
 // geometry independent of copy, fonts, account reads and conversation stage.
 export function headerGeometry(selector) {
   return `
-${selector} { --band-height:90px; box-sizing:border-box; display:grid; grid-template-columns:44px minmax(0,1fr) var(--aithema-header-actions-width,96px);
+${selector} { --band-height:90px; box-sizing:border-box; display:grid; grid-template-columns:minmax(44px,max-content) minmax(0,1fr) var(--aithema-header-actions-width,216px);
   grid-template-rows:60px; align-items:center; gap:12px 24px;
   padding:12px var(--aithema-gutter,clamp(1.25rem,4vw,3.5rem)) 18px 54px; min-height:90px; }
 ${selector} > .band-orb { width:44px; height:44px; }
 ${selector} > .audio-rail { box-sizing:border-box; justify-self:center; width:min(100%,720px); height:48px; min-height:48px;
   display:grid; grid-template-columns:44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; }
-${selector} > .header-actions { min-width:0; height:44px; }
-@media(max-width:1099px) {
-  ${selector} { --band-height:130px; grid-template-columns:44px minmax(0,1fr); grid-template-rows:44px 48px; gap:8px 16px; }
+${selector} > .header-actions { grid-column:3; grid-row:1; min-width:0; height:44px; }
+${selector} > .audio-rail { grid-column:2; grid-row:1; }
+@media(min-width:600px) and (max-width:${voiceSingleRowMinWidth - 1}px) {
+  ${selector}:has(> .audio-rail) { --band-height:150px; grid-template-rows:60px 48px; }
+  ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
+}
+@media(max-width:599px) {
+  ${selector} { --band-height:124px; grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,88px); grid-template-rows:44px 44px; gap:6px 8px; padding:12px 8px 18px 54px; }
   ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
   ${selector} > .header-actions { grid-column:2; grid-row:1; justify-self:end; }
 }
 @media(max-width:599px) {
-  ${selector} { --band-height:128px; gap:6px 8px; padding-right:8px; }
-  ${selector} > .audio-rail { gap:4px; margin-left:-4px; width:100%; }
+  ${selector} { --band-height:124px; }
+  ${selector} > .audio-rail { gap:4px; margin-left:-4px; width:100%; height:44px; min-height:44px; }
+  ${selector}:not(:has(> .audio-rail)) { --band-height:68px; min-height:68px; grid-template-rows:44px; padding-bottom:12px; }
 }
 `;
 }
@@ -34,13 +46,22 @@ export const firstPaintStyles = `${headerGeometry('.aithema-first-paint')}
 .aithema-first-paint .band-orb { display:grid; place-items:center; }
 .aithema-first-paint .band-orb::before { content:''; width:40px; height:40px; border-radius:50%; background:var(--accent,#0e6f6c); opacity:.25; }
 .aithema-first-paint [data-placeholder] { box-sizing:border-box; width:44px; height:44px; border-radius:50%; border:1px solid var(--line,rgba(16,43,66,.13)); background:var(--surface,#fffcf8); opacity:.5; }
+.aithema-first-paint .band-identity { display:flex; align-items:center; gap:12px; min-width:0; max-width:27vw; }
+.aithema-first-paint .band-identity .band-orb { flex:none; width:44px; height:44px; }
+.aithema-first-paint .wordmark { visibility:hidden; font:400 18px/1.25 var(--aithema-display,var(--display,Georgia)); letter-spacing:.005em; margin:0; }
 .aithema-first-paint .header-actions { display:flex; gap:4px; }
 .aithema-first-paint .header-actions > span { width:44px; height:44px; border-radius:10px; background:var(--line,rgba(16,43,66,.13)); }
-@media(max-width:599px) { .aithema-first-paint .header-actions { gap:0; } }
+@media(min-width:600px) { .aithema-first-paint .header-actions > span:first-child { width:168px; } }
+@media(max-width:599px) { .aithema-first-paint .header-actions { gap:0; } .aithema-first-paint .band-identity { max-width:none; gap:10px; } .aithema-first-paint .wordmark { font-size:16.5px; } }
 `;
 
 // Decorative, static boxes: no duplicate buttons, focus targets or live text.
-export const firstPaintMarkup = `<div class="aithema-first-paint" aria-hidden="true" inert>
-  <div class="band-orb"></div><div class="audio-rail"><span data-placeholder="output"></span><span></span><span data-placeholder="pause"></span><span data-placeholder="input"></span><span data-placeholder="close"></span></div>
+// Hosts know their binding before serving HTML; omit voice placeholders as well
+// as the mounted rail when it is off. Keep the original export for bound hosts.
+export function firstPaintMarkupFor({ voice = true } = {}) {
+  return `<div class="aithema-first-paint" aria-hidden="true" inert>
+  <div class="band-identity"><div class="band-orb"></div><span class="wordmark">Aithema</span></div>${voice ? '<div class="audio-rail"><span data-placeholder="output"></span><span></span><span data-placeholder="pause"></span><span data-placeholder="input"></span><span data-placeholder="close"></span></div>' : ''}
   <div class="header-actions"><span></span><span></span></div>
 </div>`;
+}
+export const firstPaintMarkup = firstPaintMarkupFor();

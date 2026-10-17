@@ -32,6 +32,7 @@ async function fixture(t, touch = true) {
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
+  const hostConfig = await fetch(new URL('/demo/config', demo.url)).then(response => response.json());
   const browser = await browserForFile(touch ? {} : { defaultViewport: null, args: [
     // Preserve real desktop fine-pointer media capabilities; switching fixture
     // modes replaces Chrome, while serial fixtures in the same mode reuse it.
@@ -49,6 +50,9 @@ async function fixture(t, touch = true) {
     if (page.holdSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.snapshotId}`) {
       const hold = page.holdSnapshot; hold.resolve(); await hold.release.promise;
     }
+    // Replayed voice snapshots reload through a host that still binds a local fake client.
+    if (page.reloadSession && path === '/demo/config') return request.respond({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ...hostConfig, voiceMode: 'fake' }) });
     if (page.reloadSession && request.method() === 'GET' && path === `/api/sessions/${page.reloadSession.id}`) {
       return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(page.reloadSession) });
     }
@@ -77,7 +81,7 @@ async function scene(page, locale, theme, width) {
     const { paintUtilities } = await import('/demo/page-preferences.js');
     const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.tickSeed);
     session.locale = locale;
-    c.configure({ copy, session, host: { library: true } });
+    c.configure({ copy, session, host: { library: true }, voiceClient: {} });
     document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
     scrollTo(0, 0);
   }, locale);
@@ -274,7 +278,7 @@ test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause 
       session.featureMatrix.best.html = { available: true };
       session.conceptVisualKind = 'html';
       session.conceptCost = { maxMicro: 100_000 };
-      c.configure({ copy: globalThis.pauseCopy, session, host: { library: true } });
+      c.configure({ copy: globalThis.pauseCopy, session, host: { library: true }, voiceClient: globalThis.tickVoiceClient });
     });
     await frame(page);
     const stage = await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').innerText);
@@ -304,7 +308,7 @@ test('AIT-189: reloaded purpose/session pauses match unpaused stage, visual draf
       const session = structuredClone(c.session);
       session.featureMatrix.best.html = enabled ? { available: true } : { available: false, reason: 'not configured' };
       session.conceptVisualKind = 'html'; session.conceptCost = { maxMicro: 100_000 };
-      c.configure({ copy: globalThis.pauseCopy, session, host: { library: true } });
+      c.configure({ copy: globalThis.pauseCopy, session, host: { library: true }, voiceClient: globalThis.tickVoiceClient });
     }, enabled);
     await frame(page);
     const stage = await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').innerText);
@@ -362,7 +366,7 @@ test('AIT-188 V1: settled project overview replaces the placeholder after purpos
       await setViewport(page, { width, height: width === 393 ? 852 : width === 390 ? 844 : 900 });
       await page.evaluate(async ({ before, locale }) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-        document.querySelector('aithema-session').configure({ copy, session: { ...before, id: globalThis.tickSeed.id } });
+        document.querySelector('aithema-session').configure({ copy, session: { ...before, id: globalThis.tickSeed.id }, voiceClient: globalThis.tickVoiceClient });
       }, { before: scenario.before, locale }); await frame(page);
       // configure() opens the stream asynchronously. Establish readiness before
       // the settlement replay so the assertion below still checks it stays open.
@@ -514,7 +518,7 @@ test('AIT-188 notice option a: last scroll item follows and preserves scrolled-u
     await shadow(page, c => {
       const session = structuredClone(c.session), text = session.transcript[0].content;
       session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `long-call-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
-      c.configure({ copy: globalThis.pauseCopy, session });
+      c.configure({ copy: globalThis.pauseCopy, session, voiceClient: globalThis.tickVoiceClient });
     });
     await page.mouse.move(0, 0); await frame(page);
     for (const position of ['following', 'scrolled-up', 'near-bottom']) {
@@ -655,7 +659,7 @@ test('AIT-188 r3 ordinary return: following after releasing removed-row space sh
       const session = structuredClone(c.session), text = session.transcript[0].content;
       session.transcript = Array.from({ length: 48 }, (_, i) => ({ id: `return-${i}`, role: i % 2 ? 'assistant' : 'user', content: text }));
       session.seq++;
-      c.configure({ copy: globalThis.pauseCopy, session });
+      c.configure({ copy: globalThis.pauseCopy, session, voiceClient: globalThis.tickVoiceClient });
     }); await frame(page);
     await shadow(page, c => {
       const s = c.shadowRoot.querySelector('.transcript-shell');
@@ -808,7 +812,7 @@ for (const behavior of ['release retained room', 'follow notice changes']) {
         const session = structuredClone(c.session);
         session.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `hover-${i}`, role: 'user', content: 'Earlier conversation message. '.repeat(8) }));
         session.uploads = [{ id: 'hover-upload', filename: 'brief.txt', bytes: 128, state: 'accepted' }];
-        c.configure({ copy: globalThis.pauseCopy, session });
+        c.configure({ copy: globalThis.pauseCopy, session, voiceClient: globalThis.tickVoiceClient });
       });
       await page.mouse.move(-1, -1); await frame(page);
       await page.evaluate(() => globalThis.tickRail.notices.recovered()); await frame(page);
@@ -863,7 +867,7 @@ for (const change of ['shrink', 'remove']) for (const release of ['leave row', '
         const session = structuredClone(c.session);
         session.transcript = Array.from({ length: 24 }, (_, i) => ({ id: `shrink-${i}`, role: 'user', content: 'Earlier conversation message. '.repeat(8) }));
         session.uploads = [{ id: 'shrink-upload', filename: 'brief.txt', bytes: 128, state: 'accepted' }];
-        c.configure({ copy: globalThis.pauseCopy, session });
+        c.configure({ copy: globalThis.pauseCopy, session, voiceClient: globalThis.tickVoiceClient });
       }); await frame(page);
       await page.evaluate(() => globalThis.tickRail.notices.recovered({ userUnconfirmed: true })); await frame(page);
       await shadow(page, c => {

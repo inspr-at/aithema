@@ -48,7 +48,8 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
         session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: false } };
         session.transcript = [{ id: 'project', role: 'user', content: locale === 'de' ? 'Wir möchten unsere Abläufe verbessern und ein Produkt entwickeln.' : 'We want to improve our processes and develop a product.' },
           { id: 'normal', role: 'assistant', content: locale === 'de' ? 'Was sollte sich für Ihr Unternehmen als Erstes verbessern?' : 'What should improve first for your company?', inputRevision: inputRevision(session), question_short: null, options: [] }];
-        c.configure({ copy, session }); globalThis.safeguardsCopy = copy;
+        // AIT-260: this matrix exercises bound-voice purpose safeguards.
+        c.configure({ copy, session, voiceClient: {} }); globalThis.safeguardsCopy = copy;
         document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
         c.shadowRoot.querySelector('.send').scrollIntoView({ block: 'end', behavior: 'instant' });
       }, locale); await frame(page); await page.mouse.move(0, 0);

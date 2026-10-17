@@ -277,7 +277,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { window.opaqueBandSeed = c.session; });
   const approvedBackground = 'linear-gradient(to bottom,color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)),color-mix(in srgb,var(--aithema-accent) 4%,transparent) 70%,transparent)';
-  const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
+  const selectors = ['.band', '.audio-rail', '.band-orb', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
   const shot = async (label, state) => {
     const file = `ait155-band-${label}-${state}.png`;
     let png, paintAttempts = 0, firstLineInkPixels;
@@ -323,7 +323,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       session.transcript = Array.from({ length: 16 }, (_, i) => ({ id: `opaque-${i}`, role: 'assistant',
         content: (locale === 'de' ? 'Diese Nachricht muss vollständig hinter dem Band verschwinden. ' : 'This message must disappear completely behind the band. ').repeat(8) }));
       c.style.setProperty('--aithema-height', '1600px');
-      c.configure({ copy, session, host: { library: true } });
+      c.configure({ copy, session, voiceClient: {}, host: { library: true } });
       c.shadowRoot.activeElement?.blur();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
@@ -717,12 +717,13 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       await scene(locale, theme, 390);
       await shadow(page, async (c, locale) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-        c.configure({ copy, session: c.session, host: { library: true } });
+        c.configure({ copy, session: c.session, voiceClient: {}, host: { library: true } });
       }, locale);
       for (const width of [390, 600, 680, 768, 800, 900, 1000, 1024, 1440]) {
         const label = `${locale}/${theme}/${width}`;
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-        const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversations-toggle', '.settings-open'];
+        await settle(page);
+        const selectors = ['.band', '.audio-rail', '.band-orb', '.header-actions', '.conversations-toggle', '.settings-open'];
         const before = await boxes(page, selectors);
         await page.click('aithema-session >>> .conversations-toggle');
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 5);
@@ -1202,12 +1203,14 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     };
     const legal = c.querySelector('[slot="legal"]'), notes = c.querySelector('[slot="footer"]');
     const textLines = { notice: text(root.querySelector('#ai-notice')), version: text(value),
-      build: text(build.querySelector('.build-label')), link: text(legal.querySelector('a')), notes: text(notes) };
+      build: text(build.querySelector('.build-label')), notes: text(notes) };
     const versionColours = [...value.querySelectorAll('span')].filter(n => n.getBoundingClientRect().width > 0)
       .map(n => ({ ...text(n), opacity: getComputedStyle(n).opacity }));
     const gap = (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
-    const rhythm = [gap(root.querySelector('#ai-notice'), build), gap(row, build.querySelector('.build-label')),
-      gap(build, legal), gap(legal, notes)];
+    // AIT-260: notice, version/host/build stack, then optional host notes.
+    const rhythm = [gap(root.querySelector('#ai-notice'), row), gap(row, root.querySelector('.host-version')),
+      gap(root.querySelector('.host-version'), build.querySelector('.build-label')),
+      gap(root.querySelector('.phone-status').checkVisibility({ checkVisibilityCSS: true }) ? root.querySelector('.phone-status') : build.querySelector('.build-label'), notes)];
     const rowStyle = getComputedStyle(row);
     const ring = rowStyle.outlineStyle !== 'none' && parseFloat(rowStyle.outlineWidth) > 0;
     const rowBox = row.getBoundingClientRect();
@@ -1286,7 +1289,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     await notice.hover();
   });
   await t.test('round 3 four groups with 8 px gaps and version/build 2 px', async () => {
-    assert.deepEqual((await popupMetrics()).rhythm, [8, 2, 8, 8]);
+    assert.deepEqual((await popupMetrics()).rhythm, [8, 2, 2, 8]);
   });
   await t.test('round 3 copied ring only for keyboard focus', async () => {
     await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
@@ -1357,7 +1360,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
       const metrics = await popupMetrics();
       for (const data of Object.values(metrics.textLines)) assert.ok(data.contrast >= 4.5);
-      assert.deepEqual(metrics.rhythm, [8, 2, 8, 8]);
+      assert.deepEqual(metrics.rhythm, [8, 2, 2, 8]);
       const copy = locale === 'de' ? de : en;
       assert.deepEqual(metrics.legal, [copy.host.slots.license, copy.host.slots.legalSource]); assert.equal(metrics.notes, copy.host.slots.footer);
       assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
@@ -1478,7 +1481,7 @@ test('AIT-246 Tick follow-ups: DE/EN copy, stable controls, narrow footer, expor
       c.setAttribute('motion', 'off');
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.configure({ copy, session: s, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1,
+      c.configure({ copy, session: s, voiceClient: {}, paimosImportUrl: 'https://paimos.example.test/import/project-draft', paimosImportVersion: 1,
         host: { library: true } });
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
       const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
@@ -1813,10 +1816,11 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
         const status = geometry.parts.filter(p => p.name.startsWith('.concept-activity-text:'));
         const label = geometry.parts.filter(p => p.name.startsWith('.concept-preview-label:'));
         const scene = geometry.parts.find(p => p.name === '.concept-scene'), glyph = geometry.parts.find(p => p.name === '.concept-preview-glyph svg');
+        // Both lines retain their strict single-line contract at 320/390 px.
         assert.equal(status.length, 1, context); assert.equal(label.length, 1, context);
         assert.equal(status[0].name, `.concept-activity-text: ${{ de, en }[locale].conceptDraftReady.replace('{number}', '1')}`);
-        assert.ok(scene.top < status[0].bottom && status[0].top < scene.bottom, context);
-        assert.ok(label[0].top >= status[0].bottom && glyph.top >= scene.bottom, context);
+        assert.ok(scene.top < status.at(-1).bottom && status[0].top < scene.bottom, context);
+        assert.ok(label[0].top >= status.at(-1).bottom && glyph.top >= scene.bottom, context);
         assert.equal(scene.left, glyph.left, context); assert.equal(status[0].left, label[0].left, context);
         if (width === 390) await capture(`ait246-r5-${width}-${theme}-${locale}-draft-ready.png`);
       }
@@ -1839,3 +1843,6 @@ test('AIT-246 round 4: narrow draft rail has disjoint boxes and zero shift in DE
   await capture('ait246-r4-1440-light-de-demo-header.png', false);
   if (evidence) await writeFile(join(evidence, 'ait246-r4-geometry.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', checks }, null, 2));
 });
+
+import { hostChromeCheck } from './host-chrome-check.js';
+test('AIT-260: host chrome without voice, visible brand/legal and host version, DE/EN', { timeout: fullMatrix ? 300_000 : 90_000 }, hostChromeCheck);

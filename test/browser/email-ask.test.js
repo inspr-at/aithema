@@ -224,7 +224,8 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       ]) {
         await begin(options); baseline = await boxes(page, targets); await reply(); await settle(page);
         const values = await shadow(page, c => ({ ask: c.shadowRoot.querySelector('.workspace').dataset.emailAsk, low: c.shadowRoot.querySelector('.host-credits').dataset.low,
-          line: Boolean(c.shadowRoot.querySelector('.email-low-line')), rail: c.shadowRoot.querySelector('.voice-state').textContent, usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
+          line: Boolean(c.shadowRoot.querySelector('.email-low-line')), rail: c.shadowRoot.querySelector('.voice-state')?.textContent ?? null, usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
+        if (!options.voice) assert.equal(values.rail, null, 'AIT-260: no rail without a bound client');
         if (state === 'out') assert.equal(values.usedUp, true);
         else assert.equal(values.low, 'true');
         if (state === 'low-voice') { assert.equal(values.ask, 'closed'); assert.equal(values.line, false); assert.equal(values.rail, locale === 'de' ? 'Noch wenig Guthaben' : 'Credit running low'); }

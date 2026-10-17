@@ -300,6 +300,7 @@ export const de = {
   ],
   purposeDirection: 'Geht es Ihnen eher um eine neue Lösung, um Ihre Abläufe, oder um beides?',
   conversation: 'Gespräch', understanding: 'Überblick', you: 'Sie', assistant: 'KI-Assistenz',
+  composerPaused: 'Gespräch pausiert.',
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',

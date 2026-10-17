@@ -43,6 +43,8 @@ async function fixture(t, real = false, purpose = false) {
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
+    // Keep the intentionally held consent verdict coherent with its snapshot.
+    if (page.forceSnapshot && request.method() === 'GET' && path.endsWith('/features')) return json({ featureMatrix: page.forceSnapshot.featureMatrix });
     if (page.state && path.endsWith('/consent')) {
       if (request.method() === 'GET') return json(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
       const body = JSON.parse(request.postData()); page.posts.push(body);
@@ -433,17 +435,23 @@ test('AIT-197 R2 High: real withdrawal label reserves 0px at 390/1440 in DE/EN',
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     await page.select('#theme', theme);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 });
-    const session = await shadow(page, async c => {
-      await fetch(`/api/sessions/${c.session.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
-      const session = await fetch(`/api/sessions/${c.session.id}`).then(r => r.json());
+    const session = await shadow(page, async (c, locale) => {
+      // Withdrawal ends a conversation; each case needs a fresh owner conversation.
+      const created = await fetch('/api/library', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale }) });
+      if (!created.ok) throw new Error('Cannot create withdrawal fixture conversation');
+      const { session: fresh } = await created.json();
+      await fetch(`/api/sessions/${fresh.id}/consent`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }) });
+      const session = await fetch(`/api/sessions/${fresh.id}`).then(r => r.json());
       session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
       session.transcript = [{ id: 'withdraw-person', role: 'user', content: 'Wir brauchen eine Website.' }];
       return session;
-    });
+    }, locale);
     page.forceSnapshot = session;
     await shadow(page, async (c, { session, locale }) => { const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`); session.locale = locale; c.configure({ session, copy }); }, { session, locale });
+    await frame(page);
+    await page.waitForSelector('aithema-session >>> .notice .consent-action', { visible: true });
     await page.keyboard.press('Tab');
-    await shadow(page, c => c.shadowRoot.querySelector('.notice button').focus());
+    await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').focus());
     await page.keyboard.press('Enter');
     try { await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.value === 'mock-processing'); }
     catch (error) { t.diagnostic(JSON.stringify(await shadow(page, c => ({ active: c.shadowRoot.activeElement?.outerHTML, editor: c.shadowRoot.querySelector('.consent-editor').outerHTML, open: c.shadowRoot.querySelector('dialog.settings').open })))); throw error; }
