@@ -824,11 +824,12 @@ alone does not guarantee extractability.
 ## Version source, release mapping and rollback
 
 `release/version.json` is the sole authority. The owner-authorized candidate reserves
-one UTC second with `status: reserved`, sequence 12 and scheme `inspr-calver-3`.
+one UTC second with `status: reserved`, an increasing `release_sequence` and
+scheme `inspr-calver-3`.
 `reserveVersion` accepts explicit candidate authorization separately from a
 publish go. A candidate reservation authorizes no tag or registry publication.
-The fixed `dry_run_version` remains test input only. Reuse it in every
-output; build machines never choose their own coordinate. The channel's next
+The fixed `dry_run_version` remains test input only. Reuse the reserved
+coordinate in every candidate/release output; build machines never choose their own coordinate. The channel's next
 reservation must be strictly later; a same-second collision waits for the next
 second. Retain the candidate source commit and manifest digest; rebuild that exact commit
 with the same toolchain. The source-commit argument to `release:pack` allows that
@@ -837,25 +838,28 @@ candidate and a new coordinate before publication.
 
 New reservations declare `inspr-calver-3` (**INSPR-CalVer3**),
 `YYMMDDhhmmss.0.0`; npm accepts this syntax. MINOR/PATCH stay zero and caret/tilde
-compatibility semantics do not apply. The packer derives package versions,
-exact internal dependency pins, lock entries and public plugin manifest versions
-without changing the development
-workspace manifests. External dependencies retain their exact lock closure.
+compatibility semantics do not apply. Workspace manifests and lock entries mirror
+the reserved coordinate with exact internal dependency pins. The packer also
+derives public plugin manifest versions from that source. External dependencies
+retain their exact lock closure.
 
-The historical release-order mapping is in `release/history.json` (the 11
-existing v0.x releases, ending `0.10.1`). It establishes ordinal 11 as the legacy
-anchor and ordinal 12 as the first reset release. The first calendar coordinate
-remains unset until actual reservation. Mixed-era ordering requires the explicit
+The historical release-order mapping is in `release/history.json`: the 11
+legacy v0.x releases, ending `0.10.1`, followed by the first October release,
+`261015164601.0.0` at ordinal 12. The migration anchor keeps that first calendar
+coordinate fixed; AIT-278 reserves the next release at ordinal 13. Mixed-era ordering requires the explicit
 anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
 identifier; v1 dates and legacy stable SemVer remain tagged types. No old tag,
 release, artifact or signed attestation is renamed, rewritten or republished.
 
-The existing PR unit job also acts as the dry-run job, retaining the seven CI checks. It runs `release/dry-run.mjs`: pack twice, compare exact bytes and manifest,
-verify every member, no upload. `release.yml` can build only on an already pushed
-tag, requires its commit to be an ancestor of `origin/main`, and checks that its exact name matches the reserved version before building
-one workspace tarball. Manual dispatch on a branch skips the pack job. The
-workflow has no npm/forge publication or tag-creation step. Its upload is only
-an ephemeral CI transfer after a future tag; it does not retain a forge release.
+The PR unit job runs `release/dry-run.mjs`: pack twice, compare exact bytes and
+manifest, and verify every member. It also runs the candidate and isolated
+consumer checks; CI retains preparation artifacts for 90 days. `release.yml`
+accepts only a pushed tag whose exact name matches the reservation and whose
+commit belongs to `origin/main`. That tag job builds and tests the shipped
+archives, attests them and publishes the immutable GitHub release. There is no
+manual publication trigger or npm publication. The builder creates no tag;
+OPS follows [the release runbook](../release/README.md) after Tick's QA and
+Markus's Desk go.
 Canonical release bytes use Node 24/GNU tar in CI. Byte reproducibility is
 verified per runner; reproducibility across machines is out of scope. BSD tar
 can prove two local packs identical but is not claimed to reproduce GNU bytes.
@@ -1028,7 +1032,7 @@ proof. They are omitted from module tarballs. Exact source-to-target proof edges
 in the boundary checker retain their internal imports while avoiding a public
 composed-component API. Neither `/composed-voice` nor `/voice-components` is
 exported. The packer rejects admitted runtime modules that import unpublished
-code. See [next-release notes](../release/next-notes.md) for the identity API change.
+code. See [release notes](../release/notes.md) for the identity API change.
 
 
 ### Core subpath decisions (AIT-202)
@@ -1039,7 +1043,7 @@ These are explicit public contracts, not permission to import arbitrary `src/`
 files. The root remains the normal host entrypoint. AIT-202 adds no core or
 server package subpath. The public server `/local-voice-identity` retains only
 `isLocalVoice`; AIT-218's always-throwing `markLocalVoice` compatibility export is
-removed in the next release. Hosts cannot enroll providers as the simulator.
+removed in this release. Hosts cannot enroll providers as the simulator.
 
 | Core subpath | Keep reason and actual consumer |
 | --- | --- |
