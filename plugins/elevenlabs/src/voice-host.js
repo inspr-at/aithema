@@ -52,6 +52,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     presentation: (locale, { hasPriorTurns = false } = {}) => Object.hasOwn(AI_NOTICE, locale)
       ? { agent: { language: locale, firstMessage: hasPriorTurns ? spokenContinuations[locale] ?? spokenOpeners[locale] : spokenOpeners[locale] } } : undefined,
     async closeOrphan(call, { signal }) {
+      // The server sweep catches this, retains the durable pending call and retries.
       if (!host.binding) throw new AgentEnsureError(host.disabledReason);
       const binding = host.binding;
       // Self-serve has no qualified monitor port: retain ceiling exposure until final GET data.
@@ -106,7 +107,9 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     } catch (error) {
       if (stop.signal.aborted) return;
       // Provider exceptions and config values never reach logs or public reasons.
-      const transient = error instanceof AgentEnsureError && error.transient;
+      // Repair starts from a prepared runtime: even a rejected PATCH must be
+      // retryable. The single retry timer still enforces the repair write cooldown.
+      const transient = repairMode || error instanceof AgentEnsureError && error.transient;
       transition('off', error instanceof AgentEnsureError ? error.message : 'voice-host-unavailable', { transient });
       if (host.transient) retryLater();
     } finally { running = false; }

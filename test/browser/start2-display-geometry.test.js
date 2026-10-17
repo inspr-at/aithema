@@ -8,3 +8,7 @@ test('AIT-131 integrated geometry: B1–B8, r2 menu and r3 status, both themes a
 import { firstPaintCheck } from './first-paint-check.js';
 test('AIT-210: header and rail reserve first-paint geometry before upgrade and fonts settle',
   { timeout: 90_000 }, firstPaintCheck);
+
+import { scrollbarFirstPaintCheck } from './scrollbar-first-paint-check.js';
+test('AIT-276: classic scrollbars and wider actions reserve the mounted rail on first paint',
+  { timeout: 90_000 }, scrollbarFirstPaintCheck);
