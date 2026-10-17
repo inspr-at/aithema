@@ -138,12 +138,16 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
     const archive = join(a.directory, artifact.path);
     const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split('\n');
     const members = new Set(entries);
+    assert.ok(entries.every(path => !path.includes('axe-core') && !path.includes('a11y-evidence')), 'axe tooling stays outside runtime tarballs');
     if (artifact.name === '@inspr/aithema-plugin-elevenlabs') assert.ok(!members.has('package/src/components.js'));
     const unpacked = join(fixture, artifact.name.replaceAll('/', '-'));
     mkdirSync(unpacked);
     execFileSync('tar', ['-xzf', archive, '-C', unpacked]);
+    const metadata = JSON.parse(readFileSync(join(unpacked, 'package/package.json')));
+    for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) assert.equal(metadata[field]?.['axe-core'], undefined, 'runtime packages never depend on axe');
     for (const path of entries.filter(path => /\.(?:js|ts)$/u.test(path))) {
       const source = readFileSync(join(unpacked, path), 'utf8');
+      assert.doesNotMatch(source, /\b(?:from\s*|import\s*\()\s*['"]axe-core(?:\/|['"])/u, 'runtime source never imports axe');
       for (const [, , specifier] of source.matchAll(/\b(?:from\s*|import\s*(?:\(\s*)?)(['"`])(\.{1,2}\/[^'"`\n]+)\1/gu)) {
         const target = posix.normalize(posix.join(posix.dirname(path), specifier));
         const declaration = path.endsWith('.d.ts') && members.has(target.replace(/\.js$/u, '.d.ts'));

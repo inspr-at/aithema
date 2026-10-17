@@ -1385,6 +1385,9 @@ test('AIT-290: consent opener keeps its full name and node across repaints, then
     assert.equal(action.hasAttribute('aria-label'), false);
     assert.equal(action.querySelector('.consent-wide').getAttribute('aria-label'), name);
     assert.equal(action.querySelector('.consent-narrow').getAttribute('aria-label'), `${copy.featureConsent.actionNarrow}: ${copy.featureConsent.textActionReason}`);
+    for (const label of action.querySelectorAll('[aria-label]')) {
+      assert.equal(label.getAttribute('role'), 'group', 'a named responsive label needs a role that permits naming');
+    }
     assert.equal(line.querySelector('.consent-line-copy').id, action.getAttribute('aria-describedby'));
     paintConsentLine(line, options);
     assert.equal(line.querySelector('button'), action, 'live repaint preserves the opener');

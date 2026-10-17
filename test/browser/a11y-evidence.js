@@ -57,6 +57,7 @@ export async function auditMainSurfaces(t, evidence) {
       });
       if (/\/api\/sessions\/[^/]+$/u.test(path)) return Response.json(c.session);
       if (path.endsWith('/image')) return new Response(Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4//8/AwAI/AL+XikzGQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png' } });
+      if (path.endsWith('/html')) return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Evidence draft</title></head><body><h1>Invoice approval</h1><p>Local evidence fixture.</p><button type="button">Approve invoice</button></body></html>', { headers: { 'content-type': 'application/octet-stream' } });
       return native(url, init);
     };
   });
@@ -66,10 +67,11 @@ export async function auditMainSurfaces(t, evidence) {
       const { inputRevision } = await import('/packages/core/src/session.js');
       const session = structuredClone(window.a11ySeed);
       session.locale = locale; session.paused = false; session.pauseReason = null;
-      session.settings = { ...session.settings, origin: state === 'entrance' ? 'default' : 'chosen', voice: 'off', visuals: 'off' };
+      session.settings = { ...session.settings, origin: state === 'entrance' ? 'default' : 'chosen', voice: state.endsWith('voice') ? 'fixture-voice' : 'off', visuals: 'off' };
       session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'uploads', 'images', 'html'].map(key => [key, { available: true }])),
         eu: { text: { available: false, reason: 'not configured' } }, custom: { text: { available: false, reason: 'not configured' } } };
       session.visualsBound = true; session.conceptVisualKind = 'image'; session.conceptCost = { maxMicro: 0 };
+      if (state.endsWith('voice')) session.featureMatrix.best.voice = { available: true };
       if (state === 'consent') {
         session.settings.visuals = 'fixture-image';
         for (const feature of Object.keys(session.featureMatrix.best)) session.featureMatrix.best[feature] = { available: false, reason: 'current processing consent required' };
@@ -77,7 +79,7 @@ export async function auditMainSurfaces(t, evidence) {
       if (state === 'paused') session.paused = true;
       if (state === 'no-text') session.featureMatrix.best.text = { available: false, reason: 'not configured' };
       session.concepts = []; session.conceptStatus = { phase: 'idle' };
-      session.transcript = ['entrance', 'ready'].includes(state) ? [] : [
+      session.transcript = ['entrance', 'ready', 'ready-voice'].includes(state) ? [] : [
         { id: 'person', role: 'user', content: locale === 'de' ? 'Wir gleichen 400 Rechnungen von Hand ab.' : 'We reconcile 400 invoices by hand.' },
         { id: 'reply', role: 'assistant', content: locale === 'de' ? 'Wer gibt die Rechnungen heute frei?' : 'Who approves invoices today?', inputRevision: 1 },
       ];
@@ -86,9 +88,10 @@ export async function auditMainSurfaces(t, evidence) {
         signals: [locale === 'de' ? '400 Rechnungen' : '400 invoices'],
         openQuestions: locale === 'de' ? ['Welches System ist im Einsatz?', 'Wer gibt Rechnungen frei?', 'PDF oder Papier?'] : ['Which system is in use?', 'Who approves invoices?', 'PDF or paper?'] });
       session.operations = { inputRevision: inputRevision(session), running: [], failures: [], lastFailure: null };
-      if (state === 'concept') {
+      if (state === 'concept' || state === 'draft') {
         session.settings.visuals = 'fixture-image';
-        session.concepts = [{ id: 'a11y-image', mediaType: 'image/png', turnIds: ['person'], referenceIds: [], archived: false }];
+        session.conceptVisualKind = state === 'draft' ? 'html' : 'image';
+        session.concepts = [{ id: 'a11y-image', mediaType: state === 'draft' ? 'text/html' : 'image/png', turnIds: ['person'], referenceIds: [], archived: false }];
       }
       if (role) {
         session.demo = false;
@@ -98,7 +101,7 @@ export async function auditMainSurfaces(t, evidence) {
       c.setAttribute('motion', 'off'); c.setAttribute('theme', theme);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.configure({ session, copy, host: { credits: true, version: { version: '261015164601.0.0', version_scheme: 'inspr-calver-3',
+      c.configure({ session, copy, ...(state.endsWith('voice') ? { voiceClient: {} } : {}), host: { credits: true, version: { version: '261015164601.0.0', version_scheme: 'inspr-calver-3',
         commit: 'c285d360', date: '2026-10-17T10:00:00Z' }, ...(role ? { actorRole: { labels } } : {}) } });
       document.documentElement.lang = locale; document.documentElement.dataset.theme = theme;
       window.scrollTo(0, 0);
@@ -106,6 +109,7 @@ export async function auditMainSurfaces(t, evidence) {
     await settle(page);
   };
   const audit = async (surface, state, locale, theme, width, shot = false) => {
+    const focused = await page.evaluateHandle(() => document.querySelector('aithema-session')?.shadowRoot.activeElement ?? document.activeElement);
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); }).catch(() => {});
     await page.mouse.move(-1, -1); await settle(page);
     const result = await page.evaluate(async tags => {
@@ -128,12 +132,18 @@ export async function auditMainSurfaces(t, evidence) {
         conceptItems: document.querySelector('aithema-session').session.concepts?.length } : { route: location.pathname };
     });
     runs.push({ surface, state, locale, theme, width, height: width === 390 ? 844 : 1000, geometry, scene, ...result });
-    if (shot && locale === 'de') {
+    // No visible product change in AIT-293. Enable only the affected surfaces if
+    // a future fix changes their paint; evidence must not collect unrelated PNGs.
+    const visibleChanges = [];
+    if (shot && locale === 'de' && visibleChanges.includes(surface)) {
       const file = `a11y-${surface}-${state}-${locale}-${theme}-${width}.png`;
       await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
     }
     // Flush after every scene so partial evidence survives a remote interruption.
     await writeFile(join(evidence, 'a11y-audit.json'), JSON.stringify({ head: evidenceCommit, productBase: base, tags, scope: 'whole document including open shadow roots; counts are node observations per scene', runs }, null, 2));
+    // Capture with blurred controls, then continue the visitor's keyboard path.
+    await focused.evaluate(n => { if (n?.isConnected) n.focus?.({ preventScroll: true }); });
+    await focused.dispose();
   };
   try {
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
@@ -142,6 +152,8 @@ export async function auditMainSurfaces(t, evidence) {
       await audit('entrance', 'presets', locale, theme, width, true);
       await configure(locale, theme, 'ready');
       await audit('entrance', 'readiness', locale, theme, width, true);
+      await configure(locale, theme, 'ready-voice');
+      await audit('entrance', 'readiness-voice', locale, theme, width);
       await configure(locale, theme);
       await audit('conversation', 'thread-composer-footer', locale, theme, width, true);
       await shadow(page, c => c.shadowRoot.querySelector('.ai-notice').click());
@@ -151,6 +163,8 @@ export async function auditMainSurfaces(t, evidence) {
         await configure(locale, theme, state);
         await audit('conversation', state, locale, theme, width, true);
       }
+      await configure(locale, theme, 'live-voice');
+      await audit('conversation', 'voice-rail', locale, theme, width);
       for (const state of ['rest', 'requesting', 'selected', 'asked', 'stale', 'retry', 'refused-paused', 'refused-consent', 'refused-deadline']) {
         await configure(locale, theme);
         if (state !== 'rest') await shadow(page, async (c, state) => {
@@ -181,6 +195,10 @@ export async function auditMainSurfaces(t, evidence) {
       await shadow(page, c => c.openSettings());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.select__value')?.textContent);
       await audit('settings', 'model-gauges', locale, theme, width, true);
+      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.select__button')].map(n => ({
+        id: n.id, target: n.getAttribute('aria-controls'), exists: Boolean(c.shadowRoot.getElementById(n.getAttribute('aria-controls'))),
+      })));
+      assert.ok(controls.every(n => n.exists));
       await shadow(page, c => c.shadowRoot.querySelector('[data-select="model"] button').click());
       await audit('settings', 'model-options', locale, theme, width, true);
       await page.keyboard.press('Escape');
@@ -193,6 +211,7 @@ export async function auditMainSurfaces(t, evidence) {
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-editor input'));
       await audit('consent', 'dialog', locale, theme, width, true);
       await page.keyboard.press('Escape');
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.consent-action')), true, 'consent returns focus to its opener');
       for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
         await configure(locale, theme);
         await shadow(page, (c, reason) => {
@@ -204,13 +223,21 @@ export async function auditMainSurfaces(t, evidence) {
       await shadow(page, (c, width) => c.shadowRoot.querySelector(width === 390 ? '.settings-open' : '.actor-trigger').click(), width);
       await audit('actor-role', width === 390 ? 'phone-sheet' : 'popover', locale, theme, width, true);
       await page.keyboard.press('Escape');
+      assert.equal(await shadow(page, (c, width) => c.shadowRoot.activeElement?.matches(width === 390 ? '.settings-open' : '.actor-trigger'), width), true, 'actor role returns focus to its opener');
       await configure(locale, theme, 'concept');
       await audit('concept', 'backdrop-access', locale, theme, width, true);
-      await shadow(page, c => c.shadowRoot.querySelector('.concept-preview').click());
+      await shadow(page, c => { const n = c.shadowRoot.querySelector('.concept-preview'); n.focus(); n.click(); });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
       await audit('concept', 'viewer', locale, theme, width, true);
       await page.keyboard.press('Escape');
-      manual.push({ locale, theme, width, dialogsClosedByEscape: true });
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.matches('.concept-preview')), true, 'viewer returns focus to its opener');
+      await configure(locale, theme, 'draft');
+      await audit('concept', 'draft-access', locale, theme, width);
+      await shadow(page, c => { const n = c.shadowRoot.querySelector('.concept-preview'); n.focus(); n.click(); });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
+      await audit('concept', 'draft-viewer', locale, theme, width);
+      await page.keyboard.press('Escape');
+      manual.push({ locale, theme, width, dialogsClosedByEscape: true, consentFocusReturned: true, actorFocusReturned: true, conceptFocusReturned: true, ariaControls: controls });
     }
     // The consent page is a host route; use the same browser/page and local server.
     const session = await shadow(page, c => structuredClone(c.session));
