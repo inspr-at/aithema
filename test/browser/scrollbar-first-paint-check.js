@@ -103,12 +103,14 @@ export async function scrollbarFirstPaintCheck(t) {
     assert.equal(mounted.intersection, 0, `${name}: mounted rail/actions box intersection is 0`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
     if (scene.status294) {
-      const scrollFits = await page.evaluate(async () => {
+      const scrollFits = await page.evaluate(() => {
         const footer = document.querySelector('aithema-session').shadowRoot.querySelector('.display-foot');
         const changes = []; const observer = new MutationObserver(records => changes.push(...records));
         observer.observe(footer, { attributes:true, attributeFilter:['data-fit'] });
         for (let i = 0; i < 5; i++) visualViewport.dispatchEvent(new Event('scroll'));
-        await new Promise(resolve => requestAnimationFrame(resolve)); observer.disconnect();
+        // Dispatch is synchronous. Read only the mutations owned by these
+        // scrolls, before a connection response or timer tick can mutate copy.
+        changes.push(...observer.takeRecords()); observer.disconnect();
         return changes.length;
       });
       assert.equal(scrollFits, 0, `${name}: visual viewport scrolling does not refit the footer`);

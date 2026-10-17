@@ -33,14 +33,16 @@ async function fake(t, extra = {}) {
   await copyFile(new URL('./fixtures/fake-codex.cjs', import.meta.url), binaryPath); await chmod(binaryPath, 0o700);
   const oldPath = process.env.PATH;
   process.env.PATH = `${join(root, 'bin')}${delimiter}${oldPath}`;
-  const records = [], probes = []; let active = 0, peak = 0;
+  const records = [], probes = []; let active = 0, peak = 0, stalled;
   const spawnImpl = (file, args, config) => {
     assert.equal(file, binaryPath, 'tests must only spawn the fake executable');
     const record = { file, args, config };
     const probe = args.includes('--help') || args[0] === 'features';
     (probe ? probes : records).push(record);
-    const child = spawn(process.execPath, [file, ...args], { ...config, env: { ...config.env, FAKE_TRACE_DIR: trace,
+    const child = spawn(process.execPath, [file, ...args], { ...config,
+      ...(stalled ? { stdio: [...config.stdio, 'ipc'] } : {}), env: { ...config.env, FAKE_TRACE_DIR: trace,
       FAKE_PROBE_MODE: extra.probeMode ?? '', FAKE_CREDENTIAL_CHUNK: extra.credentialChunk?.toString('base64') ?? '' } });
+    child.on('message', message => { if (message === 'fixture-stall') stalled?.(); });
     record.child = child; active++; peak = Math.max(peak, active);
     child.once('close', () => active--);
     return child;
@@ -69,12 +71,31 @@ async function fake(t, extra = {}) {
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
     await rm(root, { recursive: true, force: true });
   });
-  return { root, binaryPath, codexHome, binding, plugin, records, probes, spawnImpl, peak: () => peak,
+  return { root, binaryPath, codexHome, binding, plugin, records, probes, spawnImpl, peak: () => peak, onStall: callback => { stalled = callback; },
     async ready(index = records.length - 1) {
       await until(() => records[index]?.child.pid !== undefined);
       const path = join(trace, `${records[index].child.pid}.json`);
       await until(() => exists(path)); return JSON.parse(await readFile(path, 'utf8'));
     } };
+}
+function controlConformanceStalls(t, fixture) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  let stalls = 0;
+  // Advance the kit's unchanged 30ms abort/deadline only after the fake CLI
+  // has read stdin and entered its stall. Filesystem/OS scheduling is unbounded
+  // by that simulated clock; it is still bounded by the real watchdog below.
+  fixture.onStall(() => { stalls++; t.mock.timers.tick(30); });
+  for (const operation of ['health', 'generate', 'edit']) {
+    const run = fixture.plugin[operation];
+    fixture.plugin[operation] = async (...args) => {
+      // Keep the existing 2000ms conformance budget running in real time too.
+      // A missing readiness event or ignored abort must still fail the kit.
+      const watchdog = nativeTimeout(() => t.mock.timers.tick(2000), 2000);
+      try { return await run(...args); }
+      finally { nativeClearTimeout(watchdog); }
+    };
+  }
+  return () => stalls;
 }
 function terminal(o, outcome, dispatched = true) {
   assert.equal(o.reports.length, 1);
@@ -422,22 +443,27 @@ for (const size of ['1024x1024', '1536x1024', '1024x1536']) {
 
 test('Codex imagegen passes the reusable UI conformance kit with fake executable stalls', async t => {
   const f = await fake(t), source = await f.plugin.generate(spec, '', options());
+  const stalls = controlConformanceStalls(t, f);
   assert.deepEqual(await uiGenerationConformance(f.plugin, { spec, feedback: 'Blue action', artifact: source }, {
     timeoutMs: 2000, stallSpec: { prompt: 'fixture-mode:hang' }, stallFeedback: 'fixture-mode:hang',
     requestCount: () => f.records.length, expectedUsage: { inputTokens: 0, outputTokens: 0 },
   }), { ok: true, failures: [] });
+  assert.equal(stalls(), 4, 'both operations really enter each active stall');
 });
 
 test('AIT-298: conformance active stalls survive slow local preparation', async t => {
   const f = await fake(t, { stallPreparationMs: 60 }), source = await f.plugin.generate(spec, '', options());
+  const stalls = controlConformanceStalls(t, f);
   assert.deepEqual(await uiGenerationConformance(f.plugin, { spec, feedback: 'Blue action', artifact: source }, {
     timeoutMs: 2000, stallSpec: { prompt: 'fixture-mode:hang' }, stallFeedback: 'fixture-mode:hang',
     requestCount: () => f.records.length, expectedUsage: { inputTokens: 0, outputTokens: 0 },
   }), { ok: true, failures: [] });
+  assert.equal(stalls(), 4, 'both operations really enter each active stall');
 });
 
 test('the UI conformance kit rejects a broken artifact and omitted authority/report behavior', async t => {
   const f = await fake(t), source = await f.plugin.generate(spec, '', options());
+  controlConformanceStalls(t, f);
   const settings = { timeoutMs: 2000, stallSpec: { prompt: 'fixture-mode:hang' }, stallFeedback: 'fixture-mode:hang', requestCount: () => f.records.length };
   const brokenDigest = { ...f.plugin, async generate(...args) {
     const result = await f.plugin.generate(...args); result.provenance.subject.contentDigest = `sha-256=:${Buffer.alloc(32).toString('base64')}:`; return result;
