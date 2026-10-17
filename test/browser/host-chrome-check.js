@@ -179,7 +179,7 @@ export async function hostChromeCheck(t) {
       for (const b of fit.others) assert.ok(fit.rail.right <= b.left || fit.rail.left >= b.right || fit.rail.bottom <= b.top || fit.rail.top >= b.bottom,
         `${brandMode}/${width}: rail intersects brand/action ${JSON.stringify(fit)}`);
       checks.push({ pass: true, label: `${brandMode}-${width}-rail-fit`, ...fit });
-      if (width === 320 && brandMode === 'start') {
+      if ([320, 360].includes(width) && brandMode === 'start') {
         await page.focus('aithema-session >>> .band-orb [role="button"]'); await settle();
         const reveal = await shadow(page, c => {
           const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; };
@@ -189,15 +189,18 @@ export async function hostChromeCheck(t) {
               .filter(n => n.getBoundingClientRect().right > innerWidth && n.checkVisibility())
               .map(n => ({ name: n.className || n.localName, box: box(n), opacity: getComputedStyle(n).opacity, transform: getComputedStyle(n).transform })) : [],
             targets: [...r.querySelectorAll('.aithema-reveal__link')].map(n => [n.getBoundingClientRect().width, n.getBoundingClientRect().height]),
+            titles: [...r.querySelectorAll('.aithema-reveal__title')].map(box),
             parts: [...r.querySelectorAll('.aithema-reveal__wordmark, .aithema-reveal__version, .aithema-reveal__link')].map(box) };
         });
-        assert.equal(reveal.open, true); assert.equal(reveal.overflowPx, 0, `320px open reveal: ${JSON.stringify(reveal)}`);
-        assert.ok(reveal.targets.every(([w, h]) => w >= 44 && h >= 44), '320px reveal keeps 44px link targets');
+        assert.equal(reveal.open, true); assert.equal(reveal.overflowPx, 0, `${width}px open reveal: ${JSON.stringify(reveal)}`);
+        assert.ok(reveal.targets.every(([w, h]) => w >= 44 && h >= 44), `${width}px reveal keeps 44px link targets`);
         const links = reveal.parts.slice(1, -1);
-        assert.ok(links.every(b => b[1] === links[0][1] && b[1] > reveal.parts[0][3]), `320px reveal links retain one row below the wordmark: ${JSON.stringify(reveal)}`);
+        assert.ok(links.every(b => b[1] === links[0][1] && b[1] > reveal.parts[0][3]), `${width}px reveal links retain one row below the wordmark: ${JSON.stringify(reveal)}`);
+        for (const [i, title] of reveal.titles.entries()) assert.ok(title[0] >= links[i][0] && title[2] <= links[i][2] && title[2] <= width,
+          `${width}px reveal title fits its target without clipping: ${JSON.stringify(reveal)}`);
         for (const [i, a] of reveal.parts.entries()) for (const b of reveal.parts.slice(i + 1))
-          assert.ok(a[2] <= b[0] || a[0] >= b[2] || a[3] <= b[1] || a[1] >= b[3], `320px reveal items intersect: ${JSON.stringify(reveal)}`);
-        checks.push({ pass: true, label: '320-open-reveal', ...reveal });
+          assert.ok(a[2] <= b[0] || a[0] >= b[2] || a[3] <= b[1] || a[1] >= b[3], `${width}px reveal items intersect: ${JSON.stringify(reveal)}`);
+        checks.push({ pass: true, label: `${width}-open-reveal`, ...reveal });
         await page.keyboard.press('Escape'); await settle();
       }
     }

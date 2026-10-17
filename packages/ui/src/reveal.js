@@ -73,10 +73,10 @@ const css = `
   .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:max-content max-content minmax(0,1fr); gap:6px 12px; white-space:nowrap; }
   .aithema-reveal__subtitle { display:none; }
 }
-/* Three named links retain one row and 44px targets at the 320px host floor.
+/* Three named links retain one row and 44px targets at the narrow host floor.
    Omit only decorative external-link glyphs before reducing readable type. */
-@media(max-width:359px) {
-  .aithema-reveal-band > .aithema-reveal__row { right:8px; column-gap:8px; }
+@media(max-width:379px) {
+  .aithema-reveal-band > .aithema-reveal__row { left:108px; right:8px; column-gap:4px; grid-template-columns:max-content max-content minmax(max-content,1fr); }
   .aithema-reveal__link { min-width:44px; }
   .aithema-reveal__title svg { display:none; }
 }
