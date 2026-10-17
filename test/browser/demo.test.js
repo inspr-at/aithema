@@ -1721,6 +1721,13 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.setViewport({ width: 1440, height: 1000 });
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
+      const footerState = () => inShadow(page, c => {
+        const r = c.shadowRoot, row = r.querySelector('.display-foot__row');
+        return { fit:r.querySelector('.display-foot').dataset.fit, width:innerWidth, rowWidth:row.clientWidth, scrollWidth:row.scrollWidth,
+          zones:[...row.children].map(n => { const b=n.getBoundingClientRect(); return [n.className,n.hidden,b.left,b.right]; }),
+          voice:Boolean(r.querySelector('.ai-notice__voice')) };
+      });
+      const beforeFooter = await footerState();
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
         page.click('aithema-session >>> .ready__consent')]);
@@ -1732,7 +1739,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer after consent');
+      sameBox(before.line, await box(page, '.ai-notice'), `notice under the pointer after consent ${JSON.stringify({ before:beforeFooter, after:await footerState() })}`);
       sameBox(before.start, await box(page, '.ready__start'), 'the ready card\'s Start after consent');
       await rest(page, '.ready__start');
       sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start');
