@@ -348,7 +348,8 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
     assert.deepEqual(errors,[]);
   }
-  await page.setViewport({width:390,height:900});
+  for(const width of [800,390]) {
+  await page.setViewport({width,height:900});
   for (const bound of [false,true]) {
     await page.evaluate(async bound=>{
       await window.seed('en',bound);
@@ -360,9 +361,12 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await settle();
     const junction=await page.evaluate(()=>{const r=document.querySelector('aithema-session').shadowRoot,c=r.querySelector('.qcard').getBoundingClientRect(),input=r.querySelector('.composer-shell').getBoundingClientRect(),row=r.querySelector('.concept-phone-slot').getBoundingClientRect();return {gap:input.top-c.bottom,clear:row.bottom<=c.top+.01,row:row.height,thread:getComputedStyle(r.querySelector('.concept-thread')).display};});
     assert.equal(junction.gap,0,'question card stays joined to composer');
-    assert.equal(junction.row,bound?44:0,'an initially unbound host has no phone row');
-    if(bound)assert.equal(junction.clear,true,'concept row stays above the question card');
-    else assert.equal(junction.thread,'contents','unbound transcript keeps its original grid participation');
+    assert.equal(junction.row,bound&&width===390?44:0,'phone row appears only for bound images on phones');
+    if(bound&&width===390)assert.equal(junction.clear,true,'concept row stays above the question card');
+    if(!bound)assert.equal(junction.thread,'contents','unbound transcript keeps its original grid participation');
+    const hit=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,input=root.querySelector('textarea');input.scrollIntoView({block:'center'});const r=input.getBoundingClientRect();return root.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.tagName;});
+    assert.equal(hit,'TEXTAREA',`${width}/${bound}: transcript cannot cover the input hit target`);
+  }
   }
   assert.equal(await page.evaluate(()=>window.posts.length),0,'all reads and state fixtures are free');
   const reads=await page.evaluate(()=>window.artifactReads);

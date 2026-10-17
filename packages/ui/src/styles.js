@@ -256,6 +256,11 @@ svg { display:block; flex:none; }
 .concept-bottom progress::-webkit-progress-value { background:var(--aithema-accent); }
 .concept-bottom progress::-moz-progress-bar { background:var(--aithema-accent); }
 .workspace:not([data-concept-layout="image"]) :is(.concept-backdrop,.concept-bottom,.concept-backdrop-hint) { display:none; }
+/* Below the two-column layout, size containment needs the same explicit
+   block size as the existing bounded transcript. Otherwise it overlaps input. */
+@media(600px < width < 60rem) {
+  .workspace[data-concept-layout="image"] .concept-thread { height:clamp(20rem,60svh,36rem); }
+}
 @media(max-width:600px) {
   .workspace[data-concept-layout="image"] .concept-bar { position:absolute; visibility:hidden; pointer-events:none; height:0; min-height:0; }
   .workspace[data-concept-layout="image"] .composer-dock { padding-top:44px; }
