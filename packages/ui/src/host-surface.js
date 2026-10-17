@@ -83,6 +83,11 @@ export class HostSurface {
     const state = this.#session().credits;
     return this.#ended ?? (['ending', 'ended'].includes(state?.status) ? state.endReason ?? 'session' : null);
   }
+  get limitCopy() {
+    const { credits, usedUp } = this.#copy.hostSurface;
+    const state = credits.ended[this.endReason] ?? usedUp;
+    return { ...state, announce: `${state.title} ${state.body}` };
+  }
   get usedUp() { return Boolean(this.endReason) || this.#credits?.exhausted === true; }
   get fullHold() {
     const owner = this.#credits?.balance?.owner;
@@ -129,8 +134,8 @@ export class HostSurface {
     if (event.type === 'library.state' || event.type === 'session.erased') this.#library?.changed();
     if (event.type === 'credits.limit-reached' || event.type === 'conversation.end-requested') {
       const reason = event.data?.reason;
-      if (event.type === 'credits.limit-reached' && (reason !== 'host-limit' || !this.#onCredits)) this.#status(this.#copy.hostSurface.credits.ended[reason] ?? this.#copy.hostSurface.credits.ended.session);
       this.#ended = reason ?? this.#ended ?? 'session';
+      if (event.type === 'credits.limit-reached' && !this.#onCredits) this.#status(this.limitCopy.announce);
     }
     if (event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state)) {
       const endedCall = this.#creditContext?.();
@@ -281,7 +286,9 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__measure-unit'), owner ? layout.creditsUnit : '');
     setText(line.querySelector('.host-credits__measure-low-full'), owner && Number.isSafeInteger(warningLimit) ? fill(c.low, { available: format(warningLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__measure-low-short'), owner && Number.isSafeInteger(warningLimit) ? fill(c.lowShort, { available: format(warningLimit, locale) }) : '');
-    setText(line.querySelector('.host-credits__used-up-full'), c.usedUp); setText(line.querySelector('.host-credits__used-up-short'), c.usedUpShort);
+    const timedOut = this.endReason === 'one-hour';
+    setText(line.querySelector('.host-credits__used-up-full'), timedOut ? c.timeExpired : c.usedUp);
+    setText(line.querySelector('.host-credits__used-up-short'), timedOut ? c.timeExpired : c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount.querySelector('.host-credits__value'), owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
@@ -290,9 +297,9 @@ export class HostSurface {
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
     current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
-    const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
-    setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out ? c.noMore : '');
-    nextLine.hidden = !next && !out; link.hidden = !next;
+    const next = this.endReason ? null : this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
+    setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out && this.limitCopy.footer !== false ? c.noMore : '');
+    nextLine.hidden = !next && (!out || this.limitCopy.footer === false); link.hidden = !next;
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     track.hidden = !owner;
     if (owner) {

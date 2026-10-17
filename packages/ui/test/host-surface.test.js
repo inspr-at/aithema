@@ -529,7 +529,7 @@ test('credits: only the monetary balance is shown, and host-limit uses the calm 
   assert.equal(line.querySelector('.host-credits__used-up-full').textContent, cr.usedUp);
   assert.equal(line.querySelector('.host-credits__limit').hidden, false);
   assert.equal(root.querySelector('.status__label').textContent, statusBefore, 'the footer does not duplicate the live exhaustion announcement');
-  assert.equal(root.querySelector('.credit-announcement').textContent, en.hostSurface.usedUp.announce);
+  assert.equal(root.querySelector('.credit-announcement').textContent, `${en.hostSurface.credits.ended['host-limit'].title} ${en.hostSurface.credits.ended['host-limit'].body}`);
 });
 
 test('host slots: account, credits limit, handover offer, legal and footer are named slots; the footer row shows only when filled', async t => {
@@ -1473,7 +1473,71 @@ for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voice
     const { root } = setup(t, { copy, host: { credits: true }, session: { credits: { status: 'ending', endReason: reason } } });
     await tick(8);
     assert.equal(root.querySelector('form.composer').inert, true);
-    assert.equal(root.querySelector('.composer-out__body').textContent, copy.hostSurface.credits.ended[reason]);
+    assert.equal(root.querySelector('.composer-out__body').textContent, copy.hostSurface.credits.ended[reason].body);
     assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
   });
+}
+
+const releaseLimits = {
+  de: {
+    'one-hour': ['Die Gesprächszeit ist abgelaufen.', 'Ein Gespräch dauert hier höchstens eine Stunde. Ihr Verlauf bleibt gespeichert.', false],
+    session: ['Die Credits dieses Gesprächs sind aufgebraucht.', 'Ihr Verlauf bleibt gespeichert.', true],
+    voiceVisitor: ['Die Sprach-Credits sind aufgebraucht.', 'Sprechen ist in diesem Gespräch nicht mehr möglich.', true],
+    'host-limit': ['Hier sind gerade keine Gespräche möglich.', 'Das Budget dieses Angebots ist ausgeschöpft. Ihr Gespräch bleibt gespeichert.', false],
+  },
+  en: {
+    'one-hour': ['The conversation time has run out.', 'A conversation here lasts at most one hour. Your transcript stays saved.', false],
+    session: ['The credits for this conversation are used up.', 'Your transcript stays saved.', true],
+    voiceVisitor: ['The voice credits are used up.', 'Speaking is no longer possible in this conversation.', true],
+    'host-limit': ['Conversations are not available here right now.', 'The budget for this service is used up. Your conversation stays saved.', false],
+  },
+};
+for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [title, body, footer]] of Object.entries(releaseLimits[locale])) {
+  for (const textAvailable of reason === 'voiceVisitor' ? [true, false] : [true]) {
+    test(`AIT-291 ${locale}: ${reason}, text verdict ${textAvailable}, final copy and one announcement`, async t => {
+      const { c, root } = setup(t, { copy, host: { credits: true, verification: true }, voiceClient: {},
+        session: { featureMatrix: { best: { text: { available: textAvailable }, voice: { available: true } } } },
+        routes: { 'GET /credits': () => Response.json({ balance, tiers: { current: 'anonymous', next: 'emailGiven',
+          delta: 1_000_000, allowancesMicro: { anonymous: 5_000_000, emailGiven: 6_000_000 } } }) } });
+      await tick(8); userTurn(c);
+      const statusBefore = root.querySelector('.status__label').textContent;
+      c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+      await tick(8);
+      assert.equal(root.querySelector('.composer-out__title').textContent, title);
+      assert.equal(root.querySelector('.composer-out__body').textContent, body);
+      const none = root.querySelector('.composer-out__none');
+      assert.equal(none.hidden, !footer);
+      assert.equal(none.textContent, footer ? copy.hostSurface.usedUp.none : '');
+      assert.equal(none.getAttribute('aria-hidden'), String(!footer));
+      assert.equal(root.querySelector('.host-credits__next').hidden, !footer);
+      const link = root.querySelector('.composer-out__export');
+      assert.equal(link.getAttribute('aria-hidden'), 'false');
+      assert.equal(link.inert, false);
+      assert.equal(link.textContent.trim(), locale === 'de' ? 'Gespräch exportieren' : 'Export conversation');
+      assert.ok(link.href.endsWith(`/api/sessions/${c.session.id}/export`));
+      if (reason === 'one-hour') {
+        const label = locale === 'de' ? 'Zeit abgelaufen' : 'Time up';
+        assert.equal(root.querySelector('.voice-state').textContent, label);
+        for (const size of ['full', 'short']) assert.equal(root.querySelector(`.host-credits__used-up-${size}`).textContent, label);
+      }
+      if (reason === 'voiceVisitor') {
+        // Even an available raw text verdict cannot bypass the existing terminal host gate.
+        assert.equal(root.querySelector('form.composer').inert, true);
+        assert.equal(root.querySelector('textarea').disabled, true);
+        assert.doesNotMatch(body, /Schreiben geht weiter|keep writing/iu);
+      }
+      const announcement = root.querySelector('.credit-announcement');
+      assert.equal(announcement.getAttribute('aria-live'), 'polite');
+      assert.equal(announcement.textContent, `${title} ${body}`);
+      assert.equal(root.querySelector('.status__label').textContent, statusBefore);
+      assert.equal(root.querySelector('.voice-state').getAttribute('aria-live'), 'off');
+      const changes = [];
+      const observer = new window.MutationObserver(records => changes.push(...records));
+      observer.observe(announcement, { childList: true, characterData: true, subtree: true });
+      c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason } });
+      c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason } });
+      await tick(8); observer.disconnect();
+      assert.equal(changes.length, 0, 'repeated end events do not reannounce');
+    });
+  }
 }

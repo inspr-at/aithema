@@ -384,7 +384,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const host of [fal
     ]) {
       const gauge = h.q(`[data-gauge="${kind}"]`);
       assert.equal(gauge.dataset.state, state);
-      assert.equal(gauge.querySelector('.gauge__value').textContent, copy.gauges.values[state]);
+      assert.equal(gauge.querySelector('.gauge__value').textContent, state === 'hostCountries' ? (locale === 'de' ? 'Frankreich, USA' : 'France, US') : copy.gauges.values[state]);
       assert.equal(gauge.querySelector('.gauge__detail').textContent, short);
       assert.ok(gauge.getAttribute('aria-label').endsWith(detail));
       gauge.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
@@ -441,11 +441,11 @@ test('AIT-262 without host countries all base gauges stay unchanged', () => {
 
 const countryCopy = {
   de: { single: 'USA', pair: 'USA und Irland', other: 'Irland',
-    short: 'Anbieter mit Sitz in ',
+    short: 'Sitz der Anbieter',
     detail: countries => `Die Anbieter, die Ihre Eingaben erhalten, haben ihren Sitz in ${countries}. Wo verarbeitet wird, kann davon abweichen; Details stehen in der Datenschutzerklärung.`,
     policy: 'Datenschutzerklärung' },
   en: { single: 'the US', pair: 'the US and Ireland', other: 'Ireland',
-    short: 'Providers based in ',
+    short: 'Providers’ seat',
     detail: countries => `The providers that receive your input are based in ${countries}. Processing may take place elsewhere; see the privacy policy for details.`,
     policy: 'privacy policy' },
 };
@@ -467,7 +467,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
       const gauge = h.q('[data-gauge="privacy"]'), expected = countryCopy[locale];
       const names = countries.length === 2 ? expected.pair : countries[0] === 'US' ? expected.single : expected.other;
       assert.equal(gauge.dataset.state, 'hostCountries');
-      assert.equal(gauge.querySelector('.gauge__detail').textContent, expected.short + names);
+      assert.equal(gauge.querySelector('.gauge__detail').textContent, expected.short);
       assert.ok(gauge.getAttribute('aria-label').endsWith(expected.detail(names)));
       assert.doesNotMatch(gauge.textContent + gauge.getAttribute('aria-label'), /beschränkt auf|restricted to|limited to|ohne Training|without training|no training/iu);
       gauge.dispatchEvent(new window.Event('pointerover', { bubbles: true }));
@@ -903,3 +903,40 @@ for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: unavailable C
   selected.focus(); selected.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
   assert.equal(h.root.activeElement.dataset.preset, 'device');
 });
+
+for (const [locale, copy] of Object.entries({ de, en })) {
+  for (const host of [false, true]) test(`AIT-291 ${locale}: final ${host ? 'host' : 'plugin'} quality and operator price wording`, async t => {
+    const h = await opened(fixture(t, { copy, loadCatalog(catalog) {
+      catalog.settings.voice = 'off';
+      catalog.presets.best.models[0].facts = facts({ qualification: 'qualified', hostQualified: host, hostPriceReviewed: true, free: false });
+      return catalog;
+    } }));
+    for (const [kind, value, short] of [
+      ['quality', locale === 'de' ? 'Geprüft' : 'Checked', host ? (locale === 'de' ? 'vom Host, ohne Bewertung' : 'by the host, no rating') : (locale === 'de' ? 'Plugin, ohne Bewertung' : 'Plugin, no rating')],
+      ['cost', locale === 'de' ? 'Festgelegt' : 'Set', locale === 'de' ? 'Preis vom Betreiber' : 'Operator price'],
+    ]) {
+      assert.equal(h.q(`[data-gauge="${kind}"] .gauge__value`).textContent, value);
+      assert.equal(h.q(`[data-gauge="${kind}"] .gauge__detail`).textContent, short);
+      assert.equal(h.q(`[data-gauge="${kind}"] .gauge__label`).textContent, copy.gauges.labels[kind]);
+    }
+    assert.doesNotMatch(h.q('.gauges').textContent, /Qualifiziert|Qualified/u);
+  });
+  for (const [countries, deValue, enValue] of [
+    [['US'], 'USA', 'US'], [['US', 'IE'], 'USA, Irland', 'US, Ireland'],
+    [['US', 'IE', 'FR'], 'USA, Irland +1', 'US, Ireland +1'],
+    [['US', 'IE', 'FR', 'DE'], 'USA, Irland +2', 'US, Ireland +2'],
+  ]) test(`AIT-291 ${locale}: compact provider country value ${countries}`, async t => {
+    const h = await opened(fixture(t, { copy, loadCatalog(catalog) {
+      catalog.settings.voice = 'off';
+      catalog.presets.best.models[0].facts = facts({ hostCountries: countries });
+      return catalog;
+    } }));
+    const gauge = h.q('[data-gauge="privacy"]');
+    assert.equal(gauge.querySelector('.gauge__value').textContent, locale === 'de' ? deValue : enValue);
+    assert.equal(gauge.querySelector('.gauge__detail').textContent, locale === 'de' ? 'Sitz der Anbieter' : 'Providers’ seat');
+    if (countries.length > 2) {
+      assert.match(gauge.getAttribute('aria-label'), locale === 'de' ? /Frankreich/ : /France/);
+      assert.doesNotMatch(gauge.getAttribute('aria-label').split(', The providers')[1] ?? gauge.getAttribute('aria-label').split(', Die Anbieter')[1], /\+\d/u);
+    }
+  });
+}

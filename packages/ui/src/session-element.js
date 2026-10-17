@@ -618,7 +618,7 @@ export class AithemaSession extends HTMLElement {
           return turn && { turnId: turn.id, text: turn.content };
         },
         consent: opener => this.#dialog.openConsent('voice', opener),
-        feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
+        feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
         ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
         onRender: rail => this.#syncVoicePause(rail),
         onPartial: event => {
@@ -1000,7 +1000,7 @@ export class AithemaSession extends HTMLElement {
     if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
     this.#host.update();
     if (usedUp && !this.#creditEnding && !this.#creditAnnounced) {
-      this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#copy.hostSurface.credits.ended[this.#host.endReason] ?? this.#copy.hostSurface.usedUp.announce);
+      this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#host.limitCopy.announce);
     }
     if (usedUp && this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') this.#render('transcript');
     this.#render('composer'); this.#render('transcript'); this.#rail?.render(); this.#dialog?.sync();
@@ -1335,17 +1335,19 @@ export class AithemaSession extends HTMLElement {
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
-      const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
+      const limit = this.#host?.limitCopy ?? u;
+      const next = this.#host?.endReason ? null : this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
-      setText(out.querySelector('.composer-out__title'), u.title);
-      setText(out.querySelector('.composer-out__body'), credits.ended[this.#host?.endReason] ?? u.body);
+      setText(out.querySelector('.composer-out__title'), limit.title);
+      setText(out.querySelector('.composer-out__body'), limit.body);
       const delta = this.#host?.deltaCredits ?? '';
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
-      setText(out.querySelector('.composer-out__none'), u.none);
+      const footer = out.querySelector('.composer-out__none');
+      footer.hidden = limit.footer === false; setText(footer, limit.footer === false ? '' : u.none);
       setText(out.querySelector('.composer-out__upgrade [data-next="give"]'), credits.give); setText(out.querySelector('.composer-out__upgrade [data-next="confirm"]'), credits.confirm);
       setText(out.querySelector('.composer-out__export span'), u.export);
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
-      for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
+      for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind && !node.hidden; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
       const card = root.querySelector('.qcard'); card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp);
       this.#host?.emailAsk?.paint();

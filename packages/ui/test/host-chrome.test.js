@@ -138,7 +138,7 @@ for (const locale of ['de', 'en']) for (const source of ['host', 'budget']) {
       assert.equal(r.querySelector('form.composer').getAttribute('aria-hidden'), 'true');
       assert.equal(r.querySelector('.composer-out').inert, false);
       assert.equal(r.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
-      assert.equal(r.querySelector('.composer-out__title').textContent, copy.hostSurface.usedUp.title);
+      assert.equal(r.querySelector('.composer-out__title').textContent, source === 'host' ? copy.hostSurface.credits.ended.session.title : copy.hostSurface.usedUp.title);
       assert.equal(r.querySelector('.composer-paused').hidden, true);
       assert.equal(r.querySelector('.qcard').inert, true);
     };
