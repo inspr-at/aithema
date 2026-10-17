@@ -72,7 +72,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
     try {
-      invocation = await beginInvocation(scoped, { authoritativeCost: gateway });
+      invocation = await beginInvocation(scoped, { authoritativeCost: gateway, retainUncertainUsage: gateway });
       checkLifetime();
       const key = configured(); if (!key) throw new PluginError('auth');
       const references = [...validateUIReferences(spec?.references)];
