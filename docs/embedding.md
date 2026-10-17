@@ -222,7 +222,8 @@ in the tombstone transaction and eligible on the next sweep, regardless of `befo
 There is no additional idle window after erase or library delete. `limit`
 is an integer from 1 to 1000 (default 100). The result is `{ retired, failed, more }`:
 `retired` counts completed core erasures; `failed` counts sessions that failed
-this call; `more` means another eligible or due retry batch exists. Repeated and overlapping calls are safe. An interrupted
+this call; `more` means another eligible, due retry or historical tombstone batch
+exists. Repeated and overlapping calls are safe. An interrupted
 retirement is durably queued and retried, including the host cleanup hook.
 Hooks must therefore be idempotent. A failing session stays tombstoned and
 pending with a durable attempt count and exponential backoff (1 second up to
