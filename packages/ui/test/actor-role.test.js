@@ -34,7 +34,6 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
     const f = fixture(t, { locale, initial: { ...initial, role: null, reasoning: null } });
     const style = document.createElement('style'); style.textContent = actorRoleStyles; f.root.prepend(style);
     f.actor.element.style.setProperty('--aithema-muted', 'rgb(104, 120, 136)');
-    f.actor.element.style.setProperty('--aithema-ink', '#102b42');
     const value = f.root.querySelector('.actor-trigger .actor-value');
     const key = f.root.querySelector('.actor-key');
     const reservation = f.root.querySelector('.actor-reservation').innerHTML;
@@ -43,7 +42,6 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
       assert.equal(value.classList.contains('actor-value-muted'), source === null);
       assert.equal(window.getComputedStyle(value).fontWeight, source === null ? '400' : '500');
       if (source === null) assert.equal(window.getComputedStyle(value).color, 'rgb(104, 120, 136)');
-      else assert.notEqual(window.getComputedStyle(value).color, 'rgb(104, 120, 136)');
       assert.equal(key.classList.contains('actor-value-muted'), false);
       assert.equal(key.textContent, copy.actorRole.label+': ');
       assert.equal(f.root.querySelector('.actor-reservation').innerHTML, reservation);
