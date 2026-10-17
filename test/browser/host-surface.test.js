@@ -1,4 +1,5 @@
 import { mockConsent } from './consent-helpers.js';
+import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 // AIT-104 B2: the host surface in a real browser against the default mock demo with its labelled
 // demo host: the verification lock through the fake mail outbox (AITHEMA_DEMO_VERIFY=1), the
 // conversation library (create, rename, sort, open, delete), handover with one failed delivery
@@ -422,14 +423,15 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   });
   browser = await launch(directory, 'terminal-profile');
   const page = await browser.newPage(), problems = [];
-  await preparePage(page, ['en'], problems);
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await preparePage(page, ['de'], problems);
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url); await shadow(page, '.composer');
   const original = await inShadow(page, c => c.session);
   // Reuse a single page/browser for this state-only matrix. The server's actual
   // deadline and spend paths are covered with fake clocks in the unit suite.
   for (const locale of ['de', 'en']) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
-    const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason];
+    const expected = (locale === 'de' ? de : en).hostSurface.credits.ended[reason].body;
+    await page.setViewport({ width: 390, height: 844 });
     await inShadow(page, (c, { original, locale, reason, copy }) => {
       const session = { ...original, locale, credits: null, transcript: [] };
       // AIT-260: preserve the bound-voice terminal-disable path.
@@ -451,10 +453,16 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
         transcript: c.session.transcript[0].content };
     });
     assert.equal(state.inert, true); assert.equal(state.voiceDisabled, true); assert.equal(state.exportVisible, true);
+    const titleLines = await inShadow(page, c => {
+      const title = c.shadowRoot.querySelector('.composer-out__title');
+      return title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight);
+    });
+    assert.ok(titleLines <= 1.01, `${locale}/${reason}: title fits the existing single row at 390 px`);
     assert.ok(state.transcript.length > 0);
     assert.equal(await page.evaluate(async href => (await fetch(href)).status, state.href), 200);
     assert.equal(await overflow(page), 0);
-    if (process.env.AITHEMA_EVIDENCE_DIR) {
+    if (process.env.AITHEMA_EVIDENCE_DIR && locale === 'de' && reason !== 'session') {
+      await page.setViewport({ width: 1440, height: 1000 });
       await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
       await page.mouse.move(-1, -1);
       await inShadow(page, async c => {
@@ -462,8 +470,104 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
         await Promise.all(c.shadowRoot.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
         await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
       });
-      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-261-${locale}-${reason}.png`), fullPage: false });
+      await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-291-${locale}-light-1440-${reason}.png`), fullPage: false });
     }
+  }
+  // AIT-291 r2: extend this in-page matrix; no extra browser process or test file.
+  for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+    let reserved;
+    for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
+      await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test',
+        delivery: true, confirmed: variant === 'no-upgrade',
+        spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
+      const beforeLimit = await inShadow(page, c => {
+        c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        return ['.composer-shell', '.question-card', '.band'].map(selector => {
+          const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        });
+      });
+      await inShadow(page, c => {
+        c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+      });
+      await page.mouse.move(-1, -1);
+      await inShadow(page, async c => {
+        document.activeElement?.blur(); c.shadowRoot.activeElement?.blur(); await document.fonts.ready;
+        await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
+      });
+      const geometry = await inShadow(page, c => {
+        const r = c.shadowRoot, box = selector => {
+          const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        };
+        const upgrade = r.querySelector('.composer-out__upgrade'), link = r.querySelector('.composer-out__export');
+        return { boxes: ['.composer-shell', '.question-card', '.composer-out__bar', '.composer-out__actions', '.composer-out__export', '.band', '.settings-open'].map(box),
+          primary: upgrade.getAttribute('aria-hidden') === 'false', export: getComputedStyle(link).visibility,
+          heights: [upgrade, link].map(n => n.getBoundingClientRect().height),
+          sameRow: Math.abs(upgrade.getBoundingClientRect().y - link.getBoundingClientRect().y) < 1,
+          linkStyle: getComputedStyle(upgrade).textDecorationLine,
+          overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left,
+          bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(upgrade.getBoundingClientRect().top, link.getBoundingClientRect().top),
+          textContained: r.querySelector('.composer-out__title').getBoundingClientRect().top >= r.querySelector('.composer-out').getBoundingClientRect().top && link.getBoundingClientRect().bottom <= r.querySelector('.composer-out').getBoundingClientRect().bottom,
+          clip: box('.composer-out'), body: r.querySelector('.composer-out__body').textContent };
+      });
+      assert.deepEqual([geometry.boxes[0], geometry.boxes[1], geometry.boxes[5]], beforeLimit, `${locale}/${width}/${variant}: 0 px on entering host-limit`);
+      reserved ??= geometry.boxes;
+      assert.deepEqual(geometry.boxes, reserved, `${locale}/${width}/${variant}: 0 px between host-limit variants`);
+      assert.equal(geometry.primary, variant !== 'no-upgrade');
+      assert.equal(geometry.export, 'visible');
+      assert.equal(geometry.sameRow, true);
+      assert.equal(geometry.overlap, false);
+      assert.equal(geometry.bodyClear, true, 'body clears both 44 px action targets');
+      assert.equal(geometry.textContained, true, 'title and action targets remain inside the surface');
+      assert.equal(geometry.linkStyle, 'underline');
+      assert.ok(geometry.heights.every(height => height >= 44), 'both actions retain 44 px touch targets');
+      assert.equal(await overflow(page), 0);
+      t.diagnostic(`PASS AIT-291 r2 ${locale}/${width}/${variant}: 0 px; primary upgrade + independent export; 44 px targets`);
+      if (process.env.AITHEMA_EVIDENCE_DIR && locale === 'de' && width === 1440) {
+        const [x, y, cropWidth, height] = geometry.clip;
+        assert.ok(y >= 0 && y + height <= 1000, 'crop stays inside the viewport');
+        await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, `ait-291-r2-de-light-1440-${variant}.png`), fullPage: false,
+          clip: { x, y, width: cropWidth, height } });
+      }
+    }
+  }
+  // AIT-291 release evidence reuses this browser and page; unit tests own the gauge matrix.
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await page.setViewport({ width: 1440, height: 1000 });
+    const catalog = await page.evaluate(async id => (await fetch(`/api/sessions/${id}/settings`)).json(), original.id);
+    catalog.settings.voice = 'off'; catalog.settings.visuals = 'off';
+    catalog.presets.best.defaults.voice = 'off'; catalog.presets.best.defaults.visuals = 'off';
+    for (const model of catalog.presets.best.models) model.facts = { ...model.facts,
+      qualification: 'unverified', germanQuality: 'unverified', free: false,
+      cost: { inputMicro: null, outputMicro: null, reviewedAt: null },
+      hostQualified: true, hostPriceReviewed: true, hostCountries: ['US'],
+      processingLocations: ['unverified'], hostTraining: true };
+    await page.setRequestInterception(true);
+    page.on('request', request => {
+      if (request.url().endsWith('/settings') && request.method() === 'GET') {
+        void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(catalog) });
+      } else void request.continue();
+    });
+    await inShadow(page, (c, { original, copy, catalog }) => {
+      c.configure({ copy, session: { ...original, locale: 'de', settings: catalog.settings,
+        credits: null, transcript: [], engine: { ...original.engine, voice: 'off', visuals: 'off' } }, host: { credits: true } });
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.openSettings();
+    }, { original, copy: de, catalog });
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('[data-gauge="quality"]').dataset.state === 'hostQualified' &&
+        r.querySelector('[data-gauge="cost"]').dataset.state === 'hostPriceReviewed' &&
+        r.querySelector('[data-gauge="privacy"] .gauge__value').textContent === 'USA';
+    });
+    await page.mouse.move(-1, -1);
+    await inShadow(page, async c => {
+      document.activeElement?.blur(); c.shadowRoot.activeElement?.blur(); await document.fonts.ready;
+      await Promise.all(c.shadowRoot.getAnimations().filter(a => a.effect?.getTiming().iterations !== Infinity).map(a => a.finished.catch(() => {})));
+      await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+    });
+    await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-291-de-light-1440-gauges.png'), fullPage: false });
   }
   assert.deepEqual(problems, []);
 });

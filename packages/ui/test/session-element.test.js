@@ -1,3 +1,4 @@
+import { paintConsentLine } from '../src/consent-line.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
@@ -52,9 +53,13 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   assert.equal(root.querySelector('details'), details); assert.equal(details.open, true);
   assert.equal(root.querySelector('.summary-text script'), null); assert.equal(root.querySelector('.notice').textContent, en.final);
+  assert.equal(root.querySelector('.notice').hasAttribute('data-current'), true);
+  assert.equal(root.querySelector('.summary').getAttribute('aria-labelledby'), 'summary-title');
+  assert.equal(root.querySelector('#summary-title').textContent, en.summary);
   root.querySelector('.expand').click(); assert.equal(details.open, false);
   root.querySelector('.expand').click(); assert.equal(details.open, true);
   turn(c, 't2', 'More'); reply(c, 'a2'); assert.equal(root.querySelector('.notice').textContent, en.stale);
+  assert.equal(root.querySelector('.notice').hasAttribute('data-current'), false);
 });
 test('automatic aside and transcript changes render at once under the pointer; rows update in place and append below', () => {
   const c = setup(), root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
@@ -856,7 +861,8 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     for (let i = 0; i < 300 && !refreshed; i++) await new Promise(resolve => setTimeout(resolve, 10));
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
-    assert.equal(root.querySelector('.composer-reason').textContent, `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
+    assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${en.featureConsent.action}: ${en.featureConsent.textActionReason}`);
     assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent\u00a0· Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
@@ -873,7 +879,8 @@ test('the German bundle covers every English key and renders the component in Ge
   c.configure({ copy: de, session });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.send').textContent, 'Senden');
-  assert.equal(root.querySelector('.composer-reason').textContent, `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
+  assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action .consent-wide').getAttribute('aria-label'), `${de.featureConsent.action}: ${de.featureConsent.textActionReason}`);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
 test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {
@@ -1364,4 +1371,43 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
   assert.match(bandStyles, /\.consent-action,[^{]+\{[^}]+text-decoration:underline/u);
   for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface])
     assert.ok(contrast(tokens.warning, background) >= 4.5, `${theme}: warning ink AA on ${background}`);
+});
+
+
+test('AIT-290: consent opener keeps its full name and node across repaints, then clears when available', () => {
+  for (const [copy, name] of [[de, 'Einwilligen…: Nachrichten brauchen Ihre Einwilligung'],
+    [en, 'Give consent…: messages need your consent']]) {
+    const line = document.createElement('small'); line.className = 'composer-reason';
+    let opened;
+    const options = { copy, feature: 'text', verdict: { available: false, rawReason: 'current processing consent required' }, open: action => { opened = action; } };
+    assert.equal(paintConsentLine(line, options), true);
+    const action = line.querySelector('button');
+    assert.equal(action.hasAttribute('aria-label'), false);
+    assert.equal(action.querySelector('.consent-wide').getAttribute('aria-label'), name);
+    assert.equal(action.querySelector('.consent-narrow').getAttribute('aria-label'), `${copy.featureConsent.actionNarrow}: ${copy.featureConsent.textActionReason}`);
+    assert.equal(line.querySelector('.consent-line-copy').id, action.getAttribute('aria-describedby'));
+    paintConsentLine(line, options);
+    assert.equal(line.querySelector('button'), action, 'live repaint preserves the opener');
+    action.click(); assert.equal(opened, action, 'same action opens consent');
+    assert.equal(paintConsentLine(line, { ...options, verdict: { available: true }, text: 'Ready' }), false);
+    assert.equal(line.querySelector('button'), null);
+    assert.equal(line.dataset.consentFeature, undefined);
+    assert.equal(line.textContent, 'Ready');
+  }
+});
+
+
+test('AIT-290: a paused cached final overview keeps the missing-consent opener visible', () => {
+  const c = setup(); turn(c, 'project', 'SAP'); reply(c, 'reply');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const session = structuredClone(c.session);
+  session.paused = true; session.pauseReason = null;
+  session.featureMatrix.best.analysis = { available: false, reason: 'current processing consent required' };
+  c.configure({ copy: en, session });
+  const notice = c.shadowRoot.querySelector('.notice');
+  assert.equal(notice.hasAttribute('data-current'), false);
+  assert.equal(notice.hidden, false);
+  assert.equal(notice.querySelector('.notice-text').dataset.consentFeature, 'analysis');
+  assert.equal(notice.querySelector('button').textContent, en.featureConsent.action);
+  assert.equal(notice.querySelector('button').disabled, false);
 });

@@ -30,7 +30,7 @@ const unchanged = (before, after, label) => {
   return displacement;
 };
 
-async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
+export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
   await shadow(page, async (c, options) => {
     const { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -71,7 +71,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
     };
     for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
     if (privacy) { const legal = document.createElement('nav'); legal.slot = 'legal'; const link = document.createElement('a'); link.setAttribute('data-aithema-privacy', ''); link.href = '/privacy?locale=' + locale; legal.append(link); c.append(legal); }
-    const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity();
+    const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity(); session.credits = null;
     delete session.voiceLifecycle;
     if (waitingCall) session.voiceLifecycle = { callId: 'fixture-waiting-call', providerSessionId: 'fixture-waiting-provider', state: 'waiting' };
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
@@ -457,6 +457,8 @@ export async function visitorCreditMatrix(t, locales) {
       });
       await settle(page);
       // F7: the 600ms ending phrase is transient. Capture the stable post-hangup state under its own name.
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.composer-out__title').textContent),
+        locale === 'de' ? 'Ihre Credits sind aufgebraucht.' : 'Your credits are used up.', 'AIT-291 host-limit title keeps the reserved composer geometry');
       const capturedRailText = await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent);
       assert.equal(capturedRailText, locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up', `${label}: F7 after-hangup-used-up capture matches its label`);
       passLines.push({ locale, theme, width, state: 'after-hangup-used-up', displacementPx: endingDisplacement, railText: capturedRailText, pass: true }); await shot('after-hangup-used-up');
@@ -466,7 +468,8 @@ export async function visitorCreditMatrix(t, locales) {
           pauseDisabled: r.querySelector('.pause').disabled, neutral: ['.voice-close', '.pause', '.host-credits__used-up'].every(selector => getComputedStyle(r.querySelector(selector)).color === ink) };
       });
       assert.deepEqual(calm, { questionReadable: true, answersRest: true, pauseDisabled: true, neutral: true });
-      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).backgroundColor), theme === 'dark' ? 'rgb(18, 144, 140)' : 'rgb(14, 111, 108)', 'the used-up action keeps the approved START teal');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).color), theme === 'dark' ? 'rgb(79, 189, 181)' : 'rgb(14, 111, 108)', 'the host-limit upgrade link keeps the approved START teal');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.composer-out__upgrade')).backgroundColor), 'rgba(0, 0, 0, 0)', 'the host-limit primary stays a text link in both themes');
       passLines.push({ locale, theme, width, state: 'run-out', displacementPx: unchanged(liveBefore, await boxes(page, liveFixed), `${label}/run-out`), pass: true }); await shot('run-out');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
     }
