@@ -67,8 +67,8 @@ export async function hostChromeCheck(t) {
       return nativeFetch(url, init);
     };
   });
-  const scene = async ({ locale = 'de', voice = false, brandMode = 'start', paused = false } = {}) => {
-    await shadow(page, async (c, { locale, voice, brandMode, paused }) => {
+  const scene = async ({ locale = 'de', voice = false, brandMode = 'start', paused = false, credits = false } = {}) => {
+    await shadow(page, async (c, { locale, voice, brandMode, paused, credits }) => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = structuredClone(window.chromeSeed);
       session.locale = locale; session.paused = paused; session.pauseReason = null;
@@ -89,9 +89,9 @@ export async function hostChromeCheck(t) {
       c.append(legal);
       c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
       c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-      c.setAttribute('motion', 'off'); c.configure({ copy, session, voiceClient: voice ? {} : undefined, host: { library: true } });
+      c.setAttribute('motion', 'off'); c.configure({ copy, session, voiceClient: voice ? {} : undefined, host: { library: true, credits } });
       document.documentElement.lang = locale; scrollTo(0, 0);
-    }, { locale, voice, brandMode, paused });
+    }, { locale, voice, brandMode, paused, credits });
     await settle();
   };
   // Keep content in-page: assertion diagnostics contain only geometry, lengths and booleans.
@@ -162,7 +162,7 @@ export async function hostChromeCheck(t) {
     await shadow(page, async c => {
       const session = c.session; session.transcript = []; session.settings.origin = null;
       const { [session.locale]: copy } = await import(`/packages/ui/src/i18n/${session.locale}.js`);
-      c.configure({ copy, session, host: { library: true } });
+      c.configure({ copy, session, host: { library: true, credits } });
     });
     await settle();
     const { result } = await accessibility.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".status")' });
@@ -344,6 +344,72 @@ export async function hostChromeCheck(t) {
       checks.push({ locale, theme, width, headerHeights: [...new Set(heights)], voiceHeightDifferencePx: Math.max(...heights) - Math.min(...heights) });
     }
   }
+  // AIT-283: exercise the real event reader with controlled local streams.
+  await shadow(page, () => {
+    const nativeFetch = window.fetch;
+    window.fetch = (url, init = {}) => {
+      const path = new URL(url, location.href).pathname;
+      if (path.endsWith('/credits')) return Promise.resolve(Response.json({
+        balance: { owner: { availableMicro: 6_550_000, limitMicro: 10_000_000, committedMicro: 3_450_000 } }, limitSlot: null,
+      }));
+      if (!path.endsWith('/events')) return nativeFetch(url, init);
+      const response = () => new Response(new ReadableStream({ start(controller) { window.footerStream = controller; } }));
+      if (window.footerAttempt++ === 0) return Promise.resolve(response());
+      return new Promise(resolve => {
+        window.reconnectFooter = () => resolve(response());
+        init.signal.addEventListener('abort', () => resolve(new Response(null, { status: 499 })), { once: true });
+      });
+    };
+  });
+  const connectionBoxes = () => shadow(page, c => ['.status__dot', '.connection-timer'].map(selector => {
+    const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+  }));
+  for (const locale of ['de', 'en']) for (const theme of fullMatrix ? ['light', 'dark'] : ['light']) for (const credits of [false, true]) {
+    await page.setViewport({ width: 1440, height: 1000 }); await page.select('#theme', theme);
+    await shadow(page, () => { window.footerAttempt = 0; window.reconnectFooter = null; });
+    await scene({ locale, credits });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await shadow(page, () => window.footerStream.close());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status__dot').dataset.state === 'connecting');
+    const prefix = `ait283-${locale}-${theme}-${credits ? 'credits' : 'no-credits'}`;
+    const before = await connectionBoxes(); await shot(`${prefix}-1440-reconnecting`);
+    for (const width of fullMatrix ? [700, 800, 899, 900, 960, 1023, 1024, 390] : [700, 800, 899, 900, 960, 1023]) {
+      await page.setViewport({ width, height: width < 600 ? 844 : 1000 }); await settle();
+      const metric = await shadow(page, c => {
+        const r = c.shadowRoot, status = r.querySelector('.status'), label = r.querySelector('.status__label'), sizer = r.querySelector('.status__sizer');
+        const b = sizer.getBoundingClientRect();
+        return { labelVisible: label.checkVisibility({ checkVisibilityCSS: true }), dotVisible: r.querySelector('.status__dot').checkVisibility({ checkVisibilityCSS: true }),
+          name: r.querySelector('.status__dot').getAttribute('aria-label'), full: status.title, label: label.textContent,
+          footerOverflow: r.querySelector('.display-foot__row').scrollWidth > r.querySelector('.display-foot__row').clientWidth,
+          overflowPx: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+          reserved: b.width, longestShort: Math.max(...[...sizer.children].map(n => {
+            const range = document.createRange(); range.selectNodeContents(n); return range.getBoundingClientRect().width;
+          })) };
+      });
+      assert.equal(metric.overflowPx, 0, `${prefix}/${width}: page overflow 0 px`);
+      assert.equal(metric.footerOverflow, false, `${prefix}/${width}: footer fits ${JSON.stringify(metric)}`);
+      if (width >= 700) {
+        assert.equal(metric.labelVisible, !(credits && width < 900), `${prefix}/${width}: label yields only to tablet credits`);
+        assert.equal(metric.dotVisible, true, `${prefix}/${width}: dot stays visible`);
+        assert.equal(metric.name, metric.full, `${prefix}/${width}: dot retains full accessible name`);
+        if (metric.labelVisible) assert.equal(metric.reserved, metric.longestShort, `${prefix}/${width}: reservation equals longest short label`);
+      }
+      checks.push({ label: `${prefix}-${width}-reconnecting`, ...metric });
+      if ([800, 1024, 390].includes(width)) await shot(`${prefix}-${width}-reconnecting`);
+    }
+    await page.setViewport({ width: 1440, height: 1000 }); await settle();
+    assert.deepEqual(await connectionBoxes(), before, `${prefix}: resizing back leaves dot/timer unchanged`);
+    await until(page, () => typeof window.reconnectFooter === 'function');
+    await shadow(page, () => window.reconnectFooter());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await settle();
+    assert.deepEqual(await connectionBoxes(), before, `${prefix}: reconnect→connected dot/timer displacement 0 px`);
+    checks.push({ label: `${prefix}-1440-transition`, dotShiftPx: 0, timerShiftPx: 0, before, after: await connectionBoxes() });
+    for (const width of fullMatrix ? [1440, 1024, 390, 800] : []) {
+      await page.setViewport({ width, height: width < 600 ? 844 : 1000 }); await shot(`${prefix}-${width}-connected`);
+    }
+  }
+  console.log('AIT-283 PASS: DE/EN reconnect→connected dot/timer 0 px; 700/800/899 labels hidden only with credits, named dot visible; 900/960/1023 longest short labels with credits fit; reservation equals longest short label.');
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: Tick resume uses primary teal and medium weight; paused copy stays muted; 44 px controls', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: AIT-283 DE/EN reconnect→connected dot/timer 0 px; tablet labels hidden only with credits; named dot visible; 900–1023 px no overflow; short-label reservation exact', 'PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: Tick resume uses primary teal and medium weight; paused copy stays muted; 44 px controls', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
 }
