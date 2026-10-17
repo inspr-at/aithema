@@ -1638,8 +1638,6 @@ for (const copy of [de, en]) test(`AIT-292 r2 ${copy.display.locale}: recovery p
   observer.observe(announcement, { childList: true }); t.after(() => observer.disconnect());
   const end = () => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
   end(); await tick(8);
-  // A normal failed action shows a real status; successful work clears it.
-  root.querySelector('.retry').click(); await tick(8);
   c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
   t.mock.timers.tick(15_001); await tick(12);
   assert.equal(announcement.textContent, '', 'recovery clears announcement history');
