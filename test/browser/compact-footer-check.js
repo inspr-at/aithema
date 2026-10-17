@@ -85,6 +85,47 @@ export async function compactFooterCheck(t) {
     checks.push({ head: evidenceCommit, width, theme, locale, before, held, after, pass: true });
     console.log(`${name}: PASS compact refit; pointer controls and outer layout shift 0px`);
   }
+  // Keep Chrome focus on the footer button through resize, growing copy and Escape.
+  await page.setViewport({ width: 1440, height: 1000 });
+  await settleEvidenceFrame(page);
+  await page.evaluate(() => {
+    const root = document.querySelector('aithema-session').shadowRoot;
+    window.focusButton = root.querySelector('.ai-notice');
+    window.focusLabel = root.querySelector('.ai-notice__label');
+    window.focusOriginal = window.focusLabel.textContent;
+    window.focusLabel.textContent = 'W'.repeat(80);
+  });
+  const fitState = () => page.evaluate(() => {
+    const root = document.querySelector('aithema-session').shadowRoot, footer = root.querySelector('.display-foot');
+    const row = footer.querySelector('.display-foot__row'), bounds = row.getBoundingClientRect();
+    const boxes = [...row.children].filter(n => !n.hidden && n.getClientRects().length).map(n => n.getBoundingClientRect());
+    return { fit: footer.dataset.fit, focused: root.activeElement === window.focusButton,
+      clear: boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left)) };
+  });
+  const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await frames();
+  assert.equal((await fitState()).fit, 'full', 'the widened label fits before narrowing');
+  await page.evaluate(() => window.focusButton.focus());
+  await page.setViewport({ width: 1100, height: 1000 }); await frames();
+  const narrowed = await fitState();
+  assert.equal(narrowed.focused, true); assert.notEqual(narrowed.fit, 'full'); assert.equal(narrowed.clear, true, 'held focus cannot defer a corrective resize refit');
+  await page.setViewport({ width: 1440, height: 1000 }); await frames();
+  await page.evaluate(() => { window.focusLabel.textContent = 'A deliberately long host label '.repeat(20); }); await frames();
+  const overflow = await fitState();
+  assert.equal(overflow.focused, true); assert.notEqual(overflow.fit, 'full');
+  assert.equal(overflow.clear, true, 'growing copy compacts immediately with footer focus held');
+  await page.keyboard.press('Escape'); await frames();
+  if (evidence) {
+    // Focus is the subject of this shot; retain it, with pointer outside and settled motion.
+    await page.mouse.move(-20, -20); await frames();
+    await page.screenshot({ path: join(evidence, 'ait299-footer-focus-held-overflow.png'), fullPage: false, captureBeyondViewport: false });
+  }
+  await page.evaluate(() => { window.focusLabel.textContent = window.focusOriginal; }); await frames();
+  const deferred = await fitState();
+  assert.equal(deferred.focused, true); assert.equal(deferred.fit, overflow.fit, 'same-width expansion still waits for focus to leave');
+  await settleEvidenceFrame(page);
+  const released = await fitState(); assert.equal(released.fit, 'full'); assert.equal(released.clear, true);
+  checks.push({ head: evidenceCommit, focusHeld: true, narrowed, overflow, deferred, released, pass: true });
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait299-footer-checks.json'), JSON.stringify({ head: evidenceCommit,
     capture: 'viewport', reducedMotion: true, blurredControls: true, fonts: 'Chrome baseline', checks }, null, 2) + '\n');

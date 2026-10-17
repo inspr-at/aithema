@@ -50,7 +50,7 @@ test('AIT-299 controlled regressions under bounded CPU pressure', { timeout: 230
     'packages/ui/test/host-limits.test.js', 'packages/ui/test/layout.test.js', 'packages/ui/test/concepts.test.js']), 0);
 });
 
-test('AIT-299 host-limit announcements 20 times under bounded CPU pressure', { timeout: 230_000 }, async t => {
+test('AIT-299 host-limit and layout 20 times under bounded CPU pressure', { timeout: 230_000 }, async t => {
   pressure(t);
-  for (let i = 1; i <= 20; i++) assert.equal(await run(`ait299-limit-${i}`, [...args, 'packages/ui/test/host-limits.test.js']), 0, `iteration ${i}`);
+  for (let i = 1; i <= 20; i++) assert.equal(await run(`ait299-limit-${i}`, [...args, 'packages/ui/test/host-limits.test.js', 'packages/ui/test/layout.test.js']), 0, `iteration ${i}`);
 });

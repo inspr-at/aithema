@@ -94,3 +94,23 @@ test('wallet poll without tracing', () => { setInterval(() => {}, 1000); });`);
     assert.doesNotMatch(output, /Open Timeout|Resource created here/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+
+for (const trace of [false, true]) test(`AIT-299 r2: watchdog creates ${trace ? 'one opt-in' : 'no default'} async hook`, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-hook-'));
+  try {
+    const fixture = join(directory, 'hook-count.test.cjs');
+    writeFileSync(fixture, `const assert = require('node:assert/strict');
+const hooks = require('node:async_hooks'), original = hooks.createHook;
+let created = 0;
+hooks.createHook = (...args) => { created++; return original(...args); };
+require('node:module').syncBuiltinESMExports();
+require(${JSON.stringify(watchdog)});
+assert.equal(created, ${trace ? 1 : 0}, 'watchdog hook count');
+require('node:test')('attributed without tracing', () => {});`);
+    const childEnv = workerEnvironment();
+    if (trace) childEnv.AITHEMA_UNIT_TRACE_HANDLES = '1'; else delete childEnv.AITHEMA_UNIT_TRACE_HANDLES;
+    const result = spawnSync(process.execPath, ['--test', fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

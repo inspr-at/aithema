@@ -180,3 +180,74 @@ test('AIT-299: a footer refit reads shadow focus only when its host owns documen
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(viewport.connected, true);
 });
+
+
+// A real shadow owner keeps held keyboard focus observable; only geometry is modeled.
+function heldFooter(t, labelClass = 'ai-notice__label', text = 'Short') {
+  const window = new Window(); t.after(() => window.happyDOM.close());
+  const host = window.document.createElement('div'); window.document.body.append(host);
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<div class="workspace"><div class="band"></div><div class="concept-bar"><div class="voice-notices"></div></div>
+    <div class="transcript-shell"><ol></ol></div><div class="composer-dock"></div>
+    <footer class="display-foot"><div class="display-foot__row"><div class="footer-left"><button><span class="${labelClass}">${text}</span></button></div><div class="footer-right">Connected</div></div></footer></div>`;
+  const footer = root.querySelector('footer'), label = footer.querySelector('span'), button = footer.querySelector('button');
+  let width = 300, hover = false, reads = 0, probeReads = 0;
+  Object.defineProperty(footer, 'clientWidth', { get: () => width });
+  const matches = footer.matches.bind(footer);
+  footer.matches = selector => selector === ':hover' ? hover : matches(selector);
+  t.mock.method(window.HTMLElement.prototype, 'getBoundingClientRect', function () {
+    reads++;
+    const owner = this.closest('footer');
+    if (owner && owner !== footer) probeReads++;
+    let left = 0, size = 0;
+    if (this.matches('.display-foot__row')) size = width;
+    if (this.matches('.footer-left')) size = owner.dataset.fit === 'full' ? owner.querySelector('span').textContent.length > 5 ? 260 : 160 : 40;
+    if (this.matches('.footer-right')) { size = 100; left = width - size; }
+    return { width: size, height: 0, left, right: left + size };
+  });
+  t.mock.method(window.HTMLElement.prototype, 'getClientRects', function () { return [this.getBoundingClientRect()]; });
+  const viewport = new PhoneComposerViewport(root); t.after(() => viewport.destroy());
+  return { window, root, footer, label, button, viewport, narrow: () => { width = 200; }, hover: on => { hover = on; },
+    counts: () => ({ reads, probeReads }), resetCounts: () => { reads = 0; probeReads = 0; } };
+}
+
+for (const trigger of ['narrowing', 'growing label']) test(`AIT-299 r2: held footer focus cannot defer ${trigger} that overlaps zones`, async t => {
+  const f = heldFooter(t); f.button.focus();
+  assert.equal(f.root.activeElement, f.button);
+  assert.equal(f.footer.dataset.fit, 'full');
+  if (trigger === 'narrowing') { f.narrow(); f.window.dispatchEvent(new f.window.Event('resize')); }
+  else { f.label.textContent = 'A much longer label'; await new Promise(resolve => setImmediate(resolve)); }
+  assert.equal(f.footer.dataset.fit, 'identity', 'corrective compaction happens while focus stays held');
+  assert.equal(f.root.activeElement, f.button);
+  const [left, right] = [...f.footer.querySelector('.display-foot__row').children].map(n => n.getBoundingClientRect());
+  assert.ok(left.right <= right.left, 'zones no longer overlap');
+});
+
+test('AIT-299 r2: same-width expansion waits until both footer focus and pointer leave', async t => {
+  const f = heldFooter(t, 'ai-notice__label', 'A much longer label');
+  assert.equal(f.footer.dataset.fit, 'identity');
+  f.button.focus(); f.hover(true); f.label.textContent = 'Short';
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'identity');
+  f.button.blur(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'identity', 'the resting pointer still protects expansion');
+  f.hover(false); f.footer.dispatchEvent(new f.window.Event('pointerleave'));
+  assert.equal(f.footer.dataset.fit, 'full');
+});
+
+test('AIT-299 r2: five compact timer ticks perform zero layout reads; a new digit column remeasures', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = heldFooter(t, 'connection-timer', '123:00');
+  let now = 0;
+  const timer = new ConnectionTimer(f.label, () => now); t.after(() => timer.destroy());
+  timer.setConnected(true); now = 123 * 60_000; timer.paint();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.footer.dataset.fit, 'identity');
+  f.resetCounts();
+  for (let i = 1; i <= 5; i++) { now += 1000; t.mock.timers.tick(1000); await new Promise(resolve => setImmediate(resolve)); }
+  const counts = f.counts(); t.diagnostic(`compact 5s timer: ${counts.reads} layout reads, ${counts.probeReads} probe reads`);
+  assert.equal(counts.probeReads, 0, 'tabular digit changes never clone and measure the hidden label');
+  assert.equal(counts.reads, 0, 'width-equivalent timer mutations do not trigger a viewport paint');
+  f.label.textContent = '1234:05'; await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.counts().probeReads > 0, 'a changed timer width still invalidates natural geometry');
+});

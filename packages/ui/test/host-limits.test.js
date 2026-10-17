@@ -6,6 +6,7 @@ import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithem
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
+import { HostSurface } from '../src/host-surface.js';
 import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
 for (const copy of [de, en]) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
@@ -209,4 +210,31 @@ test('AIT-299: an unchanged post-limit visitor balance cannot recover an operato
   c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true', 'a new durable active state can reopen the conversation');
   assert.equal(announcement.textContent, '');
+});
+
+
+for (const refused of [false, true]) test(`AIT-299 r2: releasing a full hold is not an operator-budget recovery signal (host-limit ${refused})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  // Exercise the surface directly: the session projection must not mask its retained reason.
+  const fixture = setup(t, { host: {} }); await tick(8); fixture.c.remove();
+  const element = window.document.createElement('div'), root = element.attachShadow({ mode: 'open' });
+  root.innerHTML = fixture.root.innerHTML;
+  const session = createSession({ demo: false, locale: 'en' });
+  let held = true, ack = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    balance: { owner: { limitMicro: 12_000_000, committedMicro: held ? 12_000_000 : 1_000_000,
+      reservedMicro: held ? 12_000_000 : 0, availableMicro: held ? 0 : 11_000_000 } },
+    exhausted: false, fullHold: held, reconciling: held, limitSlot: null,
+  }));
+  const surface = new HostSurface({ root, copy: en, options: { credits: true }, baseUrl: '', session: () => session,
+    onCredits: () => ack.resolve() });
+  t.after(() => surface.destroy()); surface.connect(); await ack.promise;
+  assert.equal(surface.fullHold, true); assert.equal(surface.endReason, null);
+  if (refused) surface.receive({ type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  held = false;
+  surface.receive({ type: 'turn.final', data: { role: 'assistant' } });
+  ack = Promise.withResolvers(); t.mock.timers.tick(301); await ack.promise;
+  assert.equal(surface.endReason, refused ? 'host-limit' : null, 'settling a hold says nothing about operator-budget admission');
+  if (refused) assert.equal(surface.limitCopy.title, releaseLimits.en['host-limit'][0]);
+  else { assert.equal(surface.usedUp, false, 'settlement never shows a host-limit title'); assert.equal(root.querySelector('.host-credits').dataset.ended, 'false'); }
 });
