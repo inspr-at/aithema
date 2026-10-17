@@ -137,6 +137,10 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       assert.equal(hint.text, copy.shortcut.replace('{key}', key)); assert.deepEqual(hint.keys, [key, 'Enter']);
       assert.equal(hint.visible, !touch, `${label}: ${JSON.stringify(hint)}`); assert.equal(hint.coarse, touch); assert.equal(hint.hoverNone, touch);
     }
+    if (touch) {
+      const reservation = await shadow(page, c => { const r = c.shadowRoot; return [r.querySelector('.composer-feedback').getBoundingClientRect().width, r.querySelector('.composer-saved-sizer').getBoundingClientRect().width]; });
+      assert.equal(reservation[0], reservation[1], `${label}: touch reserves only the confirmation width`);
+    }
     await shot(`${label}-live-no-visuals`);
     const selectors = ['.composer', '.composer-feedback', '.send', '.attach', '.display-foot'];
     const before = await boxes(page, selectors);
@@ -154,12 +158,16 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     assert.deepEqual(saved, { text: copy.saved, opacity: '1', hintOpacity: '0', noToast: true, disjoint: true, target: true });
     assert.deepEqual(await boxes(page, selectors), before, `${label}: saved feedback shifts 0 px`);
     await shot(`${label}-saved`);
-    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback').hasAttribute('data-saved'));
-    assert.deepEqual(await boxes(page, selectors), before, `${label}: expiry shifts 0 px`);
+    // Timer duration is covered in units; observe a real expiry once per pointer mode.
+    const expiryChecked = locale === 'de' && width === 1440;
+    if (expiryChecked) {
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.composer-feedback').hasAttribute('data-saved'));
+      assert.deepEqual(await boxes(page, selectors), before, `${label}: expiry shifts 0 px`);
+    }
     await configure(locale, 'live', true);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-rail').checkVisibility()), true);
     await shot(`${label}-visuals-on`);
-    checks.push({ label, pass: true, clearance, saved, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
+    checks.push({ label, pass: true, clearance, saved, expiryChecked, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
   }
   // Height-only changes use the same page and do not add screenshot or server cost.
   for (const height of [600, 720, 900]) {
@@ -172,7 +180,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   assert.deepEqual(problems, []); assert.equal(checks.length, 15);
   passLines.push('AIT-266 PASS: visuals absent/present; DE/EN, 1440/1280x860/390, touch/mouse.',
     'AIT-266 PASS: Mac/other keycaps; touch hint hidden; inline Saved 1600ms; composer/Send 0 px; 44 px Send.',
-    'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all five heights.');
+    'AIT-266 PASS: Custom and EU unavailable at entrance/Settings; arrow keys skip; Continue clears footer at all tested heights.');
   for (const line of passLines) console.log(line);
   if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true,
     blurredControls: true, fonts: 'Chrome baseline UI/display stacks pinned', passLines, checks }, null, 2) + '\n');

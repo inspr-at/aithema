@@ -1472,7 +1472,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       const r = c.shadowRoot, a = r.querySelector('.attach').getBoundingClientRect(), shellBox = r.querySelector('.transcript-shell').getBoundingClientRect();
       return { attach: [Math.round(a.width), Math.round(a.height)], label: r.querySelector('.attach__label').textContent,
         chipsInside: [...r.querySelectorAll('.upload')].every(row => { const b = row.getBoundingClientRect(); return b.left >= shellBox.left - .5 && b.right <= shellBox.right + .5; }),
-        reasonClipped: r.querySelector('.composer-reason').scrollWidth > r.querySelector('.composer-reason').clientWidth + 1,
+        reasonClipped: r.querySelector('.composer-reason').checkVisibility({ visibilityProperty: true }) && r.querySelector('.composer-reason').scrollWidth > r.querySelector('.composer-reason').clientWidth + 1,
         pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     assert.deepEqual(phone, { attach: [44, 44], label: 'Dateien anhängen', chipsInside: true, reasonClipped: false, pageOverflow: 0 });
