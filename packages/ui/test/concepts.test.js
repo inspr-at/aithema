@@ -479,7 +479,39 @@ test('AIT-282: unbound visuals show no access; reduced motion disables fades and
   assert.equal(root.querySelector('.concept-access').dataset.state, 'none');
   assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 0);
   const css = root.querySelector('style').textContent;
-  assert.match(css, /:host\(\[motion="off"\]\) \.concept-backdrop img \{ transition:none/);
-  assert.match(css, /@media\(prefers-reduced-motion:reduce\) \{ \.concept-backdrop img \{ transition:none/);
+  assert.match(css, /:host\(\[motion="off"\]\) [^{]*concept-backdrop[^{]* img \{ transition:none/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\) \{ [^{]*concept-backdrop[^{]* img \{ transition:none/);
   assert.match(css, /animation:none !important/);
+});
+test('AIT-282: revoking an outgoing cross-fade layer removes it synchronously while the current concept stays', async t => {
+  const { c, root, revoked } = setup(t); await tick();
+  conceptState(c, {phase:'ready'}, item('current')); await tick();
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 2);
+  c.receive({seq:c.session.seq+1,type:'concept.archived',data:{artifactId:'image1'}});
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src]').length, 1);
+  assert.equal(root.querySelectorAll('.concept-preview img[src]').length, 1);
+  assert.equal(root.querySelector('.concept-backdrop img[data-on]').dataset.id, 'current');
+  assert.ok(revoked.length > 0);
+});
+test('AIT-282: late source-dependent arrivals after withdrawal and URL-shaped artifact IDs cannot load bytes', async t => {
+  const { c, root, calls } = setup(t, {concepts:[]});
+  c.receive({seq:c.session.seq+1,type:'turn.withdrawn',data:{turnId:'first',at:new Date().toISOString()}});
+  conceptState(c, {phase:'ready'}, item('late')); await tick();
+  assert.equal(root.querySelectorAll('.concept-backdrop img[src],.concept-preview img[src]').length, 0);
+  assert.equal(calls.filter(call=>call.url.endsWith('/image')).length,0);
+  const second=setup(t,{concepts:[item('https://other.example/image')]});await tick();
+  assert.equal(second.calls.filter(call=>call.url.endsWith('/image')).length,0);
+});
+test('AIT-282: an old conversation response cannot paint a new conversation, even with the same artifact ID', async t => {
+  let resolve; const oldBytes = new Promise(r=>{resolve=r;});
+  const png=()=>new Response(new Uint8Array([137,80,78,71]),{headers:{'content-type':'image/png'}});
+  const {c,root:oldRoot,calls}=setup(t,{session:{id:'owner-one'},imageResponse:url=>url.includes('/owner-one/')?oldBytes:png()});
+  const session={...c.session,id:'owner-two',concepts:[item('image1')]};
+  c.configure({session,copy:en,sessionToken:'second-owner'});await tick();
+  resolve(png());await tick();
+  assert.equal(oldRoot.querySelectorAll('.concept-backdrop img[src],.concept-preview img[src]').length,0);
+  assert.equal(c.shadowRoot.querySelectorAll('.concept-backdrop img[src]').length,1);
+  assert.equal(URL.createObjectURL.mock.callCount(),1);
+  const read=calls.find(call=>call.url.includes('/owner-two/concepts/'));
+  assert.equal(new Headers(read.options.headers).get('x-aithema-session-token'),'second-owner');
 });

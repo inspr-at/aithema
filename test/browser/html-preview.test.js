@@ -311,9 +311,13 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
     // Find actual free space, then send a real pointer. A bubble/control is never
     // a candidate, and the complete hint rectangle must also be exposed.
-    const point=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,b=root.querySelector('.concept-backdrop').getBoundingClientRect();for(let y=b.top+20;y<b.bottom-20;y+=8)for(let x=b.left+20;x<b.right-20;x+=8){const target=root.elementFromPoint(x,y);if(target&&!target.closest('.turn,button,a,input,textarea,select,.concept-bottom'))return {x,y};}return null;});
+    const point=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,b=root.querySelector('.concept-backdrop').getBoundingClientRect(),hint=root.querySelector('.concept-backdrop-hint');hint.textContent=root.querySelector('.concept-preview').getAttribute('aria-label');const w=hint.offsetWidth,h=hint.offsetHeight;const free=(x,y)=>{if(x<b.left||x>b.right||y<b.top||y>b.bottom)return false;const n=root.elementFromPoint(x,y);return Boolean(n&&!n.closest('.turn,button,a,input,textarea,select,.concept-bottom'));};for(let y=b.top+20;y<b.bottom-20;y+=8)for(let x=b.left+20;x<b.right-20;x+=8){if(!free(x,y))continue;for(const [dx,dy] of [[14,18],[14,-h-12],[-w-14,18],[-w-14,-h-12]]){let fits=true;for(let yy=y+dy-8;yy<=y+dy+h+8;yy+=4)for(let xx=x+dx-8;xx<=x+dx+w+8;xx+=4)if(!free(xx,yy))fits=false;if(fits)return {x,y};}}return null;});
     if(width>600){assert.ok(point,'free backdrop space exists');await page.mouse.move(point.x,point.y);}
     await capture('hover');
+    if(width>600){
+      const hintSafe=await page.evaluate(()=>{const root=document.querySelector('aithema-session').shadowRoot,hint=root.querySelector('.concept-backdrop-hint');if(!hint.hasAttribute('data-show'))return false;const h=hint.getBoundingClientRect();return [...root.querySelectorAll('.turn,button')].every(n=>{const b=n.getBoundingClientRect();return h.right<=b.left||h.left>=b.right||h.bottom<=b.top||h.top>=b.bottom;});});
+      assert.equal(hintSafe,true,'hover hint is visible entirely on exposed space');
+    }
     if(width>600){await page.mouse.click(point.x,point.y);assert.equal(await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open),true);await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-close').click());}
     await page.mouse.move(-10,-10);
     await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('concept-b')));await capture('replace');
@@ -329,7 +333,13 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await page.waitForFunction(()=>document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]'));
     await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.receive({seq:c.session.seq+1,type:'concept.archived',data:{artifactId:'withdrawn'}});});await capture('gone');
     await page.evaluate(async locale=>{await window.seed(locale);const c=document.querySelector('aithema-session');c.session.visualsBound=false;window.state({phase:'idle'});},locale);await capture('none');
-    await page.evaluate(()=>{document.querySelector('aithema-session').setAttribute('motion','off');window.state({phase:'ready'},window.conceptItem('reduce'));});await capture('reduced-motion');
+    await page.evaluate(()=>{const c=document.querySelector('aithema-session');c.session.visualsBound=true;c.setAttribute('motion','off');window.state({phase:'pending',startedAt:Date.now(),estimateMs:40000});});
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-scene i')).animationName),'none');
+    await page.evaluate(()=>window.state({phase:'ready'},window.conceptItem('reduce')));await capture('reduced-motion');
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
+    await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
+    await page.evaluate(()=>{document.querySelector('aithema-session').removeAttribute('motion');window.state({phase:'ready'},window.conceptItem('reduce-system'));});await settle();
+    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
     assert.deepEqual(errors,[]);
   }
   assert.equal(await page.evaluate(()=>window.posts.length),0,'all reads and state fixtures are free');

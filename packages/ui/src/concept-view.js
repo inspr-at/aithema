@@ -39,7 +39,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #canvasEpoch = 0; #canvasCopy; #stageFeature;
-  #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
+  #unbound = false; #backdropId; #backdropEpoch = 0; #withdrawnUntil = 0; #withdrawnTimer; #hover = false; #phone; #placeAccess;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
   setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas(); }
   #paintCopy() {
@@ -67,7 +67,7 @@ export class ConceptView {
       <div class="concept-activity"><span class="concept-activity-text" role="status"></span><span class="drafts-reason-reserve" aria-hidden="true"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
       <button class="concept-request" type="button"></button>`;
     // The label shares one cell with both possible labels, so the thumbnail keeps its width when an image or a draft arrives.
-    root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><img alt="" aria-hidden="true" decoding="async"><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
+    root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><span class="concept-preview-thumbs"><img alt="" aria-hidden="true" decoding="async"><img alt="" aria-hidden="true" decoding="async"></span><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
     const [image, draft] = root.querySelectorAll('.concept-preview-sizer'); image.textContent = copy.conceptView; draft.textContent = copy.conceptDraftView ?? '';
     const dialog = document.createElement('dialog'); dialog.className = 'concept-viewer'; dialog.setAttribute('aria-labelledby', 'concept-title');
     dialog.innerHTML = `<header class="concept-viewer-head"><h2 id="concept-title"></h2><span class="concept-count" aria-live="polite"></span><button class="concept-close" type="button"></button></header>
@@ -160,7 +160,7 @@ export class ConceptView {
   suspend() {
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
-    this.clearBackdrop(); clearTimeout(this.#withdrawnTimer); this.#epoch++; this.#loads.clear(); clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.suspendCanvas(); this.close();
+    this.clearBackdrop(); this.clearThumbnail(); clearTimeout(this.#withdrawnTimer); this.#epoch++; this.#loads.clear(); clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.suspendCanvas(); this.close();
   }
   async endEligibility() {
     if (!this.#session || this.#session.tombstone || this.#session.processingPreset === 'device') return;
@@ -174,20 +174,28 @@ export class ConceptView {
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
   update(session) {
     const changedOwner = this.#session && this.#session.id !== session.id;
+    const wasRevoked = this.#session?.consentWithdrawn || this.#session?.tombstone;
     const previous = this.items.at(-1), wasPending = this.#session?.conceptStatus?.phase === 'pending';
     const lostSource = wasPending && this.#session.transcript.some(turn => !turn.erased && !turn.withdrawn &&
       !session.transcript.some(next => next.id === turn.id && !next.erased && !next.withdrawn));
     if (changedOwner) this.#stageFeature = undefined;
     this.#session = session;
-    const valid = new Set((session.concepts ?? []).filter(c => !c.erased && !c.archived && !c.withdrawn).map(c => c.id));
+    const valid = new Set(this.items.map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
-    if (changedOwner || previous && !valid.has(previous.id) || session.consentWithdrawn || session.tombstone || lostSource || wasPending && session.conceptStatus?.error === 'source-removed') {
+    if (changedOwner || previous && !valid.has(previous.id) || !wasRevoked && (session.consentWithdrawn || session.tombstone) || lostSource || wasPending && session.conceptStatus?.error === 'source-removed') {
       this.#epoch++; this.#loads.clear(); this.clearBackdrop();
       clearTimeout(this.#withdrawnTimer);
       this.#withdrawnUntil = changedOwner ? 0 : Date.now() + 4000;
       if (this.#withdrawnUntil) {
         this.#withdrawnTimer = setTimeout(() => { this.#withdrawnUntil = 0; this.render(); }, 4000);
         this.#withdrawnTimer.unref?.();
+      }
+    }
+    // Outgoing cross-fade layers are artifact surfaces too. Remove revoked
+    // bytes synchronously even when the current revision is still valid.
+    for (const image of this.root.querySelectorAll('.concept-backdrop img, .concept-preview img')) {
+      if (image.dataset.id && !valid.has(image.dataset.id)) {
+        image.removeAttribute('src'); image.removeAttribute('data-on'); delete image.dataset.id;
       }
     }
     for (const [id, url] of this.#urls) if (!valid.has(id)) { URL.revokeObjectURL(url); this.#urls.delete(id); }
@@ -208,7 +216,7 @@ export class ConceptView {
     const statusKey = JSON.stringify(session.conceptStatus ?? null);
     if (statusKey !== this.#statusKey) { this.#statusKey = statusKey; this.#requestError = null; }
     const latest = this.items.at(-1);
-    if (!latest) this.root.querySelector('.concept-preview img').removeAttribute('src');
+    if (!latest) this.clearThumbnail();
     this.follow(latest);
     this.render();
     if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas();
@@ -234,6 +242,7 @@ export class ConceptView {
       const value = matrix[kind], verdict = value?.reason === 'session paused' ? value.unpaused ?? value : value;
       return !verdict || !verdict.available && ['not configured', this.copy.notConfigured, 'preset not configured', 'unavailable on device'].includes(verdict.reason);
     }));
+    this.#unbound = unbound;
     this.root.querySelector('.concept-rail').hidden = unbound && !this.items.length;
     this.root.querySelector('.concept-bar').toggleAttribute('data-no-drafts', this.visualKind() !== 'image' && unbound && !this.items.length);
     this.root.querySelector('.workspace').dataset.conceptLayout = this.visualKind();
@@ -294,12 +303,13 @@ export class ConceptView {
     // The thumbnail slot keeps its size: an image, or a glyph for a draft (a live frame stays in the viewer).
     const preview = this.root.querySelector('.concept-preview');
     preview.disabled = !latest; preview.style.visibility = latest ? '' : 'hidden';
-    preview.querySelector('img').hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
+    preview.querySelector('.concept-preview-thumbs').hidden = latestDraft;
+    for (const image of preview.querySelectorAll('img')) image.hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
     preview.querySelector('.concept-preview-label').textContent = this.#phone.matches && this.visualKind() === 'image' ? this.copy.conceptPhoneReady : view; preview.setAttribute('aria-label', view);
     if (latest && !latestDraft && (this.visualKind() === 'html' || !this.backdropHidden())) void this.load(latest.id).then(url => {
-      if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() === 'html' || !this.backdropHidden())) preview.querySelector('img').src = url;
+      if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() === 'html' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
     });
-    else preview.querySelector('img').removeAttribute('src');
+    else this.clearThumbnail();
     this.paintBackdrop();
     this.gates();
     if (!this.dialog.open) return;
@@ -397,7 +407,7 @@ export class ConceptView {
     } catch { /* Storage is optional, including reads in private mode. */ }
   }
   backdropHidden() {
-    return this.visualKind() !== 'image' || this.#session?.visualsBound === false || this.#withdrawnUntil > Date.now() ||
+    return this.visualKind() !== 'image' || this.#unbound || this.#withdrawnUntil > Date.now() ||
       ['pending', 'failed'].includes(this.#session?.conceptStatus?.phase) || Boolean(this.#requestError) || !this.items.at(-1);
   }
   paintBackdropState(unbound) {
@@ -420,7 +430,22 @@ export class ConceptView {
     const preview = this.root.querySelector('.concept-preview');
     preview.querySelector('.concept-preview-label').textContent = this.#phone.matches && this.visualKind() === 'image'
       ? this.copy.conceptPhoneReady : conceptKind(this.items.at(-1)) === 'html' ? this.copy.conceptDraftView : this.copy.conceptView;
-    if (this.backdropHidden()) { this.clearBackdrop(); preview.querySelector('img').removeAttribute('src'); }
+    if (this.backdropHidden()) { this.clearBackdrop(); if (this.visualKind() === 'image') this.clearThumbnail(); }
+  }
+  clearThumbnail() {
+    for (const image of this.root.querySelectorAll('.concept-preview img')) {
+      image.removeAttribute('src'); image.removeAttribute('data-on'); delete image.dataset.id;
+    }
+  }
+  paintThumbnail(id, url) {
+    const thumbs = this.root.querySelector('.concept-preview-thumbs'), images = [...thumbs.querySelectorAll('img')];
+    const previous = images.find(image => image.hasAttribute('data-on'));
+    if (previous?.dataset.id === id) return;
+    const next = images.find(image => image !== previous); next.src = url; next.dataset.id = id;
+    void next.offsetWidth;
+    previous?.removeAttribute('data-on'); next.setAttribute('data-on', '');
+    // The first img remains the current thumbnail for existing host/test queries.
+    thumbs.prepend(next);
   }
   clearBackdrop() {
     this.#backdropEpoch++; this.#backdropId = undefined;
@@ -545,7 +570,7 @@ export class ConceptView {
   }
   /** An image's object URL, or a draft's bytes: fetched as data from the owner route, never navigated to. */
   async load(id) {
-    if (!this.items.some(item => item.id === id)) return null;
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(id) || !this.items.some(item => item.id === id)) return null;
     if (this.#urls.has(id)) return this.#urls.get(id);
     if (this.#drafts.has(id)) return this.#drafts.get(id);
     if (this.#loads.has(id)) return this.#loads.get(id);
