@@ -255,11 +255,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   pluginRuntime.conversationLimits.configure({ publish: broadcast, now: voice?.now ?? host?.now,
     durationMs: host?.credits?.durationMs });
   async function eraseConversation(id, guard, ownerToken) {
-    const event = storage.erase(id, guard);
-    if (!event) return null;
-    await invalidate(id, event, 'session-erased');
-    if (!guard.retire) await host?.erased?.({ sessionId: id, ownerToken });
-    return event;
+    const release = guard.retire ? null : storage.holdErasedRetirement(id);
+    try {
+      const event = storage.erase(id, guard);
+      if (!event) return null;
+      await invalidate(id, event, 'session-erased');
+      if (!guard.retire) await host?.erased?.({ sessionId: id, ownerToken });
+      return event;
+    } finally { release?.(); }
   }
   async function consentDocument(session) {
     const document = validateConsentDocument(await consent.describe(session.id));
@@ -668,13 +671,22 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   const retiring = new Set();
   async function retainedHandle(request, context) {
-    const match = /^\/api\/(?:sessions|library)\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
+    const path = new URL(request.url).pathname;
+    const match = /^\/api\/(?:sessions|library)\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(path);
+    const erasureReleases = [];
     let release;
     if (match) {
-      try { storage.authorize(match[1], ownership.token(request)); storage.touch(match[1]); release = storage.hold(match[1]); }
-      catch (error) { if (!(error instanceof NotFoundError)) throw error; }
+      try {
+        storage.authorize(match[1], ownership.token(request)); storage.touch(match[1]); release = storage.hold(match[1]);
+        // A library port may perform more host cleanup after its erase callback.
+        if (request.method === 'POST' && /\/(erase|delete|reset)$/u.test(path)) erasureReleases.push(storage.holdErasedRetirement(match[1]));
+      } catch (error) { if (!(error instanceof NotFoundError)) throw error; }
+    } else if (request.method === 'POST' && path === '/api/visitor/erase') {
+      const ownerToken = ownership.token(request);
+      if (ownerToken) for (const id of storage.ownedIds(ownerToken)) erasureReleases.push(storage.holdErasedRetirement(id));
     }
-    try { return await handle(request, context); } finally { release?.(); }
+    try { return await handle(request, context); }
+    finally { for (const finish of erasureReleases) finish(); release?.(); }
   }
   return { handle: retainedHandle,
     buildVoiceReplyRequest: (session, messages, call) => buildVoiceReplyRequest({ session, messages, call, hostPrompt, purposePolicy,
@@ -712,6 +724,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     async retire({ before, limit = 100 } = {}) {
       if (!Number.isSafeInteger(before) || before < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new TypeError('Invalid retention request');
+      storage.queueErasedRetirements(limit);
       const pending = storage.pendingRetirements(limit);
       const candidates = [...pending, ...storage.retirementCandidates(before, limit - pending.length)];
       let retired = 0, failed = 0;
@@ -726,6 +739,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
+          storage.assertRetirementSettled(id);
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;
@@ -746,7 +760,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         } finally { retiring.delete(id); }
       }
       storage.checkpointErasure();
-      return { retired, failed, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 };
+      return { retired, failed, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 || storage.hasErasedRetirementBacklog() };
     },
     /** Privileged in-process operator port. The public HTTP erase keeps its cancellation semantics. */
     async eraseSession({ sessionId, visitor = false }) {
@@ -771,19 +785,24 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       // Retry host cleanup for tombstones too: a previous call may have failed
       // after the durable erase but before the host acknowledged its cleanup.
-      const live = new Set(ids);
-      await Promise.all(scope.map(async id => {
-        if (live.has(id)) return eraseConversation(id, {});
-        // storage.erase commits before truncating the WAL. If that checkpoint
-        // failed, retry it and the event/cancellation cascade before acknowledging.
-        storage.checkpointErasure();
-        const event = storage.read(id).findLast(event => event.type === 'session.erased');
-        await invalidate(id, event, 'session-erased');
-        await host?.erased?.({ sessionId: id });
-      }));
-      if (visitor) host.eraseVisitorForOwnerHash(session.ownerHash);
-      return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
-        erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
+      const releases = scope.map(id => storage.holdErasedRetirement(id));
+      try {
+        const live = new Set(ids);
+        const cleanups = await Promise.allSettled(scope.map(async id => {
+          if (live.has(id)) return eraseConversation(id, {});
+          // storage.erase commits before truncating the WAL. If that checkpoint
+          // failed, retry it and the event/cancellation cascade before acknowledging.
+          storage.checkpointErasure();
+          const event = storage.read(id).findLast(event => event.type === 'session.erased');
+          await invalidate(id, event, 'session-erased');
+          await host?.erased?.({ sessionId: id });
+        }));
+        const failure = cleanups.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
+        if (visitor) await host.eraseVisitorForOwnerHash(session.ownerHash);
+        return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
+          erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
+      } finally { for (const release of releases) release(); }
     },
     async reconcileUncertain({ apply = false, limit = 10 } = {}) {
       if (typeof apply !== 'boolean' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair request');

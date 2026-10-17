@@ -461,6 +461,45 @@ test('library CRUD searches literal text, pages, copies locale and preset on res
   assert.equal((await (await f.call('/api/library')).json()).total, 1);
 });
 
+test('AIT-295: library delete completes host erase before retirement', async t => {
+  const f = fixture(t), session = await (await f.call('/api/library', { title: 'Ordered cleanup' })).json();
+  const entered = deferred(), finish = deferred(), order = [];
+  const erased = f.host.erased.bind(f.host), retired = f.host.retired.bind(f.host);
+  let eraseCalls = 0;
+  t.mock.method(f.host, 'erased', async info => {
+    // The demo library calls erased again after its core erase callback.
+    // Hold that second call; retired also replays erased idempotently.
+    if (++eraseCalls !== 2) return erased(info);
+    order.push('erase started'); entered.resolve(); await finish.promise;
+    await erased(info); order.push('erase finished');
+  });
+  t.mock.method(f.host, 'retired', async info => { order.push('retired'); await retired(info); });
+  const deleting = f.call(`/api/library/${session.id}/delete`, {});
+  try {
+    await entered.promise;
+    assert.deepEqual(f.storage.pendingRetirements(10), []);
+    assert.deepEqual(await f.handlers.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
+    assert.deepEqual(order, ['erase started']);
+  } finally { finish.resolve(); }
+  assert.equal((await deleting).status, 200);
+  assert.deepEqual(await f.handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.deepEqual(order, ['erase started', 'erase finished', 'retired']);
+});
+
+test('AIT-295: library delete is fully retired by a sweep past 24h', async t => {
+  const f = fixture(t), session = await (await f.call('/api/library', { title: 'Delete completely' })).json();
+  f.storage.postTurn(session.id, 'private', Buffer.from('private'), 'private conversation');
+  assert.equal((await f.call(`/api/library/${session.id}/delete`, {})).status, 200);
+  const day = 24 * 60 * 60 * 1000, sweepAt = Date.now() + day + 1;
+  assert.deepEqual(await f.handlers.retire({ before: sweepAt - day }), { retired: 1, failed: 0, more: false });
+  assert.throws(() => f.storage.get(session.id), /not found/i);
+  for (const { name } of f.storage.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()) {
+    if (f.storage.db.prepare(`PRAGMA table_info("${name}")`).all().some(column => column.name === 'session_id')) {
+      assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM "${name}" WHERE session_id=?`).get(session.id).n, 0, name);
+    }
+  }
+});
+
 test('library deletion acknowledges only after cancellation; host port erasure failures remain retryable', async t => {
   const f = fixture(t), entry = await (await f.call('/api/library', { title: 'Keep until erased' })).json();
   const erased = f.storage.erase.bind(f.storage); let failures = 1;
