@@ -30,7 +30,7 @@ export async function auditMainSurfaces(t, evidence) {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
   const browser = await browserForFile({ args: evidenceBrowserArgs }), page = await browser.newPage();
-  const errors = [], runs = [], shots = [], manual = [];
+  const errors = [], runs = [], narrowConsentRuns = [], draftFrames = [], shots = [], manual = [];
   page.on('pageerror', error => errors.push(error.message));
   await mkdir(evidence, { recursive: true });
   const axePath = createRequire(import.meta.url).resolve('axe-core/axe.min.js');
@@ -109,17 +109,18 @@ export async function auditMainSurfaces(t, evidence) {
     }, { locale, theme, state, role, labels });
     await settle(page);
   };
-  const audit = async (surface, state, locale, theme, width, shot = false) => {
+  const scan = context => context.evaluate(async tags => {
+    const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: tags } });
+    const shape = rule => ({ id: rule.id, impact: rule.impact, count: rule.nodes.length, help: rule.help, helpUrl: rule.helpUrl,
+      nodes: rule.nodes.map(n => ({ target: n.target, html: n.html, impact: n.impact, summary: n.failureSummary,
+        checks: [...n.any, ...n.all, ...n.none].map(c => ({ id: c.id, data: c.data, message: c.message })) })) });
+    return { axe: result.testEngine.version, violations: result.violations.map(shape), incomplete: result.incomplete.map(shape), passes: result.passes.map(r => r.id) };
+  }, tags);
+  const audit = async (surface, state, locale, theme, width, shot = false, collection = runs) => {
     const focused = await page.evaluateHandle(() => document.querySelector('aithema-session')?.shadowRoot.activeElement ?? document.activeElement);
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); }).catch(() => {});
     await page.mouse.move(-1, -1); await settle(page);
-    const result = await page.evaluate(async tags => {
-      const result = await axe.run(document, { runOnly: { type: 'tag', values: tags } });
-      const shape = rule => ({ id: rule.id, impact: rule.impact, count: rule.nodes.length, help: rule.help, helpUrl: rule.helpUrl,
-        nodes: rule.nodes.map(n => ({ target: n.target, html: n.html, impact: n.impact, summary: n.failureSummary,
-          checks: [...n.any, ...n.all, ...n.none].map(c => ({ id: c.id, data: c.data, message: c.message })) })) });
-      return { axe: result.testEngine.version, violations: result.violations.map(shape), incomplete: result.incomplete.map(shape), passes: result.passes.map(r => r.id) };
-    }, tags);
+    const result = await scan(page);
     const geometry = await page.evaluate(() => {
       const root = document.querySelector('aithema-session')?.shadowRoot ?? document;
       return Object.fromEntries(['.band', '.conversation', '.composer-shell', '.send', '.understanding', '.display-foot', '.concept-access', 'dialog[open]'].map(selector => {
@@ -132,7 +133,7 @@ export async function auditMainSurfaces(t, evidence) {
         itemStates: [...r.querySelectorAll('.open-question')].map(n => n.dataset.state), openDialogs: [...r.querySelectorAll('dialog[open]')].map(n => n.className),
         conceptItems: document.querySelector('aithema-session').session.concepts?.length } : { route: location.pathname };
     });
-    runs.push({ surface, state, locale, theme, width, height: width === 390 ? 844 : 1000, geometry, scene, ...result });
+    collection.push({ surface, state, locale, theme, width, height: width <= 390 ? 844 : 1000, geometry, scene, ...result });
     // No visible product change in AIT-293. Enable only the affected surfaces if
     // a future fix changes their paint; evidence must not collect unrelated PNGs.
     const visibleChanges = [];
@@ -141,10 +142,38 @@ export async function auditMainSurfaces(t, evidence) {
       await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
     }
     // Flush after every scene so partial evidence survives a remote interruption.
-    await writeFile(join(evidence, 'a11y-audit.json'), JSON.stringify({ head: evidenceCommit, productBase: base, tags, scope: 'whole document including open shadow roots; counts are node observations per scene', runs }, null, 2));
+    await writeFile(join(evidence, 'a11y-audit.json'), JSON.stringify({ head: evidenceCommit, productBase: base, tags, scope: 'shell including open shadow roots; sandboxed draft documents scanned separately; counts are node observations per scene', runs, narrowConsentRuns, draftFrames }, null, 2));
     // Capture with blurred controls, then continue the visitor's keyboard path.
     await focused.evaluate(n => { if (n?.isConnected) n.focus?.({ preventScroll: true }); });
     await focused.dispose();
+  };
+  const consentName = async (locale, narrow = false) => {
+    const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
+    const expected = await page.evaluate(async ({ locale, narrow }) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      return `${copy.featureConsent[narrow ? 'actionNarrow' : 'action']}: ${copy.featureConsent.textActionReason}`;
+    }, { locale, narrow });
+    const name = (await page.accessibility.snapshot({ root: opener })).name;
+    assert.equal(name, expected, 'responsive consent button keeps its complete label-first name');
+    await opener.dispose();
+    return name;
+  };
+  const auditDraftFrame = async (locale, theme, width) => {
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer aithema-html-preview')?.state === 'ready');
+    const element = await page.$('aithema-session >>> .concept-viewer aithema-html-preview >>> iframe');
+    const frame = await element.contentFrame();
+    assert.ok(frame, 'the representative draft has a live browsing context');
+    await frame.waitForFunction(() => document.readyState === 'complete' && document.querySelector('button')?.textContent === 'Approve invoice');
+    // DevTools can enter the opaque sandbox. Keep its sandbox and CSP unchanged;
+    // injection and the independent document scan exist only in evidence mode.
+    await frame.addScriptTag({ path: axePath });
+    const result = await scan(frame);
+    const counts = Object.fromEntries(['critical', 'serious', 'moderate', 'minor'].map(impact =>
+      [impact, result.violations.filter(rule => rule.impact === impact).reduce((sum, rule) => sum + rule.count, 0)]));
+    draftFrames.push({ surface: 'concept', state: 'draft-document', locale, theme, width,
+      ownership: 'local representative generated content; report only, not a certification of arbitrary drafts', counts, ...result });
+    console.log(`AIT-293 draft iframe ${locale}/${theme}/${width}: ${JSON.stringify(counts)}`);
+    await element.dispose();
   };
   try {
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
@@ -164,13 +193,7 @@ export async function auditMainSurfaces(t, evidence) {
         await configure(locale, theme, state);
         await audit('conversation', state, locale, theme, width, true);
         if (state === 'consent') {
-          const opener = await page.$('aithema-session >>> .composer-reason .consent-action');
-          const expected = await page.evaluate(async locale => {
-            const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-            return `${copy.featureConsent.action}: ${copy.featureConsent.textActionReason}`;
-          }, locale);
-          assert.equal((await page.accessibility.snapshot({ root: opener })).name, expected, 'responsive consent button keeps its complete label-first name');
-          await opener.dispose();
+          await consentName(locale);
         }
       }
       await configure(locale, theme, 'live-voice');
@@ -245,9 +268,18 @@ export async function auditMainSurfaces(t, evidence) {
       await audit('concept', 'draft-access', locale, theme, width);
       await shadow(page, c => { const n = c.shadowRoot.querySelector('.concept-preview'); n.focus(); n.click(); });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
+      await auditDraftFrame(locale, theme, width);
       await audit('concept', 'draft-viewer', locale, theme, width);
       await page.keyboard.press('Escape');
       manual.push({ locale, theme, width, dialogsClosedByEscape: true, consentFocusReturned: true, actorFocusReturned: true, conceptFocusReturned: true, ariaControls: controls });
+    }
+    // Exercise the <=340px label branch without repeating the whole matrix.
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) {
+      await page.setViewport({ width: 320, height: 844 });
+      await configure(locale, theme, 'consent');
+      await audit('conversation', 'consent-narrow', locale, theme, 320, false, narrowConsentRuns);
+      narrowConsentRuns.at(-1).accessibleName = await consentName(locale, true);
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.consent-action .consent-narrow')).display), 'inline', '320px exposes the narrow consent label');
     }
     // The consent page is a host route; use the same browser/page and local server.
     const session = await shadow(page, c => structuredClone(c.session));
@@ -275,7 +307,12 @@ export async function auditMainSurfaces(t, evidence) {
     }
     assert.deepEqual(errors, []);
     assert.equal(runs.length, 264, 'all eight surfaces, image/draft and voice variants retain the full evidence matrix');
-    const passLines = [`PASS: ${runs.length} WCAG 2.2 AA evidence scenes, DE/EN, 1440/390, light/dark; no provider calls`, 'PASS: evidence only; CI never imports or runs axe; viewport shots, reduced motion, pinned component fonts, blurred controls'];
+    assert.equal(draftFrames.length, 8, 'all draft-viewer scenes scan the sandboxed document');
+    assert.equal(narrowConsentRuns.length, 4, '320px consent names checked in DE/EN and light/dark');
+    // Persist accessible names added after the final narrow scene scan.
+    await writeFile(join(evidence, 'a11y-audit.json'), JSON.stringify({ head: evidenceCommit, productBase: base, tags,
+      scope: 'shell including open shadow roots; sandboxed draft documents scanned separately; counts are node observations per scene', runs, narrowConsentRuns, draftFrames }, null, 2));
+    const passLines = [`PASS: ${runs.length} WCAG 2.2 AA shell scenes plus ${narrowConsentRuns.length} narrow consent scenes and ${draftFrames.length} independent draft iframe scans, DE/EN, light/dark; no provider calls`, 'PASS: evidence only; CI never imports or runs axe; viewport shots, reduced motion, pinned component fonts, blurred controls'];
     await writeFile(join(evidence, 'a11y-checks.json'), JSON.stringify({ head: evidenceCommit, tags, passLines, shots, manual }, null, 2));
     for (const line of passLines) console.log(`AIT-293 ${line}`);
   } finally { await browser.close(); await demo.kill(); }
