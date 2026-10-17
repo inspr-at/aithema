@@ -16,7 +16,7 @@
   "engines": {
     "node": ">=24"
   },
-  "version": "261015164601.0.0",
+  "version": "261017073156.0.0",
   "license": "AGPL-3.0-only",
   "files": [
     "src/"
@@ -27,6 +27,6 @@
     "directory": "packages/ui"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261015164601.0.0"
+    "@inspr/aithema-core": "261017073156.0.0"
   }
 }

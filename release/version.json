@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261015164601.0.0",
+  "version": "261017073156.0.0",
   "release_channel": "stable",
-  "release_sequence": 12,
+  "release_sequence": 13,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "candidate; Markus AIT-105 2026-10-15; no publish go"
+  "reservation_purpose": "AIT-278 candidate preparation; Markus's Desk 74ae723c (2026-10-17): prepare, then OPS publishes after Tick's consolidated QA under Markus's Desk go"
 }
