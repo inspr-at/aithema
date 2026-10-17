@@ -40,7 +40,8 @@ test('AIT-281: arrows move focus only; Space and Enter confirm, including the in
     assert.ok(radios.every(r => r.value === 'company' ? !r.disabled : r.disabled));
     f.pending.resolve({ ok: true, body: { roleChoice: { ...initial, source: 'chosen', revision: 5 } } }); await tick();
     assert.equal(f.actor.popover.hidden, true); assert.equal(f.root.activeElement, f.root.querySelector('.actor-trigger'));
-    assert.equal(f.root.querySelector('.actor-spark').hidden, true);
+    assert.equal(f.root.querySelector('.actor-trigger .actor-spark').hidden, true);
+    assert.ok([...f.root.querySelectorAll('.actor-reservation .actor-spark')].every(marker => !marker.hidden), 'every reservation keeps its marker width');
   }
 });
 
@@ -93,6 +94,8 @@ test('AIT-281: phone has only the role sheet, no account, and keeps the saved ac
   const f = fixture(t); const media = window.matchMedia; window.matchMedia = () => ({ matches: true }); t.after(() => { window.matchMedia = media; });
   assert.equal(f.actor.openSheet(f.root.querySelector('.gear')), true); await tick();
   assert.equal(f.actor.sheet.querySelector('[name=account]'), null);
+  assert.equal(f.actor.sheet.getAttribute('aria-labelledby'), 'actor-sheet-title');
+  assert.equal(f.actor.sheet.querySelector('#actor-sheet-title').textContent, en.settings.title);
   assert.equal(f.actor.popover.hidden, true);
   const saving = f.actor.choose('agency'); f.pending.resolve({ ok: true, body: { roleChoice: { ...initial, role: 'agency', source: 'chosen', revision: 5 } } }); await saving;
   assert.equal(f.actor.sheet.open, true); assert.equal(f.actor.sheet.querySelector('.actor-status').textContent, '✓ '+en.actorRole.saved);
@@ -117,4 +120,16 @@ test('AIT-281: account content is exclusively the host slot and returns on capab
   assert.equal(f.actor.sheet.querySelector('slot[name=account]'), null);
   f.actor.set({ ...initial, available: false });
   assert.equal(f.root.querySelector('slot[name=account]').parentNode.className, 'host-account');
+});
+
+
+test('AIT-281: clicking the checked inferred radio makes a durable choice', async t => {
+  const f = fixture(t); f.actor.open(); await tick();
+  f.actor.popover.querySelector('input[value=company]').click();
+  assert.equal(f.calls.at(-1).body.role, 'company');
+  assert.equal(f.actor.element.dataset.phase, 'saving');
+  f.pending.resolve({ ok: true, body: { roleChoice: { ...initial, source: 'chosen', revision: 5 } } }); await tick();
+  assert.equal(f.root.querySelector('.actor-trigger .actor-spark').hidden, true);
+    assert.ok([...f.root.querySelectorAll('.actor-reservation .actor-spark')].every(marker => !marker.hidden), 'every reservation keeps its marker width');
+  assert.equal(f.actor.popover.hidden, true);
 });

@@ -327,7 +327,7 @@ test('AIT-281: a chosen actor wins over new inference and clears on withdrawal, 
   assert.deepEqual(session.actor, { type: 'agency', evidence: 'selected', reasoning: null });
   session = applyEvent(session, { type: 'understanding.updated', data: { actor: { type: 'company', evidence: 'inferred', reasoning: 'fixture' } }, seq: 2 });
   assert.equal(session.actor.type, 'agency');
-  for (const [type, data] of [['turn.withdrawn', { turnId: 'fixture' }], ['session.erased', {}], ['consent.revised', { granted: false }]]) {
+  for (const [type, data] of [['turn.withdrawn', { turnId: 'fixture' }], ['upload.state', { id: 'fixture-document', state: 'withdrawn' }], ['session.erased', {}], ['consent.revised', { granted: false }]]) {
     const cleared = applyEvent(session, { type, data, seq: 3 });
     assert.equal(cleared.actor, null, type);
     assert.notEqual(cleared.identity?.role, 'agency', type);

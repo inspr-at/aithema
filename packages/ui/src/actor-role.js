@@ -20,7 +20,9 @@ export class ActorRole {
     this.element.innerHTML = '<span class="actor-reservation" aria-hidden="true"></span><button class="actor-trigger" type="button" aria-expanded="false" aria-controls="actor-popover" hidden><span class="actor-trigger-text"><span class="actor-key"></span><span class="actor-value"></span></span><span class="actor-spark">'+sparkle+'</span>'+chevron+'</button><div class="actor-popover actor-surface" id="actor-popover" hidden></div>';
     root.querySelector('.footer-left').append(this.element);
     this.sheet = node('dialog', 'actor-sheet');
-    this.sheet.innerHTML = '<header><h2></h2><button type="button" class="actor-close" aria-label="'+copy.actorRole.close+'">×</button></header><section class="actor-sheet-section actor-surface"></section><section class="actor-processing"><h3></h3><button type="button"></button></section>';
+    this.sheet.setAttribute('aria-labelledby', 'actor-sheet-title');
+    this.sheet.setAttribute('aria-modal', 'true');
+    this.sheet.innerHTML = '<header><h2 id="actor-sheet-title"></h2><button type="button" class="actor-close" aria-label="">×</button></header><section class="actor-sheet-section actor-surface"></section><section class="actor-processing"><h3></h3><button type="button"></button></section>';
     root.append(this.sheet);
     for (const [index, surface] of this.#surfaces().entries()) {
       surface.innerHTML = (index ? '<h3 class="actor-title"></h3>' : '<div class="actor-account" hidden></div>') +
@@ -159,9 +161,10 @@ export class ActorRole {
     this.element.toggleAttribute('data-unavailable', !this.available);
     if (!this.available) { this.close(); if (this.sheet.open) this.closeSheet(); }
     const c = this.#copy.actorRole, labels = this.#labels();
+    setText(this.sheet.querySelector('.actor-processing button'), this.#copy.presets[this.#session().processingPreset] ?? this.#copy.settings.open);
     setText(this.element.querySelector('.actor-key'), c.label+': ');
     setText(this.element.querySelector('.actor-trigger .actor-value'), labels?.[this.#view?.role] ?? '');
-    const spark = this.element.querySelector('.actor-spark'); spark.hidden = this.#view?.source !== 'inferred'; spark.setAttribute('aria-label', c.inferred); spark.setAttribute('role', 'img');
+    const spark = this.element.querySelector('.actor-trigger .actor-spark'); spark.hidden = this.#view?.source !== 'inferred'; spark.setAttribute('aria-label', c.inferred); spark.setAttribute('role', 'img');
     for (const surface of this.#surfaces()) {
       surface.dataset.phase = this.#phase;
       const inferred = this.#view?.source === 'inferred'; surface.querySelector('.actor-why').dataset.kind = inferred ? 'inferred' : 'chosen';

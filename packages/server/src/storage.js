@@ -583,7 +583,7 @@ export class SQLiteStorage {
         : old.understanding;
     }
     // Selected actor reasoning is content too; inferred actor lives with understanding.
-    if (session.actor?.evidence === 'selected' && !session.identity?.role) {
+    if (session.actor?.evidence === 'selected' && (!session.identity?.role || session.identity.roleWithdrawalRevision === undefined)) {
       const old = JSON.parse(this.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(session.id).snapshot);
       if (old.actor?.contentRef) metadata.actor = old.actor;
       else {

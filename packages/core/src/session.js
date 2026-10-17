@@ -70,6 +70,7 @@ export function applyEvent(session, event) {
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
     if (upload.state === 'withdrawn') {
       next.withdrawalRevision += 1; next.sessionRevision += 1;
+      if (next.identity) next.identity = { ...next.identity, role: null };
       next.transcript = next.transcript.map(t => t.role === 'assistant'
         ? { ...erasedTurn(t), erased: true, withdrawn: true } : t);
       // Document-derived summaries can feed any concept. Revocation clears every
