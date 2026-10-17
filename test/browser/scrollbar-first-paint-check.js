@@ -37,6 +37,9 @@ export async function scrollbarFirstPaintCheck(t) {
   await page.goto(`${demo.url}/ait276`, { waitUntil: 'domcontentloaded' });
   // One page and one local session; no host bootstrap, voice startup or provider dispatch.
   await page.evaluate(async () => {
+    // Pin elapsed connection copy; the fit measurement below still spans a
+    // full animation frame, after the initial network status has settled.
+    const footerNow = Date.now(); Date.now = () => footerNow;
     window.scrollbarSession = await fetch('/api/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locale: 'de' }) }).then(r => r.json());
     window.bandGeometry = () => {
       const c = document.querySelector('aithema-session'), mounted = c.hasAttribute('data-aithema-mounted');
@@ -94,23 +97,23 @@ export async function scrollbarFirstPaintCheck(t) {
       await import('/packages/ui/src/session-element.js');
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const session = structuredClone(window.scrollbarSession); session.locale = locale;
+      window.scrollbarConnected = copy.connected;
       document.querySelector('aithema-session').configure({ copy, session, voiceClient: {}, host: { library: true } });
     }, locale);
-    await page.waitForFunction(() => document.querySelector('aithema-session').hasAttribute('data-aithema-mounted'));
+    await page.waitForFunction(() => document.querySelector('aithema-session').hasAttribute('data-aithema-mounted')
+      && document.querySelector('aithema-session').shadowRoot.querySelector('.status__label').textContent === window.scrollbarConnected);
     await settleEvidenceFrame(page);
     const mounted = await page.evaluate(() => { cancelAnimationFrame(window.scrollbarFrame); return { ...window.bandGeometry(), frames: window.scrollbarFrames }; });
     if (capture) await page.screenshot({ path: join(evidence, `${name}-mounted.png`), fullPage: false, captureBeyondViewport: false });
     assert.equal(mounted.intersection, 0, `${name}: mounted rail/actions box intersection is 0`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
     if (scene.status294) {
-      const scrollFits = await page.evaluate(() => {
+      const scrollFits = await page.evaluate(async () => {
         const footer = document.querySelector('aithema-session').shadowRoot.querySelector('.display-foot');
         const changes = []; const observer = new MutationObserver(records => changes.push(...records));
         observer.observe(footer, { attributes:true, attributeFilter:['data-fit'] });
         for (let i = 0; i < 5; i++) visualViewport.dispatchEvent(new Event('scroll'));
-        // Dispatch is synchronous. Read only the mutations owned by these
-        // scrolls, before a connection response or timer tick can mutate copy.
-        changes.push(...observer.takeRecords()); observer.disconnect();
+        await new Promise(resolve => requestAnimationFrame(resolve)); observer.disconnect();
         return changes.length;
       });
       assert.equal(scrollFits, 0, `${name}: visual viewport scrolling does not refit the footer`);

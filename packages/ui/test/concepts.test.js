@@ -52,8 +52,14 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
     else event = { seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'waiting' } } };
     return Response.json({ event });
   });
-  c.configure({ copy, session, sessionToken, baseUrl }); document.body.append(c);
-  t.after(async () => { if (document.activeElement === c) blurFixtureFocus(); c.remove(); await tick(); });
+  c.configure({ copy, session, sessionToken, baseUrl });
+  t.after(async () => {
+    blurFixtureFocus();
+    // Most concept tests deliberately render without the session SSE transport.
+    // Native remove() has no lifecycle callback for an unattached fixture.
+    if (c.isConnected) c.remove(); else c.disconnectedCallback();
+    await tick();
+  });
   return { c, root: c.shadowRoot, calls, downloads, revoked };
 }
 test('viewer opens cached bytes without spending and has accessible title, count, keyboard navigation and disclosure', async t => {
@@ -124,7 +130,7 @@ test('AIT-298: reject withdrawal timer is cancelled when its fixture disconnects
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   const timeouts = t.mock.method(globalThis, 'setTimeout');
   const clears = t.mock.method(globalThis, 'clearTimeout');
-  const { c, root } = setup(t);
+  const { c, root } = setup(t); document.body.append(c);
   root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-reject').click(); await tick();
   const withdrawal = timeouts.mock.calls.find(call => call.arguments[1] === 4000);
@@ -135,7 +141,7 @@ test('AIT-298: reject withdrawal timer is cancelled when its fixture disconnects
 test('AIT-298: a reject response after disconnect cannot restart the withdrawal timer', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   const timeouts = t.mock.method(globalThis, 'setTimeout'), reply = Promise.withResolvers();
-  const { c, root } = setup(t, { postResponse: () => reply.promise });
+  const { c, root } = setup(t, { postResponse: () => reply.promise }); document.body.append(c);
   t.after(() => reply.resolve(Response.json({})));
   root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-reject').click(); await tick();
