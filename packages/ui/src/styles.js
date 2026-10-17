@@ -448,7 +448,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   scroll-padding-block:28px 44px;
   display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
 /* Completed/draft labels keep their live status without a row or grid gap. */
-.analysis-content:has(> .notice[data-assessment]) { padding-top:1rem; }
+.analysis-content:has(> .notice[data-assessment]) { padding-top:calc(1rem + var(--aithema-slack-top,0px)); }
 .notice[data-assessment] { position:absolute; width:1px; height:1px; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .notice[data-current] .notice-text { visibility:hidden; }
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
