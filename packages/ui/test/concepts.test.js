@@ -400,6 +400,8 @@ test('AIT-282 round 3: phone access stays inert behind the email ask through sta
   t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
   const { c, root, calls } = setup(t, { session: { visualsBound: true, conceptCost: { maxMicro: 30000 } } });
   document.body.append(c);
+  // Happy DOM initializes change listeners to false even when the query matches.
+  window.dispatchEvent(new window.Event('resize'));
   const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
   assert.ok(access.closest('.composer-dock'), 'the real access row is mounted in the phone dock');
   const email = { canCollect: true, address: '', numbers: {}, paintNotice() {} };
