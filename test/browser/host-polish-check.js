@@ -102,13 +102,14 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     await settle();
   };
   // CI keeps its single light functional matrix. A second theme and PNGs are remote evidence only.
-  for (const theme of themes) {
+  // Keep native mouse emulation first: disabling touch resets hover on Linux.
+  for (const touch of [false, true]) for (const theme of themes) {
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
-    for (const touch of [false, true]) for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) {
+    for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) {
       const label = `${locale}-${width}x${height}-${touch ? 'touch' : 'mouse'}-${theme}`, copy = { de, en }[locale];
       // Match pause-phone's native desktop fixture: Puppeteer's viewport helper resets hover on Linux.
       await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
-      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: 1 });
+      if (touch) await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
       await configure(locale, 'entrance');
       if (evidence) assert.equal(await shadow(page, c => getComputedStyle(c).colorScheme), theme);
       const disabled = await shadow(page, c => ['eu', 'custom'].map(preset => {
@@ -195,15 +196,17 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
       await shot(label, theme, 'visuals-on');
       checks.push({ label, theme, pass: true, clearance, saved, expiryChecked, shiftPx: 0, visualsOffOn: true, platformKeys: ['MacIntel', 'Win32'], keyboardSkip: ['entrance', 'settings'] });
     }
-    // Height-only changes use the same page and do not add screenshot or server cost.
-    for (const height of [600, 720, 900]) {
-      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height, deviceScaleFactor: 1, mobile: false }); await configure('de', 'entrance');
-      assert.equal(await page.evaluate(() => scrollY), 0);
-      await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); await settle();
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').getBoundingClientRect().bottom <= c.shadowRoot.querySelector('.display-foot').getBoundingClientRect().top), true);
-      checks.push({ label: `de-1280x${height}-${theme}`, theme, pass: true, footerClear: true });
+    if (touch) {
+      // Height-only changes use the same page and do not add screenshot or server cost.
+      for (const height of [600, 720, 900]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height, deviceScaleFactor: 1, mobile: false }); await configure('de', 'entrance');
+        assert.equal(await page.evaluate(() => scrollY), 0);
+        await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); await settle();
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').getBoundingClientRect().bottom <= c.shadowRoot.querySelector('.display-foot').getBoundingClientRect().top), true);
+        checks.push({ label: `de-1280x${height}-${theme}`, theme, pass: true, footerClear: true });
+      }
+      passLines.push(`AIT-266 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights; ${evidence ? 60 : 0} viewport captures.`);
     }
-    passLines.push(`AIT-266 PASS: ${theme}; 12 locale/viewport/pointer cases; 3 footer heights; ${evidence ? 60 : 0} viewport captures.`);
   }
   assert.deepEqual(problems, []); assert.equal(checks.length, 15 * themes.length);
   if (evidence) assert.equal(shots.length, 60 * themes.length);
