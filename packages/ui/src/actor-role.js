@@ -164,19 +164,22 @@ export class ActorRole {
     const c = this.#copy.actorRole, labels = this.#labels();
     setText(this.sheet.querySelector('.actor-processing button'), this.#copy.presets[this.#session().processingPreset] ?? this.#copy.settings.open);
     setText(this.element.querySelector('.actor-key'), c.label+': ');
-    setText(this.element.querySelector('.actor-trigger .actor-value'), labels?.[this.#view?.role] ?? '');
-    const spark = this.element.querySelector('.actor-trigger .actor-spark'); spark.hidden = this.#view?.source !== 'inferred'; spark.setAttribute('aria-label', c.inferred); spark.setAttribute('role', 'img');
+    const unset = this.#view?.role == null, inferred = !unset && this.#view?.source === 'inferred';
+    const value = this.element.querySelector('.actor-trigger .actor-value');
+    setText(value, unset ? c.unset : labels?.[this.#view.role] ?? ''); value.toggleAttribute('data-unset', unset);
+    const spark = this.element.querySelector('.actor-trigger .actor-spark'); spark.hidden = !inferred; spark.setAttribute('aria-label', c.inferred); spark.setAttribute('role', 'img');
     for (const surface of this.#surfaces()) {
       surface.dataset.phase = this.#phase;
-      const inferred = this.#view?.source === 'inferred'; surface.querySelector('.actor-why').dataset.kind = inferred ? 'inferred' : 'chosen';
+      surface.querySelector('.actor-why').dataset.kind = unset ? 'unset' : inferred ? 'inferred' : 'chosen';
       const reason = surface.querySelector('.actor-reason');
       if (inferred) reason.replaceChildren(node('b', '', c.why), document.createTextNode(' '+(this.#view?.reasoning ?? '')));
-      else setText(reason, c.chosen);
+      else setText(reason, unset ? c.notAssessed : c.chosen);
       const why = surface.querySelector('.actor-why'); if (inferred && this.#view?.reasoning) why.title = this.#view.reasoning; else why.removeAttribute('title');
+      const selectedRole = this.#pending ?? this.#view?.role;
       for (const input of surface.querySelectorAll('input')) {
-        input.checked = input.value === (this.#pending ?? this.#view?.role);
+        input.checked = input.value === selectedRole;
         input.disabled = this.#phase === 'saving' && input.value !== this.#pending;
-        input.tabIndex = input.checked || !this.#view?.role && input.value === ROLES[0] ? 0 : -1;
+        input.tabIndex = input.value === (selectedRole ?? ROLES[0]) ? 0 : -1;
         input.closest('label').toggleAttribute('data-pending', this.#phase === 'saving' && input.value === this.#pending);
         input.setAttribute('aria-busy', String(this.#phase === 'saving' && input.value === this.#pending));
       }

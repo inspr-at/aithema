@@ -10,6 +10,7 @@ export const actorRoleStyles = `
 .actor-trigger:hover,.actor-trigger[aria-expanded=true] { color:var(--aithema-ink); background:none; }
 .actor-spark { display:inline-grid; width:11px; height:11px; margin-left:5px; color:var(--aithema-accent); }
 .actor-value { font-weight:500; color:color-mix(in srgb,var(--aithema-ink) 80%,var(--aithema-muted)); }
+.actor-value[data-unset] { color:var(--aithema-muted); }
 .actor-trigger-text { white-space:pre; }
 .actor-spark svg { width:11px; height:11px; } .actor-chevron { width:10px; height:10px; margin-left:6px; color:var(--aithema-muted); }
 .actor-popover { --role-paper:#102b42; --role-ink:${palette.dark.ink}; --role-muted:${palette.dark.muted}; --role-accent:${palette.dark.accent}; --role-error:${palette.dark.error}; --role-line:rgba(234,241,246,.12);
@@ -22,8 +23,8 @@ export const actorRoleStyles = `
 .actor-why-spark svg { width:11px; height:11px; color:var(--role-accent); margin-top:.32em; }
 .actor-reason b { font-weight:600; color:var(--role-ink); }
 .actor-reason { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.actor-why[data-kind=chosen] { grid-template-columns:minmax(0,1fr); align-content:center; }
-.actor-why[data-kind=chosen] .actor-why-spark { display:none; }
+.actor-why[data-kind=chosen],.actor-why[data-kind=unset] { grid-template-columns:minmax(0,1fr); align-content:center; }
+.actor-why[data-kind=chosen] .actor-why-spark,.actor-why[data-kind=unset] .actor-why-spark { display:none; }
 .actor-radios { margin:0; padding:4px 0; border:0; border-top:1px solid var(--role-line); min-width:0; display:grid; }
 .actor-option { display:grid; grid-template-columns:18px minmax(0,1fr); gap:12px; align-items:center; box-sizing:border-box; height:44px; padding:0 10px; border-radius:8px; font-size:14px; line-height:1.3; color:var(--role-ink); cursor:pointer; user-select:none; }
 .actor-option:hover { background:rgba(255,255,255,.07); }
@@ -58,7 +59,7 @@ export const actorRoleStyles = `
 .actor-sheet h3 { font:700 17.5px/1.3 var(--aithema-display); letter-spacing:-.005em; margin:0; }
 .actor-sheet .actor-context { margin-top:6px; padding:0 0 10px; font-size:14px; line-height:1.45; }
 .actor-sheet .actor-why { height:2.9em; grid-template-columns:12px minmax(0,1fr); gap:8px; }
-.actor-sheet .actor-why[data-kind=chosen] { grid-template-columns:minmax(0,1fr); }
+.actor-sheet .actor-why[data-kind=chosen],.actor-sheet .actor-why[data-kind=unset] { grid-template-columns:minmax(0,1fr); }
 .actor-sheet .actor-radios { margin:0 -8px; padding:6px 0; }
 .actor-sheet .actor-option { height:50px; padding:0 8px; font-size:16px; grid-template-columns:20px minmax(0,1fr); gap:14px; }
 .actor-sheet .actor-dot,.actor-sheet .actor-option input,.actor-sheet .actor-spin { width:20px; height:20px; }

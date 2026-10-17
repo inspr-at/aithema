@@ -15,9 +15,10 @@ const tick = async () => { for (let i = 0; i < 4; i++) await new Promise(setImme
 function fixture(t, options = {}) {
   const host = document.createElement('div'); document.body.append(host); const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = '<div class="footer-left"></div><div class="host-account"><slot name="account"></slot></div><button class="gear">Settings</button><button class="outside">Outside</button>';
-  const session = { locale: 'en', seq: 4, roleChoice: initial, actor: { type: 'company', evidence: 'inferred', reasoning: initial.reasoning } };
-  const calls = [], pending = Promise.withResolvers(); let view = structuredClone(initial);
-  const actor = new ActorRole({ root, copy: en, session: () => session, options: options.options ?? { labels }, settings: options.settings,
+  const session = { locale: options.locale ?? 'en', seq: 4, roleChoice: options.initial ?? initial,
+    actor: options.initial?.role === null ? null : { type: 'company', evidence: 'inferred', reasoning: initial.reasoning } };
+  const calls = [], pending = Promise.withResolvers(); let view = structuredClone(session.roleChoice);
+  const actor = new ActorRole({ root, copy: session.locale === 'de' ? de : en, session: () => session, options: options.options ?? { labels }, settings: options.settings,
     request: async (path, body) => {
       calls.push({ path, body });
       return path === 'identity' ? { ok: true, body: { roleChoice: view } } : pending.promise;
@@ -26,6 +27,57 @@ function fixture(t, options = {}) {
   return { actor, root, session, calls, pending, view: value => { view = value; }, checked: surface => surface.querySelector('input:checked')?.value };
 }
 const key = (element, key) => element.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+for (const [locale, copy] of [['de', de], ['en', en]]) {
+  test(`AIT-281: ${locale} null role has no inference, unchecked radios and a first roving stop on both surfaces`, async t => {
+    const f = fixture(t, { locale, initial: { ...initial, role: null, reasoning: null } });
+    f.actor.open(true); await tick();
+    assert.equal(f.root.querySelector('.actor-trigger-text').textContent, locale === 'de' ? 'Rolle: noch offen' : 'Role: not set');
+    assert.equal(f.root.querySelector('.actor-trigger .actor-spark').hidden, true);
+    assert.equal(f.root.querySelector('.actor-trigger .actor-value').hasAttribute('data-unset'), true);
+    for (const surface of [f.actor.popover, f.actor.sheet]) {
+      assert.equal(surface.querySelector('.actor-why').dataset.kind, 'unset');
+      assert.equal(surface.querySelector('.actor-reason').textContent, locale === 'de' ? 'Noch nicht eingeschätzt.' : 'Not assessed yet.');
+      assert.equal(surface.querySelector('.actor-reason b'), null);
+      assert.equal(surface.querySelector('.actor-why').hasAttribute('title'), false);
+      assert.equal(f.checked(surface), undefined);
+      assert.deepEqual([...surface.querySelectorAll('input')].map(input => input.tabIndex), [0, -1, -1, -1]);
+      assert.equal(surface.querySelector('.actor-status').textContent, copy.actorRole.hint);
+    }
+    assert.equal(f.root.activeElement, f.actor.popover.querySelector('input'));
+    assert.equal(f.calls.filter(call => call.body).length, 0);
+    f.session.seq++; f.session.actor = { type: 'company', evidence: 'inferred', reasoning: 'Later fixture inference' };
+    f.actor.sync();
+    assert.match(f.root.querySelector('.actor-trigger-text').textContent, new RegExp(labels[locale].company, 'u'));
+    assert.equal(f.root.querySelector('.actor-trigger .actor-spark').hidden, false);
+    assert.equal(f.root.querySelector('.actor-trigger .actor-value').hasAttribute('data-unset'), false);
+    assert.equal(f.actor.popover.querySelector('.actor-reason').textContent, copy.actorRole.why+' Later fixture inference');
+  });
+
+  for (const phone of [false, true]) test(`AIT-281: ${locale} choosing from null in the ${phone ? 'sheet' : 'popover'} saves as chosen`, async t => {
+    const f = fixture(t, { locale, initial: { ...initial, role: null, reasoning: null } });
+    const media = window.matchMedia; window.matchMedia = () => ({ matches: phone }); t.after(() => { window.matchMedia = media; });
+    if (phone) f.actor.openSheet(f.root.querySelector('.gear')); else f.actor.open(true);
+    await tick();
+    const surface = phone ? f.actor.sheet : f.actor.popover;
+    if (phone) surface.querySelector('input[value=agency]').click();
+    else {
+      key(f.root.activeElement, 'ArrowLeft');
+      assert.equal(f.root.activeElement.value, 'agency'); assert.equal(f.checked(surface), undefined);
+      assert.equal(f.calls.filter(call => call.body).length, 0);
+      key(f.root.activeElement, 'Enter');
+    }
+    assert.equal(f.calls.at(-1).body.role, 'agency'); assert.equal(f.calls.at(-1).body.baseRevision, 4);
+    assert.equal(f.root.querySelector('.actor-trigger-text').textContent, copy.actorRole.label+': '+copy.actorRole.unset);
+    assert.deepEqual([...surface.querySelectorAll('input')].map(input => input.tabIndex), [-1, -1, -1, 0]);
+    f.pending.resolve({ ok: true, body: { roleChoice: { ...initial, role: 'agency', source: 'chosen', reasoning: null, revision: 5 } } }); await tick();
+    assert.equal(f.checked(surface), 'agency');
+    assert.equal(surface.querySelector('.actor-reason').textContent, copy.actorRole.chosen);
+    assert.equal(f.root.querySelector('.actor-trigger .actor-spark').hidden, true);
+    assert.equal(surface.querySelector('.actor-status').textContent, phone ? '✓ '+copy.actorRole.saved : copy.actorRole.hint);
+    assert.equal(phone ? f.actor.sheet.open : f.actor.popover.hidden, true);
+  });
+}
 
 test('AIT-281: arrows move focus only; Space and Enter confirm, including the inferred checked role', async t => {
   for (const confirm of [' ', 'Enter']) {

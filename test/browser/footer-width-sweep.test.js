@@ -234,27 +234,37 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
     });
     const evidence = process.env.AITHEMA_EVIDENCE_DIR, shots = [], pass = [];
     if (evidence) await mkdir(evidence, { recursive: true });
-    const states = ['chosen', 'inferred', 'saving', 'error', 'stale', 'saved', 'unavailable'];
+    const states = ['null', 'inferred', 'chosen', 'saving', 'error', 'stale', 'saved', 'unavailable'];
     for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       let baseline, surfaceBaseline;
       for (const state of states) {
         await shadow(page, async (c, { state, locale, theme, width }) => {
+          if (state === 'inferred') {
+            // A real event updates the still-open null-role component in place.
+            const f = window.roleFixture, actor = { type: 'company', evidence: 'inferred', reasoning: f.inference };
+            f.state = state; f.view = { ...f.view, role: actor.type, reasoning: actor.reasoning, revision: c.session.seq + 1 };
+            c.receive({ seq: f.view.revision, type: 'understanding.updated', data: { ...c.session.understanding, actor } });
+            return;
+          }
           const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
           const labels = { de: { private: 'Privatperson', company: 'Unternehmen', representative: 'Vertretung', agency: 'Agentur' },
             en: { private: 'Private individual', company: 'Company', representative: 'Representative', agency: 'Agency' } };
-          const view = { available: state !== 'unavailable', roles: Object.keys(labels.en), role: 'company',
+          const inference = locale === 'de' ? 'Fixture: Sie schreiben „wir“ und sprechen vom Abgleich von Eingangsrechnungen; das deutet auf einen Betrieb mit mehreren Personen hin.'
+            : 'Fixture: You write “we” and talk about matching incoming invoices, which points to a business with several people.';
+          const view = { available: state !== 'unavailable', roles: Object.keys(labels.en), role: state === 'null' ? null : 'company',
             source: state === 'chosen' ? 'chosen' : 'inferred',
-            reasoning: locale === 'de' ? 'Fixture: Sie schreiben „wir“ und sprechen vom Abgleich von Eingangsrechnungen; das deutet auf einen Betrieb mit mehreren Personen hin.'
-              : 'Fixture: You write “we” and talk about matching incoming invoices, which points to a business with several people.', revision: window.roleBase.seq };
-          window.roleFixture = { state, view };
+            reasoning: state === 'null' ? null : inference, revision: window.roleBase.seq };
+          window.roleFixture = { state, view, inference };
           const session = structuredClone(window.roleBase); session.locale = locale; session.demo = false; session.roleChoice = view;
-          session.actor = { type: 'company', evidence: view.source === 'chosen' ? 'selected' : 'inferred', reasoning: view.reasoning };
+          session.actor = state === 'null' ? null : { type: 'company', evidence: view.source === 'chosen' ? 'selected' : 'inferred', reasoning: view.reasoning };
           session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
           session.transcript = [{ id: 'role-user', role: 'user', content: locale === 'de' ? 'Wir verlieren Zeit beim Abgleich von Eingangsrechnungen.' : 'We lose time matching incoming invoices.' },
             { id: 'role-assistant', role: 'assistant', content: locale === 'de' ? 'Wer gibt die Rechnungen heute frei?' : 'Who approves invoices today?' }];
           session.understanding = { ...session.understanding, summary: locale === 'de' ? 'Eingangsrechnungen abgleichen' : 'Match incoming invoices', actor: session.actor };
           c.setAttribute('motion', 'off');
+          c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+          c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
           c.configure({ session, copy, host: { actorRole: { labels } } });
           document.documentElement.lang = locale; document.documentElement.dataset.theme = theme; c.setAttribute('theme', theme);
           const root = c.shadowRoot;
@@ -283,10 +293,12 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
           const box = node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
           const rows = [...surface.querySelectorAll('.actor-option')];
           return { page: [document.documentElement.scrollWidth, document.documentElement.clientWidth],
-            fixed: ['.display-foot', '.footer-info', '.footer-right', '.workspace', '.band'].map(s => box(root.querySelector(s))),
+            fixed: ['.display-foot', '.footer-info', '.footer-right', '.workspace', '.band', '.actor-role', '.actor-trigger'].map(s => box(root.querySelector(s))),
             surface: state === 'unavailable' ? null : [box(surface), ...rows.map(box), box(surface.querySelector('.actor-status'))],
             rowHeights: rows.map(row => row.getBoundingClientRect().height),
             checked: surface.querySelector('input:checked')?.value, footer: root.querySelector('.actor-trigger-text').textContent,
+            sparkle: !root.querySelector('.actor-trigger .actor-spark').hidden,
+            muted: getComputedStyle(root.querySelector('.actor-trigger .actor-value')).color === getComputedStyle(root.querySelector('.actor-chevron')).color,
             triggerVisible: getComputedStyle(root.querySelector('.actor-role')).display !== 'none' && !root.querySelector('.actor-trigger').hidden,
             open: width === 390 ? surface.open : !surface.hidden, account: root.querySelector('.actor-account').hidden,
             reasoning: surface.querySelector('.actor-reason').textContent, status: surface.querySelector('.actor-status').textContent,
@@ -294,7 +306,9 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
             disabled: [...surface.querySelectorAll('input')].filter(input => input.disabled).length };
         }, { width, state });
         baseline ??= measured.fixed;
-        assert.deepEqual(measured.fixed, baseline, `${width}/${theme}/${locale}/${state}: page/footer shifted`);
+        // Revoking the capability hides the trigger, while preserving its slot.
+        assert.deepEqual(state === 'unavailable' ? measured.fixed.slice(0, -1) : measured.fixed,
+          state === 'unavailable' ? baseline.slice(0, -1) : baseline, `${width}/${theme}/${locale}/${state}: page/footer shifted`);
         assert.equal(measured.page[0], measured.page[1], 'no horizontal page overflow');
         assert.equal(measured.account, true, 'absent host account has no account line');
         if (state !== 'unavailable') {
@@ -303,24 +317,35 @@ test('AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390
           assert.ok(measured.rowHeights.every(height => height === (width === 390 ? 50 : 44)));
           assert.equal(measured.open, true);
           assert.equal(measured.triggerVisible, width !== 390);
+          if (state === 'null') {
+            assert.equal(measured.footer, locale === 'de' ? 'Rolle: noch offen' : 'Role: not set');
+            assert.equal(measured.reasoning, locale === 'de' ? 'Noch nicht eingeschätzt.' : 'Not assessed yet.');
+            assert.equal(measured.status, locale === 'de' ? 'Wird beim Auswählen gespeichert.' : 'Saved as soon as you choose.');
+            assert.equal(measured.checked, undefined); assert.equal(measured.sparkle, false); assert.equal(measured.muted, true);
+            if (width !== 390) {
+              const trigger = await page.$(`::-p-aria([name="${measured.footer}"][role="button"])`);
+              assert.ok(trigger, 'null trigger accessible name has no inferred suffix'); await trigger.dispose();
+            }
+          }
+          if (state === 'inferred') { assert.equal(measured.checked, 'company'); assert.equal(measured.sparkle, true); }
           if (state === 'saving') { assert.equal(measured.pending, 'agency'); assert.equal(measured.disabled, 3); assert.match(measured.footer, /Unternehmen|Company/u); }
           if (state === 'error') assert.equal(measured.checked, 'company');
           if (state === 'stale') assert.equal(measured.checked, 'representative');
           if (state === 'saved') assert.equal(measured.checked, 'agency');
         } else { assert.equal(measured.triggerVisible, false); assert.equal(measured.open, width === 390); }
-        const line = `PASS ${width} ${theme} ${locale} ${state}: page/footer/surface/rows 0px; account=none`;
+        const line = `PASS ${width} ${theme} ${locale} ${state === 'inferred' ? 'null→inferred' : state}: page/footer/surface/rows 0px; account=none`;
         pass.push(line);
         if (evidence) {
           await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
           await page.mouse.move(-1, -1); await settle(page);
           const name = `role-${width}-${theme}-${locale}-${state}.png`;
-          await page.screenshot({ path: join(evidence, name), fullPage: false });
+          await page.screenshot({ path: join(evidence, name), fullPage: false, captureBeyondViewport: false });
           shots.push({ file: name, head: evidenceCommit, width, theme, locale, state, surface: width === 390 ? 'sheet' : state === 'unavailable' ? 'none' : 'popover', account: 'none', viewport: true, reducedMotion: true, blurred: true, pass: line });
         }
       }
     }
     assert.deepEqual(errors, []);
-    assert.equal(pass.length, 84);
+    assert.equal(pass.length, 96);
     t.diagnostic(`PASS AIT-281: ${pass.length} state/viewport/theme/locale cases; exact 0px movement; one page`);
-    if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, shots, pass, errors }, null, 2)+'\n');
+    if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, fonts: 'Chrome baseline UI/display stacks pinned', shots, pass, errors }, null, 2)+'\n');
   });

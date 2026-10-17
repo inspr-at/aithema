@@ -147,7 +147,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     let state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
     state = host.identity.project?.({ session: storage.get(id) }, state) ?? state;
     state.manualPaused = storage.get(id).paused;
-    return { roleChoice: roleChoice(id), identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
+    return { ...(host.identity.chooseRole === true ? { roleChoice: roleChoice(id) } : {}),
+      identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
       privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
   }
   function creditResult(id, ownerToken) {

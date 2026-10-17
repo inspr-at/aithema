@@ -21,6 +21,7 @@ function fixture(t, { storage = new SQLiteStorage(), available = true } = {}) {
 
 test('AIT-281: choose role authenticates, refuses stale/invalid commands and exposes no labels', async t => {
   const f = fixture(t), session = await f.create(), path = `/api/sessions/${session.id}/identity/role`;
+  assert.equal(session.roleChoice.role, null, 'a new conversation has no role');
   const command = { role: 'agency', baseRevision: session.seq, clientEventId: 'role-command' };
   const before = f.storage.read(session.id);
   for (const token of [null, 'foreign-owner']) assert.equal((await f.call(path, command, token)).status, 404);
@@ -34,6 +35,7 @@ test('AIT-281: choose role authenticates, refuses stale/invalid commands and exp
   assert.deepEqual(f.storage.read(session.id), before);
   const result = await f.call(path, command); assert.equal(result.status, 200);
   const ack = await result.json(); assert.equal(ack.roleChoice.role, 'agency'); assert.equal(ack.roleChoice.source, 'chosen');
+  assert.equal(ack.roleChoice.reasoning, null, 'choosing from null has no inferred reasoning');
   assert.equal(ack.roleChoice.labels, undefined);
   const after = f.storage.read(session.id);
   const replay = await f.call(path, command); assert.equal(replay.status, 200); assert.equal((await replay.json()).replayed, true);
@@ -81,5 +83,25 @@ test('AIT-281: withdrawal, consent reset and erasure forget durable role bytes a
 test('AIT-281: absent host capability refuses role commands', async t => {
   const f = fixture(t, { available: false }), session = await f.create();
   assert.equal((await f.call(`/api/sessions/${session.id}/identity/role`, { role: 'agency', baseRevision: session.seq, clientEventId: 'no-cap' })).status, 503);
-  assert.equal((await (await f.call(`/api/sessions/${session.id}/identity`)).json()).roleChoice.available, false);
+  assert.equal(Object.hasOwn(await (await f.call(`/api/sessions/${session.id}/identity`)).json(), 'roleChoice'), false);
+});
+
+test('AIT-281: identity includes the inferred role and reasoning only with the explicit chooseRole capability', async t => {
+  for (const capability of [true, false, undefined]) {
+    const f = fixture(t, { available: capability === true });
+    if (capability === undefined) delete f.host.identity.chooseRole;
+    const session = await f.create(), current = f.storage.get(session.id);
+    f.storage.append(session.id, 'understanding.updated', { ...current.understanding, inputRevision: inputRevision(current),
+      actor: { type: 'company', evidence: 'inferred', reasoning: 'private fixture inference' } });
+    assert.equal(f.storage.get(session.id).actor.reasoning, 'private fixture inference');
+    const response = await f.call(`/api/sessions/${session.id}/identity`); assert.equal(response.status, 200);
+    const body = await response.json(); assert.ok(body.identity);
+    assert.equal(Object.hasOwn(body, 'roleChoice'), capability === true);
+    if (capability === true) {
+      assert.equal(body.roleChoice.available, true); assert.equal(body.roleChoice.role, 'company');
+      assert.equal(body.roleChoice.source, 'inferred'); assert.equal(body.roleChoice.reasoning, 'private fixture inference');
+      f.host.identity.chooseRole = false;
+      assert.equal(Object.hasOwn(await (await f.call(`/api/sessions/${session.id}/identity`)).json(), 'roleChoice'), false, 'revocation gates subsequent reads');
+    } else assert.equal(JSON.stringify(body).includes('private fixture inference'), false);
+  }
 });
