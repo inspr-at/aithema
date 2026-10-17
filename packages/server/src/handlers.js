@@ -203,10 +203,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if ((session.focusedQuestion ?? null) !== question) {
           // Clearing the command makes its reaction stale before the lane can
           // detect removal. Send the documented failure while it still owns it.
-          if (pending && question === null) broadcast(id, { sessionId: id, type: 'lane.failed', data: {
-            inputRevision: acceptedRevision, lane: 'reaction', error: 'reasoning-unavailable',
-            reason: 'focused-question-removed', retryable: false,
-          } });
+          if (pending && question === null) {
+            const failure = { inputRevision: acceptedRevision, lane: 'reaction', error: 'reasoning-unavailable',
+              reason: 'focused-question-removed', retryable: false };
+            storage.setLaneFailure(id, failure);
+            broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
+          }
           const focused = storage.append(id, 'question.focused', { question }, acceptedRevision);
           if (focused) broadcast(id, focused);
         }
@@ -309,9 +311,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         while (!stop.signal.aborted) {
           job.reschedule = false;
           const started = storage.get(id), revision = inputRevision(started), work = laneKey(started, lane);
+          // A removed focus needs new input or a new selection before work resumes.
+          if (currentFailures(started).some(failure => failure.lane === lane && !failure.retryable)) return;
           try {
             await lanes.run(id, lane, { signal: stop.signal });
-            storage.clearLaneFailures(id, lane);
+            // A stale completion cannot resolve a failure for replacement work.
+            if (laneKey(storage.get(id), lane) === work) storage.clearLaneFailures(id, lane);
           } catch (error) {
             // Work superseded by new input or a changed processing choice reruns instead of failing.
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
