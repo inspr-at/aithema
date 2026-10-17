@@ -48,13 +48,13 @@ const handle = async request => {
       storage.postTurn(id, `r3-${index}`, Buffer.from(content), content);
       storage.appendPurposeReply(id, { id: `r3-reply-${index}`, role: 'assistant', content: 'What should the project improve?', inputRevision: inputRevision(storage.get(id)) }, inputRevision(storage.get(id)), !project || index > 0, 3);
     }
-    const session = storage.get(id); return Response.json({ ...session, operations: { inputRevision: inputRevision(session), running: [], lastFailure: null }, featureMatrix: await pluginRuntime.matrix(session) });
+    const session = storage.get(id); return Response.json({ ...session, operations: { inputRevision: inputRevision(session), running: [], lastFailure: null }, visualsBound: pluginRuntime.visualsBound(), featureMatrix: await pluginRuntime.matrix(session) });
   }
   if (path === '/fixture/stats') return Response.json(admitted);
   if (path === '/fixture/release') { release(); return Response.json({ ok: true }); }
   if (path === '/fixture/turn') {
     const { id, content } = await request.json(); storage.postTurn(id, 'r2-person', Buffer.from(content), content);
-    const session = storage.get(id); return Response.json({ ...session, featureMatrix: await pluginRuntime.matrix(session) });
+    const session = storage.get(id); return Response.json({ ...session, visualsBound: pluginRuntime.visualsBound(), featureMatrix: await pluginRuntime.matrix(session) });
   }
   if (path.startsWith('/api/')) return handlers.handle(request);
   if (path === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: 'fake', voicePresentation: voicePlugin.manifest.presentation,

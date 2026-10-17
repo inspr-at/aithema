@@ -80,6 +80,7 @@ async function scene(page, locale, theme, width, missing) {
     c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
     c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
     document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+    session.visualsBound = true; // These in-page consent scenes simulate a bound draft renderer.
     session.locale = locale; session.seq = 100; session.consentRevision = 1;
     session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs'; session.conceptVisualKind = 'html';
     session.conceptCost = { maxMicro: 10000 }; session.featureMatrix = matrix;
