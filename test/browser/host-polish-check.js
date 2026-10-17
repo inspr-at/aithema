@@ -9,12 +9,12 @@ import { shadow, until, boxes, evidenceCommit, evidenceBrowserArgs } from './sta
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 
-export async function hostPolishCheck(t) {
+export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-host-polish-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR && join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-266');
+  const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-266');
   const browser = await browserForFile(evidence ? { args: evidenceBrowserArgs } : {}), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], passLines = [], problems = [];
@@ -55,7 +55,7 @@ export async function hostPolishCheck(t) {
   });
   if (evidence) await mkdir(evidence, { recursive: true });
   const shot = async label => {
-    if (!evidence || process.env.CI) return;
+    if (!evidence) return;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
     await page.mouse.move(-1, -1); await settle();
     await page.screenshot({ path: join(evidence, `${label}.png`), fullPage: false, captureBeyondViewport: false });
