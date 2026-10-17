@@ -251,7 +251,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 @media(width < 600px) {
   .settings-overview { display:none; }
   .settings-panel[data-panel=model], .settings-panel[data-panel=model] .settings-column { gap:.5rem; }
-  .effort { grid-template-columns:minmax(0,1fr) auto; }
+  .effort { grid-template-columns:minmax(0,1fr) auto; gap:0; }
   .effort label { grid-area:1/1; }
   .effort output { grid-area:1/2; justify-self:end; align-self:center; }
   .effort__track { grid-area:2/1/3/-1; }
