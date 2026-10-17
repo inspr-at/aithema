@@ -247,10 +247,10 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
       return nativeFetch(url,options);
     };
     window.conceptItem=id=>({id,mediaType:'image/png',width:1600,height:900,turnIds:['source'],referenceIds:[],archived:false,feedback:{vote:'clear',chips:[]},provenance:{origin:'ai-generated',generator:{provider:'local-demo-fake'}}});
-    window.seed=async locale=>{
+    window.seed=async (locale,bound=true)=>{
       const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
       const session=createSession({demo:true});session.id='backdrop-owner';session.locale=locale;
-      session.settings.origin='chosen';session.settings.visuals='auto';session.visualsBound=true;session.conceptVisualKind='image';session.conceptCost={maxMicro:30000};
+      session.settings.origin='chosen';session.settings.visuals='auto';session.visualsBound=bound;session.conceptVisualKind=bound?'image':undefined;session.conceptCost={maxMicro:30000};
       session.featureMatrix={best:Object.fromEntries(['text','analysis','images'].map(k=>[k,{available:true}]))};
       session.transcript=[{id:'source',role:'user',content:locale==='de'?'Etwa 400 Rechnungen im Monat, wir sind zu dritt.':'About 400 invoices a month, there are three of us.'},
         {id:'reply',role:'assistant',content:locale==='de'?'Bei 400 Rechnungen im Monat lohnt sich ein Blick auf die Freigabe. Soll ich skizzieren, wie der Abgleich aussehen könnte?':'At 400 invoices a month, approval is worth a look. Shall I sketch what reconciliation could look like?'}];
@@ -342,6 +342,22 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await page.evaluate(()=>{document.querySelector('aithema-session').removeAttribute('motion');window.state({phase:'ready'},window.conceptItem('reduce-system'));});await settle();
     assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
     assert.deepEqual(errors,[]);
+  }
+  await page.setViewport({width:390,height:900});
+  for (const bound of [false,true]) {
+    await page.evaluate(async bound=>{
+      await window.seed('en',bound);
+      const c=document.querySelector('aithema-session');
+      const {inputRevision}=await import('/packages/core/src/session.js');
+      c.receive({seq:c.session.seq+1,type:'turn.final',data:{id:'card',role:'assistant',content:'Which system do you use?',question_short:'Which system?',
+        options:[{text:'An API',likely:true,reason:'Existing integration'}],inputRevision:inputRevision(c.session)}});
+    },bound);
+    await settle();
+    const junction=await page.evaluate(()=>{const r=document.querySelector('aithema-session').shadowRoot,c=r.querySelector('.qcard').getBoundingClientRect(),input=r.querySelector('.composer-shell').getBoundingClientRect(),row=r.querySelector('.concept-phone-slot').getBoundingClientRect();return {gap:input.top-c.bottom,clear:row.bottom<=c.top+.01,row:row.height,thread:getComputedStyle(r.querySelector('.concept-thread')).display};});
+    assert.equal(junction.gap,0,'question card stays joined to composer');
+    assert.equal(junction.row,bound?44:0,'an initially unbound host has no phone row');
+    if(bound)assert.equal(junction.clear,true,'concept row stays above the question card');
+    else assert.equal(junction.thread,'contents','unbound transcript keeps its original grid participation');
   }
   assert.equal(await page.evaluate(()=>window.posts.length),0,'all reads and state fixtures are free');
   const reads=await page.evaluate(()=>window.artifactReads);

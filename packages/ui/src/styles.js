@@ -212,8 +212,9 @@ svg { display:block; flex:none; }
    overlays that cell. Specificity also preserves the reservation on phones. */
 .concept-access { display:contents; }
 .concept-withdrawn, .concept-phone-slot { display:none; }
-.concept-thread { position:relative; min-height:0; display:grid; grid-template:minmax(0,1fr)/minmax(0,1fr); container-type:size; }
-.concept-thread > .transcript-shell { grid-area:1/1; z-index:1; }
+.concept-thread { display:contents; }
+.workspace[data-concept-layout="image"] .concept-thread { position:relative; min-height:0; display:grid; grid-template:minmax(0,1fr)/minmax(0,1fr); container-type:size; }
+.workspace[data-concept-layout="image"] .concept-thread > .transcript-shell { grid-area:1/1; z-index:1; }
 .concept-backdrop { position:absolute; left:0; bottom:0; width:min(66cqw,calc(66cqh * 1.7778)); aspect-ratio:16/9;
   pointer-events:none; overflow:hidden; border-radius:14px;
   mask-image:linear-gradient(to bottom,transparent,#000 64px,#000 calc(100% - 12px),transparent),linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 84px),transparent); mask-composite:intersect; }
@@ -254,10 +255,12 @@ svg { display:block; flex:none; }
 .concept-bottom progress::-webkit-progress-bar { background:var(--aithema-line); }
 .concept-bottom progress::-webkit-progress-value { background:var(--aithema-accent); }
 .concept-bottom progress::-moz-progress-bar { background:var(--aithema-accent); }
-.workspace[data-concept-layout="html"] :is(.concept-backdrop,.concept-bottom,.concept-backdrop-hint) { display:none; }
+.workspace:not([data-concept-layout="image"]) :is(.concept-backdrop,.concept-bottom,.concept-backdrop-hint) { display:none; }
 @media(max-width:600px) {
   .workspace[data-concept-layout="image"] .concept-bar { position:absolute; visibility:hidden; pointer-events:none; height:0; min-height:0; }
-  .workspace[data-concept-layout="image"] .concept-phone-slot { display:block; height:44px; }
+  .workspace[data-concept-layout="image"] .composer-dock { padding-top:44px; }
+  .workspace[data-concept-layout="image"] .concept-phone-slot { display:block; position:absolute; left:0; right:0; bottom:calc(100% + var(--question-card-height,0px) - 44px); height:44px; }
+  .workspace[data-concept-layout="image"] .composer-dock > .qcard { bottom:calc(100% - 44px); }
   .workspace[data-concept-layout="image"] .concept-access { visibility:visible; }
   .workspace[data-concept-layout="image"] .concept-rail { grid-template-columns:56px minmax(0,1fr); }
   .workspace[data-concept-layout="image"] .concept-access[data-state="gen"] .concept-scene { width:56px; height:32px; grid-template-columns:6px 6px; grid-template-rows:6px 6px; justify-content:center; align-content:center; border-radius:6px; background:color-mix(in srgb,var(--aithema-ink) 5%,transparent); }

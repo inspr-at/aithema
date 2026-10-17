@@ -516,3 +516,13 @@ test('AIT-282: an old conversation response cannot paint a new conversation, eve
   const read=calls.find(call=>call.url.includes('/owner-two/concepts/'));
   assert.equal(new Headers(read.options.headers).get('x-aithema-session-token'),'second-owner');
 });
+test('AIT-282: initially unbound hosts keep the existing layout, while an image conversation keeps its reservation through none', t => {
+  const {c,root}=setup(t,{concepts:[],session:{visualsBound:false}});
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'unbound');
+  assert.equal(root.querySelector('.concept-bar').hasAttribute('data-no-drafts'),true);
+  c.session.visualsBound=true;conceptState(c,{phase:'pending',startedAt:Date.now(),estimateMs:40000});
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
+  c.session.visualsBound=false;conceptState(c,{phase:'idle'});
+  assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
+  assert.equal(root.querySelector('.concept-access').dataset.state,'none');
+});
