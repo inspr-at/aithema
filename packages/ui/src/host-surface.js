@@ -1,3 +1,4 @@
+import { ActorRole } from './actor-role.js';
 import { reasonSeparator } from './consent-line.js';
 // The host surface inside <aithema-session> (AIT-104 B2): the host bar (conversation library,
 // credits, the host's account slot), the verification entry in Settings, the verification lock on the
@@ -19,7 +20,7 @@ export class HostSurface {
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
-  #emailAsk = null;
+  #emailAsk = null; #actorRole = null;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
@@ -56,6 +57,8 @@ export class HostSurface {
       request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
       changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     this.#mountHandover(); this.#mountFoot();
+    if (o.actorRole?.labels) this.#actorRole = new ActorRole({ root, copy, options: o.actorRole, session,
+      request: (path, body) => this.#call(this.#sessionPath(path), body), settings: opener => openSettings?.(opener, { processing: true }) });
     root.querySelector('.credits-email').addEventListener('click', event => { event.preventDefault(); this.#openSettings?.(); });
     this.#handover = this.#session().handover ?? null;
     this.#paintCredits(); this.#paintHandover();
@@ -66,12 +69,13 @@ export class HostSurface {
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
     this.#menu?.setCopy(copy);
     this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
-    this.#emailAsk?.setCopy(copy);
+    this.#emailAsk?.setCopy(copy); this.#actorRole?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
     root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
     this.update();
   }
+  openRoleSettings(opener) { return this.#actorRole?.openSheet(opener) ?? false; }
   get tiers() { return this.#credits?.tiers ?? null; }
   get low() { return !this.usedUp && lowCredit(this.#credits); }
   get emailAsk() { return this.#emailAsk; }
@@ -96,6 +100,7 @@ export class HostSurface {
     this.#connected = true;
     this.#emailAsk?.connect();
     this.#menu?.connect();
+    void this.#actorRole?.load();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
     if (this.#options.credits) {
@@ -113,11 +118,12 @@ export class HostSurface {
     this.#menu?.disconnect();
     clearTimeout(this.#creditsTimer); this.#creditsTimer = null; clearInterval(this.#creditsPoll); this.#creditsPoll = null;
   }
-  destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
+  destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); this.#actorRole?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
     if (event.type === 'turn.final' && event.data?.role === 'assistant' && this.#emailAsk) this.#emailAsk.awaitingCredits = true;
     this.#verification?.receive(event);
+    this.#actorRole?.sync();
     if (event.type === 'handover.state') { this.#handover = event.data; this.#requesting = false; this.#limit = null; }
     if (event.type === 'handover.limit-reached') this.#limit = inputRevision(this.#session());
     if (event.type === 'library.state' || event.type === 'session.erased') this.#library?.changed();
@@ -138,6 +144,7 @@ export class HostSurface {
   /** A restored snapshot replaces the projection: identity and handover follow it. */
   resync() {
     const session = this.#session();
+    this.#actorRole?.set(session.roleChoice); this.#actorRole?.sync();
     if (session.identity !== undefined) this.#verification?.set(session.identity ?? null);
     if (session.handover !== undefined) this.#handover = session.handover;
     this.#refreshCredits(); this.update();

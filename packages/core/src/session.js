@@ -70,6 +70,7 @@ export function applyEvent(session, event) {
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
     if (upload.state === 'withdrawn') {
       next.withdrawalRevision += 1; next.sessionRevision += 1;
+      if (next.identity) next.identity = { ...next.identity, role: null };
       next.transcript = next.transcript.map(t => t.role === 'assistant'
         ? { ...erasedTurn(t), erased: true, withdrawn: true } : t);
       // Document-derived summaries can feed any concept. Revocation clears every
@@ -138,6 +139,7 @@ export function applyEvent(session, event) {
     }
     if (event.type === 'consent.revised') {
       next.consentRevision += 1; next.consentWithdrawn = !event.data.granted;
+      if (!conversationUnchanged && next.identity) next.identity = { ...next.identity, role: null };
       // The ledger revision always advances; draft-only edits keep the input
       // identity of unaffected replies, assessments and live voice processing.
       if (conversationUnchanged) next.conversationConsentRevision = session.conversationConsentRevision ?? session.consentRevision;
@@ -148,6 +150,7 @@ export function applyEvent(session, event) {
       }
     } else {
       next.withdrawalRevision += 1;
+      if (next.identity) next.identity = { ...next.identity, role: null };
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'
         ? { ...erasedTurn(t), erased: true, withdrawn: true } : t);
       // Erasure also forgets the visitor's processing choice, so it never seeds another conversation.
@@ -181,6 +184,10 @@ export function applyEvent(session, event) {
       intent = reduceConceptIntent(intent, { type: 'conversation-ended', now: Date.parse(event.at ?? event.data.at) || 0 });
     }
     next.conceptIntent = intent;
+  }
+  if (next.identity?.role && next.identity.roleWithdrawalRevision === next.withdrawalRevision &&
+      (next.identity.roleConsentRevision ?? 0) === (next.conversationConsentRevision ?? next.consentRevision) && !next.tombstone) {
+    next.actor = { type: next.identity.role, evidence: 'selected', reasoning: null };
   }
   next.seq = event.seq;
   // Snapshot-only convenience data must never retain stale or withdrawn text.

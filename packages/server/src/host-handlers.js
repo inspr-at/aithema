@@ -1,4 +1,4 @@
-import { createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
+import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
   assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
   operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
@@ -129,11 +129,26 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     }
     if (guard && guard.paused !== paused) conversationLimits.transition(id, { type: 'pause', paused }, ownerToken);
   }
+  // Owner-only role projection. A withdrawal fences historical choices without
+  // restoring them from the host's identity cache. Labels never enter module state.
+  function roleChoice(id) {
+    const session = storage.get(id), identity = storage.hostState(id)?.identity;
+    const chosen = identity?.role && identity.roleWithdrawalRevision === session.withdrawalRevision &&
+      (identity.roleConsentRevision ?? 0) === (session.conversationConsentRevision ?? session.consentRevision);
+    const actor = chosen ? { type: identity.role, evidence: 'selected' } : session.actor;
+    const roles = identity?.roles ?? [];
+    return { available: host?.identity?.chooseRole === true && roles.length === ACTOR_ROLES.length &&
+        roles.every(role => ACTOR_ROLES.includes(role)),
+      roles, role: roles.includes(actor?.type) ? actor.type : null,
+      source: chosen || actor?.evidence === 'selected' ? 'chosen' : 'inferred',
+      reasoning: chosen ? null : actor?.reasoning ?? null, revision: session.seq };
+  }
   function identityResult(id, extra = {}, ownerToken) {
     let state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
     state = host.identity.project?.({ session: storage.get(id) }, state) ?? state;
     state.manualPaused = storage.get(id).paused;
-    return { identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
+    return { ...(host.identity.chooseRole === true ? { roleChoice: roleChoice(id) } : {}),
+      identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
       privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
   }
   function creditResult(id, ownerToken) {
@@ -212,7 +227,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   async function handle(request, context) {
     const url = new URL(request.url);
-    const sessionMatch = new RegExp(`^/api/sessions/(${idPattern})/(identity(?:/(?:request|resend|change|confirm|unlock))?|email-ask|handover(?:/retry)?|credits|demo/outbox)$`, 'u').exec(url.pathname);
+    const sessionMatch = new RegExp(`^/api/sessions/(${idPattern})/(identity(?:/(?:request|resend|change|confirm|unlock|role))?|email-ask|handover(?:/retry)?|credits|demo/outbox)$`, 'u').exec(url.pathname);
     const libraryMatch = new RegExp(`^/api/library(?:/(${idPattern})(?:/(rename|delete|reset))?)?$`, 'u').exec(url.pathname);
     const visitorPath = ['/api/visitor/email', '/api/visitor/erase'].includes(url.pathname);
     if (!sessionMatch && !libraryMatch && !visitorPath) return null;
@@ -292,7 +307,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       storage.authorize(id, ownerToken);
       // Ownership precedes the funnel; collecting commands refuse before
       // initialization, body parsing, journal transitions or host calls.
-      if (action.startsWith('identity/') && request.method === 'POST') assertAddressCollectionAllowed();
+      if (action.startsWith('identity/') && action !== 'identity/role' && request.method === 'POST') assertAddressCollectionAllowed();
       if (action === 'demo/outbox') {
         if (host.demo !== true || typeof host.outbox !== 'function') return json({ error: 'not-found' }, 404);
         if (request.method !== 'GET') return json({ error: 'method-not-allowed' }, 405);
@@ -347,6 +362,29 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         return json({ accepted: result.accepted, emailAsk: result.emailAsk,
           emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
           lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() });
+      }
+      if (action === 'identity/role') {
+        if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
+        if (!roleChoice(id).available) return json({ error: 'role-unavailable' }, 503);
+        const options = await body(request, ['role', 'baseRevision', 'clientEventId']);
+        if (!Number.isSafeInteger(options.baseRevision) || options.baseRevision < 0 ||
+            typeof options.clientEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(options.clientEventId) ||
+            !roleChoice(id).roles.includes(options.role)) throw new TypeError('Invalid role command');
+        const result = storage.transitionHost(id, (state, session) => {
+          const receipts = state.roleCommands ?? {};
+          // A receipt is private durable command metadata, never a public event.
+          if (Object.hasOwn(receipts, options.clientEventId)) return { state,
+            error: receipts[options.clientEventId] === options.role ? null : 'role-event-conflict', replayed: true };
+          if (options.baseRevision !== session.seq) return { state, error: 'role-conflict' };
+          if (Object.keys(receipts).length >= 500) return { state, error: 'role-command-limit' };
+          const selected = reduceIdentity(state.identity, { type: 'role', role: options.role,
+            withdrawalRevision: session.withdrawalRevision, consentRevision: session.conversationConsentRevision ?? session.consentRevision, now: clock(state.identity) });
+          return { state: { ...state, identity: selected.state,
+            roleCommands: { ...receipts, [options.clientEventId]: options.role } }, events: selected.events };
+        }, { ownerToken });
+        emit(id, result);
+        return json({ roleChoice: roleChoice(id), replayed: result.replayed === true,
+          ...(result.error ? { error: result.error } : {}) }, result.error ? 409 : 200);
       }
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
@@ -450,7 +488,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       throw error;
     }
   }
-  return { handle, initialize, syncPause,
+  return { handle, initialize, syncPause, roleChoice,
     retentionActive: id => deliveries.has(id),
     startCredits,
     resume() {

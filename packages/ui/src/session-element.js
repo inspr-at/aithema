@@ -17,6 +17,7 @@ import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
 import { voiceTranscriptTransition } from './voice-transcript.js';
 import { styles } from './styles.js';
+import { actorRoleStyles } from './actor-role-styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
@@ -447,7 +448,7 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${actorRoleStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
       <header class="toolbar band"><div class="band-identity"><div class="band-orb"></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>${this.#voiceBound ? '<div class="audio-rail"></div>' : ''}<div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
@@ -484,8 +485,8 @@ export class AithemaSession extends HTMLElement {
       <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
       <footer class="display-foot"><div class="display-foot__row">
-        <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-label="Aithema 2026.10" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span>${this.#voiceBound ? '<span class="ai-notice__voice"></span>' : ''}</button>
-          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><div class="version-details"><div id="build-info"></div><p class="host-version" hidden><span class="host-version__label"></span><span class="host-version__value"></span></p></div><p class="phone-status"><span class="phone-status__label"></span></p><div class="host-foot" hidden><slot name="footer"></slot></div></div></div>
+        <div class="footer-left"><div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-label="Aithema 2026.10" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span>${this.#voiceBound ? '<span class="ai-notice__voice"></span>' : ''}</button>
+          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><div class="version-details"><div id="build-info"></div><p class="host-version" hidden><span class="host-version__label"></span><span class="host-version__value"></span></p></div><p class="phone-status"><span class="phone-status__label"></span></p><div class="host-foot" hidden><slot name="footer"></slot></div></div></div></div>
         <div class="host-credits" data-footer-popup hidden><button class="host-credits__button" type="button" aria-expanded="false" aria-controls="credits-popup"><span class="host-credits__stack"><span class="host-credits__text"><strong class="host-credits__amount"><span class="host-credits__value"></span></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span>
           <span class="host-credits__low" aria-hidden="true"><span class="host-credits__low-full"></span><span class="host-credits__low-short"></span></span>
           <span class="host-credits__measure" aria-hidden="true"><strong class="host-credits__measure-amount"></strong><span class="host-credits__measure-total"></span><span class="host-credits__measure-unit"></span></span>
@@ -507,7 +508,9 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.promise__lead').textContent = this.#copy.entrance?.lead ?? '';
     root.querySelector('.send .visually-hidden').textContent = this.#copy.send;
     root.querySelector('.settings-open span').textContent = this.#copy.settings.open; root.querySelector('.settings-open').title = this.#copy.settings.open;
-    root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
+    root.querySelector('.settings-open').addEventListener('click', event => {
+      if (!this.#host?.openRoleSettings(event.currentTarget)) this.openSettings(event.currentTarget);
+    });
     this.#timer = new ConnectionTimer(root.querySelector('.connection-timer'));
     this.#footerMedia = this.ownerDocument.defaultView?.matchMedia?.('(width < 600px)');
     this.#footerListener = () => (this.#footerMedia?.matches ? root.querySelector('.phone-status') : root.querySelector('.status')).append(this.#timer.element);
@@ -697,7 +700,7 @@ export class AithemaSession extends HTMLElement {
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
-      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
+      openSettings: (opener, options) => options?.processing ? this.openSettings(opener) : this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding, creditContext: () => this.#rail?.endedCall,
       admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
         ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
       streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
