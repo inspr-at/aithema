@@ -5,6 +5,7 @@ import { applyEvent, createSession, inputRevision, reduceUnderstanding } from '@
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { AI_NOTICE } from '../../core/src/ai-notice.js';
+import { bandStyles } from '../src/band-styles.js';
 import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
 import { entranceStyles } from '../src/entrance-styles.js';
@@ -1344,7 +1345,7 @@ test('AIT-286: shared failure sentence uses warning ink; composer consent keeps 
   const c = setup({ session }), root = c.shadowRoot;
   const action = root.querySelector('.composer-reason .consent-action');
   assert.equal(action.tagName, 'BUTTON'); assert.equal(action.type, 'button');
-  assert.equal(window.getComputedStyle(action).textDecorationLine || window.getComputedStyle(action).textDecoration, 'underline');
+  assert.match(bandStyles, /\.consent-action,[^{]+\{[^}]+text-decoration:underline/u);
   for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface])
     assert.ok(contrast(tokens.warning, background) >= 4.5, `${theme}: warning ink AA on ${background}`);
 });

@@ -618,8 +618,9 @@ for (const copy of [de, en]) test(`AIT-286 ${copy.display.locale}: access failur
 });
 
 test('AIT-286: an error with a consent verdict preserves its native consent opener', t => {
-  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true } });
-  c.session.featureMatrix.best.images = { available: false, reason: 'current processing consent required' };
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true, featureMatrix: { best: {
+    text: { available: true }, analysis: { available: true }, images: { available: false, reason: 'current processing consent required' },
+  } } } });
   conceptState(c, { phase: 'failed', reason: 'current processing consent required' });
   assert.equal(root.querySelector('.concept-activity-text .consent-action').tagName, 'BUTTON');
   assert.ok(root.querySelector('.concept-activity-text .warning svg'));
