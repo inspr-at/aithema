@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import { CORE_RETIREMENT_TABLES } from '../src/storage.js';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, createHandlers } from '../src/index.js';
+import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { SQLiteStorage, createHandlers, createPluginRuntime } from '../src/index.js';
 import { createUIRenderLimiter } from '../src/ui-render-limits.js';
 import { SQLiteBudgetLedger, createSpendCap, createVoiceCap } from '../src/index.js';
 import { testToken, ownedRequest, mockConsent, temporaryDb } from '../../../test/helpers.js';
@@ -251,6 +252,47 @@ test('AIT-295: uncertain and estimated provider receipts remain reconcilable unt
   storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
   assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
   assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 0);
+});
+
+for (const erased of [true, false]) test(`AIT-297: removed plugin ends scheduled retries only for ${erased ? 'erased' : 'live'} sessions`, async t => {
+  const { storage, handlers } = fixture(t), session = storage.create();
+  const ledger = new SQLiteBudgetLedger(storage), spend = createSpendCap({ storage, account: 'removed', capMicro: 100 });
+  let clock = Date.now();
+  ledger.admit({ attemptId: 'removed', sessionId: session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+    providerCost: { plugin: 'mock', generationId: 'removed-generation', estimateMicro: 60, settledAt: 0 } });
+  const claim = ledger.claim('removed'); claim.consume();
+  const reservation = spend.reserve(100, { attemptId: 'removed' }); spend.dispatch(reservation);
+  ledger.settle(claim.claimId, { attemptId: 'removed', outcome: 'uncertain' });
+  spend.uncertain(reservation);
+  const registry = new PluginRegistry().register({ ...createMockReasoning(), async reconcileCost() { return null; } });
+  const original = createPluginRuntime({ storage, registry, now: () => clock, costReconciliationWindowMs: 1000 });
+  await original.reconcileCosts();
+  assert.ok(JSON.parse(ledger.get('removed').provider_cost_json).retryAt > clock, 'plugin initially schedules an estimate retry');
+  if (erased) {
+    storage.erase(session.id);
+    assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  }
+  // A restart with the provider removed must not leave erased metadata waiting forever.
+  clock += 1001;
+  const runtime = createPluginRuntime({ storage, registry: new PluginRegistry(), now: () => clock });
+  const receipt = ledger.get('removed'), totals = spend.snapshot();
+  await runtime.reconcileCosts({ dryRun: true });
+  assert.deepEqual(ledger.get('removed'), receipt, 'dry-run cannot acknowledge a missing provider');
+  await runtime.reconcileCosts();
+  const after = ledger.get('removed');
+  assert.equal(after.settled_micro, receipt.settled_micro, 'retain the conservative recorded charge');
+  assert.equal(after.cost_reconciliation_json, receipt.cost_reconciliation_json, 'do not invent provider evidence');
+  assert.deepEqual(spend.snapshot(), totals);
+  if (erased) {
+    assert.equal(JSON.parse(after.provider_cost_json).retryAt, null, 'missing plugin releases the erased-session retry');
+    storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+    assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+    assert.throws(() => storage.get(session.id), /not found/i);
+    assert.deepEqual(spend.snapshot(), totals, 'retirement preserves deployment spend totals');
+  } else {
+    assert.deepEqual(after, receipt, 'live receipts remain available if the plugin returns');
+  }
 });
 
 test('AIT-295: live retirement retries keep mainline billing behavior across restart', async t => {
