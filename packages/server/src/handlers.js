@@ -712,6 +712,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     },
     async retire({ before, limit = 100 } = {}) {
       if (!Number.isSafeInteger(before) || before < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new TypeError('Invalid retention request');
+      storage.queueErasedRetirements(limit);
       const pending = storage.pendingRetirements(limit);
       const candidates = [...pending, ...storage.retirementCandidates(before, limit - pending.length)];
       let retired = 0, failed = 0;
@@ -726,6 +727,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (voiceHandlers?.retentionActive(id) || hostHandlers.retentionActive(id)) { storage.touch(id); continue; }
             if (!await eraseConversation(id, { retire: true, before })) continue;
           }
+          storage.assertRetirementSettled(id);
           await consent?.withdraw?.({ sessionId: id });
           if (host?.retired) {
             let timer;
@@ -746,7 +748,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         } finally { retiring.delete(id); }
       }
       storage.checkpointErasure();
-      return { retired, failed, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 };
+      return { retired, failed, more: storage.pendingRetirements(1).length > 0 || storage.retirementCandidates(before, 1).length > 0 || storage.hasErasedRetirementBacklog() };
     },
     /** Privileged in-process operator port. The public HTTP erase keeps its cancellation semantics. */
     async eraseSession({ sessionId, visitor = false }) {

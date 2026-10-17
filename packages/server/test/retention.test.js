@@ -20,7 +20,7 @@ for (const via of ['erase route', 'storage erase']) test(`AIT-295: ${via} is ful
   const session = storage.create({ ownerToken: testToken }), survivor = storage.create();
   storage.postTurn(session.id, 'one', Buffer.from('one'), 'private input');
   storage.postTurn(survivor.id, 'keep', Buffer.from('keep'), 'keep this journal');
-  const release = storage.hold(survivor.id); t.after(release);
+  const release = storage.hold(survivor.id);
   const journal = storage.read(survivor.id);
   storage.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run('upload', session.id, Buffer.from('private'), 7, 'ref');
   storage.db.prepare('INSERT INTO concept_artifacts VALUES (?,?,?,?,?,NULL)').run('concept', session.id, Buffer.from('private'), '{}', '{"turnIds":[]}');
@@ -41,6 +41,7 @@ for (const via of ['erase route', 'storage erase']) test(`AIT-295: ${via} is ful
   assert.equal(erased[0].sessionId, session.id);
   assert.deepEqual(storage.read(survivor.id), journal);
   assert.throws(() => storage.db.prepare('DELETE FROM events WHERE session_id=?').run(survivor.id), /append only/);
+  release();
 });
 
 test('retire erases whole sessions, calls the host, bounds batches and is idempotent', async t => {
@@ -97,7 +98,7 @@ test('last activity uses server events and authorized reads, strict cutoff, and 
   assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
 });
 
-test('many tombstones never enter expire or retire candidate queries', async t => {
+test('expiry skips tombstones and retirement processes only a bounded indexed batch', async t => {
   const { storage, handlers } = fixture(t);
   for (let i = 0; i < 1000; i++) storage.erase(storage.create().id);
   const live = storage.create({ ownerToken: testToken }); age(storage, live.id);
@@ -107,10 +108,13 @@ test('many tombstones never enter expire or retire candidate queries', async t =
   await handlers.expire(2);
   assert.ok(reads <= 3, `expire hydrated ${reads} sessions`);
   reads = 0;
-  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 2, limit: 1 }), { retired: 1, failed: 0, more: true });
   assert.ok(reads < 15, `retire hydrated ${reads} sessions`);
   const plan = storage.db.prepare('EXPLAIN QUERY PLAN SELECT session_id FROM session_retention WHERE busy=0 AND last_activity<? ORDER BY last_activity,session_id LIMIT ?').all(2, 2);
   assert.ok(plan.some(row => /SEARCH.*retention_idle/.test(row.detail)), JSON.stringify(plan));
+  const erasedPlan = storage.db.prepare(`EXPLAIN QUERY PLAN SELECT id FROM sessions
+    WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL AND id>? ORDER BY id LIMIT ?`).all('', 1);
+  assert.ok(erasedPlan.some(row => /SEARCH.*sessions_erased/.test(row.detail)), JSON.stringify(erasedPlan));
 });
 
 test('retire validates bounds and concurrent calls cannot double-retire', async t => {
@@ -177,6 +181,8 @@ test('retirement removes accounting links while preserving deployment spend and 
   const reservation = spend.reserve(100, { attemptId: 'attempt', provider: 'private-provider' });
   spend.record(reservation, { generationId: 'private-generation', chargedMicro: 101 });
   spend.settle(reservation, 101);
+  const claim = ledger.claim('attempt'); claim.consume();
+  ledger.settle(claim.claimId, { attemptId: 'attempt', outcome: 'completed', chargedMicro: 101, usage: { inputTokens: 1, outputTokens: 1 } });
   voice.reserve({ attemptId: 'voice-attempt', sessionId: s.id, callId: 'call', maxMilliseconds: 60_000 });
   renders.consume('render-attempt', s.id, () => {});
   const spentBefore = spend.snapshot({ includeBreachReason: true }), voiceBefore = voice.snapshot();
@@ -191,6 +197,81 @@ test('retirement removes accounting links while preserving deployment spend and 
     const retained = JSON.stringify(storage.db.prepare(`SELECT * FROM ${table}`).all());
     for (const identifier of [s.id, 'attempt', 'private-provider', 'private-generation']) assert.equal(retained.includes(identifier), false);
   }
+});
+
+test('AIT-295: open budget and spend reservations retain billing rows and back off until both settle', async t => {
+  const { storage, handlers, erased } = fixture(t), session = storage.create();
+  const ledger = new SQLiteBudgetLedger(storage), spend = createSpendCap({ storage, account: 'pending', capMicro: 100 });
+  ledger.admit({ attemptId: 'pending', sessionId: session.id, lane: 'concept', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim('pending'); claim.consume();
+  const reservation = spend.reserve(100, { attemptId: 'pending' }); spend.dispatch(reservation);
+  storage.erase(session.id);
+  const journal = storage.read(session.id);
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  const retry = storage.db.prepare('SELECT attempts,retry_at FROM retirement_pending WHERE session_id=?').get(session.id);
+  assert.equal(retry.attempts, 1); assert.ok(retry.retry_at > Date.now());
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
+  assert.throws(() => storage.purgeRetired(session.id), /billing unsettled/);
+  ledger.settle(claim.claimId, { attemptId: 'pending', outcome: 'completed', chargedMicro: 40, usage: { inputTokens: 1, outputTokens: 1 } });
+  spend.uncertain(reservation);
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  assert.throws(() => storage.purgeRetired(session.id), /spend unsettled/);
+  assert.equal(ledger.get('pending').settled_micro, 40);
+  assert.deepEqual(storage.read(session.id), journal);
+  assert.equal(erased.length, 0, 'host cleanup waits for billing');
+  spend.settle(reservation, 40);
+  const total = spend.snapshot();
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.equal(ledger.get('pending'), undefined);
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM spend_reservations').get().n, 0);
+  assert.deepEqual(spend.snapshot(), total);
+});
+
+test('AIT-295: uncertain and estimated provider receipts remain reconcilable until final acknowledgement', async t => {
+  const { storage, handlers } = fixture(t), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  ledger.admit({ attemptId: 'receipt', sessionId: session.id, lane: 'reaction', maxMicro: 100,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), providerCost: { generationId: 'gen-retention' } });
+  const claim = ledger.claim('receipt'); claim.consume();
+  ledger.settle(claim.claimId, { attemptId: 'receipt', outcome: 'uncertain' });
+  storage.erase(session.id);
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  ledger.reconcileCost('receipt', { chargedMicro: 50, generationId: 'gen-retention', estimated: true });
+  ledger.acknowledgeCost('receipt', Date.now() + 60_000);
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 1, more: false });
+  ledger.reconcileCost('receipt', { chargedMicro: 40, generationId: 'gen-retention' });
+  assert.throws(() => storage.purgeRetired(session.id), /billing unsettled/, 'deferred reconciliation still owns its receipt');
+  ledger.acknowledgeCost('receipt');
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 2);
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections').get().n, 0);
+});
+
+test('AIT-295: existing tombstones migrate in bounded pages without resetting pending retries', async t => {
+  const path = await temporaryDb();
+  let storage = new SQLiteStorage(path);
+  // Reproduce the old schema's erase trigger, before opening with the migration.
+  storage.db.exec('DROP TRIGGER retirement_erase');
+  for (const id of ['a-pending', 'b-legacy', 'c-legacy']) storage.erase(storage.create({ id }).id);
+  storage.db.prepare('INSERT INTO retirement_pending(session_id,owner_hash,attempts,retry_at) VALUES (?,?,3,?)')
+    .run('a-pending', storage.get('a-pending').ownerHash, Date.now() + 3_600_000);
+  storage.close(); storage = new SQLiteStorage(path);
+  const handlers = createHandlers({ storage, consent: mockConsent });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 0, failed: 0, more: true });
+  assert.equal(storage.db.prepare('SELECT attempts FROM retirement_pending WHERE session_id=?').get('a-pending').attempts, 3);
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM retirement_pending').get().n, 1);
+  assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 1, failed: 0, more: true });
+  assert.throws(() => storage.get('b-legacy'), /not found/i);
+  assert.ok(storage.get('c-legacy').tombstone);
+  assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 1, failed: 0, more: false });
+  assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 0, failed: 0, more: false });
+  storage.db.prepare('UPDATE retirement_pending SET retry_at=0').run();
+  assert.deepEqual(await handlers.retire({ before: 0, limit: 1 }), { retired: 1, failed: 0, more: false });
 });
 
 test('unauthorized reads cannot renew another session retention deadline', async t => {
