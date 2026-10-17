@@ -106,6 +106,9 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
 
 for (const [locale, copy] of Object.entries({ de, en })) for (const variant of ['missing', 'unconfirmed', 'no-next', 'operator-budget']) for (const restored of [false, true]) {
   test(`AIT-291 r2 ${locale}: host-limit ${variant}, restored ${restored} has one announcement and independent upgrade/export`, async t => {
+    // This case owns repeated terminal events, not the debounced funded receipt.
+    // Under CI contention real time can cross its 300ms recovery refresh.
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
     const next = variant === 'missing' ? 'give' : variant === 'unconfirmed' ? 'confirm' : 'none';
     const { c, root } = a2Setup(t, { copy, delivery: variant === 'unconfirmed',
       address: ['unconfirmed', 'no-next'].includes(variant) ? 'reader@example.test' : null,
