@@ -155,7 +155,10 @@ for (const locale of ['de', 'en']) test(`AIT-197 C1 ${locale}: each consent, foc
     if (feature === 'voice') {
       const ink = await shadow(page, c => {
         const r = c.shadowRoot, range = document.createRange(); range.selectNodeContents(r.querySelector('.voice-state'));
-        const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+        const status = r.querySelector('.voice-state'), narrow = status.querySelector('.consent-narrow');
+        const rects = (narrow && getComputedStyle(narrow).display !== 'none'
+          ? [...narrow.getClientRects(), ...status.querySelector('.consent-action').getClientRects()] : [...range.getClientRects()])
+          .filter(rect => rect.width > 0);
         const width = Math.max(...rects.map(rect => rect.right)) - Math.min(...rects.map(rect => rect.left));
         return { half: Number.parseFloat(r.querySelector('.voice-wave').style.getPropertyValue('--voice-label-half')), expected: width / 2 };
       });
