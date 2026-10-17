@@ -952,6 +952,13 @@ export class AithemaSession extends HTMLElement {
       else if (target > max) slack.bottom += target - max + (max < 1 ? spareSpace(pane) : 0);
       apply(); pane.scrollTop = Math.max(0, target);
     }
+    // At a rounded scroll boundary Chrome can leave the compact assessment
+    // a fraction of a pixel above its anchor. Padding can preserve that final
+    // fraction even when assigning scrollTop cannot move the pane any further.
+    const residual = node.getBoundingClientRect().top - top;
+    if (pane.matches('.analysis-content') && pane.querySelector('.notice[data-assessment]') && residual <= -.5) {
+      slack.top -= residual; apply();
+    }
     // The phone notice observer runs after this render. Its reading position
     // must include the pointer anchor's compensation for changed transcript rows.
     if (pane.matches('.transcript-shell')) this.#phoneViewport?.recordTranscriptAnchor();
