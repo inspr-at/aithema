@@ -38,6 +38,7 @@ export const actorRoleStyles = `
 .actor-option:has(input:disabled):hover { background:none; }
 .actor-option input:disabled { box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--role-muted) 45%,var(--role-paper)); }
 .actor-status { display:flex; align-items:center; flex-wrap:wrap; align-content:center; box-sizing:border-box; height:36px; padding:0 10px; margin:0; border-top:1px solid var(--role-line); color:var(--role-muted); font-size:12.5px; line-height:1.35; }
+.actor-status-sep { white-space:pre; }
 .actor-status[data-phase=error] { color:var(--role-error); }
 .actor-status[data-phase=stale],.actor-status[data-phase=saved] { color:var(--role-ink); }
 .actor-retry { padding:0; position:relative; border-radius:3px; background:none; color:var(--role-ink); text-decoration:underline; text-underline-offset:3px; font:inherit; }
@@ -61,6 +62,7 @@ export const actorRoleStyles = `
 .actor-sheet .actor-status { margin:0 -8px; padding:0 8px; height:44px; border:0; font-size:14px; }
 .actor-sheet .actor-status[data-phase=error] { display:block; padding-top:2px; }
 .actor-sheet .actor-status[data-phase=error] > span { display:block; }
+.actor-sheet .actor-status[data-phase=error] .actor-status-sep { display:none; }
 .actor-sheet .actor-retry { margin-left:20px; }
 .actor-processing { border-top:1px solid var(--aithema-line); margin-top:6px; padding-top:16px; }
 .actor-processing > button { display:flex; align-items:center; width:100%; min-height:50px; padding:0; text-align:left; color:var(--aithema-ink); font-size:16px; }

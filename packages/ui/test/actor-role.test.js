@@ -95,3 +95,22 @@ test('AIT-281: phone has only the role sheet, no account, and keeps the saved ac
   assert.equal(f.actor.sheet.querySelector('.actor-reason').textContent, en.actorRole.chosen);
   f.session.locale = 'de'; f.actor.setCopy(de); assert.equal(f.actor.sheet.querySelector('.actor-status').textContent, '✓ '+de.actorRole.saved);
 });
+
+test('AIT-281: a revoked command capability removes both controls', async t => {
+  const f = fixture(t); f.actor.open(); await tick();
+  const saving = f.actor.choose('agency');
+  f.pending.resolve({ ok: false, status: 503, body: { error: 'role-unavailable' } }); await saving;
+  assert.equal(f.actor.available, false); assert.equal(f.actor.popover.hidden, true);
+  assert.equal(f.root.querySelector('.actor-trigger').hidden, true);
+});
+
+test('AIT-281: account content is exclusively the host slot and returns on capability removal', async t => {
+  const f = fixture(t), host = f.root.host;
+  const account = document.createElement('span'); account.slot = 'account'; account.textContent = 'Fixture host account'; host.append(account);
+  await tick(); f.actor.set(initial);
+  assert.equal(f.actor.popover.querySelector('.actor-account').hidden, false);
+  assert.equal(f.root.querySelector('slot[name=account]').parentNode.className, 'actor-account');
+  assert.equal(f.actor.sheet.querySelector('slot[name=account]'), null);
+  f.actor.set({ ...initial, available: false });
+  assert.equal(f.root.querySelector('slot[name=account]').parentNode.className, 'host-account');
+});

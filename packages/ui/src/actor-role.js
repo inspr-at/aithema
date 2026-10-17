@@ -86,7 +86,10 @@ export class ActorRole {
     const read = ++this.#read, generation = this.#generation;
     try {
       const response = await this.#request('identity');
-      if (this.#alive && read === this.#read && generation === this.#generation) this.set(response.ok ? response.body?.roleChoice ?? { available: false } : { available: false });
+      if (this.#alive && read === this.#read && generation === this.#generation) {
+        if (response.ok) this.set(response.body?.roleChoice ?? { available: false });
+        else if (response.status === 503) this.set({ available: false });
+      }
     } catch { /* A failed read keeps the last acknowledged projection. */ }
   }
   sync() {
@@ -126,6 +129,8 @@ export class ActorRole {
         if (!this.sheet.open) this.close(true);
       } else if (response.status === 409 && response.body?.error === 'role-conflict' && response.body.roleChoice) {
         this.set(response.body.roleChoice); this.#phase = 'stale'; this.#pending = null; this.#paint();
+      } else if (response.status === 503 && response.body?.error === 'role-unavailable') {
+        this.#phase = 'idle'; this.#pending = null; this.set({ available: false });
       } else { this.#phase = 'error'; this.#pending = null; this.#paint(); }
     } catch { if (this.#alive && generation === this.#generation) { this.#phase = 'error'; this.#pending = null; this.#paint(); } }
   }
@@ -161,7 +166,7 @@ export class ActorRole {
       const key = this.#phase === 'idle' ? 'hint' : this.#phase;
       if (status.dataset.phase !== key) {
         status.dataset.phase = key; status.replaceChildren();
-        if (key === 'error') { status.append(node('span', '', '⚠ '+c.error+' · ')); const retry = node('button', 'actor-retry', c.retry); retry.type = 'button'; status.append(retry); }
+        if (key === 'error') { status.append(node('span', '', '⚠ '+c.error), node('span', 'actor-status-sep', ' · ')); const retry = node('button', 'actor-retry', c.retry); retry.type = 'button'; status.append(retry); }
         else setText(status, (key === 'saved' ? '✓ ' : '')+c[key]);
       }
     }

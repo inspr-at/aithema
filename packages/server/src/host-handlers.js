@@ -1,4 +1,4 @@
-import { createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
+import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
   assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
   operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
@@ -137,8 +137,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       (identity.roleConsentRevision ?? 0) === (session.conversationConsentRevision ?? session.consentRevision);
     const actor = chosen ? { type: identity.role, evidence: 'selected' } : session.actor;
     const roles = identity?.roles ?? [];
-    return { available: host?.identity?.chooseRole === true && roles.length === 4 &&
-        roles.every(role => ['private', 'company', 'representative', 'agency'].includes(role)),
+    return { available: host?.identity?.chooseRole === true && roles.length === ACTOR_ROLES.length &&
+        roles.every(role => ACTOR_ROLES.includes(role)),
       roles, role: roles.includes(actor?.type) ? actor.type : null,
       source: chosen || actor?.evidence === 'selected' ? 'chosen' : 'inferred',
       reasoning: chosen ? null : actor?.reasoning ?? null, revision: session.seq };
