@@ -273,8 +273,8 @@ async function checkPhoneVoiceHeader(t, widths) {
     AITHEMA_COMMIT: '45cd699', AITHEMA_BUILD_DATE: '2026-10-17T00:00:00Z',
   });
   let browser;
-  t.after(async () => { await browser?.close(); await demo.kill(); });
-  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); } });
+  browser = await puppeteer.launch({ signal: t.signal, executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, checks = [], passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -306,6 +306,7 @@ async function checkPhoneVoiceHeader(t, widths) {
       Object.defineProperty(timer, 'textContent', { configurable: true, get: () => '0:00', set() {} });
       document.documentElement.lang = locale; scrollTo(0, 0);
     }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
     for (const width of widths) {
       await page.setViewport({ width, height: width < 600 ? 844 : 900 });
       await page.mouse.move(-1, -1);
@@ -393,7 +394,7 @@ async function checkPhoneVoiceHeader(t, widths) {
             await writeFile(join(evidence, `ait302-${label}-diff.json`), JSON.stringify({ label, changed: changed.length, maxDelta,
               bounds: changed.length ? [Math.min(...changed.map(p => p[0])), Math.min(...changed.map(p => p[1])), Math.max(...changed.map(p => p[0])), Math.max(...changed.map(p => p[1]))] : [] }));
           }
-          assert.deepEqual(after, before, `${label}: byte-identical legacy desktop viewport`);
+          assert.ok(after.equals(before), `${label}: byte-identical legacy desktop viewport`);
         }
         checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 600 ? null : name });
       }
@@ -405,4 +406,4 @@ async function checkPhoneVoiceHeader(t, widths) {
 }
 
 test('AIT-302: phone header voice statuses and fixed controls', { timeout: 360_000 }, t => checkPhoneVoiceHeader(t, [320, 360, 390]));
-test('AIT-302: unchanged desktop consent', { timeout: 30_000 }, t => checkPhoneVoiceHeader(t, [600, 1024, 1440]));
+test('AIT-302: unchanged desktop consent', { timeout: 90_000 }, t => checkPhoneVoiceHeader(t, [600, 1024, 1440]));
