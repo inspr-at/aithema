@@ -321,7 +321,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   /* The measured bar retains the normal composer's size; only its absolute
      host-limit action layer reserves the two 44 px rows. */
   .composer-out[data-host-limit] .composer-out__actions { min-height:90px; }
-  .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
+  .composer-out[data-host-limit] .composer-out__title { margin-inline:-8px; font-size:11.5px; }
   .composer-out[data-host-limit] .composer-out__title > span { line-height:1.35; }
   .composer-out[data-host-limit] .composer-out__body > span { top:-9px; inset-inline:-8px; font-size:12px; line-height:1.3; }
 }
