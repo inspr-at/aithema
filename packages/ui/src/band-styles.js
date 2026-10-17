@@ -336,6 +336,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:is([data-fit="timer"],[data-fit="role"]) .status .connection-timer { display:none; }
   .display-foot[data-fit="role"] .actor-role { display:none; }
   .display-foot[data-fit="role"] .footer-left { gap:0; }
+  .display-foot[data-fit="role"] .host-credits__track { width:24px; }
 }
 :host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }

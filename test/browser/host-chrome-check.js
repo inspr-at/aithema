@@ -264,12 +264,13 @@ export async function hostChromeCheck(t) {
         const links = [...c.querySelectorAll('[slot="legal"] a')].map(box);
         const zones = [...row.children].filter(n => !n.hidden).map(box);
         return { footerWidth: row.clientWidth, footerScrollWidth: row.scrollWidth, composerBottom: composer.bottom, footerTop: foot.top,
-          zonesClear: zones.every(([x,,w], i) => !i || zones[i-1][0] + zones[i-1][2] <= x),
+          zones, zonesClear: zones.every(([x,,w], i) => !i || zones[i-1][0] + zones[i-1][2] <= x),
           links, legalInside: links.every(([x,y,w,h]) => x >= 0 && x+w <= innerWidth && y >= 0 && y+h <= innerHeight),
           flag: r.querySelector('.engine__flag').checkVisibility({ visibilityProperty:true }),
           dot: r.querySelector('.status__dot').checkVisibility({ visibilityProperty:true }),
           identity: r.querySelector('.display-version').checkVisibility({ visibilityProperty:true }),
           roleReserved: Boolean(r.querySelector('.actor-reservation').textContent),
+          roleAvailable: !r.querySelector('.actor-trigger').hidden,
           credits: r.querySelector('.host-credits').checkVisibility(),
           frame: ['.composer','.send','.display-foot','.footer-left','.footer-right','.host-legal','.engine-info','.status'].map(s => box(r.querySelector(s))), fit: footer.dataset.fit };
       });
@@ -280,6 +281,7 @@ export async function hostChromeCheck(t) {
       assert.ok(metric.composerBottom <= metric.footerTop, `${label}: composer above footer ${JSON.stringify(metric)}`);
       assert.equal(metric.flag, true); assert.equal(metric.dot, true); assert.equal(metric.identity, true);
       assert.equal(metric.roleReserved, true); assert.equal(metric.credits, true);
+      assert.equal(metric.roleAvailable, true, `${label}: real role projection is loaded`);
       if (frames.length) assert.deepEqual(metric.frame, frames[0], `${label}: voice bind/unbind shifts 0 px`);
       frames.push(metric.frame); rail294Checks.push({ pass: true, label, ...metric, shiftPx: 0 });
       if ((width === 700 && locale === 'de' && voice) || (width === 768 && locale === 'en' && theme === 'light' && frames.length <= 2)) await shot(label);
