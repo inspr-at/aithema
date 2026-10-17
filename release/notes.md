@@ -26,8 +26,6 @@ Third October release: OpenRouter concept images, more accessible controls, comp
 - **Phone links (AIT-297):** host-limit actions fit at 390 px and reserve stacked
   targets on narrower phones. Demo legal links keep usable targets across
   languages and pointer modes.
-- **Checks (AIT-298/299):** steadier CI cleanup and diagnostics, with detailed
-  unit handle tracing available on request.
 
 ## For hosts
 
@@ -55,12 +53,14 @@ Third October release: OpenRouter concept images, more accessible controls, comp
   since `v261017133413.0.0`. The shared `Terminal` type now permits optional
   token `usage` on an `uncertain` result, preserving known usage without claiming
   a settled cost. Plugin protocol `apiVersion` is unchanged.
+- **Maintenance (AIT-298/299):** steadier CI cleanup and diagnostics, with detailed
+  unit handle tracing available on request.
 
 ## Breaking for hosts
 
 - **Image endpoint admission (AIT-300):** direct `gpt-image-2` bindings now accept
-  only `https://api.openai.com/v1` in production. Previously accepted custom
-  proxy hosts are refused. Use the admitted direct endpoint or the OpenRouter
+  only `https://api.openai.com/v1` on non-loopback hosts. Previously accepted
+  custom proxy hosts are refused. Use the admitted direct endpoint or the OpenRouter
   binding above. An explicit `baseUrl` must match the binding; endpoint queries,
   fragments and credentials are refused. Loopback endpoints remain available
   for offline fixtures.
