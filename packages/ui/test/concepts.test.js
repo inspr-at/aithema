@@ -611,6 +611,7 @@ for (const copy of [de, en]) test(`AIT-286 ${copy.display.locale}: access failur
   assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-rail \{ display:block;/u);
   assert.ok(styles.includes('.concept-activity-text::after { content:"\u00a0· ";'));
   assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-request \{[^}]*display:inline-block[^}]*white-space:nowrap/u);
+  assert.match(styles, /@media\(600px < width <= 64rem\)\s*\{[^}]*\.concept-activity::after \{ content:''; display:block/u);
   assert.equal(button.textContent, `${copy.conceptRetry}\u00a0· ${creditCost(30000, copy)}`);
   button.click(); await tick();
   assert.equal(calls.filter(call => call.options.body).length, 1, 'existing one-click priced request');

@@ -247,6 +247,9 @@ svg { display:block; flex:none; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text { white-space:normal; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request { display:inline-block; position:relative; min-height:0; padding:0; white-space:nowrap; vertical-align:baseline; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-request::after { content:''; position:absolute; inset:50% 0 auto; height:44px; transform:translateY(-50%); }
+@media(600px < width <= 64rem) {
+  .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity::after { content:''; display:block; }
+}
 .workspace[data-concept-layout="image"] .concept-access:is([data-state="ready"],[data-state="gone"],[data-state="none"],[data-state="empty"]) .concept-rail { visibility:hidden; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="gen"] .concept-activity { visibility:hidden; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="ready"] .concept-preview-slot { visibility:visible; }
