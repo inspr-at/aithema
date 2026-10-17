@@ -394,6 +394,13 @@ export async function hostChromeCheck(t) {
         assert.equal(metric.name, metric.full, `${prefix}/${width}: dot retains full accessible name`);
         if (metric.labelVisible) assert.equal(metric.reserved, metric.longestShort, `${prefix}/${width}: reservation equals longest short label`);
       }
+      if (width === 800) {
+        const { result } = await accessibility.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".status__dot")' });
+        const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+        const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+        const dot = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
+        assert.equal(dot?.ignored, false); assert.equal(dot?.role?.value, 'image'); assert.equal(dot?.name?.value, metric.full);
+      }
       checks.push({ label: `${prefix}-${width}-reconnecting`, ...metric });
       if ([800, 1024, 390].includes(width)) await shot(`${prefix}-${width}-reconnecting`);
     }

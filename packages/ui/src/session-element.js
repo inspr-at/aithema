@@ -669,7 +669,7 @@ export class AithemaSession extends HTMLElement {
     // One stable polite node changes only when the full message changes.
     setText(status.querySelector('.status__live'), toast ? this.#connection || this.#copy.connecting : words);
     const dot = status.querySelector('.status__dot');
-    dot.setAttribute('aria-label', this.#connection || this.#copy.connecting);
+    dot.setAttribute('aria-label', key && !message ? words : this.#connection || this.#copy.connecting);
     dot.dataset.state = connected ? 'connected' : 'connecting';
     setText(root.querySelector('.phone-status__label'), this.#connection || this.#copy.connecting);
     status.toggleAttribute('data-connected', connected);
