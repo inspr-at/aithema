@@ -175,6 +175,7 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       c.configure({ copy, session: c.session });
     }, locale);
+    await settle(page);
     await expectEngineDetail(copy, point);
     const popup = await boxes(page, ['.engine-info', '.engine__detail']);
     assert.ok(popup[1][1] + popup[1][3] <= popup[0][1], `${locale}: stationary-pointer popup is above the footer`);
