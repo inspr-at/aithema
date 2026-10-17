@@ -281,13 +281,24 @@ export class AithemaSession extends HTMLElement {
   #syncClarify() {
     const revision = inputRevision(this.#session), chosen = this.#session.questionFocus;
     if (this.#clarify && this.#clarify.inputRevision !== revision) this.#clarify = null;
-    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && chosen.requestId !== this.#clarify?.requestId) {
+    // A completed command is history, never the pending click's identity.
+    const answered = chosen && this.#session.transcript.some(t => t.role === 'assistant' && t.focusRequestId === chosen.requestId);
+    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && answered) {
+      this.#clarifyReplies.set(chosen.requestId, this.#session.focusedQuestion);
+      this.#clarifyAsked.add(this.#session.focusedQuestion);
+    }
+    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && !answered && chosen.requestId !== this.#clarify?.requestId) {
       const question = this.#session.focusedQuestion;
       this.#clarify = { ...chosen, question, state: 'requesting', pending: Boolean(this.#clarifyRequest) };
       this.#clarifyReplies.set(chosen.requestId, question);
     }
     const focus = this.#clarify;
     if (!focus) return;
+    // A refused click owns no future reply. Keep requesting only while the
+    // existing reaction or spoken reply is actually in flight.
+    if (focus.waitingForReply && !focus.pending &&
+      !(this.#session.operations?.inputRevision === revision && this.#session.operations.running.includes('reaction')) &&
+      this.#rail?.state !== 'speaking') { this.#clarify = null; return; }
     if (focus.requestId && !this.#session.understanding.openQuestions.includes(focus.question)) { this.#clarify = null; return; }
     if (this.#session.transcript.some(t => !t.erased && !t.withdrawn && t.focusRequestId === focus.requestId && focus.requestId)) {
       focus.state = 'asked'; this.#clarifyAsked.add(focus.question);
@@ -623,6 +634,7 @@ export class AithemaSession extends HTMLElement {
         },
         // A call that starts, ends or fails moves the stage and the avatar with it.
         onState: state => {
+          if (this.#clarify?.waitingForReply) this.#render('aside');
           if (state === 'speaking') this.#updateVoiceTranscript({ type: 'speaking' });
           if (['paused', 'recovering', 'waiting', 'closing', 'idle', 'failed'].includes(state)) this.#updateVoiceTranscript({ type: 'reset' });
           // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
@@ -2414,7 +2426,6 @@ export class AithemaSession extends HTMLElement {
       }
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
-      if (this.#clarify?.waitingForReply && !event.data.running.includes('reaction')) this.#clarify = null;
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
       if (this.#clarify?.requestId && event.data.lane === 'reaction') {

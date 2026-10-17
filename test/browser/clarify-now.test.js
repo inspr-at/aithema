@@ -46,11 +46,11 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
       return Response.json(c.session);
     };
   });
-  const states = ['rest', 'requesting', 'selected', 'asked', 'stale', 'retry', 'refused-paused', 'refused-consent', 'refused-deadline'];
+  const states = ['rest', 'requesting', 'selected', 'asked', 'stale', 'retry', 'refused-paused', 'refused-consent', 'refused-deadline', 'second-requesting', 'second-refused-paused', 'voice-busy-resolved'];
   for (const locale of ['de', 'en']) for (const [width, theme] of [[1440, 'light'], [1440, 'dark'], [1024, 'light'], [390, 'light']]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     for (const state of states) {
-      await shadow(page, async (c, locale, theme) => {
+      await shadow(page, async (c, locale, theme, state) => {
         const { createSession, inputRevision } = await import('/packages/core/src/session.js');
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const session = createSession({ demo: true, locale });
@@ -65,20 +65,57 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
         c.setAttribute('theme', theme); c.setAttribute('motion', 'off');
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
         c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
-        c.configure({ session, copy });
+        let voiceEvents, voiceCallId;
+        if (state === 'voice-busy-resolved') {
+          const { voiceEvents: createEvents } = await import('/packages/core/src/live-voice.js');
+          const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+          voiceEvents = createEvents(); session.featureMatrix.best.voice = { available: true };
+          c.configure({ session, copy, voiceClient: { manifest, async start(request) {
+            voiceCallId = request.callId;
+            return { callId: voiceCallId, providerSessionId: 'evidence-voice', events: voiceEvents,
+              async setInput() {}, async setOutput() {}, async updateContext() {},
+              async close() { voiceEvents.end(); return { closureConfirmed: true }; } };
+          } } });
+        } else c.configure({ session, copy });
         window.clarifyPosts = [];
-        window.clarifyState = state => {
+        window.clarifyState = async state => {
           const revision = session.operations.inputRevision;
           const receive = (type, data) => c.receive({ seq: c.session.seq + 1, type, data });
           const lane = (running, failures = []) => c.receive({ type: 'lane.status', data: { inputRevision: revision, running, failures, lastFailure: failures.at(-1) ?? null } });
           if (state === 'rest') return;
-          const button = c.shadowRoot.querySelectorAll('.clarify-action')[1]; button.focus({ preventScroll: true });
+          const second = state.startsWith('second-');
+          if (second) {
+            const item = c.openQuestionItems[1];
+            const first = c.focusQuestion(item.id);
+            window.releaseFocus(Response.json({ accepted: true, event: { seq: c.session.seq + 1, type: 'question.focused', data: {
+              ...item, questionId: item.id, requestId: 'first-focus', chosenBy: 'user', inputRevision: revision,
+            } } }, { status: 202 }));
+            await first;
+            receive('turn.final', { id: 'first-reply', role: 'assistant', content: locale === 'de' ? 'Wer gibt Rechnungen frei?' : 'Who approves invoices?', inputRevision: revision, focusRequestId: 'first-focus' });
+            lane([]);
+          }
+          const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+          if (state === 'voice-busy-resolved') {
+            c.shadowRoot.querySelector('.voice-start').click();
+            while (c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'listening') await frame();
+            voiceEvents.push({ type: 'speaking', callId: voiceCallId });
+            while (c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'speaking') await frame();
+          }
+          const button = c.shadowRoot.querySelectorAll('.clarify-action')[second ? 0 : 1]; button.focus({ preventScroll: true });
           window.focusAction = button;
-          window.focusPromise = c.focusQuestion(c.openQuestionItems[1].id).catch(() => {});
-          if (state === 'requesting') return;
-          if (state === 'stale' || state.startsWith('refused')) {
-            const reason = { stale: 'stale-question', 'refused-paused': 'paused', 'refused-consent': 'consent-required', 'refused-deadline': 'not-admitted' }[state];
-            if (state === 'refused-paused') receive('session.paused', { paused: true });
+          window.focusPromise = c.focusQuestion(c.openQuestionItems[second ? 0 : 1].id).catch(() => {});
+          if (state === 'requesting' || state === 'second-requesting') return;
+          if (state === 'voice-busy-resolved') {
+            window.releaseFocus(Response.json({ error: 'focus-refused', reason: 'reply-in-flight' }, { status: 409 }));
+            await window.focusPromise;
+            window.voiceBusyWasRequesting = c.shadowRoot.querySelectorAll('.open-question')[1].dataset.state === 'requesting';
+            voiceEvents.push({ type: 'listening', callId: voiceCallId });
+            while (c.shadowRoot.querySelector('.audio-rail').dataset.state !== 'listening') await frame();
+            await frame(); return;
+          }
+          if (state === 'stale' || state.startsWith('refused') || state === 'second-refused-paused') {
+            const reason = { stale: 'stale-question', 'refused-paused': 'paused', 'second-refused-paused': 'paused', 'refused-consent': 'consent-required', 'refused-deadline': 'not-admitted' }[state];
+            if (state.endsWith('refused-paused')) receive('session.paused', { paused: true });
             window.releaseFocus(Response.json({ error: 'focus-refused', reason, ...(state === 'refused-deadline' ? { admissionReason: 'one-hour' } : {}) }, { status: 409 }));
             return window.focusPromise;
           }
@@ -95,25 +132,31 @@ test('AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained
             }
           });
         };
-      }, locale, theme);
+      }, locale, theme, state);
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
       await settle(page); const before = await geometry(page);
       await page.evaluate(state => window.clarifyState(state), state);
       await settle(page);
       assert.deepEqual(await geometry(page), before, `${locale}/${width}/${theme}/${state}: exact 0 px state displacement`);
       const checks = await shadow(page, (c, state) => {
-        const rows = [...c.shadowRoot.querySelectorAll('.open-question')], action = rows[1].querySelector('button');
+        const rows = [...c.shadowRoot.querySelectorAll('.open-question')], row = rows[state.startsWith('second-') ? 0 : 1], action = row.querySelector('button');
         const retry = c.shadowRoot.querySelector('.retry'), overviewRetry = c.shadowRoot.querySelector('.overview-retry');
         const target = action.getBoundingClientRect(), pseudo = getComputedStyle(action, '::after');
-        const line = rows[1].querySelector('.question-state'), text = line.getBoundingClientRect();
-        return { itemState: rows[1].dataset.state, focusRetained: c.shadowRoot.activeElement === window.focusAction,
+        const line = row.querySelector('.question-state'), text = line.getBoundingClientRect();
+        return { itemState: row.dataset.state, previousState: rows[1].dataset.state, voiceBusyWasRequesting: window.voiceBusyWasRequesting, actionEnabled: action.getAttribute('aria-disabled') === 'false', label: action.textContent, focusRetained: c.shadowRoot.activeElement === window.focusAction,
           targetHeight: target.height - parseFloat(pseudo.top) - parseFloat(pseudo.bottom),
           noOverflow: line.scrollWidth <= text.width + 1,
           oneRetry: retry.hidden && overviewRetry.hidden, noDeadlineButtons: rows.every(row => row.querySelector('button').hidden),
-          refusalIcon: Boolean(rows[1].querySelector('.question-status svg')),
+          refusalIcon: Boolean(row.querySelector('.question-status svg')),
           metaWrap: c.shadowRoot.querySelector('.clarify-meta-question') ? getComputedStyle(c.shadowRoot.querySelector('.clarify-meta-question')).whiteSpace : null,
           metaCount: c.shadowRoot.querySelectorAll('.clarify-meta').length, title: c.shadowRoot.querySelector('#understanding-title').textContent };
       }, state);
+      if (state === 'second-requesting') { assert.equal(checks.itemState, 'requesting'); assert.equal(checks.previousState, 'asked'); assert.equal(checks.focusRetained, true); }
+      if (state === 'second-refused-paused') {
+        assert.equal(checks.itemState, 'refused'); assert.equal(checks.previousState, 'asked'); assert.equal(checks.actionEnabled, true);
+        assert.match(checks.label, locale === 'de' ? /Fortsetzen/ : /Resume/); assert.equal(checks.refusalIcon, true);
+      }
+      if (state === 'voice-busy-resolved') { assert.equal(checks.voiceBusyWasRequesting, true); assert.equal(checks.itemState, 'rest'); assert.equal(checks.actionEnabled, true); }
       if (['requesting', 'selected', 'asked'].includes(state)) assert.equal(checks.focusRetained, true, 'keyboard focus stays on the original action');
       if (['rest', 'requesting', 'selected', 'asked'].includes(state)) assert.equal(checks.targetHeight, 44, '44 px pointer target');
       if (state === 'retry') { assert.equal(checks.oneRetry, true); assert.equal(checks.noOverflow, true, 'narrow retry fits the reserved line'); }

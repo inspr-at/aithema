@@ -201,6 +201,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           ? session.understanding.openQuestions.includes(session.focusedQuestion) ? session.focusedQuestion : null
           : session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
+          // Clearing the command makes its reaction stale before the lane can
+          // detect removal. Send the documented failure while it still owns it.
+          if (pending && question === null) broadcast(id, { sessionId: id, type: 'lane.failed', data: {
+            inputRevision: acceptedRevision, lane: 'reaction', error: 'reasoning-unavailable',
+            reason: 'focused-question-removed', retryable: false,
+          } });
           const focused = storage.append(id, 'question.focused', { question }, acceptedRevision);
           if (focused) broadcast(id, focused);
         }
