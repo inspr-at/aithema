@@ -546,7 +546,23 @@ async function rest(page, selector) {
     const node = c.shadowRoot.querySelector(selector);
     return !node.closest('.transcript-shell') || node.contains(c.shadowRoot.elementFromPoint(point.x, point.y));
   }, selector, target.point), true, `the resting pointer hits ${selector}`);
-  return target.box;
+  // Entering this pane can release the previous pane's pointer slack. Take
+  // the live-update baseline after those pointer events and layout have settled.
+  const placed = await inShadow(page, (c, selector, timeout) => new Promise((resolve, reject) => {
+    const node = c.shadowRoot.querySelector(selector);
+    let previous, frame;
+    const timer = setTimeout(() => { cancelAnimationFrame(frame); reject(new Error(`Pointer entry did not settle: ${selector}`)); }, timeout);
+    const measure = () => {
+      const rect = node.getBoundingClientRect(), current = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      if (previous && Object.keys(current).every(key => current[key] === previous[key])) {
+        clearTimeout(timer); resolve(current); return;
+      }
+      previous = current; frame = requestAnimationFrame(measure);
+    };
+    frame = requestAnimationFrame(measure);
+  }), selector, waitTimeout);
+  if (placed.y !== target.box.y) console.info(`Resting-pointer entry ${selector}: ${target.box.y} → ${placed.y}, before any live update`);
+  return placed;
 }
 // The changing upload row's own boxes: the row, its name, its action slot and (while it exists) the button.
 const rowBoxes = (page, selector) => inShadow(page, (c, selector) => {
@@ -877,6 +893,19 @@ test('AIT-116: the resting-pointer baseline waits for the transcript entry anima
     assert.equal(settled.scrollTop, entering.scrollTop, 'the pane did not scroll');
     t.diagnostic(`Entry animation: ${JSON.stringify(entering)}; resting baseline: ${JSON.stringify(before)}; finished: ${JSON.stringify(after)}.`);
     sameBox(before, after, 'transcript baseline after entry animation');
+    // Pointer entry itself can release fractional slack, before a live update.
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => window.assess(['One signal'], ['One question?']));
+    const heading = '.signals-section h3';
+    await inShadow(page, c => {
+      const pane = c.shadowRoot.querySelector('.analysis-content');
+      pane.style.setProperty('--aithema-slack-top', '.625px');
+      pane.addEventListener('pointerenter', () => pane.style.removeProperty('--aithema-slack-top'), { once: true });
+    });
+    const entryBefore = await box(page, heading), entryBaseline = await rest(page, heading), entryAfter = await box(page, heading);
+    assert.ok(Math.abs(entryBefore.y - entryAfter.y) > .5, 'fixture releases fractional padding on pointer entry');
+    assert.deepEqual(entryBaseline, entryAfter, 'baseline includes pointer-entry layout, before any live update');
+    t.diagnostic(`Pointer-entry baseline: ${entryBefore.y} → ${entryBaseline.y}; live-update geometry tolerance remains 0.5px.`);
   });
 
 test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout',
