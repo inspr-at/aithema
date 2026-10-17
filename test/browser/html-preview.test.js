@@ -371,7 +371,8 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
       await page.evaluate(()=>window.evidenceAsk.destroy());
       await page.evaluate(async locale=>{
         await window.seed(locale);const c=document.querySelector('aithema-session');
-        c.configure({session:{...c.session,transcript:[],concepts:[window.conceptItem('not-live')],conceptStatus:{phase:'ready'}},sessionToken:'fixture-owner'});
+        const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
+        c.configure({copy,session:{...c.session,transcript:[],concepts:[window.conceptItem('not-live')],conceptStatus:{phase:'ready'}},sessionToken:'fixture-owner'});
         c.setAttribute('motion','off');
       },locale);
       await captureGuard('not-live');
