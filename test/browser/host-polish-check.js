@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
-import { fullMatrix } from './matrix-coverage.js';
+import { fullMatrix, a11yEvidenceMode } from './matrix-coverage.js';
 import { shadow, until, boxes, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
@@ -13,7 +13,7 @@ import { en } from '../../packages/ui/src/i18n/en.js';
 export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   // AIT-293: axe is manual evidence tooling, never part of the CI browser path.
   // Nightly deliberately unsets CI for full matrices; it is still automated CI.
-  if (evidenceDirectory && fullMatrix && !process.env.GITHUB_ACTIONS) {
+  if (evidenceDirectory && a11yEvidenceMode) {
     const { auditMainSurfaces } = await import('./a11y-evidence.js');
     await auditMainSurfaces(t, evidenceDirectory);
   }

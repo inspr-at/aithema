@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
+import { a11yEvidenceMode } from './matrix-coverage.js';
 import { shadow, until, evidenceCommit, evidenceBrowserArgs } from './start2-display-helpers.js';
 
 const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -23,7 +24,7 @@ const settle = page => page.evaluate(async () => {
 
 export async function auditMainSurfaces(t, evidence) {
   assert.ok(evidence, 'axe requires an explicit evidence directory');
-  assert.ok(!process.env.CI && !process.env.GITHUB_ACTIONS, 'axe must never run on the PR or nightly CI path');
+  assert.ok(a11yEvidenceMode, 'axe must never run on the PR or nightly CI path');
   const directory = await mkdtemp(join(tmpdir(), 'aithema-a11y-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
