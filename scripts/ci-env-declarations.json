@@ -139,9 +139,11 @@
   "test/browser/voice-presentation.test.js": {
     "reads": [
       "CI",
-      "CI"
+      "CI",
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH"
     ],
-    "reason": "Linux headless Chrome sandbox selection"
+    "reason": "Linux headless Chrome sandbox selection and PR-head evidence provenance"
   },
   "test/ci-slot-sharing.test.js": {
     "reads": [

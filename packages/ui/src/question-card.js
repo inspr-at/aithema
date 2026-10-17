@@ -218,8 +218,8 @@ export class QuestionCard {
     const readFull = latest?.querySelector('.turn-read-full:not([hidden])');
     const observed = (bounds?.height ?? 0) - (readFull?.getBoundingClientRect().height ?? 0);
     const known = latest && this.replySizes.get(latest);
-    const replyHeight = known?.text === text && known.width === bounds?.width ? Math.max(known.height, observed) : observed;
-    if (latest) this.replySizes.set(latest, { text, width: bounds.width, height: replyHeight });
+    const replyHeight = known && known.text === text && known.width === shell.clientWidth ? Math.max(known.height, observed) : observed;
+    if (latest) this.replySizes.set(latest, { text, width: shell.clientWidth, height: replyHeight });
     const replyRoom = Math.max(replyFloor, Math.min(replyHeight + 28, available - minimum));
     const limit = Math.max(0, available - replyRoom);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);

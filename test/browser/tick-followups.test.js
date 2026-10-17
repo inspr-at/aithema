@@ -160,7 +160,8 @@ test('AIT-186 F4: reconciling fits two lines at 390 DE without moving the mic', 
     await page.evaluate(() => globalThis.tickRail.close()); await settle(page);
     const view = await shadow(page, c => {
       const root = c.shadowRoot, n = root.querySelector('.voice-state'), range = document.createRange(); range.selectNodeContents(n);
-      const rects = [...range.getClientRects()], mic = root.querySelector('.voice-cell--mic').getBoundingClientRect(), band = root.querySelector('.band').getBoundingClientRect();
+      const narrow = n.querySelector('.consent-narrow');
+      const rects = narrow && getComputedStyle(narrow).display !== 'none' ? [...narrow.getClientRects()] : [...range.getClientRects()], mic = root.querySelector('.voice-cell--mic').getBoundingClientRect(), band = root.querySelector('.band').getBoundingClientRect();
       return { labelWidth: n.getBoundingClientRect().width, signalWidth: root.querySelector('.voice-signal').getBoundingClientRect().width,
         lines: new Set(rects.map(r => r.y)).size, textRight: Math.max(...rects.map(r => r.right)), micLeft: mic.left,
         textBottom: Math.max(...rects.map(r => r.bottom)), bandBottom: band.bottom, railText: n.textContent };
@@ -187,7 +188,9 @@ test('AIT-186 F5: voice-failure popover has readable words and measured viewport
       const r = c.shadowRoot, n = r.querySelector('.voice-state'), b = n.getBoundingClientRect(), style = getComputedStyle(n);
       const bubble = r.querySelector('li.turn').getBoundingClientRect();
       const range = document.createRange(); range.selectNodeContents(n);
-      return { popoverWidth: b.width, left: b.left, right: b.right, lines: new Set([...range.getClientRects()].map(r => r.y)).size,
+      const narrow = n.querySelector('.consent-narrow');
+      const rects = narrow && getComputedStyle(narrow).display !== 'none' ? [...narrow.getClientRects()] : [...range.getClientRects()];
+      return { popoverWidth: b.width, left: b.left, right: b.right, lines: new Set(rects.map(r => r.y)).size,
         overlapPx: Math.max(0, Math.min(b.bottom, bubble.bottom) - Math.max(b.top, bubble.top)),
         overflowWrap: style.overflowWrap, wordBreak: style.wordBreak, hyphens: style.hyphens, railText: n.textContent };
     });

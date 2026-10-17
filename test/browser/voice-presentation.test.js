@@ -9,6 +9,7 @@ import puppeteer from './launch.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, settle, evidenceCommit } from './start2-display-helpers.js';
 import { pixels, samePaint } from './png-pixels.js';
+import { narrowVoiceStatus } from '../../packages/ui/src/voice-status.js';
 
 test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-voice-presentation-'));
@@ -309,7 +310,16 @@ async function checkPhoneVoiceHeader(t, widths) {
       await page.mouse.move(-1, -1);
       let baseline;
       // Full coverage below 600; desktop compares the legacy paint directly.
-      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
+      const seenAvailability = new Set();
+      const samples = voiceStatusCases(copy).filter(sample => {
+        if (width >= 600) return sample.id === 'consent';
+        // All 133 sentence sources are unit checked. Identical availability
+        // projections share one browser case; every lifecycle/error state stays.
+        if (['state', 'error'].includes(sample.kind)) return true;
+        const key = `${sample.kind === 'consent' ? 'consent' : 'unavailable'}:${narrowVoiceStatus(copy, sample.full)}`;
+        if (seenAvailability.has(key)) return false;
+        seenAvailability.add(key); return true;
+      });
       for (const sample of samples) {
         const geometry = await page.evaluate(async sample => {
           const rail = globalThis.ait302Rail, copy = rail.copy;
