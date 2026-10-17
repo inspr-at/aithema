@@ -252,11 +252,13 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .settings-overview { display:none; }
   .settings-panel[data-panel=model], .settings-panel[data-panel=model] .settings-column { gap:.5rem; }
   .effort { grid-template-columns:minmax(0,1fr) auto; gap:0; }
-  .effort label { grid-area:1/1; }
+  .effort label { grid-area:1/1; line-height:1.2; }
   .effort output { grid-area:1/2; justify-self:end; align-self:center; }
   .effort__track { grid-area:2/1/3/-1; }
   .effort-note { align-self:center; max-inline-size:36ch; }
   .notice-area[data-kind=""] { display:none; }
+  /* With no gauge column below them, bottom fields open into the available space above. */
+  .select:is([data-select=voice],[data-select=visuals]) .select__menu { top:auto; bottom:calc(100% + .25rem); }
 }
 @media(prefers-reduced-motion:reduce) { .select__spinner { animation:none; } .gauge__level, .gauge__wave { transition:none !important; } }
 `;
