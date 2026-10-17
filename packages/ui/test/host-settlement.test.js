@@ -325,4 +325,3 @@ for (const copy of [de, en]) test(`AIT-186 F6 r2: purpose pause before assessmen
   assert.equal(root.querySelector('.purpose-pause-copy').hidden, false);
   assert.equal(root.querySelector('.status__label').textContent, copy.connected);
 });
-

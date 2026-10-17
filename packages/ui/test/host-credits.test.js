@@ -444,5 +444,3 @@ for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} exhau
   assert.equal(requests[1].callId, callId); assert.equal(requests[1].epoch, 3);
   assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
 });
-
-
