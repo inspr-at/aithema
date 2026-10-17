@@ -740,6 +740,10 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     assert.equal(line.querySelector('.send-failure-detail').textContent, copy.failed.slice(copy.failedShort.length));
     assert.equal(line.getAttribute('role'), 'status'); assert.equal(line.getAttribute('aria-live'), 'polite');
     assert.equal(line.hasAttribute('data-send-failed'), true);
+    const warning = line.querySelector('.warning'), detail = line.querySelector('.send-failure-detail');
+    c.receive({ type: 'lane.status', data: c.session.operations });
+    assert.equal(line.querySelector('.warning'), warning, 'AIT-294: retained-file repaint preserves the polite failure');
+    assert.equal(line.querySelector('.send-failure-detail'), detail);
     assert.equal(line.querySelector('.upload-retry-copy .warning svg').outerHTML, warningFixture.firstChild.outerHTML);
     assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
     assert.equal(root.querySelector('.composer-saved-announcement').textContent, '');

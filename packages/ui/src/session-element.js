@@ -1313,7 +1313,7 @@ export class AithemaSession extends HTMLElement {
         const facts = !text.available && !this.#session.paused || this.#rail?.moved ? unavailable : this.#sendFailed ? copy.failed
           : refusal || [this.#uploadNotice, plural(copy.uploads.notUploaded, this.#retryFiles.length)].filter(Boolean).join(reasonSeparator);
         const retryLabel = reason.querySelector('.upload-retry-copy');
-        paintConsentLine(retryLabel, { copy, feature: 'text', text: `${facts}${reasonSeparator}`,
+        paintConsentLine(retryLabel, { copy, feature: 'text', text: `${facts}${this.#sendFailed ? '' : reasonSeparator}`,
           verdict: text, open: opener => this.#dialog.openConsent('text', opener) });
         const consentCopy = retryLabel.querySelector('.consent-line-copy');
         if (consentCopy) consentCopy.tabIndex = 0; else retryLabel.tabIndex = 0;
