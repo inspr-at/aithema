@@ -5,6 +5,7 @@ import { applyEvent, createSession, inputRevision, reduceUnderstanding } from '@
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { AI_NOTICE } from '../../core/src/ai-notice.js';
+import { bandStyles } from '../src/band-styles.js';
 import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
 import { entranceStyles } from '../src/entrance-styles.js';
@@ -1334,4 +1335,17 @@ for (const copy of [de, en]) test(`AIT-280 ${copy.display.locale}: successful tu
   assert.equal(live.textContent, '', 'typing after expiry never announces');
   c.configure({ copy, session: c.session });
   await send(); assert.equal(root.querySelector('.composer-saved-announcement').textContent, copy.saved, 'new configuration resets the burst');
+});
+
+test('AIT-286: shared failure sentence uses warning ink; composer consent keeps the action style and a coarse 44px target', () => {
+  assert.match(styles, /:is\(\.composer-reason,\.concept-activity-text\) \.warning[^}]*color:var\(--aithema-warning\)/u);
+  assert.ok(styles.includes('@media(hover:none), (pointer:coarse) {\n  .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }'));
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' }, analysis: { available: true } } };
+  const c = setup({ session }), root = c.shadowRoot;
+  const action = root.querySelector('.composer-reason .consent-action');
+  assert.equal(action.tagName, 'BUTTON'); assert.equal(action.type, 'button');
+  assert.match(bandStyles, /\.consent-action,[^{]+\{[^}]+text-decoration:underline/u);
+  for (const [theme, tokens] of Object.entries(palette)) for (const background of [tokens.paper, tokens.surface])
+    assert.ok(contrast(tokens.warning, background) >= 4.5, `${theme}: warning ink AA on ${background}`);
 });

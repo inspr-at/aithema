@@ -5,11 +5,13 @@ import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { creditCost } from '../src/display.js';
-import { ConceptView, conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
+import { ConceptView, conceptProgress, conceptKind, conceptStateText, WARNING_ICON } from '../src/concept-view.js';
+import { styles } from '../src/styles.js';
 import { EmailAsk } from '../src/email-ask.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
+const warningFixture = document.createElement('span'); warningFixture.innerHTML = WARNING_ICON;
 const tick = () => new Promise(r => setImmediate(r));
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }
@@ -596,4 +598,31 @@ test('AIT-282: initially unbound hosts keep the existing layout, while an image 
   view.update({...c.session,visualsBound:false,conceptStatus:{phase:'idle'}});
   assert.equal(root.querySelector('.workspace').dataset.conceptLayout,'image');
   assert.equal(root.querySelector('.concept-access').dataset.state,'none');
+});
+
+for (const copy of [de, en]) test(`AIT-286 ${copy.display.locale}: access failure reuses retry warning and keeps the priced button inline after its separator`, async t => {
+  const { c, root, calls } = setup(t, { copy, concepts: [], session: { visualsBound: true, conceptCost: { maxMicro: 30000 } } });
+  const button = root.querySelector('.concept-request');
+  conceptState(c, { phase: 'failed' });
+  const text = root.querySelector('.concept-activity-text');
+  assert.equal(text.querySelector('.question-status.warning svg').outerHTML, warningFixture.firstChild.outerHTML);
+  assert.equal(text.querySelector('.question-why').textContent, copy.conceptBackdropFailed);
+  assert.equal(text.parentElement.nextElementSibling, button);
+  assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-rail \{ display:block;/u);
+  assert.ok(styles.includes('.concept-activity-text::after { content:"\u00a0· ";'));
+  assert.match(styles, /\.concept-access\[data-state="err"\] \.concept-request \{[^}]*display:inline-block[^}]*white-space:nowrap/u);
+  assert.match(styles, /@media\(600px < width <= 64rem\)\s*\{[^}]*\.concept-activity::after \{ content:''; display:block/u);
+  assert.equal(button.textContent, `${copy.conceptRetry}\u00a0· ${creditCost(30000, copy)}`);
+  button.click(); await tick();
+  assert.equal(calls.filter(call => call.options.body).length, 1, 'existing one-click priced request');
+  assert.equal(root.querySelector('.concept-activity-text .warning'), null, 'pending clears warning');
+});
+
+test('AIT-286: an error with a consent verdict preserves its native consent opener', t => {
+  const { c, root } = setup(t, { concepts: [], session: { visualsBound: true, featureMatrix: { best: {
+    text: { available: true }, analysis: { available: true }, images: { available: false, reason: 'current processing consent required' },
+  } } } });
+  conceptState(c, { phase: 'failed', reason: 'current processing consent required' });
+  assert.equal(root.querySelector('.concept-activity-text .consent-action').tagName, 'BUTTON');
+  assert.ok(root.querySelector('.concept-activity-text .warning svg'));
 });
