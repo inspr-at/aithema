@@ -15,7 +15,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
   });
   const evidence = evidenceDirectory && join(evidenceDirectory, 'ait-266');
-  const browser = await browserForFile({ args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
+  const browser = await browserForFile({ defaultViewport: null, args: [...(evidence ? evidenceBrowserArgs : []), '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'] }), page = await browser.newPage();
   t.after(async () => { await browser.close(); await demo.kill(); });
   const cdp = await page.createCDPSession(), checks = [], passLines = [], problems = [];
   page.on('pageerror', error => problems.push(error.message));
@@ -80,10 +80,11 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
     await settle();
   };
   // CI keeps the full functional matrix. PNG captures are explicit remote evidence only.
-  for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) for (const touch of [false, true]) {
+  for (const touch of [false, true]) for (const locale of ['de', 'en']) for (const [width, height] of [[1440, 1000], [1280, 860], [390, 844]]) {
     const label = `${locale}-${width}x${height}-${touch ? 'touch' : 'mouse'}`, copy = { de, en }[locale];
-    await page.setViewport({ width, height });
-    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: touch, maxTouchPoints: 1 });
+    // Match pause-phone's native desktop fixture: Puppeteer's viewport helper resets hover on Linux.
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    if (touch) await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     await configure(locale, 'entrance');
     const disabled = await shadow(page, c => ['eu', 'custom'].map(preset => {
       const n = c.shadowRoot.querySelector(`.chooser-option[data-preset="${preset}"]`);
@@ -171,7 +172,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
   }
   // Height-only changes use the same page and do not add screenshot or server cost.
   for (const height of [600, 720, 900]) {
-    await page.setViewport({ width: 1280, height }); await configure('de', 'entrance');
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height, deviceScaleFactor: 1, mobile: false }); await configure('de', 'entrance');
     assert.equal(await page.evaluate(() => scrollY), 0);
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight)); await settle();
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').getBoundingClientRect().bottom <= c.shadowRoot.querySelector('.display-foot').getBoundingClientRect().top), true);

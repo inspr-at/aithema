@@ -1298,4 +1298,7 @@ for (const visualsBound of [false, true]) test(`AIT-266: explicit host visuals c
   session.featureMatrix.best.html = { available: false, reason: 'preset not configured' };
   c.configure({ copy: en, session });
   assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, !visualsBound);
+  session.paused = true;
+  c.configure({ copy: en, session });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, !visualsBound, 'a paused reload retains host capability presentation');
 });

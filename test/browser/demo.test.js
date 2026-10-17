@@ -1882,7 +1882,8 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
         const spinner = c.shadowRoot.querySelector('.select__spinner');
         spinner.getAnimations(); // Flush animation styles for the rendered loading state.
         await new Promise(resolve => requestAnimationFrame(resolve));
-        return getComputedStyle(spinner).animationName;
+        // A catalog repaint can replace the spinner during the frame above.
+        return getComputedStyle(c.shadowRoot.querySelector('.select__spinner')).animationName;
       }, motion);
     };
     assert.equal(await spinnerAnimation('reduce', 'on'), 'none', 'system reduced motion stops loading animation');
