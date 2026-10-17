@@ -292,7 +292,11 @@ with no scheduled retry, uncertain receipts with no future settlement, and voice
 `costEstimated` receipts alone do not block retirement. Their spend reservations
 are aggregated into `retired_spend` using the existing spent/reserved/uncertain
 categories, preserving conservative estimated amounts. Live-session retirement
-uses the same aggregation without the billing deferral. Retained totals
+uses the same aggregation without the billing deferral. If a plugin is removed
+while a cost retry is scheduled, the next due cost reconciliation clears that
+retry for an erased session, preserving the existing conservative charge and
+receipt; no provider settlement is inferred. Live-session receipts remain
+retryable if the plugin returns. Retained totals
 are deployment spend/reserved/uncertain amounts and breach flags per account,
 render counts per UTC day, and spent/reserved voice milliseconds per UTC day.
 On low-volume days, a daily total may reveal one session's usage. Daily buckets
@@ -475,8 +479,23 @@ and timer stay in place when the connection changes. At 700–899 px only hosts
 with visible credits hide the label; the named status dot stays visible.
 Credit-enabled hosts retain compact balance details below 1100 px; phone footers
 use the short AI label, retain its marker and omit the decorative credit track.
-Host-owned legal navigation should use quiet underlined links with 44 px targets;
-styles for descendants of a slotted navigation element remain host-owned.
+Use quiet underlined legal links. Slot anchors directly (`<a slot="legal" ...>`)
+to receive the module's 44 px targets. If you slot a wrapper such as `<nav>`,
+its nested anchors remain host-owned: `::slotted(a)` cannot style descendants.
+Give each nested anchor at least a 24×24 CSS px target (WCAG 2.2, 2.5.8),
+and 44×44 px on touch, matching the module. For example:
+
+```css
+nav[slot="legal"] a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+@media (pointer: coarse) {
+  nav[slot="legal"] a { min-width: 44px; min-height: 44px; }
+}
+```
 
 The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
