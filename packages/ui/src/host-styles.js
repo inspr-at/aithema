@@ -317,9 +317,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .m-save,.m-cancel { margin-top:.3rem; } .m-msg { font-size:.75rem; }
 }
 /* Narrow phones reserve two rows up front. At 390px, quiet compact links fit the original row. */
-@media(max-width:380px) { .composer-out__bar { min-height:90px; } }
-@media(min-width:381px) and (max-width:600px) {
-  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:4px; }
+@media(max-width:388px) { .composer-out__bar { min-height:90px; } }
+@media(min-width:389px) and (max-width:600px) {
+  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
   .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }
 }
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
