@@ -160,7 +160,7 @@ export async function scrollbarFirstPaintCheck(t) {
         assert.deepEqual(frame.band, initial.band, `${name}: band stays stable through mount`);
         assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);
       }
-      if (!classic && !scene.boundary294) assert.equal(mounted.band[3], width < 600 ? 160 : width <= 1180 ? 150 : 90, `${name}: status-inclusive default host geometry`);
+      if (!classic && !scene.boundary294) assert.equal(mounted.band[3], width < 600 ? 124 : width <= 1180 ? 150 : 90, `${name}: status-inclusive default host geometry`);
     }
     if (scene.boundary294) assert.equal(mounted.row, width < (classic ? 1273 : 1251) ? '2' : '1', `${name}: measured status reservation switches at the content boundary`);
     if (scene.status294 && width === 1180 && theme === 'light') {

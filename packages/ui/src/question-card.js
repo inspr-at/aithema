@@ -211,16 +211,7 @@ export class QuestionCard {
     // Longer replies retain a bounded reading pane and the full-text dialog.
     const latest = shell.querySelector('.turn:last-child');
     const replyFloor = phone ? Math.max(84, 128 - Math.max(0, conceptHeight - 44)) : 128;
-    // The read-full projection can hide the author or add a button. Neither
-    // changes the reply's reading budget, nor should it resize the card again.
-    this.replySizes ??= new WeakMap();
-    const bounds = latest?.getBoundingClientRect(), text = latest?.querySelector('.turn-text')?.textContent;
-    const readFull = latest?.querySelector('.turn-read-full:not([hidden])');
-    const observed = (bounds?.height ?? 0) - (readFull?.getBoundingClientRect().height ?? 0);
-    const known = latest && this.replySizes.get(latest);
-    const replyHeight = known && known.text === text && known.width === shell.clientWidth ? Math.max(known.height, observed) : observed;
-    if (latest) this.replySizes.set(latest, { text, width: shell.clientWidth, height: replyHeight });
-    const replyRoom = Math.max(replyFloor, Math.min(replyHeight + 28, available - minimum));
+    const replyRoom = Math.max(replyFloor, Math.min((latest?.getBoundingClientRect().height ?? 0) + 28, available - minimum));
     const limit = Math.max(0, available - replyRoom);
     if (available > 0) this.card.style.setProperty('--question-card-limit', `${limit}px`);
     if (phone && !this.card.hidden && !short) compact = Math.min(limit, .35 * viewport, viewport - 220) < minimum;
