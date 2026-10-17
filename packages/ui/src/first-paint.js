@@ -1,8 +1,25 @@
-// A voice host reserves two rows below 768px before its brand can be measured.
-// At 768px the capped 27vw brand, default 216px actions, gutters and two 24px
-// gaps leave at least the 208px rail floor. Custom wider actions/brands can
-// still request the measured second row above this conservative reservation.
+// Keep the existing viewport reservation; the shell query below additionally
+// budgets the content width lost to classic scrollbars and host action columns.
 export const voiceSingleRowMinWidth = 768;
+
+// Emit this into the host's render-blocking CSS after firstPaintStyles when
+// overriding geometry. Query conditions cannot resolve CSS custom properties.
+// The shell and header must have the same inline size; brandWidth is an upper
+// bound, so copy/fonts never change the reserved row. The extra pixel covers
+// grid-track rounding before the measured 208px floor is reached.
+export function headerRailReservation({
+  selector = '.aithema-shell > :is(aithema-session,.aithema-first-paint)',
+  actionsWidth = '216px', gutter = 'clamp(1.25rem,4vw,3.5rem)', brandWidth = '27vw',
+} = {}) {
+  return `
+${selector} { --aithema-header-rail-height:90px; --aithema-header-rail-tracks:60px;
+  --aithema-header-rail-row:1; --aithema-header-rail-column:2; }
+@container aithema-shell (width < calc(54px + ${gutter} + ${brandWidth} + ${actionsWidth} + 48px + 209px)) {
+  ${selector} { --aithema-header-rail-height:150px; --aithema-header-rail-tracks:60px 48px;
+    --aithema-header-rail-row:2; --aithema-header-rail-column:1 / -1; }
+}
+`;
+}
 
 // Shared by the shadow header and the render-blocking host stylesheet. Keep
 // geometry independent of copy, fonts, account reads and conversation stage.
@@ -16,6 +33,11 @@ ${selector} > .audio-rail { box-sizing:border-box; justify-self:center; width:mi
   display:grid; grid-template-columns:44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; }
 ${selector} > .header-actions { grid-column:3; grid-row:1; min-width:0; height:44px; }
 ${selector} > .audio-rail { grid-column:2; grid-row:1; }
+@media(min-width:600px) {
+  ${selector}:has(> .audio-rail) { --band-height:var(--aithema-header-rail-height,90px);
+    grid-template-rows:var(--aithema-header-rail-tracks,60px); }
+  ${selector} > .audio-rail { grid-column:var(--aithema-header-rail-column,2); grid-row:var(--aithema-header-rail-row,1); }
+}
 @media(min-width:600px) and (max-width:${voiceSingleRowMinWidth - 1}px) {
   ${selector}:has(> .audio-rail) { --band-height:150px; grid-template-rows:60px 48px; }
   ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
@@ -36,7 +58,10 @@ ${selector} > .audio-rail { grid-column:2; grid-row:1; }
 // Hosts serve this as render-blocking CSS in <head>, alongside their palette.
 // data-aithema-mounted is set synchronously after configure has mounted the UI;
 // :defined alone is too early because session loading may still be pending.
-export const firstPaintStyles = `${headerGeometry('.aithema-first-paint')}
+export const firstPaintStyles = `
+.aithema-shell { container:aithema-shell / inline-size; }
+${headerRailReservation()}
+${headerGeometry('.aithema-first-paint')}
 .aithema-shell > aithema-session:not([data-aithema-mounted]) { display:none; }
 .aithema-shell:has(> aithema-session[data-aithema-mounted]) > .aithema-first-paint { display:none; }
 .aithema-first-paint { position:sticky; top:0; max-width:var(--aithema-shell-max,1520px); margin-inline:auto;
