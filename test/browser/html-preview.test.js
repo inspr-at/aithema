@@ -223,7 +223,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   const evidence = process.env.AITHEMA_EVIDENCE_DIR && !process.env.CI;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-backdrop-'));
   const pageHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
-    body{margin:0;background:#f7f5ef} aithema-session{--aithema-font:Arial,sans-serif;--aithema-display:Georgia,serif}
+    body{margin:0;background:#f7f5ef} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
     </style></head><body><aithema-session></aithema-session><script type="module">
     import '/packages/ui/src/session-element.js';
     import { createSession } from '/packages/core/src/session.js';
@@ -262,8 +262,8 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
     if (path === '/') { res.writeHead(200, { 'content-type':'text/html' }); return res.end(pageHTML); }
-    if (!/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.js$/u.test(path)) { res.writeHead(404); return res.end(); }
-    try { res.writeHead(200, { 'content-type':'text/javascript' }); res.end(await readFile(join(root, path))); }
+    if (!/^\/packages\/(?:ui|core)\/src\/[\w/-]+\.(?:js|json)$/u.test(path)) { res.writeHead(404); return res.end(); }
+    try { res.writeHead(200, { 'content-type':path.endsWith('.json')?'application/json':'text/javascript' }); res.end(await readFile(join(root, path))); }
     catch { res.writeHead(404); res.end(); }
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -272,7 +272,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   const page = await browser.newPage(), errors = [], shots = [], passes = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  await page.waitForFunction(() => window.ready);
+  await page.waitForFunction(() => window.ready, {timeout:5000}).catch(cause => { throw new Error(`Backdrop fixture startup: ${JSON.stringify(errors)}`, {cause}); });
   const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'local';
   if (evidence) await mkdir(evidence,{recursive:true});
   const settle = () => page.evaluate(async () => {
@@ -289,7 +289,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   });
   for (const locale of ['de','en']) for (const width of [1440,1024,390]) for (const theme of evidence?['light','dark']:['light']) {
     await page.setViewport({width,height:900});
-    await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'reduce'}]);
+    await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:theme},{name:'prefers-reduced-motion',value:'no-preference'}]);
     await page.evaluate(async ({locale,theme})=>{await window.seed(locale);document.querySelector('aithema-session').setAttribute('theme',theme);scrollTo(0,0);},{locale,theme});
     await settle(); const baseline = await boxes();
     const capture = async state => {

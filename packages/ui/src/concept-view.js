@@ -86,9 +86,11 @@ export class ConceptView {
     const phoneSlot = document.createElement('div'); phoneSlot.className = 'concept-phone-slot';
     root.querySelector('.composer-dock').prepend(phoneSlot);
     this.#phone = root.ownerDocument.defaultView.matchMedia('(max-width:600px)');
-    this.#placeAccess = () => {
+    this.#placeAccess = event => {
       const access = root.querySelector('.concept-access');
-      (this.#phone.matches && this.visualKind() === 'image' ? phoneSlot : root.querySelector('.concept-bar')).prepend(access);
+      const parent = this.#phone.matches && this.visualKind() === 'image' ? phoneSlot : root.querySelector('.concept-bar');
+      if (access.parentNode !== parent) parent.prepend(access);
+      if (event && this.#session) this.render();
     };
     this.#phone.addEventListener('change', this.#placeAccess); this.#placeAccess();
     const thread = root.querySelector('.concept-thread');
@@ -145,7 +147,7 @@ export class ConceptView {
     stage.addEventListener('touchend', e => { const delta = e.changedTouches[0]?.clientX - this.#touchX; if (Math.abs(delta) > 60) this.navigate(delta > 0 ? -1 : 1); }, { passive: true });
     this.connect();
   }
-  get items() { return this.#session?.consentWithdrawn || this.#session?.tombstone ? [] : (this.#session?.concepts ?? []).filter(c => !c.archived && !c.erased && !c.withdrawn); }
+  get items() { return this.#session?.consentWithdrawn || this.#session?.tombstone ? [] : (this.#session?.concepts ?? []).filter(c => !c.archived && !c.erased && !c.withdrawn && !c.turnIds?.some(id => this.#session.transcript.some(turn => turn.id === id && (turn.erased || turn.withdrawn)))); }
   current() { return this.items.find(c => c.id === this.#selected); }
   path(suffix = '') { return `${this.baseUrl}/api/sessions/${this.#session.id}/concepts${suffix}`; }
   // Every owner-authenticated concept request, GET or POST, passes here before it is sent.
@@ -283,6 +285,7 @@ export class ConceptView {
   }
   // Every control keeps a fixed slot, so state renders at once, also under the pointer (AIT-116 D3).
   render() {
+    const owner = this.#session?.id, epoch = this.#epoch;
     this.progress();
     const latest = this.items.at(-1), tab = this.root.querySelector('.concept-tab'), latestDraft = conceptKind(latest) === 'html';
     const view = latestDraft ? this.copy.conceptDraftView : this.copy.conceptView;
@@ -293,8 +296,8 @@ export class ConceptView {
     preview.disabled = !latest; preview.style.visibility = latest ? '' : 'hidden';
     preview.querySelector('img').hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
     preview.querySelector('.concept-preview-label').textContent = this.#phone.matches && this.visualKind() === 'image' ? this.copy.conceptPhoneReady : view; preview.setAttribute('aria-label', view);
-    if (latest && !latestDraft && !this.backdropHidden()) void this.load(latest.id).then(url => {
-      if (this.items.at(-1)?.id === latest.id && url && !this.backdropHidden()) preview.querySelector('img').src = url;
+    if (latest && !latestDraft && (this.visualKind() === 'html' || !this.backdropHidden())) void this.load(latest.id).then(url => {
+      if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() === 'html' || !this.backdropHidden())) preview.querySelector('img').src = url;
     });
     else preview.querySelector('img').removeAttribute('src');
     this.paintBackdrop();
@@ -324,19 +327,20 @@ export class ConceptView {
     delete draft.dataset.id;
     if (image.dataset.id !== current.id) { image.removeAttribute('src'); image.dataset.id = current.id; }
     imageStatus.textContent = this.copy.conceptLoading;
-    void this.load(current.id).then(url => { if (this.current()?.id === current.id && this.dialog.open) {
+    void this.load(current.id).then(url => { if (owner === this.#session?.id && epoch === this.#epoch && this.current()?.id === current.id && this.dialog.open) {
       if (url) image.src = url; imageStatus.textContent = url ? '' : this.copy.conceptImageFailed;
     } });
   }
   // The preview keeps one frame per shown revision: live renders that don't change the
   // revision leave it (and whatever the person did inside it) alone.
   renderDraft(current, draft, status) {
+    const owner = this.#session?.id, epoch = this.#epoch;
     const show = bytes => { if (draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE }; };
     const cached = this.#drafts.get(current.id);
     if (draft.dataset.id !== current.id) { draft.dataset.id = current.id; if (!cached) draft.artifact = null; }
     if (cached) { show(cached); status.textContent = ''; return; }
     status.textContent = this.copy.conceptDraftLoading;
-    void this.load(current.id).then(bytes => { if (this.current()?.id === current.id && this.dialog.open) {
+    void this.load(current.id).then(bytes => { if (owner === this.#session?.id && epoch === this.#epoch && this.current()?.id === current.id && this.dialog.open) {
       if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } });
   }
