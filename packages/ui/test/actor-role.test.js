@@ -33,7 +33,7 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
   test(`AIT-281: ${locale} only the null role value uses muted ink and regular weight`, t => {
     const f = fixture(t, { locale, initial: { ...initial, role: null, reasoning: null } });
     const style = document.createElement('style'); style.textContent = actorRoleStyles; f.root.prepend(style);
-    f.actor.element.style.setProperty('--aithema-muted', '#687888');
+    f.actor.element.style.setProperty('--aithema-muted', 'rgb(104, 120, 136)');
     f.actor.element.style.setProperty('--aithema-ink', '#102b42');
     const value = f.root.querySelector('.actor-trigger .actor-value');
     const key = f.root.querySelector('.actor-key');
