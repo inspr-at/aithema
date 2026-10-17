@@ -57,6 +57,9 @@ export async function scrollbarFirstPaintCheck(t) {
     await mkdir(evidence, { recursive: true });
     cases.push(...[1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ actions: 216, width, theme, locale, classic: true })))));
   }
+  // AIT-294 r3: reuse the same page for the full status/startup matrix.
+  cases.push(...[600, 700, 768, 820, 1024, 1180].flatMap(width => ['de', 'en'].flatMap(locale =>
+    ['light', 'dark'].map(theme => ({ actions: 216, width, locale, theme, classic: false, status294: true })))));
   // Preserve today's default host geometry without a classic scrollbar as well.
   cases.push(...[760, 768, 780, 790, 800, 1024, 1440, 390].map(width => ({ actions: 216, width, locale: 'de', theme: 'light', classic: false })));
   // Older hosts override the actions property without the new reservation helper.
@@ -97,6 +100,31 @@ export async function scrollbarFirstPaintCheck(t) {
     if (capture) await page.screenshot({ path: join(evidence, `${name}-mounted.png`), fullPage: false, captureBeyondViewport: false });
     assert.equal(mounted.intersection, 0, `${name}: mounted rail/actions box intersection is 0`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
+    if (scene.status294) {
+      const labels = await page.evaluate(async locale => {
+        const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+        const root = document.querySelector('aithema-session').shadowRoot;
+        const label = root.querySelector('.voice-state'), signal = root.querySelector('.voice-signal');
+        const texts = [...new Set([copy.notConfigured, ...Object.values(copy.voiceStates), copy.voiceMoved, copy.voiceClosureUncertain])];
+        return texts.map(text => {
+          label.textContent = text;
+          const range = document.createRange(); range.selectNodeContents(label);
+          const rects = [...range.getClientRects()].filter(b => b.width > 0);
+          const b = label.getBoundingClientRect(), s = signal.getBoundingClientRect();
+          return { text, lines: new Set(rects.map(b => b.y)).size, whiteSpace: getComputedStyle(label).whiteSpace,
+            width: b.width, textWidth: Math.max(...rects.map(b => b.width)), signalWidth: s.width,
+            inside: rects.every(r => r.left >= s.left && r.right <= s.right && r.top >= s.top && r.bottom <= s.bottom),
+            overflow: label.scrollWidth > label.clientWidth || label.scrollHeight > label.clientHeight };
+        });
+      }, locale);
+      checks.push({ head: evidenceCommit, ...scene, labels });
+      for (const label of labels) {
+        assert.equal(label.whiteSpace, 'nowrap', `${name}: status is nowrap: ${JSON.stringify(label)}`);
+        assert.equal(label.lines, 1, `${name}: one status line: ${JSON.stringify(label)}`);
+        assert.equal(label.overflow, false, `${name}: status does not overflow: ${JSON.stringify(label)}`);
+        assert.equal(label.inside, true, `${name}: status stays inside signal: ${JSON.stringify(label)}`);
+      }
+    }
     const resized = [];
     if (noHelper) {
       // Reuse this mounted element through both directions of the row boundary.
