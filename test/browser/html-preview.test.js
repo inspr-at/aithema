@@ -339,10 +339,12 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
         warningInk: getComputedStyle(r.querySelector('.workspace')).getPropertyValue('--aithema-warning').trim(),
         wrap: getComputedStyle(button).whiteSpace, adjacent: text.parentElement.nextElementSibling === button,
         gap: action.left - sentence.right, nextLine: action.top >= sentence.bottom - 1,
+        withinSlot: action.bottom <= r.querySelector('.concept-access').getBoundingClientRect().bottom + .01,
         buttonHeight: action.height, lineHeight: parseFloat(getComputedStyle(button).lineHeight) };
     });
     assert.equal(failure.icon, true); assert.equal(failure.wrap, 'nowrap'); assert.equal(failure.adjacent, true);
     assert.ok(failure.buttonHeight <= failure.lineHeight + 1, 'priced button stays one line');
+    assert.equal(failure.withinSlot, true, 'wrapped action stays inside its reserved 44px row');
     if (width === 1440) assert.ok(failure.gap >= 0 && failure.gap < 20, 'action directly follows separator');
     if (width === 1024 && locale === 'de') assert.equal(failure.nextLine, true, 'wrap after separator at 1024');
     passes.push(`PASS AIT-286 ${locale}/${width}/${theme}: warning glyph, adjacent atomic priced action; 0 px`);

@@ -240,7 +240,7 @@ svg { display:block; flex:none; }
 .workspace[data-concept-layout="image"] .drafts-reason-reserve { display:none; }
 .workspace[data-concept-layout="image"] .concept-rail .concept-request { grid-area:1/2; align-self:center; margin-left:0; }
 /* Inline content keeps the priced action immediately after the separator and wraps as one button. */
-.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { display:block; align-content:center; }
+.workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail { display:block; align-content:center; font-size:.8125rem; line-height:1.4; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-scene { display:none; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-rail .concept-activity { display:inline !important; }
 .workspace[data-concept-layout="image"] .concept-access[data-state="err"] .concept-activity-text::after { content:"${reasonSeparator}"; }
