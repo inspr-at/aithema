@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { browserWorkload, p95, measuredSeconds, parseTimingArtifact, updateMeasurement, assertMeasuredWeight, plannedSeconds, assertTrustedTimingRun, assertTimingArtifactRun, assertTimingMainHistory } from '../scripts/browser-timings.js';
+import { browserWorkload, p95, measuredSeconds, parseTimingArtifact, updateMeasurement, assertMeasuredWeight, plannedSeconds, assertTrustedTimingRun, assertPullRequestTimingRun, assertTimingArtifactRun, assertTimingMainHistory } from '../scripts/browser-timings.js';
 
 const workload = 'a'.repeat(64), sha = 'b'.repeat(40), file = 'test/browser/example.test.js';
 const sample = (runId = '1', seconds = 10) => ({ runId, attempt: 1, sha, observedAt: new Date(2026, 9, Number(runId)).toISOString(), tests: [{ name: 'first', seconds }] });
@@ -149,7 +149,7 @@ test('planning adds 25% for one and four samples and uses unpadded p95 at five o
   assert.equal(reset.seconds, 2.5, 'test-file edits restart the margin as well as the series');
 });
 
-test('updater verifies GitHub provenance before importing and rejects local or PR sources', t => {
+test('updater verifies GitHub provenance and requires explicit current-head PR selection', t => {
   const root = mkdtempSync(join(tmpdir(), 'timing-import-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, 'scripts'));
@@ -170,7 +170,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2), run = ${JSON.stringify({ ...run, ...changes.run })};
 const artifacts = ${JSON.stringify(changes.artifacts ?? artifacts)};
 const reply = value => process.stdout.write(JSON.stringify(value));
-if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') reply(run);
+if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/pulls/284') reply(${JSON.stringify(changes.pull ?? currentPull())});
+else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123') reply(run);
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/compare/${sha}...main') reply(${JSON.stringify(changes.comparison ?? { status: 'ahead', merge_base_commit: { sha } })});
 else if (args[0] === 'api' && args[1] === 'repos/inspr-at/aithema/actions/runs/123/artifacts?per_page=100') reply({ artifacts });
 else if (args[0] === 'run' && args[1] === 'list' && args[args.indexOf('--repo') + 1] === 'inspr-at/aithema' && args[args.indexOf('--event') + 1] === 'push' && args[args.indexOf('--branch') + 1] === 'main') reply([{ databaseId: 123 }]);
@@ -183,6 +184,7 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
       cwd: root, encoding: 'utf8', env: { PATH: `${root}:${process.env.PATH}` },
     });
   };
+  writeFileSync(join(root, 'git'), `#!${process.execPath}\nprocess.stdout.write('${sha}\\n');\n`, { mode: 0o755 });
   const success = invoke();
   assert.equal(success.status, 0, success.stderr);
   assert.equal(JSON.parse(readFileSync(weightPath)).seconds, 2.5);
@@ -202,4 +204,46 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
   const local = invoke({}, ['--artifacts', root]);
   assert.notEqual(local.status, 0);
   assert.match(local.stderr, /only verified canonical main push/u);
+  const prInput = {
+    run: { event: 'pull_request', head_branch: 'perf/current' },
+    artifacts: artifacts.map(a => ({ ...a, workflow_run: { ...a.workflow_run, head_branch: 'perf/current' } })),
+    payload: artifact({ 0: { files: { [file]: browserWorkload(file, root) }, sha: currentPull().merge_commit_sha } }),
+  };
+  rmSync(weightPath);
+  const imported = invoke(prInput, ['--run', '123', '--pr', '284']);
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.equal(JSON.parse(readFileSync(weightPath)).timing.samples[0].sha, currentPull().merge_commit_sha);
+  const prBefore = readFileSync(weightPath, 'utf8');
+  for (const changes of [
+    { run: { ...prInput.run, conclusion: 'failure' } },
+    { pull: { ...currentPull(), head: { ...currentPull().head, sha: 'd'.repeat(40) } } },
+    { payload }, // Head SHA is not the independently verified synthetic merge.
+    { artifacts: prInput.artifacts.slice(1) },
+  ]) {
+    const rejected = invoke({ ...prInput, ...changes }, ['--run', '123', '--pr', '284']);
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /Untrusted|provenance mismatch|incomplete/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), prBefore);
+  }
+});
+
+const currentPull = () => ({ state: 'open', base: { ref: 'main', repo: { full_name: 'inspr-at/aithema' } },
+  head: { sha, ref: 'perf/current', repo: { id: 42, full_name: 'inspr-at/aithema' } }, merge_commit_sha: 'c'.repeat(40) });
+test('explicit PR timings require the current canonical head and preserve main-only default trust', () => {
+  const run = { ...trustedRun(), event: 'pull_request', head_branch: 'perf/current' }, pull = currentPull();
+  assert.doesNotThrow(() => assertPullRequestTimingRun(run, '123', pull, sha));
+  assert.throws(() => assertTrustedTimingRun(run, '123'), /Untrusted/u);
+  for (const changes of [ { event: 'pull_request_target' }, { conclusion: 'failure' }, { head_sha: 'd'.repeat(40) },
+    { head_branch: 'different' }, { repository: { full_name: 'fork/aithema' } }, { head_repository: { id: 99, full_name: 'fork/aithema' } } ]) {
+    assert.throws(() => assertPullRequestTimingRun({ ...run, ...changes }, '123', pull, sha), /Untrusted/u);
+  }
+  for (const changes of [ { state: 'closed' }, { merge_commit_sha: '' },
+    { base: { ...pull.base, ref: 'feature' } }, { base: { ...pull.base, repo: { full_name: 'fork/aithema' } } },
+    { head: { ...pull.head, sha: 'd'.repeat(40) } }, { head: { ...pull.head, ref: 'different' } },
+    { head: { ...pull.head, repo: { id: 99, full_name: 'fork/aithema' } } } ]) {
+    assert.throws(() => assertPullRequestTimingRun(run, '123', { ...pull, ...changes }, sha), /Untrusted/u);
+  }
+  assert.throws(() => assertPullRequestTimingRun(run, '123', pull, 'd'.repeat(40)), /checked-out head/u);
+  assert.doesNotThrow(() => assertTimingArtifactRun({ workflow_run: { id: 123, head_sha: sha, head_branch: run.head_branch, head_repository_id: 42 } }, run));
+  assert.throws(() => assertTimingArtifactRun({ workflow_run: { id: 123, head_sha: sha, head_branch: 'main', head_repository_id: 42 } }, run), /provenance mismatch/u);
 });
