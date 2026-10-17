@@ -42,7 +42,9 @@ export async function scrollbarFirstPaintCheck(t) {
       const band = mounted ? c.shadowRoot.querySelector('.band') : document.querySelector('.aithema-first-paint');
       const rail = band.querySelector('.audio-rail'), b = band.getBoundingClientRect(), r = rail.getBoundingClientRect();
       return { band: [b.x, b.y, b.width, b.height], rail: [r.x, r.y, r.width, r.height], row: getComputedStyle(rail).gridRowStart,
-        scrollbar: innerWidth - document.documentElement.clientWidth };
+        scrollbar: innerWidth - document.documentElement.getBoundingClientRect().width,
+        scrollbarStyle: getComputedStyle(document.documentElement, '::-webkit-scrollbar').width,
+        documentClient: document.documentElement.clientWidth, shellWidth: document.querySelector('.aithema-shell').getBoundingClientRect().width };
     };
   });
   const cases = [216, 280].flatMap(actions => [760, 768, 780, 790, 800].map(width => ({ actions, width, locale: 'de', theme: 'light', classic: true })));
@@ -71,7 +73,7 @@ export async function scrollbarFirstPaintCheck(t) {
     await settleEvidenceFrame(page);
     const initial = await page.evaluate(() => ({ mounted: document.querySelector('aithema-session').hasAttribute('data-aithema-mounted'), ...window.bandGeometry() }));
     assert.equal(initial.mounted, false, 'reserved geometry is visible before configure');
-    assert.equal(initial.scrollbar, classic ? 15 : 0, 'host really reserves the requested scrollbar width');
+    assert.equal(initial.scrollbar, classic ? 15 : 0, `host really reserves the requested scrollbar width: ${JSON.stringify(initial)}`);
     const name = `${width}-${actions}-${theme}-${locale}${classic ? '-classic' : '-overlay'}`;
     const capture = evidence && classic && ([768, 780, 790].includes(width) || width >= 1024 || width === 390);
     if (capture) await page.screenshot({ path: join(evidence, `${name}-first-paint.png`), fullPage: false, captureBeyondViewport: false });
