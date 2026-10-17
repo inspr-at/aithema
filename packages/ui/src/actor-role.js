@@ -1,3 +1,4 @@
+import { reasonSeparator } from './consent-line.js';
 import { node, setText } from './dom.js';
 
 const ROLES = ['private', 'company', 'representative', 'agency'];
@@ -181,7 +182,7 @@ export class ActorRole {
         status.dataset.phase = key; status.replaceChildren();
         if (key === 'error') {
           const message = node('span'); message.innerHTML = alertIcon; message.append(document.createTextNode(c.error));
-          status.append(message, node('span', 'actor-status-sep', ' · '));
+          status.append(message, node('span', 'actor-status-sep', reasonSeparator));
           const retry = node('button', 'actor-retry', c.retry); retry.type = 'button'; status.append(retry);
         } else if (key === 'stale') {
           const message = node('span'); message.innerHTML = refreshIcon; message.append(document.createTextNode(c.stale)); status.append(message);

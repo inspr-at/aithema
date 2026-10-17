@@ -1,6 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
+import { reasonSeparator } from '../src/consent-line.js';
 import { ActorRole } from '../src/actor-role.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
@@ -53,7 +54,7 @@ test('AIT-281: saving has no optimistic footer flip; error rechecks and retry ke
   const command = f.calls.at(-1).body;
   f.pending.resolve({ ok: false, status: 500 }); await tick();
   assert.equal(f.actor.popover.hidden, false); assert.equal(f.checked(f.actor.popover), 'company');
-  assert.match(f.actor.popover.querySelector('.actor-status').textContent, /Could not be saved · Try again/u);
+  assert.equal(f.actor.popover.querySelector('.actor-status').textContent, en.actorRole.error+reasonSeparator+en.actorRole.retry);
   f.actor.popover.querySelector('.actor-retry').click(); await tick();
   assert.equal(f.calls.at(-1).body.clientEventId, command.clientEventId);
 });
