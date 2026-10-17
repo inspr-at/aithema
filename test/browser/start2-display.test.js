@@ -52,22 +52,70 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
       return Response.json(catalog);
     };
   });
+  const expectEngineDetail = async (copy, point) => {
+    try {
+      if (point) assert.equal(await shadow(page, (c, point) => {
+        const anchor = c.shadowRoot.querySelector('.engine-info');
+        const hit = c.shadowRoot.elementFromPoint(point.x, point.y);
+        return hit === anchor || anchor.contains(hit);
+      }, point), true, 'the settled engine-info centre is unobstructed');
+      await page.waitForFunction(expected => {
+        const detail = document.querySelector('aithema-session')?.shadowRoot.querySelector('.engine__detail');
+        if (!detail) return false;
+        const style = getComputedStyle(detail), lines = detail.textContent.split('\n');
+        return style.visibility === 'visible' && style.opacity === '1' &&
+          lines[1] === expected[0] && lines[2] === expected[1];
+      }, { polling: 'raf', timeout: 5_000 }, [
+        `${copy.display.reply}: ${copy.display.modelUnknown}`,
+        `${copy.display.understanding}: ${copy.display.modelUnknown}`,
+      ]);
+    } catch (cause) {
+      // Only fixture copy and element structure/geometry: no session, route,
+      // identity, attribute values or host-owned text belongs in failure logs.
+      const diagnostics = await shadow(page, (c, requestedPoint) => {
+        const root = c.shadowRoot, anchor = root.querySelector('.engine-info');
+        const detail = root.querySelector('.engine__detail'), point = window.engineHoverPoint;
+        const describe = node => {
+          if (!node) return null;
+          const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+          return { tag: node.localName, classes: [...node.classList],
+            box: { x: box.x, y: box.y, width: box.width, height: box.height },
+            hover: node.matches(':hover'), focusWithin: node.matches(':focus-within'),
+            visibility: style.visibility, opacity: style.opacity, transition: style.transition,
+            pointerEvents: style.pointerEvents, zIndex: style.zIndex, transform: style.transform };
+        };
+        const documentHit = point && document.elementFromPoint(point.x, point.y);
+        const shadowHit = point && root.elementFromPoint(point.x, point.y);
+        const hitStack = point ? [...new Set([...root.elementsFromPoint(point.x, point.y),
+          ...document.elementsFromPoint(point.x, point.y)])] : [];
+        return { requestedPoint, point, documentHit: describe(documentHit), shadowHit: describe(shadowHit),
+          anchorOnTop: shadowHit === anchor || anchor.contains(shadowHit),
+          anchor: describe(anchor), engine: describe(anchor.parentElement), detail: describe(detail),
+          lines: detail.textContent.split('\n'), hitStack: hitStack.map(describe),
+          footer: [...root.querySelectorAll('.display-foot,.display-foot__row,.footer-right,.host-legal,.engine__flag,.footer-popup'),
+            ...c.querySelectorAll('[slot="legal"], [slot="legal"] *')].map(describe) };
+      }, point);
+      throw new Error(`Engine detail did not open: ${JSON.stringify(diagnostics)}`, { cause });
+    }
+  };
   const hoverEngineDetail = async copy => {
-    // configure() replaces the shadow tree. Hover its settled geometry, then
-    // observe the popup itself: completed animations alone do not prove hover.
-    await page.mouse.move(-1, -1);
+    // Park within the viewport, then move to the settled centre and verify
+    // its hit target before observing the popup's real end state (AIT-273).
+    await page.mouse.move(0, 0);
     await settle(page);
-    await page.hover('aithema-session >>> .engine-info');
-    await page.waitForFunction(expected => {
-      const detail = document.querySelector('aithema-session')?.shadowRoot.querySelector('.engine__detail');
-      if (!detail) return false;
-      const style = getComputedStyle(detail), lines = detail.textContent.split('\n');
-      return style.visibility === 'visible' && style.opacity === '1' &&
-        lines[1] === expected[0] && lines[2] === expected[1];
-    }, { polling: 'raf', timeout: 5_000 }, [
-      `${copy.display.reply}: ${copy.display.modelUnknown}`,
-      `${copy.display.understanding}: ${copy.display.modelUnknown}`,
-    ]);
+    const point = await shadow(page, c => {
+      const box = c.shadowRoot.querySelector('.engine-info').getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    });
+    await page.evaluate(() => {
+      window.engineHoverPoint = null;
+      document.addEventListener('pointermove', event => {
+        window.engineHoverPoint = { x: event.clientX, y: event.clientY };
+      }, { once: true, capture: true });
+    });
+    await page.mouse.move(point.x, point.y);
+    await expectEngineDetail(copy, point);
+    return point;
   };
   const shot = async (locale, state, hover = false) => {
     if (!evidenceDirectory) return;
@@ -116,7 +164,28 @@ test('AIT-265/AIT-267: curated option labels and generic unknown served routes, 
     }, locale);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-ready="model"] dd > span:last-child').textContent), expected);
     await shot(locale, 'ready');
-    await hoverEngineDetail(copy);
+    await settle(page);
+    const footerBoxes = await boxes(page, ['.display-foot', '.engine-info', '.engine__flag']);
+    const point = await hoverEngineDetail(copy);
+    assert.deepEqual(await boxes(page, ['.display-foot', '.engine-info', '.engine__flag']), footerBoxes,
+      `${locale}: engine hover causes 0px layout shift`);
+    // A host can reconfigure while the person rests over the footer. The new
+    // tree must reveal and position its popup without another pointer move.
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      c.configure({ copy, session: c.session });
+    }, locale);
+    await settle(page);
+    await expectEngineDetail(copy, point);
+    const popup = await boxes(page, ['.engine-info', '.engine__detail']);
+    assert.ok(popup[1][1] + popup[1][3] <= popup[0][1], `${locale}: stationary-pointer popup is above the footer`);
+    assert.deepEqual(await boxes(page, ['.display-foot', '.engine-info', '.engine__flag']), footerBoxes,
+      `${locale}: stationary-pointer reveal causes 0px layout shift`);
+    await page.mouse.move(0, 0);
+    await page.focus('aithema-session >>> .engine-info');
+    await expectEngineDetail(copy);
+    assert.deepEqual(await boxes(page, ['.display-foot', '.engine-info', '.engine__flag']), footerBoxes,
+      `${locale}: engine focus causes 0px layout shift`);
     const footer = await shadow(page, c => {
       const detail = c.shadowRoot.querySelector('.engine__detail');
       return { visibility: getComputedStyle(detail).visibility, lines: detail.textContent.split('\n') };
