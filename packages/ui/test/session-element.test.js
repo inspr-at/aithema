@@ -1245,3 +1245,60 @@ test('AIT-263: public focus command carries the revision and propagates typed st
   assert.deepEqual(JSON.parse(requests[0].options.body), { questionId: item.id, inputRevision: inputRevision(component.session) });
   assert.equal(component.session.transcript.length, 1);
 });
+
+for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: saved acknowledgment stays inline for 1600ms and resets on configure`, async t => {
+  const c = setup({ copy }), root = c.shadowRoot;
+  t.after(() => c.configure({ copy, session: c.session }));
+  t.mock.method(globalThis, 'fetch', async (_url, options) => Response.json({ seq: c.session.seq + 1, type: 'turn.final',
+    data: { id: JSON.parse(options.body).clientEventId, role: 'user', content: 'Hello' } }));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  root.querySelector('textarea').value = 'Hello';
+  root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise(resolve => setImmediate(resolve));
+  const feedback = root.querySelector('.composer-feedback');
+  assert.equal(feedback.hasAttribute('data-saved'), true);
+  assert.equal(root.querySelector('.composer-saved span').textContent, copy.saved);
+  assert.equal(root.querySelector('.status__label').textContent.includes(copy.saved), false);
+  assert.equal(root.querySelector('.composer-dock > .status__label'), null);
+  t.mock.timers.tick(1599); assert.equal(feedback.hasAttribute('data-saved'), true);
+  t.mock.timers.tick(1); assert.equal(feedback.hasAttribute('data-saved'), false);
+  assert.equal(root.querySelector('.composer-saved span').textContent, copy.saved);
+  assert.equal(root.querySelector('.composer-saved').getAttribute('aria-hidden'), 'true');
+  c.configure({ copy, session: c.session });
+  t.mock.timers.tick(1600); assert.equal(c.shadowRoot.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
+});
+
+for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: platform shortcut has localized modifier and Enter keycaps`, t => {
+  for (const [value, key] of [['MacIntel', copy.shortcutKeys.mac], ['Win32', copy.shortcutKeys.other]]) {
+    platform(t, value);
+    const c = setup({ copy }), reason = c.shadowRoot.querySelector('.composer-reason');
+    assert.deepEqual([...reason.querySelectorAll('kbd')].map(n => n.textContent), [key, 'Enter']);
+    assert.equal(reason.textContent, copy.shortcut.replace('{key}', key));
+  }
+});
+
+for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: no bound visuals hides the rail; configured/off visuals retain their UI`, () => {
+  const c = setup({ copy });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, true);
+  const noDrafts = c.session;
+  noDrafts.featureMatrix.eu = { html: { available: false, reason: 'preset not configured' } };
+  noDrafts.featureMatrix.custom = { images: { available: false, reason: 'preset not configured' } };
+  c.configure({ copy, session: noDrafts });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, true);
+  for (const verdict of [{ available: true }, { available: false, reason: 'visuals off' }, { available: false, reason: 'current processing consent required' }]) {
+    const session = c.session; session.featureMatrix.best.html = verdict;
+    c.configure({ copy, session });
+    assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, false);
+  }
+});
+
+for (const visualsBound of [false, true]) test(`AIT-266: explicit host visuals capability ${visualsBound} wins over a preset refusal`, () => {
+  const c = setup(), session = c.session;
+  session.visualsBound = visualsBound;
+  session.featureMatrix.best.html = { available: false, reason: 'preset not configured' };
+  c.configure({ copy: en, session });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, !visualsBound);
+  session.paused = true;
+  c.configure({ copy: en, session });
+  assert.equal(c.shadowRoot.querySelector('.concept-rail').hidden, !visualsBound, 'a paused reload retains host capability presentation');
+});

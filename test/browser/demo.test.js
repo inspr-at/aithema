@@ -1472,7 +1472,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       const r = c.shadowRoot, a = r.querySelector('.attach').getBoundingClientRect(), shellBox = r.querySelector('.transcript-shell').getBoundingClientRect();
       return { attach: [Math.round(a.width), Math.round(a.height)], label: r.querySelector('.attach__label').textContent,
         chipsInside: [...r.querySelectorAll('.upload')].every(row => { const b = row.getBoundingClientRect(); return b.left >= shellBox.left - .5 && b.right <= shellBox.right + .5; }),
-        reasonClipped: r.querySelector('.composer-reason').scrollWidth > r.querySelector('.composer-reason').clientWidth + 1,
+        reasonClipped: r.querySelector('.composer-reason').checkVisibility({ visibilityProperty: true }) && r.querySelector('.composer-reason').scrollWidth > r.querySelector('.composer-reason').clientWidth + 1,
         pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     assert.deepEqual(phone, { attach: [44, 44], label: 'Dateien anhängen', chipsInside: true, reasonClipped: false, pageOverflow: 0 });
@@ -1882,7 +1882,8 @@ test('AIT-234: fast Custom choice waits for its catalog; DE light + EN dark at 1
         const spinner = c.shadowRoot.querySelector('.select__spinner');
         spinner.getAnimations(); // Flush animation styles for the rendered loading state.
         await new Promise(resolve => requestAnimationFrame(resolve));
-        return getComputedStyle(spinner).animationName;
+        // A catalog repaint can replace the spinner during the frame above.
+        return getComputedStyle(c.shadowRoot.querySelector('.select__spinner')).animationName;
       }, motion);
     };
     assert.equal(await spinnerAnimation('reduce', 'on'), 'none', 'system reduced motion stops loading animation');

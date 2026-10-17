@@ -256,9 +256,11 @@ export class SettingsDialog {
       button.addEventListener('keydown', event => {
         if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         event.preventDefault();
-        const index = presets.indexOf(button), next = event.key === 'Home' ? 0 : event.key === 'End' ? presets.length - 1
-          : (index + (['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1) + presets.length) % presets.length;
-        presets[next].focus(); presets[next].click();
+        const offered = presets.filter(option => option.getAttribute('aria-disabled') !== 'true');
+        if (!offered.length) return;
+        const index = offered.indexOf(button), next = event.key === 'Home' ? 0 : event.key === 'End' ? offered.length - 1
+          : (index + (['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1) + offered.length) % offered.length;
+        offered[next].focus(); offered[next].click();
       });
     }
     for (const select of this.#all('.select')) this.#wireSelect(select);
@@ -666,7 +668,7 @@ export class SettingsDialog {
     const catalog = this.#catalog, info = this.#presetInfo(draft.processingPreset), device = draft.processingPreset === 'device';
     for (const button of this.#all('.preset-option')) {
       const preset = button.dataset.preset, presetInfo = catalog?.presets?.[preset];
-      const kind = !catalog ? '' : preset === this.#active?.processingPreset ? '' : !presetInfo?.offered ? 'unavailable' : presetInfo.status === 'available' ? '' : presetInfo.status;
+      const kind = !catalog ? '' : preset === this.#active?.processingPreset ? '' : !presetInfo?.offered || presetInfo.status === 'unavailable' ? 'unavailable' : presetInfo.status === 'available' ? '' : presetInfo.status;
       const reason = kind === 'unavailable' ? presetInfo?.reason ?? 'preset not configured' : kind ? presetInfo?.reason ?? '' : '';
       button.querySelector('.preset-name').textContent = this.#copy.presets[preset];
       const selected = (this.#pendingPreset ?? draft.processingPreset) === preset;
@@ -674,7 +676,7 @@ export class SettingsDialog {
       button.setAttribute('aria-disabled', String(kind === 'unavailable'));
       if (reason) { button.dataset.reason = reason; button.dataset.kind = kind; } else { delete button.dataset.reason; delete button.dataset.kind; }
       const status = button.querySelector('.option-status');
-      status.dataset.kind = kind; status.textContent = kind === 'unavailable' ? c.unavailable : kind === 'consent' ? c.consentNeeded : kind === 'limited' ? c.limited : '';
+      status.dataset.kind = kind; status.textContent = kind === 'unavailable' ? c.limited : kind === 'consent' ? c.consentNeeded : kind === 'limited' ? c.limited : '';
     }
     const models = device ? [] : info?.models ?? [];
     const named = label => catalogLabel(this.#copy, label);

@@ -276,6 +276,7 @@ test('AIT-188 L1: visual drafts enabled, stage retains pre-pause text and pause 
     await shadow(page, c => {
       const session = structuredClone(c.session);
       session.featureMatrix.best.html = { available: true };
+      session.visualsBound = true; // This scene binds drafts independently of the active preset verdict.
       session.conceptVisualKind = 'html';
       session.conceptCost = { maxMicro: 100_000 };
       c.configure({ copy: globalThis.pauseCopy, session, host: { library: true }, voiceClient: globalThis.tickVoiceClient });
@@ -307,6 +308,7 @@ test('AIT-189: reloaded purpose/session pauses match unpaused stage, visual draf
     await shadow(page, (c, enabled) => {
       const session = structuredClone(c.session);
       session.featureMatrix.best.html = enabled ? { available: true } : { available: false, reason: 'not configured' };
+      session.visualsBound = true; // Keep the configured host while varying its active preset verdict.
       session.conceptVisualKind = 'html'; session.conceptCost = { maxMicro: 100_000 };
       c.configure({ copy: globalThis.pauseCopy, session, host: { library: true }, voiceClient: globalThis.tickVoiceClient });
     }, enabled);

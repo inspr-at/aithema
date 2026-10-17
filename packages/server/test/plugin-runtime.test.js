@@ -709,3 +709,15 @@ for (const stage of ['before-consume', 'during-consent']) test(`AIT-261: paid di
   assert.equal(h.runtime.budget.get(id).settled_micro, 0);
   assert.equal(h.runtime.budget.used(h.session.id), 0);
 });
+
+test('AIT-266: visual capability follows host bindings across presets, including an off selection', t => {
+  const h = setup(t);
+  assert.equal(h.runtime.visualsBound(), false);
+  h.presets.custom.bindings.html = localHTMLBinding;
+  assert.equal(h.runtime.visualsBound(), true);
+  h.session.settings.visuals = 'off';
+  h.session.processingPreset = 'device';
+  assert.equal(h.runtime.visualsBound(), true, 'selection does not remove a bound host capability');
+  delete h.presets.custom.bindings.html;
+  assert.equal(h.runtime.visualsBound(), false);
+});

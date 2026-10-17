@@ -625,7 +625,10 @@ test('component sends typed text through active voice, updates context and accep
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.equal(c.session.transcript.at(-1).content, 'plain while closing');
   assert.equal(commands.filter(([name]) => name === 'text').length, 1, 'a plain acknowledgement is not forwarded to the closing SDK');
-  assert.equal(root.querySelector('textarea').value, ''); assert.equal(root.querySelector('.status__label').textContent, en.saved);
+  assert.equal(root.querySelector('textarea').value, '');
+  assert.equal(root.querySelector('.composer-saved span').textContent, en.saved);
+  assert.equal(root.querySelector('.composer-feedback').hasAttribute('data-saved'), true);
+  assert.equal(root.querySelector('.composer-dock > .status__label'), null);
   root.querySelector('.voice-close').click(); await tick();
   settle({ closureConfirmed: true }); await tick();
 });

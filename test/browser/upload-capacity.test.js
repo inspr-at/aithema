@@ -112,7 +112,12 @@ async function uploadActions(page, expected, state) {
     const { nodes } = await cdp.send('Accessibility.getFullAXTree');
     await cdp.send('Runtime.releaseObject', { objectId: result.objectId });
     const root = nodes.find(n => n.backendDOMNodeId === node.backendNodeId), byId = new Map(nodes.map(n => [n.nodeId, n]));
-    assert.equal(root?.role?.value, 'status', `${state}: reason keeps its status role`);
+    const hiddenHint = await inShadow(page, c => { const reason = c.shadowRoot.querySelector('.composer-reason');
+      return reason.hasAttribute('data-shortcut') && getComputedStyle(reason).visibility === 'hidden'; });
+    if (hiddenHint) {
+      assert.deepEqual(expected, [], `${state}: only an idle shortcut may leave the accessibility tree`);
+      assert.equal(root?.ignored, true, `${state}: the hidden touch shortcut is omitted from the accessibility tree`);
+    } else assert.equal(root?.role?.value, 'status', `${state}: upload reasons keep their status role`);
     const buttons = [];
     const visit = n => {
       if (n.role?.value === 'button') buttons.push({ role: n.role.value, name: n.name?.value });

@@ -149,10 +149,13 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         }
         const file = `ait-138-d-${name}-${label}.png`; files.push(file);
         const paintTargets = await shadow(target, c => ['.attach', '.send', '.composer-reason'].map(selector => {
-          const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+          const node = c.shadowRoot.querySelector(selector), r = node.getBoundingClientRect();
+          const painted = selector !== '.composer-reason' || node.checkVisibility({ visibilityProperty: true }) && Boolean(node.textContent.trim());
           const inset = selector === '.composer-reason' ? 0 : 5;
-          return { selector, x: Math.ceil(r.left + inset), y: Math.ceil(r.top + inset), width: Math.floor(r.width - inset * 2), height: Math.floor(r.height - inset * 2) };
-        }));
+          return { selector, painted, x: Math.ceil(r.left + inset), y: Math.ceil(r.top + inset), width: Math.floor(r.width - inset * 2), height: Math.floor(r.height - inset * 2) };
+        }).filter(target => target.painted));
+        assert.ok(paintTargets.some(target => target.selector === '.attach') && paintTargets.some(target => target.selector === '.send'), 'both composer controls remain paint targets');
+        const hasPaintedHint = paintTargets.some(target => target.selector === '.composer-reason');
         const readPaint = png => target.evaluate(async ({ encoded, targets }) => {
           const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))], { type: 'image/png' }));
           const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
@@ -176,7 +179,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           composerPainted = composer.paint.every(p => p.contrast >= 24);
           // Backdrop layers may retain the old hint even after DOM text changed.
           // The controlling tab's saved PNG must paint its new composer hint.
-          composer.hintPaintChanged = name !== 'takeback-here' || composer.paint.at(-1).signature !== oldHintSignature;
+          composer.hintPaintChanged = name !== 'takeback-here' || !hasPaintedHint || composer.paint.at(-1).signature !== oldHintSignature;
         } while ((!composerPainted || !composer.hintPaintChanged) && Date.now() - paintStarted < 3000);
         if (name === 'old-tab') oldHintSignature = composer.paint.at(-1).signature;
         composer.captureAttempts = attempts; composer.paintWaitMs = Date.now() - paintStarted;

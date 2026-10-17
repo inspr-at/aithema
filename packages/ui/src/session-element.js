@@ -91,6 +91,7 @@ export class AithemaSession extends HTMLElement {
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
+  #savedTimer; #saved = false;
   #questionCard; #disposeVersion; #footerMedia; #footerListener; #brandObserver;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   #uploadController; #uploadRetryTimer = null; #retryFiles = [];
@@ -125,6 +126,7 @@ export class AithemaSession extends HTMLElement {
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#phoneViewport?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
+    clearTimeout(this.#savedTimer); this.#saved = false;
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.element.open;
@@ -178,6 +180,7 @@ export class AithemaSession extends HTMLElement {
     this.#footerMedia?.removeEventListener?.('change', this.#footerListener); this.#brandObserver?.disconnect();
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#questionCard?.destroy();
+    clearTimeout(this.#savedTimer); this.#saved = false;
     this.#phoneViewport?.destroy(); this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     clearTimeout(this.#creditEndTimer); this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -281,7 +284,7 @@ export class AithemaSession extends HTMLElement {
         <div class="phone-dock-backdrop" aria-hidden="true"></div><div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="composer-paused" hidden><span></span> <button class="composer-resume" type="button"></button></div><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+            <span class="composer-feedback"><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" role="status" aria-live="polite" aria-atomic="true">${icon('check')}<span></span></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
@@ -638,6 +641,11 @@ export class AithemaSession extends HTMLElement {
   }
   // The status line shows the latest action until the connection, pause or call state changes.
   #status(value) { this.#notice = value; this.#paintStatus(); }
+  #confirmSaved() {
+    clearTimeout(this.#savedTimer); this.#saved = true;
+    this.#notice = ''; this.#paintStatus(); this.#render('composer');
+    this.#savedTimer = setTimeout(() => { this.#saved = false; this.#render('composer'); }, 1600);
+  }
   #connectionStatus(value) { this.#connection = value; this.#notice = ''; this.#paintStatus(); }
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
@@ -1054,6 +1062,13 @@ export class AithemaSession extends HTMLElement {
       const reason = root.querySelector('.composer-reason');
       reason.toggleAttribute('data-shortcut', text.available && !this.#uploadNotice && !this.#retryFiles.length);
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
+      const feedback = root.querySelector('.composer-feedback');
+      const showSaved = this.#saved && reason.hasAttribute('data-shortcut') && !this.#composerPaused;
+      feedback.toggleAttribute('data-saved', showSaved);
+      setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
+      setText(root.querySelector('.composer-saved span'), copy.saved);
+      root.querySelector('.composer-saved').setAttribute('aria-hidden', String(!showSaved));
+      reason.setAttribute('aria-live', showSaved ? 'off' : 'polite');
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#composerPaused ? '' : this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
@@ -1085,6 +1100,11 @@ export class AithemaSession extends HTMLElement {
         paintConsentLine(reason, { copy, feature: 'text', text: words,
           verdict: this.#uploadNotice || this.#session.pauseReason === 'purpose' || this.#rail?.moved ? { available: true } : text,
           open: opener => this.#dialog.openConsent('text', opener) });
+      }
+      if (reason.hasAttribute('data-shortcut') && words) {
+        const parts = copy.shortcut.split('{key}'), modifier = node('kbd', '', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '');
+        const enter = node('kbd', '', 'Enter'), suffix = (parts[1] ?? '').split('Enter');
+        reason.replaceChildren(parts[0] ?? '', modifier, suffix[0], enter, suffix.slice(1).join('Enter'));
       }
       reason.title = this.#retryFiles.length || this.#uploadNotice || text.available ? '' : unavailable;
       input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
@@ -1527,11 +1547,10 @@ export class AithemaSession extends HTMLElement {
     this.#reveal?.setMotion(this.#motion);
     if (this.#rail) this.#rail.motion = this.#motion;
   }
-  // A preset other than the acknowledged one is refused at the start only for host reasons;
-  // Custom always opens settings.
+  // Host refusals apply to every preset; consent and temporary limits remain selectable.
   #presetRefusal(preset) {
     const verdict = this.#session.featureMatrix?.[preset]?.text;
-    const refused = preset !== 'custom' && preset !== (this.#session.processingPreset ?? 'best') && verdict && !verdict.available && !isDynamicReason(verdict.reason);
+    const refused = preset !== (this.#session.processingPreset ?? 'best') && verdict && !verdict.available && !isDynamicReason(verdict.reason);
     return refused ? verdict.reason : null;
   }
   // START LandingPresets: four choices, a summary area that reserves its longest text and a Continue
@@ -1540,7 +1559,17 @@ export class AithemaSession extends HTMLElement {
     const copy = this.#copy, c = copy.chooser;
     const section = node('section', 'chooser'); section.setAttribute('aria-labelledby', 'chooser-title');
     const title = node('h3', '', c.title); title.id = 'chooser-title';
-    const cards = node('div', 'chooser__list'); cards.setAttribute('role', 'group'); cards.setAttribute('aria-labelledby', 'chooser-title');
+    const cards = node('div', 'chooser__list');
+    cards.addEventListener('keydown', event => {
+      if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      const options = [...cards.querySelectorAll('.chooser-option')].filter(card => card.getAttribute('aria-disabled') !== 'true');
+      if (!options.length) return;
+      event.preventDefault();
+      const index = options.indexOf(event.target.closest('.chooser-option'));
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+        : (index + (['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1) + options.length) % options.length;
+      options[next].focus(); options[next].click();
+    }); cards.setAttribute('role', 'group'); cards.setAttribute('aria-labelledby', 'chooser-title');
     const summary = node('div', 'chooser__summary');
     const live = node('strong'); live.setAttribute('role', 'status');
     summary.append(live, ...[c.choose, c.saving, ...PRESET_ORDER.map(p => c.summary[p])].map(text => {
@@ -1588,6 +1617,7 @@ export class AithemaSession extends HTMLElement {
       const details = card.querySelectorAll('.chooser-option__detail > span');
       setText(details[0], c.lead[preset]); setText(details[1], c.detail[preset]);
       const refusal = this.#presetRefusal(preset);
+      card.tabIndex = refusal ? -1 : 0;
       card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(refusal)));
       if (refusal) card.title = reasonText(copy, refusal, 'text'); else card.removeAttribute('title');
       setText(card.querySelector('.chooser-option__note'), refusal ? c.unavailable : '');
@@ -1600,6 +1630,7 @@ export class AithemaSession extends HTMLElement {
   async #confirmChoice(button) {
     if (this.#chooser.busy) return;
     const copy = this.#copy, current = this.#session.processingPreset ?? 'best', choice = this.#chooser.choice ?? current;
+    if (this.#presetRefusal(choice)) return;
     if (choice === 'custom') {
       const custom = this.#session.featureMatrix?.custom?.text;
       this.openSettings(button, { continueLabel: true, preset: custom && (custom.available || isDynamicReason(custom.reason)) ? 'custom' : undefined });
@@ -2012,6 +2043,7 @@ export class AithemaSession extends HTMLElement {
     const voiceSession = this.#rail && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
+    clearTimeout(this.#savedTimer); this.#saved = false;
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
@@ -2025,7 +2057,8 @@ export class AithemaSession extends HTMLElement {
         if (sessionId !== this.#session.id) return;
       }
       if (!option && input.value === content) input.value = '';
-      this.#pending = null; this.#status(voiceText ? this.#copy.voiceTextSent : this.#copy.saved);
+      this.#pending = null;
+      if (voiceText) this.#status(this.#copy.voiceTextSent); else this.#confirmSaved();
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.failed); }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); this.#host?.update(); } }
   }
@@ -2192,6 +2225,7 @@ export class AithemaSession extends HTMLElement {
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
+      if (typeof session.visualsBound === 'boolean') this.#session.visualsBound = session.visualsBound;
       if (session.operations) { this.#session.operations = session.operations; this.#restoreFailure(); }
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.
