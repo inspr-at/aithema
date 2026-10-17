@@ -1,3 +1,9 @@
+// A voice host reserves two rows below 768px before its brand can be measured.
+// At 768px the capped 27vw brand, default 216px actions, gutters and two 24px
+// gaps leave at least the 208px rail floor. Custom wider actions/brands can
+// still request the measured second row above this conservative reservation.
+export const voiceSingleRowMinWidth = 768;
+
 // Shared by the shadow header and the render-blocking host stylesheet. Keep
 // geometry independent of copy, fonts, account reads and conversation stage.
 export function headerGeometry(selector) {
@@ -9,6 +15,11 @@ ${selector} > .band-orb { width:44px; height:44px; }
 ${selector} > .audio-rail { box-sizing:border-box; justify-self:center; width:min(100%,720px); height:48px; min-height:48px;
   display:grid; grid-template-columns:44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; }
 ${selector} > .header-actions { grid-column:3; grid-row:1; min-width:0; height:44px; }
+${selector} > .audio-rail { grid-column:2; grid-row:1; }
+@media(min-width:600px) and (max-width:${voiceSingleRowMinWidth - 1}px) {
+  ${selector}:has(> .audio-rail) { --band-height:150px; grid-template-rows:60px 48px; }
+  ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }
+}
 @media(max-width:599px) {
   ${selector} { --band-height:124px; grid-template-columns:minmax(0,1fr) var(--aithema-header-actions-width,88px); grid-template-rows:44px 44px; gap:6px 8px; padding:12px 8px 18px 54px; }
   ${selector} > .audio-rail { grid-column:1/-1; grid-row:2; }

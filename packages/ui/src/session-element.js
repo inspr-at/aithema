@@ -30,6 +30,7 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, languageFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
+import { voiceSingleRowMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
@@ -524,6 +525,7 @@ export class AithemaSession extends HTMLElement {
       focusAfterUnlock: () => {
         const stage = this.#stage(), input = root.querySelector('textarea');
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
+          : this.#composerUsedUp ? root.querySelector('.composer-out__export')
           : this.#session.paused || input.disabled ? root.querySelector('.pause, .composer-resume') : input)?.focus();
       } });
     this.#phoneViewport = new PhoneComposerViewport(root, { onCompactChange: () => this.#render('composer'), followsTranscript: () => this.#follow, onNoticesChange: () => {
@@ -583,7 +585,13 @@ export class AithemaSession extends HTMLElement {
       if ((response.ok || response.status === 404) && sessionId === this.#session.id) this.#journal.clear();
     } catch { /* The server lease still ends the call; Start reports a conflict precisely. */ }
   }
-  get #composerPaused() { return !this.#voiceBound && this.#session.paused && this.#session.pauseReason !== 'purpose'; }
+  // Terminal allowance wins over pause, including a paused server verdict's
+  // unpaused budget denial. Resuming cannot reveal a different composer panel.
+  get #composerUsedUp() {
+    return !this.#creditEnding && this.#session.pauseReason !== 'purpose' &&
+      (Boolean(this.#host?.usedUp) || !this.#hasLiveCall() && this.#feature('text', true, { ignorePause: true }).rawReason === 'budget denied');
+  }
+  get #composerPaused() { return !this.#voiceBound && this.#session.paused && this.#session.pauseReason !== 'purpose' && !this.#composerUsedUp; }
   async #resumeComposer() {
     if (!this.#composerPaused || this.#composerResuming) return;
     const sessionId = this.#session.id;
@@ -601,7 +609,7 @@ export class AithemaSession extends HTMLElement {
     }
   }
   #offerResume() {
-    if (this.#pausePrompt && this.#session.paused) this.shadowRoot.querySelector('.pause, .composer-resume')?.focus();
+    if (this.#pausePrompt && this.#session.paused && !this.#composerUsedUp) this.shadowRoot.querySelector('.pause, .composer-resume')?.focus();
   }
   #pagehide = () => {
     const record = this.#journal?.read(), rail = this.#rail;
@@ -1087,8 +1095,7 @@ export class AithemaSession extends HTMLElement {
       newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
       root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
       this.#paintAttach();
-      const out = root.querySelector('.composer-out'), usedUp = !paused && !this.#creditEnding && purposePause.hidden &&
-        (Boolean(this.#host?.usedUp) || !this.#hasLiveCall() && text.rawReason === 'budget denied');
+      const out = root.querySelector('.composer-out'), usedUp = this.#composerUsedUp;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
@@ -1417,7 +1424,7 @@ export class AithemaSession extends HTMLElement {
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       - root.querySelector('.band-identity').getBoundingClientRect().width
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
-    band.toggleAttribute('data-rail-row', available < 208);
+    band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < 208);
   }
   #observePanes() {
     this.#paneObserver?.disconnect();

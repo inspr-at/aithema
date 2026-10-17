@@ -255,7 +255,7 @@ textarea { resize:none; width:100%; min-height:3.5rem; height:3.5rem; border:0; 
 .composer-paused { position:absolute; top:clamp(.85rem,2vw,1.25rem); left:calc(clamp(.85rem,2vw,1.25rem) + .5rem); right:clamp(.85rem,2vw,1.25rem);
   min-height:44px; display:flex; align-items:center; gap:.35em; color:var(--aithema-muted); font-size:1rem; line-height:1.5; }
 .composer-paused[hidden] { display:none; }
-.composer-resume { min-height:44px; min-width:44px; padding:0; color:var(--aithema-ink); background:none; border-radius:0; font:inherit; }
+.composer-resume { min-height:44px; min-width:44px; padding:0; color:var(--aithema-accent); background:none; border-radius:0; font:inherit; font-weight:500; }
 .composer-resume:hover:not(:disabled), .composer-resume:focus-visible { background:none; text-decoration:underline; text-underline-offset:3px; }
 .purpose-pause-copy { position:absolute; inset:clamp(.85rem,2vw,1.25rem) clamp(.85rem,2vw,1.25rem) calc(clamp(.85rem,2vw,1.25rem) + 44px + .25rem); overflow:auto;
   padding:.15rem .5rem; font-size:.8rem; line-height:1.2; color:var(--aithema-muted); }

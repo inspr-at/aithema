@@ -225,11 +225,9 @@ export const bandStyles = `
   .drafts-canvas { min-height:60svh; }
 }
 ${headerGeometry('.band')}
-.band > .audio-rail { grid-column:2; grid-row:1; }
-@media(max-width:599px) { .band > .audio-rail { grid-column:1/-1; grid-row:2; } }
-/* The second row is driven by measured free space, including host brand/account copy. */
+/* Beyond the shared first-paint reservation, measured host copy can add a row. */
 @media(min-width:600px) {
-  .band[data-rail-row] { grid-template-rows:60px 48px; }
+  .band[data-rail-row] { --band-height:150px; grid-template-rows:60px 48px; }
   .band[data-rail-row] > .audio-rail { grid-column:1/-1; grid-row:2; }
 }
 /* AIT-260: approved host frame. Host text gets only its natural width, capped
@@ -302,8 +300,6 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 /* Credit-enabled hosts also fit the existing 320px embedding contract. The
    approved 390px frame retains its normal type and spacing. Targets stay 44px. */
 @media(width < 360px) {
-  /* Keep the ready status on one line with the wider Linux fallback font too. */
-  .concept-activity-text, .drafts-reason-reserve { font-size:12px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }

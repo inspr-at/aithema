@@ -128,7 +128,7 @@ export async function hostChromeCheck(t) {
       await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), 'Unsent draft');
       assert.deepEqual(await composerBoxes(), baseline, `${label}: resumed composer/field/Send 0 px`);
-      checks.push({ pass: true, label, composerShiftPx: 0, sendShiftPx: 0, acknowledgedResume: true, fieldFocused: true });
+      checks.push({ pass: true, label, composerShiftPx: 0, sendShiftPx: 0, acknowledgedResume: true, fieldFocused: true, resumeColor: state.resumeColor, primaryColor: state.primaryColor, resumeWeight: state.resumeWeight, pausedColor: state.pausedColor });
     }
     // Pre-live status is outside the popup and remains an exposed live region.
     await scene({ locale });
@@ -283,5 +283,5 @@ export async function hostChromeCheck(t) {
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'checks.json'), JSON.stringify({ head: evidenceCommit, designSha256: '9f5f9df4cf67d3ef4a89f0fa246d76e93a86613837346afc1cd397d8c78d1109', capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: ['PASS: 48 paused composer cases; acknowledged resume, draft preserved, field focused; composer/Send 0 px', 'PASS: Tick resume uses primary teal and medium weight; paused copy stays muted; 44 px controls', 'PASS: 58 rail-fit cases; 320–1440 px in 40 px steps; normal/long brand; no intersections or page-wide horizontal overflow', 'PASS: DE/EN light/dark 1440/390 live status exposed to accessibility; KI/AI in accessible name', 'PASS: existing host chrome matrix; popup/menu displacement 0 px'], checks: checks.map(check => ({ pass: true, ...check })) }, null, 2));
 }
