@@ -197,7 +197,7 @@ export class AudioRail {
     const status = this.root.querySelector('.voice-state');
     const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
     if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, narrowVoiceStatus(c, sentence));
-    status.setAttribute('aria-label', sentence);
+    if (status.getAttribute('aria-label') !== sentence) status.setAttribute('aria-label', sentence);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };

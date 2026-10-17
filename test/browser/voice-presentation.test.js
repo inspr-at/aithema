@@ -263,7 +263,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     createdAt: new Date().toISOString(), capture: 'viewport', checks }, null, 2));
 });
 
-test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop consent', { timeout: 360_000 }, async t => {
+async function checkPhoneVoiceHeader(t, widths) {
   const { voiceStatusCases } = await import('../voice-status-cases.js');
   const directory = await mkdtemp(join(tmpdir(), 'aithema-ait302-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -302,7 +302,7 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
       Object.defineProperty(timer, 'textContent', { configurable: true, get: () => '0:00', set() {} });
       document.documentElement.lang = locale; scrollTo(0, 0);
     }, locale);
-    for (const width of [320, 360, 390, 600, 1024, 1440]) {
+    for (const width of widths) {
       await page.setViewport({ width, height: width < 600 ? 844 : 900 });
       await page.mouse.move(-1, -1);
       let baseline;
@@ -367,6 +367,17 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
             status.querySelector('.consent-narrow')?.remove();
           });
           const after = Buffer.from(await page.screenshot({ fullPage: false }));
+          if (!after.equals(before) && evidence) {
+            await writeFile(join(evidence, `ait302-${label}-current.png`), before);
+            await writeFile(join(evidence, `ait302-${label}-legacy.png`), after);
+            const a = pixels(before), b = pixels(after), changed = []; let maxDelta = 0;
+            for (let i = 0; i < a.result.length; i += a.channels) {
+              const delta = Math.max(...a.result.subarray(i, i + a.channels).map((v, c) => Math.abs(v - b.result[i + c])));
+              if (delta) { changed.push([i / a.channels % a.width, Math.floor(i / a.channels / a.width)]); maxDelta = Math.max(maxDelta, delta); }
+            }
+            await writeFile(join(evidence, `ait302-${label}-diff.json`), JSON.stringify({ label, changed: changed.length, maxDelta,
+              bounds: changed.length ? [Math.min(...changed.map(p => p[0])), Math.min(...changed.map(p => p[1])), Math.max(...changed.map(p => p[0])), Math.max(...changed.map(p => p[1]))] : [] }));
+          }
           assert.deepEqual(after, before, `${label}: byte-identical legacy desktop viewport`);
         }
         checks.push({ label, pass: true, lines: geometry.lines, layoutShiftPx: 0, file: width === 600 ? null : name });
@@ -374,5 +385,8 @@ test('AIT-302: phone header voice statuses, fixed controls and unchanged desktop
       t.diagnostic(`PASS AIT-302 ${evidenceCommit} ${width}-${theme}-${locale}: ${samples.length} statuses; <=2 lines; no separator at line edges; controls shift 0 px`);
     }
   }
-  if (evidence) await writeFile(join(evidence, 'ait302-checks.json'), JSON.stringify({ ticket: 'AIT-302', head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
-});
+  if (evidence) await writeFile(join(evidence, widths[0] < 600 ? 'ait302-checks.json' : 'ait302-desktop-checks.json'), JSON.stringify({ ticket: 'AIT-302', head: evidenceCommit, capture: 'viewport', reducedMotion: true, checks }, null, 2));
+}
+
+test('AIT-302: phone header voice statuses and fixed controls', { timeout: 360_000 }, t => checkPhoneVoiceHeader(t, [320, 360, 390]));
+test('AIT-302: unchanged desktop consent', { timeout: 30_000 }, t => checkPhoneVoiceHeader(t, [600, 1024, 1440]));
