@@ -302,6 +302,8 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 /* Credit-enabled hosts also fit the existing 320px embedding contract. The
    approved 390px frame retains its normal type and spacing. Targets stay 44px. */
 @media(width < 360px) {
+  /* Keep the ready status on one line with the wider Linux fallback font too. */
+  .concept-activity-text, .drafts-reason-reserve { font-size:12px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { gap:4px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) :is(.host-credits,.host-legal) { font-size:11px; }
   .display-foot:has(.host-credits:not([hidden])) .host-legal { margin-left:0; }

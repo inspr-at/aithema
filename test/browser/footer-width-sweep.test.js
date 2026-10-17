@@ -28,7 +28,8 @@ const geometry = page => shadow(page, c => {
     if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible') return false;
     for (let parent = node; parent && parent !== root; parent = parent.parentElement) {
       const style = getComputedStyle(parent);
-      if (style.display === 'none' || Number(style.opacity) === 0) return false;
+      // Fully clipped live regions remain accessible, but paint no footer footprint.
+      if (style.display === 'none' || Number(style.opacity) === 0 || style.clipPath === 'inset(50%)') return false;
     }
     // The feature list is an intentional 1px screen-reader-only description,
     // not a painted footer item. Keep clipping checks for all visible labels.
