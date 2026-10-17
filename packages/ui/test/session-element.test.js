@@ -52,9 +52,13 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   assert.equal(root.querySelector('details'), details); assert.equal(details.open, true);
   assert.equal(root.querySelector('.summary-text script'), null); assert.equal(root.querySelector('.notice').textContent, en.final);
+  assert.equal(root.querySelector('.notice').hasAttribute('data-current'), true);
+  assert.equal(root.querySelector('.summary').getAttribute('aria-labelledby'), 'summary-title');
+  assert.equal(root.querySelector('#summary-title').textContent, en.summary);
   root.querySelector('.expand').click(); assert.equal(details.open, false);
   root.querySelector('.expand').click(); assert.equal(details.open, true);
   turn(c, 't2', 'More'); reply(c, 'a2'); assert.equal(root.querySelector('.notice').textContent, en.stale);
+  assert.equal(root.querySelector('.notice').hasAttribute('data-current'), false);
 });
 test('automatic aside and transcript changes render at once under the pointer; rows update in place and append below', () => {
   const c = setup(), root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
@@ -856,7 +860,8 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     for (let i = 0; i < 300 && !refreshed; i++) await new Promise(resolve => setTimeout(resolve, 10));
     const root = c.shadowRoot;
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
-    assert.equal(root.querySelector('.composer-reason').textContent, `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
+    assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${en.featureConsent.text}\u00a0· ${en.featureConsent.action}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-label'), `${en.featureConsent.text}. ${en.featureConsent.textReview}`);
     assert.equal(root.querySelector('.notice').textContent, 'The overview needs your consent\u00a0· Give consent…');
     assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
@@ -873,7 +878,8 @@ test('the German bundle covers every English key and renders the component in Ge
   c.configure({ copy: de, session });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.send').textContent, 'Senden');
-  assert.equal(root.querySelector('.composer-reason').textContent, `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
+  assert.equal([...root.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join(''), `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
+    assert.equal(root.querySelector('.composer-reason .consent-action').getAttribute('aria-label'), `${de.featureConsent.text}. ${de.featureConsent.textReview}`);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
 test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {

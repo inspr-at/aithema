@@ -27,8 +27,22 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
   }
   const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
   label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
-  setText(line.querySelector('.consent-line-copy'), `${featureConsentText(copy, feature)}${reasonSeparator}`);
-  setText(action, copy.featureConsent.action);
+  if (feature === 'text' && line.classList.contains('composer-reason')) {
+    // CSS chooses visible copy; the action keeps the complete sentence at every width.
+    if (!label.querySelector('.consent-wide')) {
+      label.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
+      action.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
+      label.querySelector('.consent-narrow').setAttribute('aria-hidden', 'true');
+    }
+    setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${reasonSeparator}`);
+    setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${reasonSeparator}`);
+    setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
+    setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
+    action.setAttribute('aria-label', `${featureConsentText(copy, feature)}. ${copy.featureConsent.textReview}`);
+  } else {
+    setText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`);
+    setText(action, copy.featureConsent.action);
+  }
   line.dataset.consentFeature = feature;
   return blocked;
 }

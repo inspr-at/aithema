@@ -381,6 +381,12 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason .question-status { white-space:nowrap; }
 .composer-reason:has(.consent-action) { font-size:max(12px,.72rem); }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
+.consent-narrow { display:none; }
+@media(max-width:340px) {
+  .composer-reason[data-consent-feature="text"] { white-space:nowrap; }
+  .composer-reason .consent-wide { display:none; }
+  .composer-reason .consent-narrow { display:inline; }
+}
 /* Keep the 44px target inside its text column, clear of Attach and Send. */
 .composer-reason .consent-action::after { left:0; width:100%; height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
@@ -439,6 +445,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   scroll-padding-block:28px 44px;
   display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
 /* Reserve two notice lines so availability changes keep the Export row in place. */
+.notice[data-current] .notice-text { visibility:hidden; }
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */
