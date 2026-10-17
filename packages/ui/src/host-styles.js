@@ -159,7 +159,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out p { margin:0; }
 .composer-shell[data-used-up] .composer { visibility:hidden; opacity:0; }
 .composer-shell[data-used-up] .composer-out { visibility:visible; opacity:1; }
-.composer-out__title { font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
+.composer-out__title { display:grid; font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
+/* Measure the no-upgrade title before it replaces the shorter credit title. */
+.composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; }
+.composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__body > span { grid-area:1/1; }
 .composer-out[data-host-limit] .composer-out__body { position:relative; }
@@ -298,7 +301,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
   .composer-out[data-host-limit] .composer-out__bar { position:relative; min-height:90px; transform:translateY(10px); }
-  .composer-out[data-host-limit] .composer-out__steps { display:grid; visibility:hidden; }
+  .composer-out[data-host-limit] .composer-out__steps { display:grid; visibility:hidden; opacity:0; }
   /* The normal action slot also measures its hidden export (icon + 8 px gap). */
   .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-export-measure); order:1; flex:none; visibility:hidden; box-sizing:border-box; width:max-content; min-width:132px; min-height:44px; padding-left:22px; font-size:13.5px; line-height:1.25; white-space:nowrap; }
   .composer-out[data-host-limit] .composer-out__actions { position:absolute; inset-inline:0; bottom:0; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:0; }
