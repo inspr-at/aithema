@@ -221,7 +221,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
 // in place, and the expensive screenshot matrix only in explicit evidence mode.
 test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN', { timeout: 180_000 }, async t => {
   const { writeFile } = await import('node:fs/promises');
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR && !isCI;
+  const evidence = isCI ? undefined : process.env.AITHEMA_EVIDENCE_DIR;
   const directory = await mkdtemp(join(tmpdir(), 'aithema-backdrop-'));
   const pageHTML = `<!doctype html><html><head><meta charset="utf-8"><style>
     body{margin:0;background:#f7f5ef} aithema-session{--aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif}
