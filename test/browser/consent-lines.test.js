@@ -789,8 +789,10 @@ test('AIT-290 round 3: cached final consent stays reachable; other composer stat
     assert.equal(state.summaryVisible, true);
     await capture215(t, page, `de-light-${width}-paused-cached-final-consent`, { width, ...state });
     await page.locator('aithema-session >>> .notice button').click();
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
-    assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.value), 'models-international');
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return r.querySelector('dialog.settings').open && r.activeElement?.value === 'models-international';
+    });
     await page.keyboard.press('Escape');
   }
   for (const width of [320, 340, 390]) for (const state of ['enabled', 'paused', 'purpose', 'unavailable']) {
