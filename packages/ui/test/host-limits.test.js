@@ -162,8 +162,7 @@ for (const restored of [false, true]) test(`AIT-299: a pre-limit receipt cannot 
   await started.promise;
   if (!restored) c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
   pending.resolve();
-  await viState(root.querySelector('.host-credits__measure-amount'), '1,200');
-  await tick();
+  await waitForText(root.querySelector('.host-credits__measure-amount'), '2,400');
   assert.equal(root.querySelector('.composer-out__title').textContent, releaseLimits.en['host-limit'][0]);
   assert.equal(announcement.textContent, releaseLimits.en['host-limit'].slice(0, 2).join(' '));
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
@@ -172,7 +171,7 @@ for (const restored of [false, true]) test(`AIT-299: a pre-limit receipt cannot 
 
 // Wait for the actual DOM acknowledgement; setImmediate counts cannot order a
 // receipt's response.json(), SSE events, and MutationObserver delivery under load.
-function viState(node, text) {
+function waitForText(node, text) {
   if (node.textContent === text) return Promise.resolve();
   return new Promise(resolve => {
     const observer = new window.MutationObserver(() => {
