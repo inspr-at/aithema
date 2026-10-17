@@ -481,8 +481,13 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test',
         delivery: true, confirmed: variant === 'no-upgrade',
         spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
-      await inShadow(page, c => {
+      const beforeLimit = await inShadow(page, c => {
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        return ['.composer-shell', '.question-card', '.band'].map(selector => {
+          const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        });
+      });
+      await inShadow(page, c => {
         c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
       });
       await page.mouse.move(-1, -1);
@@ -502,14 +507,19 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
           sameRow: Math.abs(upgrade.getBoundingClientRect().y - link.getBoundingClientRect().y) < 1,
           linkStyle: getComputedStyle(upgrade).textDecorationLine,
           overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left,
+          bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(upgrade.getBoundingClientRect().top, link.getBoundingClientRect().top),
+          textContained: r.querySelector('.composer-out__title').getBoundingClientRect().top >= r.querySelector('.composer-out').getBoundingClientRect().top && link.getBoundingClientRect().bottom <= r.querySelector('.composer-out').getBoundingClientRect().bottom,
           clip: box('.composer-out'), body: r.querySelector('.composer-out__body').textContent };
       });
+      assert.deepEqual([geometry.boxes[0], geometry.boxes[1], geometry.boxes[5]], beforeLimit, `${locale}/${width}/${variant}: 0 px on entering host-limit`);
       reserved ??= geometry.boxes;
       assert.deepEqual(geometry.boxes, reserved, `${locale}/${width}/${variant}: 0 px between host-limit variants`);
       assert.equal(geometry.primary, variant !== 'no-upgrade');
       assert.equal(geometry.export, 'visible');
       assert.equal(geometry.sameRow, true);
       assert.equal(geometry.overlap, false);
+      assert.equal(geometry.bodyClear, true, 'body clears both 44 px action targets');
+      assert.equal(geometry.textContained, true, 'title and action targets remain inside the surface');
       assert.equal(geometry.linkStyle, 'underline');
       assert.ok(geometry.heights.every(height => height >= 44), 'both actions retain 44 px touch targets');
       assert.equal(await overflow(page), 0);

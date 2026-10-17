@@ -1343,11 +1343,8 @@ export class AithemaSession extends HTMLElement {
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       setText(out.querySelector('.composer-out__title'), limit.title);
       setText(out.querySelector('.composer-out__body span'), limit.body);
-      // Reserve the longest host-limit bodies before any terminal event, including call ending.
-      const body = out.querySelector('.composer-out__body');
-      body.dataset.budgetBody = credits.ended['host-limit'].body;
-      // The template token reserves the number's space even before a tier receipt arrives.
-      body.dataset.upgradeBody = u.hostGive;
+      // Keep the normal composer's body reservation through host-limit and receipt changes.
+      out.querySelector('.composer-out__body').dataset.defaultBody = u.body;
       const delta = this.#host?.deltaCredits ?? '';
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');

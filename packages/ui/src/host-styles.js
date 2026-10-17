@@ -161,9 +161,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-shell[data-used-up] .composer-out { visibility:visible; opacity:1; }
 .composer-out__title { font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
 .composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
-.composer-out__body > span,.composer-out__body::before,.composer-out__body::after { grid-area:1/1; }
-.composer-out__body::before { content:attr(data-budget-body); visibility:hidden; }
-.composer-out__body::after { content:attr(data-upgrade-body); visibility:hidden; }
+.composer-out__body > span { grid-area:1/1; }
+.composer-out[data-host-limit] .composer-out__body { position:relative; }
+.composer-out[data-host-limit] .composer-out__body::before { content:attr(data-default-body); visibility:hidden; grid-area:1/1; }
+.composer-out[data-host-limit] .composer-out__body > span { position:absolute; top:0; inset-inline:0; }
 .composer-out__bar { display:flex; align-items:center; align-self:end; gap:14px; padding-top:2px; font-size:13.5px; line-height:1.35; }
 .composer-out__steps { flex:1; min-width:0; }
 :is(.composer-out__steps,.composer-out__actions,.composer-out__upgrade) { display:grid; }
@@ -294,7 +295,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
   .composer-out__bar { font-size:13px; gap:10px; }
-  .composer-out[data-host-limit] .composer-out__bar { min-height:calc(4.05em + 2px); }
+  /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
+  .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
+  .composer-out[data-host-limit] .composer-out__bar { min-height:calc(4.05em + 2px); transform:translateY(10px); }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }
