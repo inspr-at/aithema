@@ -455,7 +455,9 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     }
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await waitForShadow(page, '.composer textarea');
-    await waitForShadow(page, '.composer-reason', { text: `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}` });
+    await waitForShadow(page, '.composer-reason .consent-action .consent-wide', { text: de.featureConsent.action });
+    // Intake still hides the composer; check its canonical full copy before it is revealed.
+    assert.equal(await page.$eval('aithema-session', c => [...c.shadowRoot.querySelectorAll('.composer-reason .consent-wide')].map(n => n.textContent).join('')), `${de.featureConsent.text}\u00a0· ${de.featureConsent.action}`);
     // Exercise every grepped reason through actual feature rows, including HTML and uploads,
     // delegated voice reasons and the bounded agent API status-code family.
     const codes = [...FEATURE_REASON_CODES, ...VOICE_REASON_CODES,

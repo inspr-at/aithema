@@ -27,8 +27,24 @@ export function paintConsentLine(line, { copy, feature, verdict, text, open }) {
   }
   const action = line.querySelector('.consent-action'), label = line.querySelector('.consent-line-copy');
   label.id = `consent-${feature}-sentence`; action.setAttribute('aria-describedby', label.id);
-  setText(line.querySelector('.consent-line-copy'), `${featureConsentText(copy, feature)}${reasonSeparator}`);
-  setText(action, copy.featureConsent.action);
+  if (feature === 'text' && line.classList.contains('composer-reason')) {
+    // CSS selects a label-first name together with its visible action at each width.
+    if (!label.querySelector('.consent-wide')) {
+      label.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
+      action.replaceChildren(node('span', 'consent-wide'), node('span', 'consent-narrow'));
+      label.querySelector('.consent-narrow').setAttribute('aria-hidden', 'true');
+    }
+    setText(label.querySelector('.consent-wide'), `${featureConsentText(copy, feature)}${reasonSeparator}`);
+    setText(label.querySelector('.consent-narrow'), `${copy.featureConsent.textNarrow}${reasonSeparator}`);
+    setText(action.querySelector('.consent-wide'), copy.featureConsent.action);
+    setText(action.querySelector('.consent-narrow'), copy.featureConsent.actionNarrow);
+    const requirement = copy.featureConsent.textActionReason ?? featureConsentText(copy, feature);
+    action.querySelector('.consent-wide').setAttribute('aria-label', `${copy.featureConsent.action}: ${requirement}`);
+    action.querySelector('.consent-narrow').setAttribute('aria-label', `${copy.featureConsent.actionNarrow}: ${requirement}`);
+  } else {
+    setText(label, `${featureConsentText(copy, feature)}${reasonSeparator}`);
+    setText(action, copy.featureConsent.action);
+  }
   line.dataset.consentFeature = feature;
   return blocked;
 }

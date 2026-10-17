@@ -571,6 +571,9 @@ export const de = {
   },
   // Item copy verbatim from START; ids: src/lib/consent-items.ts:16,18.
   featureConsent: { text: 'Nachrichten brauchen Ihre Einwilligung', uploads: 'Dateien brauchen Ihre Einwilligung', images: 'Bilder brauchen Ihre Einwilligung', html: 'Entwürfe brauchen Ihre Einwilligung', voice: 'Sprache braucht Ihre Einwilligung', analysis: 'Der Überblick braucht Ihre Einwilligung',
+    textActionReason: 'Nachrichten brauchen Ihre Einwilligung',
+    actionNarrow: 'Ansehen', textReview: 'Einwilligung ansehen',
+    textNarrow: 'Einwilligung nötig',
     action: 'Einwilligen…', save: 'Einwilligung speichern', withdraw: 'Widerrufen und Gespräch beenden' },
   processingConsent: {
     // Host-neutral defaults; embedding hosts supply their actual consent terms.

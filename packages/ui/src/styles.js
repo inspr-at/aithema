@@ -380,6 +380,18 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 :is(.composer-reason,.concept-activity-text) .warning, :is(.composer-reason,.concept-activity-text) .warning .question-why { color:var(--aithema-warning); }
 .composer-reason .question-status { white-space:nowrap; }
 .composer-reason:has(> .consent-action) { max-height:44px; overflow:visible; }
+.composer-reason[data-consent-feature="text"] { font-size:max(12px,.72rem); max-height:none; overflow:visible; }
+.composer-reason[data-consent-feature="text"] .consent-narrow { display:none; }
+@media(max-width:340px) {
+  /* Reclaim only gaps: Attach and Send keep their normal positions. */
+  .composer-actions:has(.composer-reason[data-consent-feature="text"]) { gap:0; }
+  /* Keep the 12px DE label on one line with the wider Linux baseline font. */
+  .composer-reason[data-consent-feature="text"] { letter-spacing:-.03em; }
+  .composer-reason[data-consent-feature="text"] .consent-wide { display:none; }
+  .composer-reason[data-consent-feature="text"] .consent-narrow { display:inline; }
+}
+/* Keep the 44px target inside its text column, clear of Attach and Send. */
+.composer-reason[data-consent-feature="text"] > .consent-action::after { left:0; width:max(100%,44px); height:max(100%,44px); }
 @media(hover:none), (pointer:coarse) {
   .composer-reason[data-consent-feature] > .consent-action::after, .upload-retry-copy[data-consent-feature] > .consent-action::after { height:max(100%,44px); }
 }
@@ -435,7 +447,10 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   scrollbar-width:thin; scrollbar-color:transparent transparent;
   scroll-padding-block:28px 44px;
   display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
-/* Reserve two notice lines so availability changes keep the Export row in place. */
+/* Completed/draft labels keep their live status without a row or grid gap. */
+.analysis-content:has(> .notice[data-assessment]) { padding-top:calc(1rem + var(--aithema-slack-top,0px)); }
+.notice[data-assessment] { position:absolute; width:1px; height:1px; min-height:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.notice[data-current] .notice-text { visibility:hidden; }
 .notice, .reaction-failure { min-height:2.9em; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
 .analysis-content section { scroll-margin-block:28px 44px; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 /* Readiness already draws the entry divider; keep the section's box stable. */

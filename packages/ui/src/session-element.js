@@ -475,7 +475,7 @@ export class AithemaSession extends HTMLElement {
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
-        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary" aria-labelledby="summary-title"><h3 id="summary-title" data-copy="summary"></h3><p class="summary-text"></p></section>
           <section class="signals-section"><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
@@ -951,6 +951,13 @@ export class AithemaSession extends HTMLElement {
       if (target < 0) slack.top += -target;
       else if (target > max) slack.bottom += target - max + (max < 1 ? spareSpace(pane) : 0);
       apply(); pane.scrollTop = Math.max(0, target);
+    }
+    // Chrome can round a pane's scroll boundary down by a fractional pixel.
+    // Preserve the remaining upward displacement with padding, including while
+    // an assessment is pending and its notice temporarily has a visual row.
+    const residual = node.getBoundingClientRect().top - top;
+    if (pane.matches('.analysis-content') && residual <= -.5) {
+      slack.top -= residual; apply();
     }
     // The phone notice observer runs after this render. Its reading position
     // must include the pointer anchor's compensation for changed transcript rows.
@@ -1555,10 +1562,13 @@ export class AithemaSession extends HTMLElement {
       : !u.readinessAssessed ? copy.noProjectDetails
       : stale && this.#session.pauseReason !== 'purpose' ? copy.stale : u.draft ? copy.draft : copy.final;
     const notice = root.querySelector('.notice'), overviewRetry = root.querySelector('.overview-retry');
-    if (!this.#host?.usedUp) paintConsentLine(root.querySelector('.notice-text'), {
+    // Assessment labels have no visual slot; consent, pending and failure notices stay visible.
+    const blocked = !this.#host?.usedUp && paintConsentLine(root.querySelector('.notice-text'), {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
+    notice.toggleAttribute('data-current', !blocked && overviewText === copy.final);
+    notice.toggleAttribute('data-assessment', !blocked && (overviewText === copy.final || overviewText === copy.draft));
     overviewRetry.hidden = itemRetry || !failedOverview || replyFailed;
     overviewRetry.disabled = !analysis.available || Boolean(running);
     setText(overviewRetry, failedOverview && !replyFailed ? copy.understandingRetry : '');
