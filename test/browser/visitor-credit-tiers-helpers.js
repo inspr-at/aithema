@@ -31,9 +31,9 @@ const unchanged = (before, after, label) => {
   return displacement;
 };
 
-export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
+export async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, demo = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
+    const { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
@@ -72,7 +72,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     };
     for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
     if (privacy) { const legal = document.createElement('nav'); legal.slot = 'legal'; const link = document.createElement('a'); link.setAttribute('data-aithema-privacy', ''); link.href = '/privacy?locale=' + locale; legal.append(link); c.append(legal); }
-    const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity(); session.credits = null;
+    const session = structuredClone(c.session); session.locale = locale; session.demo = demo; session.paused = false; session.identity = identity(); session.credits = null;
     delete session.voiceLifecycle;
     if (waitingCall) session.voiceLifecycle = { callId: 'fixture-waiting-call', providerSessionId: 'fixture-waiting-provider', state: 'waiting' };
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
@@ -97,7 +97,7 @@ export async function fixture(page, locale, { address = null, spent = 3_450_000,
     }
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
+  }, { locale, address, spent, reserved, delivery, privacy, handover, demo, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
   await until(page, () => window.a2.creditsReads > 0);
   await settle(page);
 }

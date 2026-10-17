@@ -159,12 +159,19 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out p { margin:0; }
 .composer-shell[data-used-up] .composer { visibility:hidden; opacity:0; }
 .composer-shell[data-used-up] .composer-out { visibility:visible; opacity:1; }
-.composer-out__title { font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
+.composer-out__title { display:grid; font-size:clamp(12px,3vw,15.5px); line-height:calc(15.5px * 1.35); color:var(--aithema-ink); }
+/* Measure the no-upgrade title before it replaces the shorter credit title. */
+.composer-out__title::before { content:attr(data-host-title); visibility:hidden; grid-area:1/1; min-width:0; white-space:nowrap; overflow:hidden; }
+.composer-out__title > span { grid-area:1/1; }
 .composer-out__body { display:grid; font-size:13.5px; line-height:1.4; color:var(--aithema-muted); }
 .composer-out__body > span { grid-area:1/1; }
+/* Match the question card's text inset, accounting for the composer border.
+   Only copy moves; the measured surface and action cells retain their padding. */
+.composer-out[data-host-limit] { --host-limit-text-inset:calc(16px - 1px - clamp(.85rem,2vw,1.25rem)); }
+.composer-out[data-host-limit] .composer-out__title { margin-inline:var(--host-limit-text-inset); }
 .composer-out[data-host-limit] .composer-out__body { position:relative; }
 .composer-out[data-host-limit] .composer-out__body::before { content:attr(data-default-body); visibility:hidden; grid-area:1/1; }
-.composer-out[data-host-limit] .composer-out__body > span { position:absolute; top:0; inset-inline:0; }
+.composer-out[data-host-limit] .composer-out__body > span { position:absolute; top:0; inset-inline:var(--host-limit-text-inset); }
 .composer-out__bar { display:flex; align-items:center; align-self:end; gap:14px; padding-top:2px; font-size:13.5px; line-height:1.35; }
 .composer-out__steps { flex:1; min-width:0; }
 :is(.composer-out__steps,.composer-out__actions,.composer-out__upgrade) { display:grid; }
@@ -183,7 +190,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .composer-out[data-host-limit] .composer-out__steps { display:none; }
 .composer-out[data-host-limit] .composer-out__actions { width:100%; grid-template-columns:minmax(0,1fr) auto; gap:14px; justify-items:start; }
 .composer-out[data-host-limit] .composer-out__actions > * { grid-area:auto; }
-.composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; text-decoration:underline; text-underline-offset:3px; text-align:start; }
+.composer-out[data-host-limit] .composer-out__upgrade { padding:0; max-width:none; border-radius:0; background:none; color:var(--aithema-accent); font-size:13.5px; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-align:start; }
 .composer-out[data-host-limit] .composer-out__export { max-width:none; color:var(--aithema-muted); }
 .composer-out__export svg { width:14px; height:14px; flex:none; color:var(--aithema-muted); }
 [data-used-up]:is(.qcard,.question-card) button { color:var(--aithema-muted); background:none; }
@@ -294,12 +301,15 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
   .composer-out__bar { font-size:13px; gap:10px; }
+  .composer-out[data-host-limit] { --host-limit-text-inset:calc(12px - 1px - clamp(.85rem,2vw,1.25rem)); }
   /* Fit the longer limit body into existing padding; retain the normal composer's line box. */
   .composer-out[data-host-limit] .composer-out__title,.composer-out[data-host-limit] .composer-out__body > span { transform:translateY(-10px); }
-  .composer-out[data-host-limit] .composer-out__bar { display:grid; min-height:calc(4.05em + 2px); transform:translateY(10px); }
-  /* Retain the old action's wrapped height too, including three-line Linux labels. */
-  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); grid-area:1/1; visibility:hidden; box-sizing:border-box; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
-  .composer-out[data-host-limit] .composer-out__actions { grid-area:1/1; }
+  .composer-out[data-host-limit] .composer-out__bar { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; transform:translateY(10px); }
+  .composer-out[data-host-limit] .composer-out__steps { display:grid; grid-area:1/1; visibility:hidden; opacity:0; }
+  /* Preserve the normal action cell's wrapped button and hidden export measurements. */
+  .composer-out[data-host-limit] .composer-out__bar::before { content:attr(data-upgrade-measure); grid-area:1/2; visibility:hidden; box-sizing:border-box; width:132px; min-height:44px; padding:4px 12px; font-size:14px; font-weight:600; line-height:1.2; }
+  .composer-out[data-host-limit] .composer-out__bar::after { content:attr(data-export-measure); grid-area:1/2; visibility:hidden; box-sizing:border-box; width:max-content; min-height:44px; padding-inline-start:22px; font-size:13.5px; line-height:1.25; white-space:nowrap; }
+  .composer-out[data-host-limit] .composer-out__actions { position:absolute; inset-inline:0; bottom:0; grid-template-columns:minmax(0,1fr); grid-template-rows:44px 44px; gap:0; }
   /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
   .composer-out__steps { min-height:4.05em; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }
@@ -310,6 +320,26 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 @media(max-width:40rem) {
   .m-form { grid-template-columns:auto auto minmax(0,1fr); grid-template-areas:"lead lead lead" "label label label" "in in in" "msg msg msg" "notice notice notice" "save cancel ."; row-gap:.35rem; }
   .m-save,.m-cancel { margin-top:.3rem; } .m-msg { font-size:.75rem; }
+}
+/* Only the host-limit state reserves stacked actions on narrow phones. */
+@media(width < 389px) {
+  /* The measured bar retains the normal composer's size; only its absolute
+     host-limit action layer reserves the two 44 px rows. */
+  .composer-out[data-host-limit] .composer-out__actions { min-height:90px; }
+  /* The hidden title sizer keeps the normal row's measurement. Reserve the
+     visible title's two lines independently so wrapping cannot grow the shell. */
+  .composer-out[data-host-limit] .composer-out__title { position:relative; font-size:11.5px; }
+  .composer-out[data-host-limit] .composer-out__title > span { position:absolute; inset:0; height:2lh; line-height:1.35; letter-spacing:-.025em; }
+  .composer-out[data-host-limit] .composer-out__body > span { top:calc(2 * 11.5px * 1.35 - 15.5px * 1.35); font-size:12px; line-height:1.3; }
+  /* Extend only this surface into the bottom gutter. Equal padding and
+     negative margin keep its grid contribution and the normal shell fixed,
+     while retaining the stacked export target inside the visible border. */
+  .composer-out[data-host-limit] { padding-block-end:calc(clamp(.85rem,2vw,1.25rem) + 8px); margin-block-end:-8px; }
+  .composer-out[data-host-limit] .composer-out__bar { transform:translateY(22px); }
+}
+@media(389px <= width <= 600px) {
+  .composer-out[data-host-limit] .composer-out__actions { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:44px; gap:2px; }
+  .composer-out[data-host-limit] :is(.composer-out__upgrade,.composer-out__export) { font-size:11.5px; }
 }
 :host([theme="dark"]) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
 @media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out:not([data-host-limit]) .composer-out__upgrade { background:var(--aithema-accent-bright); } }

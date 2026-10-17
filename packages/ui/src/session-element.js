@@ -466,7 +466,7 @@ export class AithemaSession extends HTMLElement {
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <span class="composer-feedback"><span class="sr-only" id="upload-retry-reason"></span><small class="composer-reason" role="status" id="composer-reason"></small><small class="composer-saved-sizer" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved" aria-hidden="true">${icon('check')}<span></span></small><small class="composer-saved-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></small></span><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
-          <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"><span></span></p>
+          <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"><span></span></p><p class="composer-out__body"><span></span></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
                 <a class="composer-out__export">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
@@ -1365,9 +1365,12 @@ export class AithemaSession extends HTMLElement {
       const limit = this.#host?.limitCopy ?? u;
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
       out.toggleAttribute('data-host-limit', this.#host?.endReason === 'host-limit');
+      out.querySelector('.composer-out__steps').setAttribute('aria-hidden', String(out.hasAttribute('data-host-limit')));
       out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       out.querySelector('.composer-out__bar').dataset.upgradeMeasure = out.dataset.delivery === 'true' ? credits.confirm : credits.give;
-      setText(out.querySelector('.composer-out__title'), limit.title);
+      out.querySelector('.composer-out__bar').dataset.exportMeasure = u.export;
+      out.querySelector('.composer-out__title').dataset.hostTitle = credits.ended['host-limit'].title;
+      setText(out.querySelector('.composer-out__title span'), limit.title);
       setText(out.querySelector('.composer-out__body span'), limit.body);
       // Keep the normal composer's body reservation through host-limit and receipt changes.
       out.querySelector('.composer-out__body').dataset.defaultBody = u.body;

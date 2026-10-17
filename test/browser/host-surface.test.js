@@ -1,4 +1,7 @@
 import { evidenceCommit, settleEvidenceFrame } from './start2-display-helpers.js';
+import { normalComposerEvidence } from './normal-composer-evidence.js';
+import { createRequire } from 'node:module';
+import { a11yEvidenceMode } from './matrix-coverage.js';
 import { mockConsent } from './consent-helpers.js';
 import { fixture as creditFixture } from './visitor-credit-tiers-helpers.js';
 // AIT-104 B2: the host surface in a real browser against the default mock demo with its labelled
@@ -428,6 +431,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'light' }]);
   await page.goto(demo.url); await shadow(page, '.composer');
   const original = await inShadow(page, c => c.session);
+  const legal297 = await inShadow(page, c => c.querySelector('#demo-legal').outerHTML);
   const export294Checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const assertExport = async (locale, surface) => {
     for (const width of [320, 360, 390]) {
@@ -538,7 +542,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
           heights: [upgrade, link].map(n => n.getBoundingClientRect().height),
           sameRow: Math.abs(upgrade.getBoundingClientRect().y - link.getBoundingClientRect().y) < 1,
           linkStyle: getComputedStyle(upgrade).textDecorationLine,
-          overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left,
+          overlap: upgrade.getBoundingClientRect().right > link.getBoundingClientRect().left && upgrade.getBoundingClientRect().bottom > link.getBoundingClientRect().top,
           bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(upgrade.getBoundingClientRect().top, link.getBoundingClientRect().top),
           textContained: r.querySelector('.composer-out__title').getBoundingClientRect().top >= r.querySelector('.composer-out').getBoundingClientRect().top && link.getBoundingClientRect().bottom <= r.querySelector('.composer-out').getBoundingClientRect().bottom,
           clip: box('.composer-out'), body: r.querySelector('.composer-out__body').textContent };
@@ -568,6 +572,8 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
       }
     }
   }
+  await normalComposerEvidence(page, t);
+  await postRelease297(page, t, legal297);
   assert.equal(export294Checks.length, 66, 'AIT-294: every terminal, upgrade variant and overview export width');
   const export294Pass = 'AIT-294 r2 PASS: export text/icon one unwrapped unit at 320/360/390 DE/EN; all terminal reasons, host-limit upgrade variants and overview; no overflow or clipping.';
   t.diagnostic(export294Pass);
@@ -611,3 +617,221 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
   }
   assert.deepEqual(problems, []);
 });
+
+// Browser-context reader: measure painted text, including wrapped lines.
+function textAlignment297(c) {
+  const text = selector => {
+    const n = c.shadowRoot.querySelector(selector), range = document.createRange(); range.selectNodeContents(n);
+    const rects = [...range.getClientRects()].filter(b => b.width > 0), box = n.getBoundingClientRect();
+    return { x: Math.min(...rects.map(b => b.x)), lines: new Set(rects.map(b => b.y)).size,
+      right: Math.max(...rects.map(b => b.right)), boxRight: box.right, height: box.height,
+      top: box.top, bottom: box.bottom, textTop: Math.min(...rects.map(b => b.top)),
+      textBottom: Math.max(...rects.map(b => b.bottom)), lineHeight: parseFloat(getComputedStyle(n).lineHeight) };
+  };
+  return { card: text('.qtext'), title: text('.composer-out__title > span'), body: text('.composer-out__body > span') };
+}
+
+// AIT-297: reuse the terminal test's browser; exercise both action rows and real host legal links.
+async function postRelease297(browserPage, t, legalHTML) {
+  const checks = [], fractionalChecks = [], narrow360Checks = [], alignmentChecks = [], audits = [], footerHeights = new Map(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390, 320, 388.5]) {
+    const height = width < 600 ? 844 : 1000;
+    await browserPage.setViewport({ width: Math.ceil(width), height });
+    await browserPage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+    let page = browserPage, capturePage = browserPage, frameElement;
+    if (!Number.isInteger(width)) {
+      // CDP viewport widths are integers. A real fractional iframe viewport
+      // exercises media queries at 388.5 CSS px without rounding to 389.
+      // The shipped demo forbids child frames. A separate test wrapper embeds
+      // that unchanged demo, rather than disabling its CSP in the real page.
+      capturePage = await browserPage.browser().newPage();
+      // A 2x wrapper gives Chrome an integral physical width (777 px)
+      // while preserving the exact 388.5 px media-query viewport.
+      await capturePage.setViewport({ width: width * 2, height: height * 2 });
+      await capturePage.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: theme }]);
+      const wrapperURL = new URL('/ait297-fractional-wrapper', browserPage.url()).href;
+      await capturePage.setRequestInterception(true);
+      capturePage.on('request', request => {
+        if (request.url() === wrapperURL) void request.respond({ status: 200, contentType: 'text/html', body: '<!doctype html><html style="zoom:2"><head><title>Fractional viewport fixture</title></head><body style="margin:0"></body></html>' });
+        else void request.continue();
+      });
+      await capturePage.goto(wrapperURL);
+      const handle = await capturePage.evaluateHandle(({ width, height, appURL }) => {
+        const frame = document.createElement('iframe'); frame.src = appURL;
+        frame.style.cssText = `position:fixed;inset:0;border:0;z-index:99999;width:${width}px;height:${height}px`;
+        document.body.append(frame); return frame;
+      }, { width, height, appURL: browserPage.url() });
+      frameElement = handle.asElement(); page = await frameElement.contentFrame();
+      await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+      // The frame shares its parent's pointer; all DOM work stays in the frame.
+      page.mouse = capturePage.mouse;
+      assert.equal(await page.evaluate(() => matchMedia('(width: 388.5px)').matches), true, 'exact fractional CSS viewport');
+      assert.equal(await page.evaluate(() => matchMedia('(width < 389px)').matches), true, 'fractional viewport selects the stacked range');
+    }
+    let reserved;
+    for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
+      await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true, demo: true,
+        confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
+      const prepare = () => inShadow(page, async (c, { legalHTML, theme, labels }) => {
+        c.setAttribute('theme', theme); document.documentElement.dataset.theme = theme; document.documentElement.lang = c.session.locale;
+        c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+        for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
+        c.insertAdjacentHTML('beforeend', legalHTML);
+        c.querySelector('#demo-legal').setAttribute('aria-label', labels.legal);
+        const { paintLicenseLabel } = await import('/demo/license-label.js');
+        paintLicenseLabel(c.querySelector('#demo-license'), labels.license);
+        c.querySelector('#demo-legal-source').textContent = labels.legalSource;
+      }, { legalHTML, theme, labels: (locale === 'de' ? de : en).host.slots });
+      await prepare();
+      await settleEvidenceFrame(page);
+      const stable = () => inShadow(page, c => ['.composer-shell', '.question-card', '.band', '.display-foot', '.settings-open'].map(selector => {
+        const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      }));
+      const before = await stable();
+      await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }));
+      await settleEvidenceFrame(page);
+      const after = await stable(), label = `${locale}/${theme}/${width}/${variant}`;
+      assert.deepEqual(after, before, `${label}: zero layout shift on host-limit entry`);
+      const footerKey = `${theme}/${width}`;
+      if (!footerHeights.has(footerKey)) footerHeights.set(footerKey, after[3][3]);
+      assert.equal(after[3][3], footerHeights.get(footerKey), `${label}: footer height stays fixed across languages and tiers`);
+      const state = await inShadow(page, c => {
+        const r = c.shadowRoot, selectors = ['.composer-out__upgrade', '.composer-out__export'];
+        return { boxes: selectors.map(selector => {
+          const b = r.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        }), lines: selectors.map(selector => {
+          const n = r.querySelector(selector), text = n.querySelector('[aria-hidden="false"]') ?? n.querySelector('span');
+          const range = document.createRange(); range.selectNodeContents(text);
+          return new Set([...range.getClientRects()].filter(b => b.width > 0).map(b => b.y)).size;
+        }), bodyBox: (() => { const n = r.querySelector('.composer-out__body span'), b = n.getBoundingClientRect(); return { x:b.x, y:b.y, width:b.width, bottom:b.bottom, height:b.height, font:getComputedStyle(n).font }; })(), upgradeVisible: r.querySelector('.composer-out__upgrade').getAttribute('aria-hidden') === 'false', bodyClear: r.querySelector('.composer-out__body span').getBoundingClientRect().bottom <= Math.min(...selectors.map(selector => r.querySelector(selector).getBoundingClientRect().top)),
+        overlap: (() => { const [a, b] = selectors.map(selector => r.querySelector(selector).getBoundingClientRect());
+          return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top; })(),
+        licenceLines: (() => {
+          const range = document.createRange(); range.selectNodeContents(c.querySelector('#demo-license .demo-license-id'));
+          return new Set([...range.getClientRects()].map(b => b.y)).size;
+        })(), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
+          const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }), clipped: n.scrollWidth > n.clientWidth || n.scrollHeight > n.clientHeight };
+        }), preset: (() => { const b = r.querySelector('.engine-info').getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width:b.width }; })() };
+      });
+      state.textAlignment = await inShadow(page, textAlignment297);
+      if (width < 600) for (const name of ['title', 'body']) assert.ok(Math.abs(state.textAlignment[name].x - state.textAlignment.card.x) <= 1,
+        `${label}: ${name} aligns with the card text (±1 px)`);
+      if (width < 389) {
+        const { title, body } = state.textAlignment;
+        t.diagnostic(`AIT-297 reserved title ${label}: ${JSON.stringify(title)}`);
+        assert.ok(title.lines >= 1 && title.lines <= 2, `${label}: title occupies at most two lines`);
+        assert.ok(Math.abs(title.height - 2 * title.lineHeight) <= .1, `${label}: title reserves exactly two line boxes`);
+        assert.ok(title.textTop >= title.top && title.textBottom <= title.bottom, `${label}: title text fits inside the reserved block`);
+        assert.ok(title.bottom <= body.top, `${label}: reserved title clears the body`);
+        assert.ok(title.right <= title.boxRight + 1, `${label}: title stays inside its inline padding at 320`);
+      }
+      reserved ??= state.boxes;
+      assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
+      assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
+      assert.equal(state.upgradeVisible, variant !== 'no-upgrade', `${label}: fixture renders the requested tier action`);
+      if (!state.bodyClear) t.diagnostic(`${label}: clearance geometry ${JSON.stringify(state)}`);
+      assert.equal(state.bodyClear, true, `${label}: body clears both actions`);
+      if (width < 389) assert.ok(state.legal.every(n => n.top >= Math.max(...state.boxes.map(([, y, , h]) => y + h))), `${label}: stacked action targets clear legal targets`);
+      assert.equal(state.overlap, false, `${label}: action targets do not overlap`);
+      assert.equal(state.licenceLines, 1, `${label}: AGPL-3.0-only stays unbroken`);
+      assert.ok(state.legal.every(n => !n.clipped && n.left >= 0 && n.right <= width && n.top >= 0 && n.bottom <= height), `${label}: legal targets stay unclipped in the viewport`);
+      assert.ok(state.legal.every(n => n.width >= 44 && n.height >= 44), `${label}: legal targets retain 44 px for touch too`);
+      for (const [x, y, w, h] of state.boxes) { assert.ok(x >= 0 && x + w <= width && y >= 0 && y + h <= height, `${label}: action is in viewport`); assert.ok(h >= 44); }
+      assert.equal(state.legal.length, 2);
+      assert.equal(state.preset.width, 44, `${label}: preset target cannot shrink`);
+      assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
+      assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
+      assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
+      if (variant === 'upgrade' && width < 600) {
+        alignmentChecks.push({ locale, theme, width, ...state.textAlignment });
+        t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(state.textAlignment)}`);
+      }
+      (Number.isInteger(width) ? checks : fractionalChecks).push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
+      if (evidence && ['upgrade', 'no-upgrade'].includes(variant)) {
+        await mkdir(evidence, { recursive: true });
+        await settleEvidenceFrame(page);
+        await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-${variant === 'upgrade' ? 'legal' : 'no-upgrade'}.png`), fullPage: false, captureBeyondViewport: false });
+        if (variant === 'no-upgrade' && theme === 'dark' && width === 320) {
+          const clip = await inShadow(page, c => {
+            const card = c.shadowRoot.querySelector('.qcard').getBoundingClientRect(), out = c.shadowRoot.querySelector('.composer-out').getBoundingClientRect();
+            return { x: card.x, y: card.y, width: card.width, height: out.bottom - card.y };
+          });
+          await settleEvidenceFrame(page);
+          await capturePage.screenshot({ path: join(evidence, `ait-297-${locale}-dark-320-host-limit-crop.png`), clip, captureBeyondViewport: false });
+        }
+        // Axe is explicit remote evidence only; never add audits to CI workloads.
+        if (a11yEvidenceMode) {
+          if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
+          const audit = await page.evaluate(async () => {
+            const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
+            return { version: result.testEngine.version, violations: result.violations.map(rule => ({ id: rule.id, impact: rule.impact, targets: rule.nodes.map(n => n.target) })) };
+          });
+          audits.push({ head: evidenceCommit, locale, theme, width, ...audit });
+          assert.deepEqual(audit.violations.filter(rule => ['serious', 'critical'].includes(rule.impact)), [], `${label}: axe serious/critical findings`);
+        }
+      }
+      if (width === 390) {
+        // Reuse the page and fixture for 360px entry checks without extending
+        // the original cross-language footer invariant to this extra width.
+        await browserPage.setViewport({ width: 360, height });
+        await creditFixture(page, locale, { address: variant === 'upgrade' ? null : 'reader@example.test', delivery: true, demo: true,
+          confirmed: variant === 'no-upgrade', spent: variant === 'upgrade' ? 12_000_000 : variant === 'unconfirmed' ? 18_000_000 : 24_000_000 });
+        await prepare();
+        await settleEvidenceFrame(page);
+        const before = await stable();
+        await inShadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }));
+        await settleEvidenceFrame(page);
+        const after = await stable(), label = `${locale}/${theme}/360/${variant}`;
+        assert.deepEqual(after, before, `${label}: zero layout shift on host-limit entry`);
+        const alignment = await inShadow(page, textAlignment297), { title, body } = alignment;
+        for (const name of ['title', 'body']) assert.ok(Math.abs(alignment[name].x - alignment.card.x) <= 1, `${label}: ${name} aligns with the card text (±1 px)`);
+        assert.ok(title.right <= title.boxRight + 1, `${label}: title stays inside its inline padding`);
+        assert.ok(Math.abs(title.height - 2 * title.lineHeight) <= .1, `${label}: title reserves exactly two line boxes`);
+        assert.ok(title.lines >= 1 && title.lines <= 2 && title.textTop >= title.top && title.textBottom <= title.bottom, `${label}: title text fits inside the reserved block`);
+        assert.ok(title.bottom <= body.top, `${label}: reserved title clears the body`);
+        const { actionsTop, actionsBottom, legalTop } = await inShadow(page, c => {
+          const boxes = ['.composer-out__upgrade', '.composer-out__export'].map(selector => c.shadowRoot.querySelector(selector).getBoundingClientRect());
+          return { actionsTop: Math.min(...boxes.map(b => b.top)), actionsBottom: Math.max(...boxes.map(b => b.bottom)),
+            legalTop: Math.min(...[...c.querySelectorAll('#demo-legal a')].map(n => n.getBoundingClientRect().top)) };
+        });
+        t.diagnostic(`AIT-297 360 geometry ${label}: ${JSON.stringify({ before, after, title, body, actionsTop })}`);
+        assert.ok(body.bottom <= actionsTop, `${label}: body clears both actions`);
+        assert.ok(actionsBottom <= legalTop, `${label}: stacked action targets clear legal targets`);
+        narrow360Checks.push({ head: evidenceCommit, locale, theme, width: 360, variant, shift: 0, textAlignment: alignment, actionsTop, actionsBottom, legalTop });
+        if (variant === 'upgrade') {
+          alignmentChecks.push({ locale, theme, width: 360, ...alignment });
+          t.diagnostic(`AIT-297 alignment ${label}: ${JSON.stringify(alignment)}`);
+        }
+        if (evidence && ['upgrade', 'no-upgrade'].includes(variant)) {
+          await settleEvidenceFrame(page);
+          await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-360-host-limit-${variant === 'upgrade' ? 'legal' : 'no-upgrade'}.png`), fullPage: false, captureBeyondViewport: false });
+        }
+        if (evidence && locale === 'en' && theme === 'light' && variant === 'no-upgrade') {
+          const clip = await inShadow(page, c => {
+            const card = c.shadowRoot.querySelector('.qcard').getBoundingClientRect(), out = c.shadowRoot.querySelector('.composer-out').getBoundingClientRect();
+            return { x: card.x, y: card.y, width: card.width, height: out.bottom - card.y };
+          });
+          await settleEvidenceFrame(page);
+          await browserPage.screenshot({ path: join(evidence, 'ait-297-en-light-360-host-limit-crop.png'), clip, captureBeyondViewport: false });
+        }
+        await browserPage.setViewport({ width, height });
+        await settleEvidenceFrame(page);
+      }
+    }
+    if (frameElement) await capturePage.close();
+  }
+  assert.equal(checks.length, 48);
+  assert.equal(fractionalChecks.length, 12);
+  t.diagnostic('AIT-297 PASS: DE/EN light/dark 1440/1024/390/360/320/388.5; clear single-line actions, zero layout shift, unbroken licence, legal targets >=44px.');
+  if (evidence) await writeFile(join(evidence, 'ait-297-host-limit-checks.json'), JSON.stringify({ head: evidenceCommit, checks, fractionalChecks, narrow360Checks, alignmentChecks, audits }, null, 2));
+  assert.equal(narrow360Checks.length, 12);
+  assert.equal(alignmentChecks.length, 16);
+  for (const { locale, theme, width, card, title, body } of alignmentChecks) {
+    for (const [name, text] of Object.entries({ title, body })) assert.ok(Math.abs(text.x - card.x) <= 1,
+      `${locale}/${theme}/${width}: host-limit ${name} x=${text.x} equals card text x=${card.x} (±1 px)`);
+    if (width === 320) {
+      assert.ok(title.lines <= 2, `${locale}/${theme}/320: title fits its reserved two lines`);
+      assert.ok(title.right <= title.boxRight + 1, `${locale}/${theme}/320: title stays inside its inline padding`);
+    }
+  }
+}
