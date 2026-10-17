@@ -1,0 +1,23 @@
+{
+  "seconds": 7.044,
+  "evidence": "Bootstrap measured on mbp2606 by remote-browser.sh, run ddba52c5c1-79370 (no screenshots): 5.634388792 s, 72 state/locale/viewport/theme cases, 25% warmup margin. Replace with this PR CI observation before handoff; no shard-count or ceiling changes.",
+  "timing": {
+    "schema": 1,
+    "window": 20,
+    "workload": "9c39cdaa7a53d3f1e893faceb5d6983bb2d5e4ec2f69a942c1719cc941622541",
+    "samples": [
+      {
+        "runId": "79370",
+        "attempt": 1,
+        "sha": "ddba52c5c125eb3faf581f86af01c7857acee86a",
+        "observedAt": "2026-10-17T03:34:56.071405+00:00",
+        "tests": [
+          {
+            "name": "AIT-274 clarify states: 0 px at 1440/1024/390, DE/EN, light/dark, retained focus and one retry",
+            "seconds": 5.634388792
+          }
+        ]
+      }
+    ]
+  }
+}
