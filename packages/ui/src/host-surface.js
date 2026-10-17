@@ -99,6 +99,10 @@ export class HostSurface {
   }
   get nextTier() { return this.endReason && this.endReason !== 'host-limit' ? null : this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
   get deltaCredits() { return this.tiers ? defaultCreditFormat(this.tiers.delta, this.#session().locale ?? 'en') : ''; }
+  get deltaMeasureCredits() {
+    const allowances = Object.values(this.tiers?.allowancesMicro ?? {});
+    return allowances.length ? defaultCreditFormat(Math.max(...allowances) - Math.min(...allowances), this.#session().locale ?? 'en') : this.deltaCredits;
+  }
   get locked() { return this.#verification?.locked ?? false; }
   /** The understanding pane holds host controls: the verification form while locked, or the handover band. */
   get holdsControls() { return this.locked || Boolean(this.#options.handover); }

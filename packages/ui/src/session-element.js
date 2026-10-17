@@ -1346,7 +1346,7 @@ export class AithemaSession extends HTMLElement {
       // Reserve the longest host-limit bodies before any terminal event, including call ending.
       const body = out.querySelector('.composer-out__body');
       body.dataset.budgetBody = credits.ended['host-limit'].body;
-      body.dataset.upgradeBody = u.hostGive.replace('{delta}', this.#host?.deltaCredits ?? '');
+      body.dataset.upgradeBody = u.hostGive.replace('{delta}', this.#host?.deltaMeasureCredits ?? '');
       const delta = this.#host?.deltaCredits ?? '';
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
       const footer = out.querySelector('.composer-out__none');

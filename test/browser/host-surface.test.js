@@ -474,7 +474,7 @@ test('AIT-261: every terminal reason disables the demo UI and preserves export i
     }
   }
   // AIT-291 r2: extend this in-page matrix; no extra browser process or test file.
-  for (const locale of ['de', 'en']) for (const width of [390, 1440]) {
+  for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
     let reserved;
     for (const variant of ['upgrade', 'unconfirmed', 'no-upgrade']) {
