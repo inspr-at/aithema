@@ -26,6 +26,13 @@
     ],
     "reason": "Evidence/source provenance; release test matches the run identifier"
   },
+  "test/browser/compact-footer-check.js": {
+    "reads": [
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH"
+    ],
+    "reason": "AIT-301 legal evidence identifies the PR head from the GitHub event payload"
+  },
   "test/browser/composed-media.test.js": {
     "reads": [
       "CI"
