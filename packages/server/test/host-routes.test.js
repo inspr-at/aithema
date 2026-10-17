@@ -461,6 +461,27 @@ test('library CRUD searches literal text, pages, copies locale and preset on res
   assert.equal((await (await f.call('/api/library')).json()).total, 1);
 });
 
+test('AIT-295: library delete completes host erase before retirement', async t => {
+  const f = fixture(t), session = await (await f.call('/api/library', { title: 'Ordered cleanup' })).json();
+  const entered = deferred(), finish = deferred(), order = [];
+  const erased = f.host.erased.bind(f.host), retired = f.host.retired.bind(f.host);
+  t.mock.method(f.host, 'erased', async info => {
+    order.push('erase started'); entered.resolve(); await finish.promise;
+    await erased(info); order.push('erase finished');
+  });
+  t.mock.method(f.host, 'retired', async info => { order.push('retired'); await retired(info); });
+  const deleting = f.call(`/api/library/${session.id}/delete`, {});
+  try {
+    await entered.promise;
+    assert.deepEqual(f.storage.pendingRetirements(10), []);
+    assert.deepEqual(await f.handlers.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
+    assert.deepEqual(order, ['erase started']);
+  } finally { finish.resolve(); }
+  assert.equal((await deleting).status, 200);
+  assert.deepEqual(await f.handlers.retire({ before: 0 }), { retired: 1, failed: 0, more: false });
+  assert.deepEqual(order, ['erase started', 'erase finished', 'retired']);
+});
+
 test('AIT-295: library delete is fully retired by a sweep past 24h', async t => {
   const f = fixture(t), session = await (await f.call('/api/library', { title: 'Delete completely' })).json();
   f.storage.postTurn(session.id, 'private', Buffer.from('private'), 'private conversation');

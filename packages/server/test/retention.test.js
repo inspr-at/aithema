@@ -366,6 +366,32 @@ for (const via of ['erase route', 'operator erase', 'visitor erase', 'operator r
   });
 }
 
+test('AIT-295: a failed visitor cleanup waits for sibling tombstone hooks before queuing', async t => {
+  const storage = new SQLiteStorage(), first = storage.create({ ownerToken: testToken }), second = storage.create({ ownerToken: testToken });
+  for (const session of [first, second]) storage.erase(session.id);
+  let started, finish;
+  const entered = new Promise(resolve => { started = resolve; });
+  const barrier = new Promise(resolve => { finish = resolve; });
+  const handlers = createHandlers({ storage, consent: mockConsent, host: {
+    async erased({ sessionId }) {
+      if (sessionId === first.id) throw new Error('cleanup failed');
+      started(); await barrier;
+    },
+    eraseVisitorForOwnerHash() { assert.fail('visitor cleanup cannot succeed'); },
+    retired() { assert.fail('retirement must wait for every erase hook'); },
+  } });
+  t.after(async () => { finish(); await handlers.close(); storage.close(); });
+  const erasing = handlers.eraseSession({ sessionId: first.id, visitor: true });
+  const rejected = assert.rejects(erasing, /cleanup failed/);
+  await entered;
+  // Flush rejection continuations while the sibling hook remains in flight.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(storage.pendingRetirements(10), []);
+  assert.deepEqual(await handlers.retire({ before: 0 }), { retired: 0, failed: 0, more: false });
+  finish(); await rejected;
+  assert.deepEqual(new Set(storage.pendingRetirements(10)), new Set([first.id, second.id]));
+});
+
 test('unauthorized reads cannot renew another session retention deadline', async t => {
   const { storage, handlers } = fixture(t), s = storage.create({ ownerToken: 'another-owner' }); age(storage, s.id);
   assert.equal((await handlers.handle(request(s.id))).status, 404);

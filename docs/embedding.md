@@ -217,7 +217,8 @@ The overview controls follow these states:
 Use `await handlers.retire({ before, limit: 100 })` to erase **whole idle
 sessions** and finish removing visitor-erased conversations, without possessing
 visitor tokens. `before` is a nonnegative Unix millisecond timestamp; live-session
-eligibility is strictly `lastActivity < before`. Erased sessions are eligible on the next sweep after erase cancellation and the
+eligibility is strictly `lastActivity < before`. Erased sessions are eligible on
+the next sweep after erase cancellation and the
 `host.erased` hook finish, regardless of `before`. Visitor erase and library delete
 queue retirement after that cleanup; direct storage erasure queues in the tombstone
 transaction. A crash before queuing leaves a tombstone for startup backfill.

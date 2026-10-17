@@ -779,7 +779,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const releases = scope.map(id => storage.holdErasedRetirement(id));
       try {
         const live = new Set(ids);
-        await Promise.all(scope.map(async id => {
+        const cleanups = await Promise.allSettled(scope.map(async id => {
           if (live.has(id)) return eraseConversation(id, {});
           // storage.erase commits before truncating the WAL. If that checkpoint
           // failed, retry it and the event/cancellation cascade before acknowledging.
@@ -788,6 +788,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           await invalidate(id, event, 'session-erased');
           await host?.erased?.({ sessionId: id });
         }));
+        const failure = cleanups.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
         if (visitor) await host.eraseVisitorForOwnerHash(session.ownerHash);
         return { id: sessionId, visitor, erased: true, result: ids.length ? 'erased' : 'already-erased',
           erasedSessions: ids.length, providerDeletion: 'not-confirmed' };
