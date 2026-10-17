@@ -63,7 +63,7 @@ shards, with eight-minute job limits. Nightly units keep ten-minute limits.
 DCO checks run separately.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 The unit watchdog always reports the active/last subtest and uncaught-error stacks.
-Handle creation stacks are opt-in: run `AITHEMA_UNIT_TRACE_HANDLES=1 npm test`
+Async hooks and exact handle origins are opt-in (the default uses current/last subtest context): run `AITHEMA_UNIT_TRACE_HANDLES=1 npm test`
 on the permitted test runner when investigating a leaked timer or handle. Leave
 this flag unset for normal runs to avoid capturing a stack for every handle.
 

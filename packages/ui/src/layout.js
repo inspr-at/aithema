@@ -37,42 +37,59 @@ export function footerMode(width) {
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };
 }
 
+function footerRowGeometry(footer) {
+  const row = footer.querySelector('.display-foot__row'), bounds = row.getBoundingClientRect();
+  const zones = [...row.children].map(zone => ({ hidden: zone.hidden, visible: Boolean(zone.getClientRects().length), box: zone.getBoundingClientRect() }));
+  const boxes = zones.filter(zone => !zone.hidden && zone.visible).map(zone => zone.box);
+  const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
+  return { zones: zones.map(({ hidden, box }) => [hidden, box.width]), clear };
+}
+
 /** Measure real host copy before yielding optional footer content, in Tick's order. */
 export function fitFooter(footer) {
-  const row = footer.querySelector('.display-foot__row');
   for (const mode of ['full', 'identity', 'timer', 'role']) {
     footer.dataset.fit = mode;
-    const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
-    const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
-    const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
     // Popup overlays can extend scrollWidth without occupying the footer row.
-    if (clear) break;
+    if (footerRowGeometry(footer).clear) break;
   }
   return footer.dataset.fit;
 }
 
+// The timer uses tabular digits. Equal digit/colon shapes have equal widths;
+// all other copy remains exact, including arbitrary host timer labels.
+function footerText(row) {
+  const walker = row.ownerDocument.createTreeWalker(row, 4), text = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const value = node.textContent;
+    text.push(node.parentElement?.closest('.connection-timer') && /^\d+:\d{2}(?::\d{2})?$/.test(value) ? value.replace(/\d/g, '0') : value);
+  }
+  return JSON.stringify(text);
+}
+
 // Compact labels have no visible width. Measure the full row offscreen only
-// when its content/geometry changes; never toggle the live data-fit to probe it.
+// when its width-relevant content/geometry changes; never toggle the live fit to probe it.
 function footerGeometry(footer, cache) {
-  const row = footer.querySelector('.display-foot__row');
-  const zones = [...row.children].map(zone => [zone.hidden, zone.getBoundingClientRect().width]);
+  const row = footer.querySelector('.display-foot__row'), width = footer.clientWidth;
+  const { zones, clear } = footerRowGeometry(footer);
   const compact = footer.dataset.fit && footer.dataset.fit !== 'full';
   let natural = [];
   if (compact) {
-    const source = JSON.stringify([footer.clientWidth, zones, row.textContent]);
+    const source = JSON.stringify([width, zones, footerText(row)]);
     if (cache.footerNaturalSource !== source) {
       const probe = footer.cloneNode(true);
       probe.dataset.fit = 'full'; probe.inert = true; probe.setAttribute('aria-hidden', 'true');
-      probe.style.cssText += `;position:fixed;left:-100000px;top:0;right:auto;bottom:auto;width:${footer.clientWidth}px;opacity:0;pointer-events:none;`;
+      probe.style.cssText += `;position:fixed;left:-100000px;top:0;right:auto;bottom:auto;width:${width}px;opacity:0;pointer-events:none;`;
       footer.parentNode.append(probe);
       try {
-        cache.footerNaturalWidths = [...probe.querySelector('.display-foot__row').children].map(zone => zone.getBoundingClientRect().width);
+        const full = footerRowGeometry(probe);
+        cache.footerNaturalWidths = full.zones;
+        cache.footerFullClear = full.clear;
         cache.footerNaturalSource = source;
       } finally { probe.remove(); }
     }
     natural = cache.footerNaturalWidths;
   }
-  return JSON.stringify([footer.clientWidth, zones, natural]);
+  return { key: JSON.stringify([width, zones, natural, clear]), width, clear, fullClear: compact ? cache.footerFullClear : clear };
 }
 
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
@@ -189,15 +206,17 @@ export class PhoneComposerViewport {
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
       const footer = root.querySelector('.display-foot');
-      const fitKey = () => footerGeometry(footer, this);
-      // A compact label can change natural width without changing its visible
-      // zone. Preserve equal-geometry caching, and release a pending fit only
-      // after a resting pointer or keyboard focus leaves the footer controls.
+      const geometry = footerGeometry(footer, this);
       const footerFocused = root.ownerDocument.activeElement === root.host && footer.contains(root.activeElement);
-      const protectedFooter = footer.matches(':hover') || footerFocused;
-      if (this.footerFitKey !== fitKey() && (this.footerFitKey === undefined || !protectedFooter)) {
-        fitFooter(footer); this.footerFitKey = fitKey();
+      // Protect only a safe compact-to-full expansion at the same width.
+      // Resize, overflow and overlap always refit, even with held focus/hover.
+      const deferExpansion = (footer.matches(':hover') || footerFocused) &&
+        this.footerFitWidth === geometry.width && geometry.clear && geometry.fullClear && footer.dataset.fit !== 'full';
+      if (this.footerFitKey !== geometry.key && !deferExpansion) {
+        fitFooter(footer); this.footerFitKey = footerGeometry(footer, this).key;
+        this.footerFitWidth = geometry.width;
       }
+      this.footerTextKey = footerText(footer.querySelector('.display-foot__row'));
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;
@@ -266,8 +285,9 @@ export class PhoneComposerViewport {
     this.footerObserver?.disconnect();
     const FooterMutation = this.view?.MutationObserver;
     if (FooterMutation) {
-      this.footerObserver = new FooterMutation(() => {
-        if (this.connected) this.paint();
+      this.footerObserver = new FooterMutation(records => {
+        const row = this.root.querySelector('.display-foot__row');
+        if (this.connected && (records.some(record => record.type === 'attributes') || footerText(row) !== this.footerTextKey)) this.paint();
       });
       this.footerObserver.observe(this.root.querySelector('.display-foot__row'), {
         subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'],

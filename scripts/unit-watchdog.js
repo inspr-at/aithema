@@ -19,23 +19,25 @@ function dumpResources() {
 }
 
 // Observe failures without handling them: Node still fails the test/file. Retain
-// the originating subtest without allocating handle stacks by default. Opt-in
+// current/last subtest context without an async hook by default. Opt-in
 // tracing adds creation sites, including timers absent from _getActiveHandles().
 if (process.env.NODE_TEST_CONTEXT === 'child-v8') {
   beforeEach(t => { currentTest = t.fullName ?? t.name; });
   afterEach(t => { lastTest = t.fullName ?? t.name; currentTest = '<between tests or after hook>'; });
-  createHook({
+  if (traceHandles) createHook({
     init(id, type, trigger, resource) {
       if (!['Timeout', 'Immediate', 'MESSAGEPORT', 'TCPWRAP', 'TCPCONNECTWRAP', 'PROCESSWRAP'].includes(type)) return;
       const entry = { test: resources.get(trigger)?.test ?? currentTest };
-      if (traceHandles) Object.assign(entry, { type, resource: new WeakRef(resource), error: new Error('Resource created here') });
+      Object.assign(entry, { type, resource: new WeakRef(resource), error: new Error('Resource created here') });
       resources.set(id, entry);
     },
     destroy(id) { resources.delete(id); },
   }).enable();
   process.on('uncaughtExceptionMonitor', error => {
     const origin = resources.get(executionAsyncId());
-    writeSync(2, `Unit uncaught error: ${process.argv[1]}\n${context()}Async origin: ${origin?.test ?? '<unknown>'}\n${error.stack ?? error}\n`);
+    const subtest = origin?.test ?? (currentTest === '<between tests or after hook>' ? lastTest : currentTest);
+    const attribution = traceHandles ? '' : ' (subtest context; handle tracing disabled)';
+    writeSync(2, `Unit uncaught error: ${process.argv[1]}\n${context()}Async origin: ${subtest}${attribution}\n${error.stack ?? error}\n`);
     if (origin?.error) writeSync(2, `${origin.error.stack}\n`);
   });
 }
