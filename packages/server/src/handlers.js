@@ -196,7 +196,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
         conceptHandlers.onUnderstanding(id);
-        const session = storage.get(id), question = pendingQuestionFocus(session) ? session.focusedQuestion : session.understanding.openQuestions[0] ?? null;
+        const session = storage.get(id), pending = pendingQuestionFocus(session);
+        const question = pending
+          ? session.understanding.openQuestions.includes(session.focusedQuestion) ? session.focusedQuestion : null
+          : session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
           const focused = storage.append(id, 'question.focused', { question }, acceptedRevision);
           if (focused) broadcast(id, focused);

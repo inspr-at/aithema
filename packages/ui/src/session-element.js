@@ -63,6 +63,16 @@ async function* serverEvents(reader) {
     }
   }
 }
+// Tick's approved 16 px state glyphs (the action itself retains a 44 px target).
+const CLARIFY_ICONS = Object.fromEntries(Object.entries({
+  ask: '<path d="M14 7.7a5.7 5.7 0 0 1-8.3 5.1L2.2 13.8l1-3.3A5.7 5.7 0 1 1 14 7.7z"/>',
+  spin: '<circle cx="8" cy="8" r="6" stroke-opacity=".22"/><path d="M14 8a6 6 0 0 0-6-6"/>',
+  check: '<path d="m3.2 8.6 3 3 6.6-7.2"/>',
+  warn: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.9v3.6M8 11.1v.05"/>',
+  pause: '<path d="M5 3v10M11 3v10" stroke-width="2.4"/>',
+  consent: '<path d="M8 1.8 3 3.7v3.9c0 3 2.1 5.2 5 6.6 2.9-1.4 5-3.6 5-6.6V3.7z"/>',
+  clock: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/>',
+}).map(([name, paths]) => [name, `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="${name === 'spin' ? 'clarify-spin' : ''}">${paths}</svg>`]));
 const NONE = '\u0000none';
 function reconnectDelay(signal) {
   if (signal.aborted) return Promise.resolve();
@@ -79,6 +89,7 @@ function textKeys(values) {
 
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
+  #clarify = null; #clarifyReplies = new Map(); #clarifyAsked = new Set(); #clarifyNoticeTimer; #clarifyNotice = false; #clarifyAnnouncement = '';
   #open = []; #cleared = []; #failure = false; #failureLane = null; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #latestScrollTop = null; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false; #composerResuming = false;
   #postCallMatrix = null;
@@ -118,6 +129,7 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#cancelUploads();
+    clearTimeout(this.#clarifyNoticeTimer); this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear(); this.#clarifyNotice = false; this.#clarifyAnnouncement = '';
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#stopReconciling(); this.#reconcilingLong = false; this.#deferredAnalysis = null; this.#analysisRecovery = null;
     this.#postCallMatrix = null; this.#laneStatusPending = null;
@@ -142,7 +154,7 @@ export class AithemaSession extends HTMLElement {
     this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#voiceTranscript = { pending: null }; this.#reasoningRevision = 0;
-    this.#restoreFailure(); this.#pending = null; this.#sending = false;
+    this.#syncClarify(); this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#uploadAt.clear(); this.#retryFiles = []; this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
@@ -174,6 +186,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer');
   }
   disconnectedCallback() {
+    clearTimeout(this.#clarifyNoticeTimer);
     this.#cancelUploads();
     this.#stopReconciling();
     this.#disposeVersion?.(); this.#disposeVersion = null;
@@ -189,15 +202,164 @@ export class AithemaSession extends HTMLElement {
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
   get session() { return structuredClone(this.#session); }
   get openQuestionItems() { return openQuestionItems(this.#session); }
-  /** Backend command only; a host can design its own open-point controls. */
+  /** Select an open point without creating a person turn. Refusals remain structured. */
   async focusQuestion(questionId) {
-    const sessionId = this.#session.id;
-    const response = await postJson(`${this.#base}/api/sessions/${sessionId}/focus-question`,
-      { questionId, inputRevision: inputRevision(this.#session) }, { sessionToken: this.#sessionToken });
-    const result = await response.json();
-    if (!response.ok) throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
-    if (sessionId === this.#session.id) this.receive(result.event);
-    return result;
+    if (this.#clarifyBusy()) throw Object.assign(new Error('reply-in-flight'), { reason: 'reply-in-flight', status: 409 });
+    const item = this.openQuestionItems.find(item => item.id === questionId);
+    const sessionId = this.#session.id, revision = inputRevision(this.#session);
+    this.#clarify = { questionId, question: item?.question, inputRevision: revision, state: 'requesting', pending: true };
+    this.#render('aside');
+    try {
+      const response = await postJson(`${this.#base}/api/sessions/${sessionId}/focus-question`,
+        { questionId, inputRevision: revision }, { sessionToken: this.#sessionToken });
+      const result = await response.json();
+      if (!response.ok) throw Object.assign(new Error(result.reason ?? result.error), result, { status: response.status });
+      if (sessionId === this.#session.id && revision === inputRevision(this.#session)) this.receive(result.event);
+      return result;
+    } catch (error) {
+      if (sessionId === this.#session.id && revision === inputRevision(this.#session)) await this.#clarifyRefused(error);
+      throw error;
+    } finally {
+      if (sessionId === this.#session.id && this.#clarify?.inputRevision === revision) {
+        this.#clarify.pending = false; this.#render('aside');
+      }
+    }
+  }
+  #clarifyBusy() {
+    return this.#clarify?.pending || ['requesting', 'selected'].includes(this.#clarify?.state) ||
+      this.#session.operations?.inputRevision === inputRevision(this.#session) && this.#session.operations.running.includes('reaction');
+  }
+  async #clarifyRefused(error) {
+    if (['stale-question', 'stale-revision'].includes(error.reason)) {
+      this.#clarify = null;
+      await this.#restore();
+      this.#clarifyNotice = true;
+      clearTimeout(this.#clarifyNoticeTimer);
+      this.#clarifyNoticeTimer = setTimeout(() => { this.#clarifyNotice = false; this.#render('aside'); }, 4000);
+    } else if (error.reason === 'reply-in-flight') {
+      this.#clarify.state = 'requesting';
+    } else if (error.reason === 'paused' || error.reason === 'consent-required' || error.admissionReason === 'one-hour') {
+      this.#clarify.state = 'refused';
+      this.#clarify.reason = error.reason === 'paused' ? 'paused' : error.reason === 'consent-required' ? 'consent' : 'deadline';
+    } else {
+      // Other admission/transport failures use the existing availability notice.
+      this.#clarify = null; this.#status(this.#copy.reasoningFailed);
+    }
+    this.#render('aside');
+  }
+  async #retryClarify() {
+    if (this.#clarify?.state !== 'retry' || this.#clarify.pending) return;
+    const focus = this.#clarify, sessionId = this.#session.id;
+    focus.pending = true; focus.state = 'requesting'; this.#render('aside');
+    try {
+      const response = await postJson(`${this.#base}/api/sessions/${sessionId}/retry`, {}, { sessionToken: this.#sessionToken });
+      if (sessionId !== this.#session.id || this.#clarify !== focus) return;
+      if (!response.ok) {
+        const result = await response.json();
+        throw Object.assign(new Error(result.reason ?? result.error), result);
+      }
+      // Clear only the failed reaction this action owns, until lane.status arrives.
+      const operations = this.#session.operations;
+      if (operations) {
+        operations.failures = (operations.failures ?? []).filter(f => f.lane !== 'reaction');
+        operations.lastFailure = operations.failures.at(-1) ?? null;
+      }
+      this.#failure = Boolean(operations?.lastFailure);
+    } catch (error) {
+      if (sessionId === this.#session.id && this.#clarify === focus) {
+        if (['paused', 'consent-required'].includes(error.reason) || error.admissionReason === 'one-hour') await this.#clarifyRefused(error);
+        else { focus.state = 'retry'; this.#clarifyAnnouncement = ''; }
+      }
+    } finally {
+      if (sessionId === this.#session.id && this.#clarify === focus) { focus.pending = false; this.#render('aside'); }
+    }
+  }
+  #syncClarify() {
+    const revision = inputRevision(this.#session), chosen = this.#session.questionFocus;
+    if (this.#clarify && this.#clarify.inputRevision !== revision) this.#clarify = null;
+    if (chosen?.inputRevision === revision && this.#session.focusedQuestion && chosen.requestId !== this.#clarify?.requestId) {
+      const question = this.#session.focusedQuestion;
+      this.#clarify = { ...chosen, question, state: 'requesting' };
+      this.#clarifyReplies.set(chosen.requestId, question);
+    }
+    const focus = this.#clarify;
+    if (!focus) return;
+    if (focus.requestId && !this.#session.understanding.openQuestions.includes(focus.question)) { this.#clarify = null; return; }
+    if (this.#session.transcript.some(t => !t.erased && !t.withdrawn && t.focusRequestId === focus.requestId && focus.requestId)) {
+      focus.state = 'asked'; this.#clarifyAsked.add(focus.question);
+    }
+    const failures = this.#session.operations?.inputRevision === revision ? this.#session.operations.failures ?? [] : [];
+    if (focus.requestId && !focus.pending && focus.state !== 'asked' && failures.some(f => f.lane === 'reaction' && f.retryable !== false)) focus.state = 'retry';
+    if (focus.state === 'refused' && focus.reason === 'paused' && !this.#session.paused && focus.resuming) this.#clarify = null;
+    if (focus.state === 'refused' && focus.reason === 'consent' && this.#feature('text').available && focus.reviewing) this.#clarify = null;
+  }
+  #renderQuestions() {
+    this.#syncClarify();
+    const root = this.shadowRoot, copy = this.#copy.clarify, focus = this.#clarify;
+    const terminal = focus?.reason === 'deadline' || this.#host?.usedUp ||
+      ['ending', 'ended'].includes(this.#session.credits?.status);
+    const available = this.openQuestionItems, questions = this.#session.understanding.openQuestions;
+    reconcile(root.querySelector('.questions'), questions.length ? textKeys(questions) : [[NONE, null]], value => {
+      const row = node('li', value === null ? 'none-yet' : 'open-question');
+      if (value !== null) {
+        row.innerHTML = '<span class="question-text"></span><span class="question-state"><span class="question-status"></span><span class="question-separator" aria-hidden="true">·</span><button class="clarify-action" type="button"><span class="clarify-icon"></span><span class="clarify-label"></span></button></span>';
+        row.querySelector('button').addEventListener('click', e => {
+          const button = e.currentTarget;
+          if (button.getAttribute('aria-disabled') === 'true') return;
+          const state = row.dataset.state;
+          if (state === 'retry') void this.#retryClarify();
+          else if (state === 'refused' && this.#clarify?.reason === 'paused') {
+            this.#clarify.resuming = true; void this.#setPaused(false).catch(() => {});
+          } else if (state === 'refused' && this.#clarify?.reason === 'consent') {
+            this.#clarify.reviewing = true; this.#dialog.openConsent('text', button);
+          } else void this.focusQuestion(row.dataset.questionId).catch(() => {});
+        });
+      }
+      return row;
+    }, (row, question) => {
+      if (question === null) { setText(row, this.#copy.noneYet); return; }
+      const item = available.find(item => item.question === question);
+      row.dataset.questionId = item?.id ?? '';
+      row.id = `open-${item?.id ?? questions.indexOf(question)}`;
+      const text = row.querySelector('.question-text'); text.id = `${row.id}-text`; setText(text, question);
+      const own = focus?.question === question;
+      const state = own ? focus.state : terminal ? 'none' : this.#clarifyAsked.has(question) ? 'asked' : this.#clarifyBusy() ? 'disabled' : item ? 'rest' : 'none';
+      row.dataset.state = state;
+      const button = row.querySelector('button'), status = row.querySelector('.question-status'), separator = row.querySelector('.question-separator');
+      const reason = own && state === 'refused' ? focus.reason : null;
+      const withReason = state === 'retry' || Boolean(reason);
+      status.hidden = !withReason; separator.hidden = !withReason || reason === 'deadline';
+      button.hidden = state === 'none' || reason === 'deadline';
+      button.setAttribute('aria-describedby', text.id);
+      button.setAttribute('aria-disabled', String(['requesting', 'selected', 'asked', 'disabled'].includes(state)));
+      button.setAttribute('aria-busy', String(state === 'requesting'));
+      const label = { requesting: copy.asking, selected: copy.chosen, asked: copy.asked, retry: copy.retry }[state] ??
+        (reason === 'paused' ? this.#copy.resume : reason === 'consent' ? copy.review : copy.action);
+      setText(button.querySelector('.clarify-label'), label);
+      const glyph = withReason ? '' : CLARIFY_ICONS[{ requesting: 'spin', selected: 'check', asked: 'check' }[state] ?? 'ask'];
+      if (button.querySelector('.clarify-icon').innerHTML !== glyph) button.querySelector('.clarify-icon').innerHTML = glyph;
+      if (withReason) {
+        const signature = `${state}/${reason}/${this.#copyLocale}`;
+        if (status.dataset.state !== signature) {
+          status.replaceChildren(); status.insertAdjacentHTML('beforeend', CLARIFY_ICONS[reason === 'deadline' ? 'clock' : reason ?? 'warn']);
+          if (state === 'retry') {
+            status.append(node('span', 'sr-only', `${copy.chosen}, `));
+            const why = node('span', 'question-why');
+            why.append(node('span', 'question-failed-long', copy.failed));
+            const short = node('span', 'question-failed-short', copy.failedShort); short.setAttribute('aria-hidden', 'true'); why.append(short); status.append(why);
+          } else status.append(node('span', null, copy[reason]));
+          status.dataset.state = signature;
+        }
+      }
+    });
+    const notice = root.querySelector('.question-notice');
+    notice.toggleAttribute('data-on', this.#clarifyNotice); setText(notice.querySelector('span'), copy.stale);
+    const signature = this.#clarifyNotice ? 'stale' : focus ? `${focus.requestId ?? focus.questionId}/${focus.state}/${focus.reason ?? ''}` : '';
+    if (signature !== this.#clarifyAnnouncement) {
+      this.#clarifyAnnouncement = signature;
+      const say = this.#clarifyNotice ? copy.stale : focus ? copy.say[focus.reason ?? focus.state] : '';
+      setText(root.querySelector('.clarify-announcement'), (say ?? '').replace('{q}', focus?.question ?? ''));
+    }
   }
   /** Change an unstarted conversation in place. Calls, turns and drafts keep their identity. */
   changeLocale(locale) {
@@ -295,7 +457,7 @@ export class AithemaSession extends HTMLElement {
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div></section>
         <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"><span class="notice-text"></span><button class="overview-retry" type="button" hidden></button></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
-          <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
+          <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section class="open-questions"><div class="questions-heading"><h3 id="open-questions-title" data-copy="questions"></h3><p class="question-notice">${icon('refresh')}<span></span></p></div><ul class="questions" aria-labelledby="open-questions-title"></ul><p class="clarify-announcement sr-only" role="status" aria-live="polite" aria-atomic="true"></p></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
@@ -463,7 +625,7 @@ export class AithemaSession extends HTMLElement {
           this.#orb?.setVoice(state); this.#clearNotice(); this.#render('transcript'); this.#render('composer');
           this.#host?.update();
         },
-        context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
+        context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.understanding.openQuestions.includes(this.#session.focusedQuestion) ? this.#session.focusedQuestion : null }),
         onEnd: () => {
           this.#updateVoiceTranscript({ type: 'reset' }); this.#render('transcript');
           // The in-call verdict cannot describe post-call admission. Keep it closed
@@ -1204,6 +1366,25 @@ export class AithemaSession extends HTMLElement {
         if (t.role === 'user' && !sign.firstChild) sign.innerHTML = icon('person');
         row.querySelector('.turn-text').textContent = t.erased ? copy.withdrawn : t.content;
         row.querySelector('.turn-text').removeAttribute('tabindex');
+        const focusQuestion = !t.erased && !t.withdrawn && t.role === 'assistant' && this.#clarifyReplies.get(t.focusRequestId);
+        let meta = row.querySelector('.clarify-meta');
+        if (focusQuestion) {
+          if (!meta) {
+            meta = node('a', 'clarify-meta');
+            meta.innerHTML = '<span class="clarify-dot" aria-hidden="true"></span><span class="clarify-meta-label"></span><span class="clarify-meta-question"></span>';
+            row.insertBefore(meta, row.querySelector('.turn-text'));
+            meta.addEventListener('click', event => {
+              event.preventDefault();
+              const item = [...root.querySelectorAll('.open-question')].find(item => item.querySelector('.question-text').textContent === meta.dataset.question);
+              item?.scrollIntoView?.({ block: 'nearest', behavior: this.#motion ? 'smooth' : 'instant' });
+              item?.querySelector('button')?.focus({ preventScroll: true });
+            });
+          }
+          meta.href = `#open-${this.openQuestionItems.find(item => item.question === focusQuestion)?.id ?? ''}`;
+          meta.dataset.question = focusQuestion;
+          setText(meta.querySelector('.clarify-meta-label'), copy.clarify.clarifies);
+          setText(meta.querySelector('.clarify-meta-question'), focusQuestion);
+        } else meta?.remove();
         const withdrawable = t.role === 'user' && !t.erased && !t.partial && t !== this.#voiceTranscript.pending;
         if (withdrawable && !row.querySelector('.withdraw')) row.append(this.#withdrawButton(row));
         const withdraw = row.querySelector('.withdraw');
@@ -1221,6 +1402,7 @@ export class AithemaSession extends HTMLElement {
       this.#syncPanes();
       return;
     }
+    this.#renderQuestions();
     const unpausedAnalysis = this.#feature('analysis', true, { ignorePause: true });
     const analysis = isConsentReason(unpausedAnalysis.rawReason) ? unpausedAnalysis : this.#feature('analysis', true), locked = this.#host?.locked ?? false;
     const reconciling = analysis.rawReason === 'budget reconciling';
@@ -1288,7 +1470,9 @@ export class AithemaSession extends HTMLElement {
       replyNotice.append(node('span', 'reaction-failure-text'));
       root.querySelector('.transcript-shell ol').after(replyNotice);
     }
-    const replyRetry = replyFailed && overviewFailed;
+    const itemRetry = this.#clarify?.state === 'retry';
+    const replyRetry = replyFailed && overviewFailed && !itemRetry;
+    if (itemRetry) root.querySelector('.retry').hidden = true;
     replyNotice.hidden = !replyFailed;
     // Several failed lanes share one action at the first failure in reading
     // order. Keep its handler and node while the project action keeps its slot.
@@ -1318,7 +1502,7 @@ export class AithemaSession extends HTMLElement {
       copy, feature: 'analysis', verdict: hasPersonTurn ? analysis : { available: true }, text: overviewText,
       open: opener => this.#dialog.openConsent('analysis', opener),
     });
-    overviewRetry.hidden = !failedOverview || replyFailed;
+    overviewRetry.hidden = itemRetry || !failedOverview || replyFailed;
     overviewRetry.disabled = !analysis.available || Boolean(running);
     setText(overviewRetry, failedOverview && !replyFailed ? copy.understandingRetry : '');
     // Keep the same Retry node across live renders, and leave the consent
@@ -1330,7 +1514,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
     root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     root.querySelector('.summary-text').textContent = u.summary;
-    for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
+    for (const [selector, items] of [['.signals', u.signals]]) {
       reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
         value => element('li', undefined, value === null ? 'none-yet' : undefined), (node, value) => setText(node, value ?? copy.noneYet));
     }
@@ -2105,6 +2289,7 @@ export class AithemaSession extends HTMLElement {
         consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
+        this.#clarify = null; this.#clarifyReplies.clear(); this.#clarifyAsked.clear();
         this.#updateVoiceTranscript({ type: 'reset' });
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort();
@@ -2207,13 +2392,19 @@ export class AithemaSession extends HTMLElement {
       (event.data.settingsRevision === undefined || event.data.settingsRevision >= this.#reasoningRevision)) {
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
-        content: (existing?.content ?? '') + event.data.delta });
+        content: (existing?.content ?? '') + event.data.delta,
+        ...(this.#clarify?.requestId && this.#clarify.inputRevision === inputRevision(this.#session) ? { focusRequestId: this.#clarify.requestId } : {}) });
+      if (this.#clarify?.requestId && !['asked', 'refused'].includes(this.#clarify.state)) {
+        this.#clarify.state = 'selected';
+        if (globalThis.matchMedia?.('(max-width: 599px)').matches) this.shadowRoot.querySelector('.transcript-shell').scrollIntoView?.({ block: 'start', behavior: 'instant' });
+      }
     } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
       this.#session.operations = event.data; this.#restoreFailure();
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#analysisRecovery = null; this.#recordFailure(event.data); this.#partials.clear();
       this.#host?.receive(event);
     }
+    this.#syncClarify();
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#renderVoice();
   }
   async #refreshFeatures() {
@@ -2261,7 +2452,7 @@ export class AithemaSession extends HTMLElement {
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear(); this.#updateVoiceTranscript({ type: 'reset' });
       if (session.voiceLifecycle) this.#rail?.receiveState(session.voiceLifecycle);
       this.#repaintLocale();
-      this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
+      this.#syncClarify(); this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
       if (this.isConnected) this.#connect();
     } catch {

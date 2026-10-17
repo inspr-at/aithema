@@ -6,9 +6,12 @@ import { mockConsent, testToken, ownedRequest, unzip } from '../../../test/helpe
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
-function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = false, output } = {}) {
+function fixture(t, { consent = mockConsent, policy = false, hold, failOnce = false, output, assessmentQuestions } = {}) {
   const storage = new SQLiteStorage(), calls = [], admissions = [], mock = createMockReasoning();
-  const reasoning = { ...mock, async *stream(request, options) {
+  const reasoning = { ...mock, async structured(...args) {
+    const result = await mock.structured(...args);
+    return assessmentQuestions ? { ...result, openQuestions: assessmentQuestions } : result;
+  }, async *stream(request, options) {
     calls.push(request);
     for await (const _ of mock.stream(request, options)) { /* exercise canonical consume and terminal report */ }
     await hold?.promise;
@@ -215,4 +218,18 @@ test('focus instruction echoes never reach replies, event replay, transcript or 
   assert.equal(response.status, 200);
   const files = unzip(Buffer.from(await response.arrayBuffer()));
   for (const [name, bytes] of Object.entries(files)) assert.equal(bytes.toString().includes(instruction), false, name);
+});
+
+// Exercise the handler publication path, rather than appending an assessment directly.
+test('AIT-263 Low: a published assessment removes pending focus from snapshots and voice context', async t => {
+  const hold = held(), f = fixture(t, { hold, assessmentQuestions: ['What is the budget?'] });
+  assert.equal((await f.route('focus-question', f.command())).status, 202); await entered(f);
+  await f.handlers.lanes.run(f.session.id, 'understanding');
+  const session = f.storage.get(f.session.id);
+  assert.equal(session.focusedQuestion, null);
+  assert.equal(session.questionFocus, null);
+  const response = await f.handlers.handle(ownedRequest(`http://local/api/sessions/${session.id}`));
+  assert.equal((await response.json()).focusedQuestion, null);
+  hold.resolve(); await f.handlers.idle();
+  console.log('AIT-263 LOW PASS: removed pending question cleared before voice/snapshot publication');
 });

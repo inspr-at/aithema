@@ -3,6 +3,15 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  clarify: {
+    action: 'Jetzt klären', asking: 'Wird gefragt …', chosen: 'Gewählt', asked: 'Gefragt', clarifies: 'Klärt:',
+    failed: 'Antwort fehlgeschlagen', failedShort: 'Fehlgeschlagen', retry: 'Erneut versuchen',
+    paused: 'Gespräch pausiert', consent: 'Zustimmung nötig', review: 'Ansehen', deadline: 'Zeitlimit erreicht',
+    stale: 'Diese Frage ist nicht mehr offen; die Liste ist aktualisiert.',
+    say: { requesting: 'Wird gefragt: {q}', selected: 'Gewählt. Die nächste Antwort klärt: {q}', asked: 'Gefragt: {q}',
+      retry: 'Antwort fehlgeschlagen. Erneut versuchen ist möglich.', paused: 'Gespräch pausiert. Fortsetzen, dann erneut wählen.',
+      consent: 'Zustimmung nötig.', deadline: 'Zeitlimit erreicht.' },
+  },
   questionCard: {
     heading: 'Offene Frage', suggestion: 'Vorschlag', likely: 'Am wahrscheinlichsten, nach dem bisherigen Gespräch',
     hint: 'Ein Klick sendet die Antwort. Oder sprechen oder tippen Sie einfach.',

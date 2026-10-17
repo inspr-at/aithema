@@ -189,16 +189,16 @@ classification, counters or direction history for unchanged input. Their host
 instructions are covered by the private-guidance output check; the selected
 public question text remains eligible for the reply.
 
-The element exposes `openQuestionItems` and `focusQuestion(questionId)` without
-adding controls, markup or CSS. This method resolves on 202, and throws the
-structured refusal on failure. Text replies follow normal SSE delivery. With
+The element exposes `openQuestionItems` and `focusQuestion(questionId)`. Each
+current open point also has an always-visible “Clarify now” button in the overview.
+This method resolves on 202, and throws the structured refusal on failure. Text replies follow normal SSE delivery. With
 an active, audible ElevenLabs or local simulator call, focused assistant finals use the existing
 call replay/speech path and its TTS admission, output mute, pause and lifetime
 holds. Voice adapters expose the optional `VoiceSession.speakReply({turnId, text})`
 port for already persisted replies. No synthetic SDK user message or transcript
 turn triggers speech.
 
-Tick's future controls need these states:
+The overview controls follow these states:
 
 - **Requesting:** start `focusQuestion(id)`; use reaction in `lane.status.running`
   to show the accepted request still working. Duplicate clicks get `reply-in-flight`.
