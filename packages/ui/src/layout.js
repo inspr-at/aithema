@@ -45,7 +45,8 @@ export function fitFooter(footer) {
     const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
     const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
     const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
-    if (row.scrollWidth <= row.clientWidth && clear) break;
+    // Popup overlays can extend scrollWidth without occupying the footer row.
+    if (clear) break;
   }
   return footer.dataset.fit;
 }

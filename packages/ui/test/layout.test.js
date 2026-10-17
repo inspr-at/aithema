@@ -43,9 +43,11 @@ test('AIT-294: measured footer drops AI copy, then timer, then role and restores
   let available = 1000;
   const measured = [], widths = { full: 1000, identity: 800, timer: 700, role: 500 };
   const footer = { dataset: {}, querySelector: () => ({
-    children: [], getBoundingClientRect: () => ({ left:0, right:available }),
+    children: [{ hidden:false, getClientRects: () => [1], getBoundingClientRect: () => {
+      measured.push(footer.dataset.fit); return { left:0, right:widths[footer.dataset.fit] };
+    } }], getBoundingClientRect: () => ({ left:0, right:available }),
     get clientWidth() { return available; },
-    get scrollWidth() { measured.push(footer.dataset.fit); return widths[footer.dataset.fit]; },
+    get scrollWidth() { return widths[footer.dataset.fit]; },
   }) };
   for (const [width, mode, attempts] of [[1000, 'full', ['full']], [999, 'identity', ['full', 'identity']],
     [799, 'timer', ['full', 'identity', 'timer']], [699, 'role', ['full', 'identity', 'timer', 'role']],
@@ -67,7 +69,7 @@ test('AIT-294: footer collisions yield the timer even when scrollWidth fits', ()
 test('AIT-294: an open absolute popover does not consume footer space', () => {
   const zone = { hidden:false, clientWidth:100, scrollWidth:372, getClientRects: () => [1],
     getBoundingClientRect: () => ({ left:0, right:100 }) };
-  const row = { children:[zone], clientWidth:600, scrollWidth:600,
+  const row = { children:[zone], clientWidth:600, scrollWidth:900,
     getBoundingClientRect: () => ({ left:0, right:600 }) };
   const footer = { dataset:{}, querySelector: () => row };
   assert.equal(fitFooter(footer), 'full');
