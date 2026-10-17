@@ -1065,7 +1065,9 @@ export class AithemaSession extends HTMLElement {
       const feedback = root.querySelector('.composer-feedback');
       feedback.toggleAttribute('data-saved', this.#saved);
       setText(root.querySelector('.composer-saved-sizer span'), copy.saved);
-      setText(root.querySelector('.composer-saved span'), this.#saved ? copy.saved : '');
+      setText(root.querySelector('.composer-saved span'), copy.saved);
+      root.querySelector('.composer-saved').setAttribute('aria-hidden', String(!this.#saved));
+      reason.setAttribute('aria-hidden', String(this.#saved));
       // Retained busy files keep their retry action available while the person types.
       const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.rawReason === 'budget reconciling' && this.#reconcilingLong ? copy.reconcilingLong : text.reason;
       const words = this.#composerPaused ? '' : this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);

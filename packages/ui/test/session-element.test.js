@@ -1262,7 +1262,8 @@ for (const copy of [de, en]) test(`AIT-266 ${copy.display.locale}: saved acknowl
   assert.equal(root.querySelector('.composer-dock > .status__label'), null);
   t.mock.timers.tick(1599); assert.equal(feedback.hasAttribute('data-saved'), true);
   t.mock.timers.tick(1); assert.equal(feedback.hasAttribute('data-saved'), false);
-  assert.equal(root.querySelector('.composer-saved span').textContent, '');
+  assert.equal(root.querySelector('.composer-saved span').textContent, copy.saved);
+  assert.equal(root.querySelector('.composer-saved').getAttribute('aria-hidden'), 'true');
   c.configure({ copy, session: c.session });
   t.mock.timers.tick(1600); assert.equal(c.shadowRoot.querySelector('.composer-feedback').hasAttribute('data-saved'), false);
 });
