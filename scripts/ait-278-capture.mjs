@@ -8,56 +8,24 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { browserForFile } from '../test/browser/shared-browser.js';
 import { startChild } from '../test/helpers.js';
-import { shadow, until, boxes, captureEvidence, settleEvidenceFrame, evidenceBrowserArgs } from '../test/browser/start2-display-helpers.js';
+import { shadow, until, settleEvidenceFrame, evidenceBrowserArgs } from '../test/browser/start2-display-helpers.js';
 import { de } from '../packages/ui/src/i18n/de.js';
-import { en } from '../packages/ui/src/i18n/en.js';
 
-const mainHead = 'e9ab64d92474d1b984778ea05b6e19ef557f891a';
+const mainHead = 'c285d36041d3378423b41646b66aea8c3846552b';
 const out = process.env.AITHEMA_EVIDENCE_DIR;
 assert.ok(out && /\/aithema-runs\//u.test(process.cwd()), 'Remote evidence runner required');
 
-async function gaugeTable() {
-  // Use TypeScript only as a source parser, preserving exact source line locations.
-  const ts = (await import('typescript')).default;
-  const locations = {};
-  for (const locale of ['de', 'en']) {
-    const file = `packages/ui/src/i18n/${locale}.js`, source = await readFile(file, 'utf8');
-    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-    const visit = (node, path = []) => {
-      if (ts.isPropertyAssignment(node)) {
-        const key = node.name.text, next = [...path, key];
-        if (ts.isObjectLiteralExpression(node.initializer)) for (const property of node.initializer.properties) visit(property, next);
-        else if (next[0] === 'gauges') locations[`${locale}:${next.join('.')}`] = `${file}:${ast.getLineAndCharacterOfPosition(node.name.getStart(ast)).line + 1}`;
-        return;
-      }
-      ts.forEachChild(node, child => visit(child, path));
-    };
-    visit(ast);
-  }
-  const rows = [], escape = value => String(value).replaceAll('|', '\\|').replaceAll('\n', '<br>');
-  const walk = (value, english, path) => {
-    for (const [key, text] of Object.entries(value)) {
-      const p = `${path}.${key}`;
-      if (typeof text === 'object') walk(text, english[key], p);
-      else { assert.ok(locations[`de:${p}`] && locations[`en:${p}`], p); rows.push(`| ${p} | ${escape(text)} | ${escape(english[key])} | ${locations[`de:${p}`]}; ${locations[`en:${p}`]} |`); }
-    }
-  };
-  walk(de.gauges, en.gauges, 'gauges');
-  await writeFile(join(out, 'gauge-keys.md'), `# Gauge copy on main ${mainHead}\n\nAll ${rows.length} leaf keys under \`gauges\`; placeholders are preserved. Wording remains Tick's decision.\n\n| i18n key | DE text | EN text | file:line |\n| --- | --- | --- | --- |\n${rows.join('\n')}\n`);
-  return rows.length;
-}
-
-test('AIT-278 consolidated release evidence (remote only, no providers)', { timeout: 600_000 }, async t => {
+test('AIT-278 integration scenes 6a-d (remote only, no providers)', { timeout: 600_000 }, async t => {
   await mkdir(out, { recursive: true });
   const report = { mainHead, captureHead: /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], startedAt: new Date().toISOString(),
     runner: 'mbp2606', capture: 'viewport', reducedMotion: true, fonts: 'Chrome baseline UI/display stacks pinned', blurredControls: true,
-    fixtureSources: ['start2-display.test.js (265/267/270)', 'host-surface.test.js (261)', 'packages/ui/test/settings.test.js (262/271)', 'host-chrome-check.js', 'host-polish-check.js', 'clarify-now.test.js', 'html-preview.test.js (282)', 'footer-width-sweep.test.js (281)'],
+    scope: 'Integration scenes 6a-d only after AIT-290/291', fixtureSources: ['host-polish-check.js', 'clarify-now.test.js', 'html-preview.test.js (282)', 'footer-width-sweep.test.js (281)'],
     shots: [], items: [], unreachable: [
       { item: 'Integration-a', state: '390 footer role', reason: 'Main hides .actor-role below 600px (packages/ui/src/actor-role-styles.js:76); noch offen is captured at 1440.' },
       { item: 'Integration-a', state: '390 large concept backdrop', reason: 'Main hides the large backdrop on phones (packages/ui/src/styles.js:283); the ready composer thumbnail is captured instead.' },
     ], errors: [] };
   const save = () => writeFile(join(out, 'checks.json'), JSON.stringify(report, null, 2) + '\n');
-  report.gaugeKeyCount = await gaugeTable(); await save();
+  await save();
   const directory = await mkdtemp(join(tmpdir(), 'aithema-278-'));
   const demo = await startChild(new URL('../test/fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: mainHead,
@@ -191,86 +159,6 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
     await save();
   };
   const matrix = [{ locale: 'de', theme: 'light', width: 1440 }, { locale: 'de', theme: 'dark', width: 1440 }, { locale: 'de', theme: 'light', width: 390 }, { locale: 'de', theme: 'dark', width: 390 }];
-  await item('AIT-265/267', async () => {
-    for (const cfg of [...matrix, { locale: 'en', theme: 'light', width: 1440 }]) {
-      const copy = { de, en }[cfg.locale];
-      await scene({ ...cfg, loading: true });
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-ready="model"] dd > span:last-child').textContent), copy.catalogLabels['Anthropic via OpenRouter']);
-      await shot('ait265-267', 'ready', { target: '.ready' });
-      for (const known of [false, true]) {
-        if (known) await scene({ ...cfg, known, loading: true });
-        const before = await boxes(page, ['.display-foot', '.engine-info']);
-        await shot('ait265-267', known ? 'footer-known' : 'footer-unknown', { hover: '.engine-info' });
-        assert.deepEqual(await boxes(page, ['.display-foot', '.engine-info']), before);
-        const text = await shadow(page, c => c.shadowRoot.querySelector('.engine__detail').textContent);
-        assert.ok(text.includes(known ? 'Claude Haiku 5.5' : copy.display.modelUnknown), text);
-        assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.engine__detail')).visibility), 'visible');
-      }
-      await page.mouse.move(-1, -1); await shadow(page, c => c.openSettings());
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('[data-select="model"] .select__value').textContent), copy.settings.loadingOption);
-      await shot('ait265-267', 'settings-loading', { target: '[data-select="model"]' });
-      const controls = ['.settings__frame', '[data-select="model"] .select__button', '.effort-area', '.settings-context', '.done'];
-      const before = await boxes(page, controls);
-      await page.evaluate(() => window.qaReleaseCatalog());
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] .select__button').disabled === false);
-      await settleEvidenceFrame(page); assert.deepEqual(await boxes(page, controls), before, 'catalog arrival: 0 px');
-      await page.click('aithema-session >>> [data-select="model"] .select__button');
-      await shot('ait265-267', 'settings-loaded');
-    }
-    return 'PASS: curated ready/select labels; loading and loaded; known/unknown served model hover; catalog and footer shift 0 px; DE 1440/390 light/dark and EN 1440 light.';
-  });
-  await item('AIT-261', async () => {
-    for (const cfg of matrix) for (const reason of ['one-hour', 'session', 'voiceVisitor', 'host-limit']) {
-      await scene({ ...cfg, live: true, voice: true });
-      await shadow(page, (c, reason) => {
-        for (const [type, data] of [['credits.limit-reached', { reason }], ['conversation.end-requested', { reason, preserveTranscript: true, settleOutstanding: true }], ['credits.state', { status: 'ending', endReason: reason, remainingMs: 0 }]]) c.receive({ seq: c.session.seq + 1, type, data });
-      }, reason);
-      const state = await shadow(page, c => { const r = c.shadowRoot, link = r.querySelector('.composer-out__export'); return { inert: r.querySelector('form.composer').inert, voiceDisabled: r.querySelector('.voice-start').disabled, exportVisible: link.checkVisibility(), href: link.href }; });
-      assert.ok(state.inert && state.voiceDisabled && state.exportVisible);
-      assert.equal(await page.evaluate(async href => (await fetch(href)).status, state.href), 200);
-      await shot('ait261', reason, { target: '.composer-out__export' });
-    }
-    return 'PASS: all four shutdown reasons disable text/voice; transcript retained and visible export returns HTTP 200; DE 1440/390 light/dark.';
-  });
-  const settings = async cfg => {
-    await scene(cfg); await shadow(page, c => c.openSettings());
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-gauge="quality"]').dataset.state === 'hostQualified');
-  };
-  await item('AIT-262', async () => {
-    for (const cfg of matrix) {
-      await settings(cfg);
-      const text = await shadow(page, c => ['quality', 'cost'].map(kind => { const n = c.shadowRoot.querySelector(`[data-gauge="${kind}"]`); return [n.querySelector('.gauge__value').textContent, n.querySelector('.gauge__detail').textContent]; }));
-      assert.deepEqual(text, [['Qualifiziert', 'Vom Host geprüft'], ['Geprüft', 'Betreiberpreis']]);
-      await shot('ait262', 'gauges', { target: '.gauges' });
-      for (const kind of ['quality', 'cost']) {
-        await page.hover(`aithema-session >>> [data-gauge="${kind}"]`);
-        assert.ok((await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent)).endsWith(de.gauges.details[kind][kind === 'quality' ? 'hostQualified' : 'hostPriceReviewed']));
-        await shot('ait262', `${kind}-detail`, { target: '.settings-context', hover: `[data-gauge="${kind}"]` });
-      }
-    }
-    return `PASS: all four provisional values/captions and both full detail lines; ${report.gaugeKeyCount} gauge keys with DE/EN and exact source lines in gauge-keys.md.`;
-  });
-  await item('AIT-270', async () => {
-    for (const cfg of [...matrix, ...matrix.map(cfg => ({ ...cfg, locale: 'en' }))]) {
-      await settings(cfg);
-      await page.focus('aithema-session >>> [data-gauge="privacy"]');
-      const caption = await shadow(page, c => c.shadowRoot.querySelector('[data-gauge="privacy"] .gauge__detail').textContent);
-      assert.equal(caption, cfg.locale === 'de' ? 'Anbieter mit Sitz in USA' : 'Providers based in the US');
-      await shot('ait270', 'legal-countries-US', { target: '.settings-context' });
-    }
-    return 'PASS: hostCountries [US] renders the host legal-country wording in DE/EN at 1440/390 light/dark.';
-  });
-  await item('AIT-271', async () => {
-    for (const cfg of matrix) {
-      await settings(cfg);
-      await page.click('aithema-session >>> .preset-option[data-preset="eu"]');
-      assert.equal(await shadow(page, c => c.session.processingPreset), 'best');
-      assert.match(await shadow(page, c => c.shadowRoot.querySelector('.context-message').textContent), /Empfängersitz außerhalb der EU/u);
-      await shot('ait271', 'eu-refusal', { target: '.settings-context' });
-    }
-    return 'PASS: EU recipient-seat refusal displayed; selection remains best; DE 1440/390 light/dark.';
-  });
   await item('Integration-a-b', async () => {
     for (const cfg of matrix) {
       await scene({ ...cfg, live: true, concept: true });
@@ -328,6 +216,9 @@ test('AIT-278 consolidated release evidence (remote only, no providers)', { time
   });
   report.externalRequests = externalRequests; report.finishedAt = new Date().toISOString();
   await save();
+  const passLines = report.items.map(item => item.pass ?? `FAIL: ${item.item}: ${item.error}`);
+  await writeFile(join(out, 'pass-lines.txt'), passLines.join('\n') + '\n');
+  for (const line of passLines) console.log(line);
   assert.deepEqual(externalRequests, []); assert.deepEqual(report.errors, []);
   assert.ok(report.items.every(item => item.status === 'pass'), JSON.stringify(report.items.filter(item => item.status !== 'pass')));
 });
