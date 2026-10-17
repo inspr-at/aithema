@@ -705,13 +705,13 @@ async function postRelease297(browserPage, t, legalHTML) {
         await browserPage.screenshot({ path: join(evidence, `ait-297-${locale}-${theme}-${width}-host-limit-legal.png`), fullPage: false, captureBeyondViewport: false });
         // Axe is explicit remote evidence only; never add audits to CI workloads.
         if (!process.env.CI) {
-        if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
-        const audit = await page.evaluate(async () => {
-          const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
-          return { version: result.testEngine.version, violations: result.violations.map(rule => ({ id: rule.id, impact: rule.impact, targets: rule.nodes.map(n => n.target) })) };
-        });
-        audits.push({ head: evidenceCommit, locale, theme, width, ...audit });
-        assert.deepEqual(audit.violations.filter(rule => ['serious', 'critical'].includes(rule.impact)), [], `${label}: axe serious/critical findings`);
+          if (!await page.evaluate(() => typeof window.axe === 'object')) await page.addScriptTag({ path: createRequire(import.meta.url).resolve('axe-core/axe.min.js') });
+          const audit = await page.evaluate(async () => {
+            const result = await axe.run(document, { iframes: false, runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
+            return { version: result.testEngine.version, violations: result.violations.map(rule => ({ id: rule.id, impact: rule.impact, targets: rule.nodes.map(n => n.target) })) };
+          });
+          audits.push({ head: evidenceCommit, locale, theme, width, ...audit });
+          assert.deepEqual(audit.violations.filter(rule => ['serious', 'critical'].includes(rule.impact)), [], `${label}: axe serious/critical findings`);
         }
       }
     }

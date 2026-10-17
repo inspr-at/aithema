@@ -318,6 +318,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 }
 /* Only the host-limit state reserves stacked actions on narrow phones. */
 @media(width < 389px) {
+  .composer-out[data-host-limit] { grid-template-rows:auto auto minmax(0,1fr); }
   .composer-out[data-host-limit] .composer-out__bar { min-height:90px; }
   .composer-out[data-host-limit] .composer-out__title { font-size:11.5px; }
 }
