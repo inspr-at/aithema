@@ -409,7 +409,8 @@ export const en = {
       title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
       give: 'Add your email address to get {delta} more Credits.', confirm: 'Confirm your email address to get {delta} more Credits.',
       none: 'No further credits are available here at the moment.', export: 'Export conversation',
-      announce: 'Your credits are used up. Your conversation stays saved.',
+      hostGive: 'Add your email address to get +{delta} more Credits. Your conversation stays saved.',
+      hostConfirm: 'Confirm your email address to get +{delta} more Credits.',
     },
     library: {
       open: 'Conversations', title: 'Your conversations', lead: 'Your topics in one place. Continue where you left off.',

@@ -662,13 +662,13 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, question, blocked = false, voiceClient, waitingCall } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, question, blocked = false, voiceClient, waitingCall, confirmed = false } = {}) {
   let saved = address, raised = false;
   const allowances = () => ({ ...a2Allowances, anonymous: raised ? 18_000_000 : 12_000_000 });
-  const tiers = () => ({ allowancesMicro: allowances(), current: saved ? 'emailGiven' : 'anonymous',
-    next: privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
-    delta: privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
-  const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : allowances().anonymous });
+  const tiers = () => ({ allowancesMicro: allowances(), current: confirmed ? 'emailConfirmed' : saved ? 'emailGiven' : 'anonymous',
+    next: confirmed ? null : privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
+    delta: confirmed ? 0 : privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
+  const visitor = () => ({ address: saved, tier: confirmed ? 'emailConfirmed' : saved ? 'emailGiven' : 'anonymous', limitMicro: confirmed ? 24_000_000 : saved ? 18_000_000 : allowances().anonymous });
   const features = () => ({ best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, {
     available: visitor().limitMicro > spent + reserved, reason: visitor().limitMicro > spent + reserved ? null : 'budget denied',
   }])) });
@@ -1542,4 +1542,49 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const [reason, [ti
       assert.equal(changes.length, 0, 'repeated end events do not reannounce');
     });
   }
+}
+
+
+for (const [locale, copy] of Object.entries({ de, en })) for (const variant of ['missing', 'unconfirmed', 'no-next', 'operator-budget']) {
+  test(`AIT-291 r2 ${locale}: host-limit ${variant} has one announcement and independent upgrade/export`, async t => {
+    const next = variant === 'missing' ? 'give' : variant === 'unconfirmed' ? 'confirm' : 'none';
+    const { c, root } = a2Setup(t, { copy, delivery: variant === 'unconfirmed',
+      address: ['unconfirmed', 'no-next'].includes(variant) ? 'reader@example.test' : null,
+      privacy: variant !== 'operator-budget', confirmed: variant === 'no-next' });
+    await tick(10); userTurn(c);
+    const announcement = root.querySelector('.credit-announcement'), changes = [];
+    const observer = new window.MutationObserver(records => changes.push(...records));
+    observer.observe(announcement, { childList: true, characterData: true, subtree: true });
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+    await tick(8);
+    const title = next === 'none' ? releaseLimits[locale]['host-limit'][0] : copy.hostSurface.usedUp.title;
+    const body = next === 'none' ? releaseLimits[locale]['host-limit'][1] : locale === 'de'
+      ? next === 'give' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Bestätigen Sie Ihre E-Mail-Adresse, dann erhalten Sie +600 weitere Credits.'
+      : next === 'give' ? 'Add your email address to get +600 more Credits. Your conversation stays saved.' : 'Confirm your email address to get +600 more Credits.';
+    const out = root.querySelector('.composer-out'), upgrade = out.querySelector('.composer-out__upgrade'), link = out.querySelector('.composer-out__export');
+    assert.equal(out.dataset.next, next);
+    assert.equal(out.querySelector('.composer-out__title').textContent, title);
+    assert.equal(out.querySelector('.composer-out__body').textContent, body);
+    assert.equal(upgrade.inert, next === 'none');
+    assert.equal(upgrade.getAttribute('aria-hidden'), String(next === 'none'));
+    if (next !== 'none') assert.equal(upgrade.querySelector(`[data-next="${next}"]`).textContent, copy.hostSurface.credits[next === 'give' ? 'give' : 'confirm']);
+    assert.equal(root.querySelector('.credits-email').hidden, next === 'none', 'tier offer survives host-limit');
+    assert.equal(link.inert, false); assert.equal(link.getAttribute('aria-hidden'), 'false');
+    assert.equal(link.textContent.trim(), copy.hostSurface.usedUp.export);
+    assert.equal(link.hasAttribute('data-next'), false, 'export owns its own slot');
+    assert.ok(link.href.endsWith(`/api/sessions/${c.session.id}/export`));
+    assert.equal(announcement.getAttribute('aria-live'), 'polite');
+    assert.equal(announcement.textContent, `${title} ${body}`);
+    assert.equal(changes.length, 1);
+    c.receive({ seq: c.session.seq + 1, type: 'conversation.end-requested', data: { reason: 'host-limit' } });
+    c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+    await tick(8); observer.disconnect();
+    assert.equal(changes.length, 1, 'repeated events cannot announce again');
+    if (next !== 'none') {
+      upgrade.click(); await tick(6);
+      assert.equal(root.querySelector('dialog.settings').open, true);
+      assert.equal(root.querySelector('[data-tab="general"]').getAttribute('aria-selected'), 'true');
+      assert.equal(root.activeElement?.id, 'email-input');
+    }
+  });
 }

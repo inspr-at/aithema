@@ -85,7 +85,10 @@ export class HostSurface {
   }
   get limitCopy() {
     const { credits, usedUp } = this.#copy.hostSurface;
-    const state = credits.ended[this.endReason] ?? usedUp;
+    const next = this.nextTier;
+    const state = this.endReason === 'host-limit' && next
+      ? { title: usedUp.title, body: fill(usedUp[next === 'emailGiven' ? 'hostGive' : 'hostConfirm'], { delta: this.deltaCredits }), footer: false }
+      : credits.ended[this.endReason] ?? usedUp;
     return { ...state, announce: `${state.title} ${state.body}` };
   }
   get usedUp() { return Boolean(this.endReason) || this.#credits?.exhausted === true; }
@@ -297,7 +300,7 @@ export class HostSurface {
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
     current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
-    const next = this.endReason ? null : this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
+    const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
     setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out && this.limitCopy.footer !== false ? c.noMore : '');
     nextLine.hidden = !next && (!out || this.limitCopy.footer === false); link.hidden = !next;
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
