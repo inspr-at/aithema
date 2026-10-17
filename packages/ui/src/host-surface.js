@@ -18,6 +18,7 @@ export const defaultCreditFormat = formatCredits;
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
+  #limitGeneration = 0;
   #credits = null; #creditsFailed = false; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null; #creditClosing = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied; #creditContext;
   #emailAsk = null; #actorRole = null;
@@ -138,9 +139,14 @@ export class HostSurface {
     if (event.type === 'library.state' || event.type === 'session.erased') this.#library?.changed();
     if (event.type === 'credits.limit-reached' || event.type === 'conversation.end-requested') {
       const reason = event.data?.reason;
+      this.#limitGeneration++;
       this.#ended = reason ?? this.#ended ?? 'session';
       // The composer's limit block owns the reason and its polite announcement.
       // Never send ended copy through the action-status/toast channel.
+    }
+    if (event.type === 'credits.state' && event.data?.status === 'active') {
+      this.#limitGeneration++;
+      if (this.#ended === 'host-limit') this.#ended = null;
     }
     if (event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state)) {
       const endedCall = this.#creditContext?.();
@@ -233,6 +239,7 @@ export class HostSurface {
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
+    const limitGeneration = this.#limitGeneration;
     const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current, endedCall = this.#creditContext?.();
     // Only receipts requested after this call's durable closing/ended can settle it.
     const settlingCall = endedCall === this.#creditClosing && !endedCall?.settled ? endedCall : undefined;
@@ -247,9 +254,17 @@ export class HostSurface {
         JSON.stringify(previous.tiers) !== JSON.stringify(this.#credits?.tiers)));
       if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
       const slot = this.#credits?.limitSlot;
-      const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
-      if (this.#ended === 'host-limit' && recovered) this.#ended = null;
-      if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
+      // A positive visitor balance alone says nothing about the operator budget.
+      // Recovery requires explicit exhaustion clearing, a raised allowance or
+      // an authoritative host-limit slot reopening; settlement alone cannot recover.
+      const allowanceRaised = this.#credits?.balance?.owner?.limitMicro > previous?.balance?.owner?.limitMicro;
+      const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0 &&
+        (previous?.exhausted === true || allowanceRaised || previous?.limitSlot?.endReason === 'host-limit' &&
+          ['ending', 'ended'].includes(previous.limitSlot.status) && slot?.status === 'active');
+      // An earlier receipt cannot recover a limit announced after its request.
+      const currentLimit = limitGeneration === this.#limitGeneration;
+      if (currentLimit && this.#ended === 'host-limit' && recovered) this.#ended = null;
+      if (currentLimit && ['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
       this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged, settledCall: this.#credits.reconciling === false ? settlingCall : undefined });
       this.#emailAsk?.setCredits(this.#credits);
     } catch {

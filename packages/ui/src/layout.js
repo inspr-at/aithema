@@ -37,18 +37,58 @@ export function footerMode(width) {
     limit: width >= FOOTER_WIDTHS.compact, connected: width >= FOOTER_WIDTHS.compact, unit: width >= FOOTER_WIDTHS.number };
 }
 
+function footerRowGeometry(footer) {
+  const row = footer.querySelector('.display-foot__row'), bounds = row.getBoundingClientRect();
+  const zones = [...row.children].map(zone => ({ hidden: zone.hidden, visible: Boolean(zone.getClientRects().length), box: zone.getBoundingClientRect() }));
+  const boxes = zones.filter(zone => !zone.hidden && zone.visible).map(zone => zone.box);
+  const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
+  return { zones: zones.map(({ hidden, box }) => [hidden, box.width]), clear };
+}
+
 /** Measure real host copy before yielding optional footer content, in Tick's order. */
 export function fitFooter(footer) {
-  const row = footer.querySelector('.display-foot__row');
   for (const mode of ['full', 'identity', 'timer', 'role']) {
     footer.dataset.fit = mode;
-    const zones = [...row.children].filter(n => !n.hidden && n.getClientRects().length);
-    const bounds = row.getBoundingClientRect(), boxes = zones.map(n => n.getBoundingClientRect());
-    const clear = boxes.every((b, i) => b.left >= bounds.left && b.right <= bounds.right && (!i || boxes[i - 1].right <= b.left));
     // Popup overlays can extend scrollWidth without occupying the footer row.
-    if (clear) break;
+    if (footerRowGeometry(footer).clear) break;
   }
   return footer.dataset.fit;
+}
+
+// The timer uses tabular digits. Equal digit/colon shapes have equal widths;
+// all other copy remains exact, including arbitrary host timer labels.
+function footerText(row) {
+  const walker = row.ownerDocument.createTreeWalker(row, 4), text = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const value = node.textContent;
+    text.push(node.parentElement?.closest('.connection-timer') && /^\d+:\d{2}(?::\d{2})?$/.test(value) ? value.replace(/\d/g, '0') : value);
+  }
+  return JSON.stringify(text);
+}
+
+// Compact labels have no visible width. Measure the full row offscreen only
+// when its width-relevant content/geometry changes; never toggle the live fit to probe it.
+function footerGeometry(footer, cache) {
+  const row = footer.querySelector('.display-foot__row'), width = footer.clientWidth;
+  const { zones, clear } = footerRowGeometry(footer);
+  const compact = footer.dataset.fit && footer.dataset.fit !== 'full';
+  let natural = [];
+  if (compact) {
+    const source = JSON.stringify([width, zones, footerText(row)]);
+    if (cache.footerNaturalSource !== source) {
+      const probe = footer.cloneNode(true);
+      probe.dataset.fit = 'full'; probe.inert = true; probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText += `;position:fixed;left:-100000px;top:0;right:auto;bottom:auto;width:${width}px;opacity:0;pointer-events:none;`;
+      footer.parentNode.append(probe);
+      try {
+        const full = footerRowGeometry(probe);
+        cache.footerNaturalWidths = full.zones;
+        cache.footerNaturalSource = source;
+      } finally { probe.remove(); }
+    }
+    natural = cache.footerNaturalWidths;
+  }
+  return { key: JSON.stringify([width, zones, natural, clear]), width, clear };
 }
 
 /** Hide the middle in place; keep the band operable and both scroll offsets intact through incoming events. */
@@ -165,15 +205,18 @@ export class PhoneComposerViewport {
       if (viewport && viewport.scale !== 1) return;
       const workspace = root.querySelector('.workspace');
       const footer = root.querySelector('.display-foot');
-      const fitKey = () => JSON.stringify([footer.clientWidth, ...[...footer.querySelector('.display-foot__row').children]
-        .map(zone => [zone.hidden, zone.getBoundingClientRect().width])]);
-      // Host columns and scrollbars can resize the row without resizing the window.
-      // Fixed-width timers/status reserves can change text without changing
-      // row geometry. Cache the fitted zone widths too: fitting itself may hide
-      // optional labels, and must not make the next scroll refit them again.
-      if (this.footerFitKey !== fitKey()) {
-        fitFooter(footer); this.footerFitKey = fitKey();
+      const geometry = footerGeometry(footer, this);
+      const footerFocused = root.ownerDocument.activeElement === root.host && footer.contains(root.activeElement);
+      // A clear compact row can only expand at the same width, even if full
+      // still does not fit. Keep every such expansion out from under the user.
+      // Resize, overflow and overlap always refit, even with held focus/hover.
+      const deferExpansion = (footer.matches(':hover') || footerFocused) &&
+        this.footerFitWidth === geometry.width && geometry.clear && footer.dataset.fit !== 'full';
+      if (this.footerFitKey !== geometry.key && !deferExpansion) {
+        fitFooter(footer); this.footerFitKey = footerGeometry(footer, this).key;
+        this.footerFitWidth = geometry.width;
       }
+      this.footerTextKey = footerText(footer.querySelector('.display-foot__row'));
       // On phones the reserved voice notices belong to the scrolling content,
       // leaving a usable transcript viewport above the fixed composer.
       const phone = view?.matchMedia('(max-width:600px)').matches;
@@ -228,6 +271,7 @@ export class PhoneComposerViewport {
   connect() {
     this.connected = true;
     this.root.addEventListener('focusin', this.paint);
+    this.root.querySelector('.display-foot').addEventListener('pointerleave', this.paint);
     this.root.addEventListener('focusout', this.focusOut);
     this.view?.addEventListener('resize', this.paint);
     this.view?.visualViewport?.addEventListener('resize', this.paint);
@@ -241,8 +285,9 @@ export class PhoneComposerViewport {
     this.footerObserver?.disconnect();
     const FooterMutation = this.view?.MutationObserver;
     if (FooterMutation) {
-      this.footerObserver = new FooterMutation(() => {
-        if (this.connected) this.paint();
+      this.footerObserver = new FooterMutation(records => {
+        const row = this.root.querySelector('.display-foot__row');
+        if (this.connected && (records.some(record => record.type === 'attributes') || footerText(row) !== this.footerTextKey)) this.paint();
       });
       this.footerObserver.observe(this.root.querySelector('.display-foot__row'), {
         subtree:true, childList:true, characterData:true, attributes:true, attributeFilter:['hidden'],
@@ -335,6 +380,7 @@ export class PhoneComposerViewport {
   destroy() {
     this.connected = false;
     this.root.removeEventListener('focusin', this.paint);
+    this.root.querySelector('.display-foot').removeEventListener('pointerleave', this.paint);
     this.root.removeEventListener('focusout', this.focusOut);
     this.root.querySelector('.transcript-shell').removeEventListener('scroll', this.noticeScroll);
     this.root.querySelector('.transcript-shell').removeEventListener('wheel', this.noticeWheel);

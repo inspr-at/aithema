@@ -50,7 +50,7 @@ test('AIT-298: file timeout identifies the completed subtest and open-handle cre
 const { armUnitWatchdog } = require(${JSON.stringify(watchdog)});
 armUnitWatchdog(200);
 test('leaking wallet poll', () => { setInterval(function walletPoll() {}, 1000); });`);
-    const childEnv = workerEnvironment();
+    const childEnv = workerEnvironment(); childEnv.AITHEMA_UNIT_TRACE_HANDLES = '1';
     const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
     const output = result.stdout + result.stderr;
     assert.equal(result.status, 1, output);
@@ -74,5 +74,45 @@ test('reject concept', () => { setTimeout(function withdrawalNotice() { throw ne
     assert.match(output, /Async origin: reject concept/);
     assert.match(output, /TypeError: gone getRootNode/);
     assert.match(output, /withdrawalNotice .*late-callback\.test\.cjs:2/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('AIT-299: default watchdog keeps timeout context without expensive handle stacks', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-default-'));
+  try {
+    const fixture = join(directory, 'default-handle.test.cjs');
+    writeFileSync(fixture, `const test = require('node:test');
+const { armUnitWatchdog } = require(${JSON.stringify(watchdog)});
+armUnitWatchdog(200);
+test('wallet poll without tracing', () => { setInterval(() => {}, 1000); });`);
+    const childEnv = workerEnvironment(); delete childEnv.AITHEMA_UNIT_TRACE_HANDLES;
+    const result = spawnSync(process.execPath, ['--test', '--import', watchdog, fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    const output = result.stdout + result.stderr;
+    assert.equal(result.status, 1, output);
+    assert.match(output, /Last completed subtest: wallet poll without tracing/);
+    assert.match(output, /Active resources:.*Timeout/);
+    assert.doesNotMatch(output, /Open Timeout|Resource created here/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+for (const trace of [false, true]) test(`AIT-299 r2: watchdog creates ${trace ? 'one opt-in' : 'no default'} async hook`, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'aithema-unit-hook-'));
+  try {
+    const fixture = join(directory, 'hook-count.test.cjs');
+    writeFileSync(fixture, `const assert = require('node:assert/strict');
+// Initialize Node's own lazy runner hook before counting watchdog hooks.
+require('node:test').beforeEach(() => {});
+const hooks = require('node:async_hooks'), original = hooks.createHook;
+let created = 0;
+hooks.createHook = (...args) => { created++; return original(...args); };
+require('node:module').syncBuiltinESMExports();
+require(${JSON.stringify(watchdog)});
+assert.equal(created, ${trace ? 1 : 0}, 'watchdog hook count');
+require('node:test')('attributed without tracing', () => {});`);
+    const childEnv = workerEnvironment();
+    if (trace) childEnv.AITHEMA_UNIT_TRACE_HANDLES = '1'; else delete childEnv.AITHEMA_UNIT_TRACE_HANDLES;
+    const result = spawnSync(process.execPath, ['--test', fixture], { env: childEnv, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

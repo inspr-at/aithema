@@ -37,12 +37,13 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 }
 
 export const browserTestWeights = readBrowserTestWeights();
-// AIT-276 round 2: PR CI run 38997826397, head 81022a10fd, measured all
-// three geometry tests at 88.450875s (no-helper regression: 14.332418s).
-// Keep a 110.564s floor including the usual 25% warmup margin until rolling
-// main CI catches up with the expanded same-page workload.
+// AIT-299 round 2: successful geometry-file workload in PR #271 CI
+// 39051814951, head 243f39b1a0, shard 6/6: 50.144063283s + 27.707064542s
+// + 24.865161603s + 10.231788079s = 112.948077507s. Include the usual
+// 25% warmup margin (141.186s) until rolling main catches up with the
+// compact-label/focus-held regression. PR samples stay out of trusted main history.
 browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
-  browserTestWeights['test/browser/start2-display-geometry.test.js'], 110.564);
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 141.186);
 
 // AIT-282: PR CI 39003398813, shard 2, head 25d0608ccc measured the
 // existing html-preview workload at 7.923261s + 17.509594s = 25.432855s.

@@ -12,3 +12,7 @@ test('AIT-210: header and rail reserve first-paint geometry before upgrade and f
 import { scrollbarFirstPaintCheck } from './scrollbar-first-paint-check.js';
 test('AIT-276: classic scrollbars and wider actions reserve the mounted rail on first paint',
   { timeout: 90_000 }, scrollbarFirstPaintCheck);
+
+import { compactFooterCheck } from './compact-footer-check.js';
+test('AIT-299: hidden footer labels restore full fit without moving controls under the pointer',
+  { timeout: 90_000 }, compactFooterCheck);
