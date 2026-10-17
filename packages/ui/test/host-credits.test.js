@@ -2,11 +2,11 @@
 // three-minute file deadline under merge-group CPU contention.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
+import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
-import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup } from './host-surface-helpers.js';
+import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
 test('AIT-164: mail Settings saves and raises the tier before the confirmation request finishes', async t => {
   let finish, requested;

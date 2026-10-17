@@ -2,11 +2,11 @@
 // three-minute file deadline under merge-group CPU contention.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
+import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
-import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup } from './host-surface-helpers.js';
+import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
 for (const copy of [de, en]) for (const delivery of [true, false]) for (const result of ['loaded', 'http-failed', 'transport-failed']) {
   test(`AIT-171 status: ${copy.display.locale}/${delivery ? 'mail' : 'save'}/${result} replaces pending copy without repeated announcements`, async t => {

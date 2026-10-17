@@ -90,4 +90,4 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
 }
 
 
-export { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup };
+export { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances };
