@@ -119,7 +119,8 @@ export const bandStyles = `
 .status__group { display:flex; grid-area:1/1/2/3; justify-self:end; align-items:center; gap:6px; }
 .status__dot { width:6px; height:6px; flex:none; border-radius:50%; background:var(--aithema-warning); }
 .status__dot[data-state="connected"] { background:var(--aithema-accent); }
-.status__label { display:block; white-space:nowrap; }
+.status__label, .status__placeholder { display:block; white-space:nowrap; }
+.status__placeholder { visibility:hidden; }
 .status__sizer { display:grid; grid-area:1/2; visibility:hidden; pointer-events:none; }
 .status__sizer > span { grid-area:1/1; }
 .connection-timer { grid-column:3; display:inline-block; min-width:8ch; flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -196,7 +197,7 @@ export const bandStyles = `
   .ai-notice__short { display:inline; }
 }
 @media(width < ${FOOTER_WIDTHS.compact}px) {
-  .status__label, .status__sizer, .host-credits__total { display:none; }
+  .status__label, .status__placeholder, .status__sizer, .host-credits__total { display:none; }
   .host-credits__track { width:60px; }
   .status__group { grid-column:1; }
   .status { grid-template-columns:6px 8ch; gap:6px; } .connection-timer { grid-column:2; }
@@ -213,7 +214,7 @@ export const bandStyles = `
 @media(700px <= width < 900px) {
   .display-foot:has(.host-credits:not([hidden])) .status__group { grid-column:1; }
   .display-foot:has(.host-credits:not([hidden])) .status { grid-template-columns:6px 8ch; gap:6px; }
-  .display-foot:has(.host-credits:not([hidden])) :is(.status__label,.status__sizer) { display:none; }
+  .display-foot:has(.host-credits:not([hidden])) :is(.status__label,.status__placeholder,.status__sizer) { display:none; }
   .display-foot:has(.host-credits:not([hidden])) .connection-timer { grid-column:2; }
 }
 @media(max-width:599px) {
@@ -276,7 +277,7 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:6px auto minmax(8ch,max-content); gap:6px; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__group { grid-column:1/3; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__sizer,
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__label { display:grid; }
+  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.status__label,.status__placeholder) { display:grid; }
   .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .connection-timer { grid-column:3; }
 }
 @media(max-width:599px) {

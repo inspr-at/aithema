@@ -463,6 +463,19 @@ export async function hostChromeCheck(t) {
       assert.equal(a11y.role, stage === 'live' ? 'status' : null);
       assert.equal(a11y.hidden, String(stage !== 'live'));
       assert.equal(a11y.live, stage === 'live' ? a11y.dotName : a11y.message, `${context}: existing announcement text`);
+      const placeholder = await shadow(page, c => {
+        const n = c.shadowRoot.querySelector('.status__placeholder');
+        return { visibility: getComputedStyle(n).visibility, hidden: n.getAttribute('aria-hidden'),
+          width: n.getBoundingClientRect().width, text: n.textContent };
+      });
+      assert.equal(placeholder.visibility, 'hidden', `${context}: short label box stays in flow`);
+      assert.equal(placeholder.width, connected.label[2]);
+      assert.equal(placeholder.hidden, 'true', `${context}: retained label cannot be announced twice`);
+      const { result } = await accessibility.send('Runtime.evaluate', { expression: 'document.querySelector("aithema-session").shadowRoot.querySelector(".status__placeholder")' });
+      const { node } = await accessibility.send('DOM.describeNode', { objectId: result.objectId });
+      const { nodes } = await accessibility.send('Accessibility.getPartialAXTree', { backendNodeId: node.backendNodeId });
+      await accessibility.send('Runtime.releaseObject', { objectId: result.objectId });
+      assert.equal(nodes.find(n => n.backendDOMNodeId === node.backendNodeId)?.ignored, true, `${context}: hidden label excluded from accessibility tree`);
       checks.push({ label: context, dotShiftPx: 0, timerShiftPx: 0 });
     }
   }
