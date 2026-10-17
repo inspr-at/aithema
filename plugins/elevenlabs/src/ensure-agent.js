@@ -69,7 +69,7 @@ export class AgentEnsureError extends Error {
 /** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
   apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600,
-  spokenOpeners, signal, agentName, facadeSecretName } = {}) {
+  spokenOpeners, signal, agentName, facadeSecretName, beforeSecretPatch } = {}) {
   if (!id(agentName)) throw new AgentEnsureError('agentName is required and must be a host-specific identifier');
   if (!id(facadeSecretName)) throw new AgentEnsureError('facadeSecretName is required and must be a host-specific identifier');
   // Reject a host configuration without AI disclosure before any provider read or write.
@@ -163,6 +163,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // UNVERIFIED API SHAPE: POST/PATCH secret bodies.
   if (secretId) {
     if (lastWritten?.secret_id !== secretId || lastWritten?.value_hash !== secretHash) {
+      beforeSecretPatch?.(); // Value-free write-attempt receipt for the host repair cooldown.
       await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: facadeSecretName, value: bearer });
       db.prepare('INSERT OR REPLACE INTO host_voice_secret_hashes VALUES (?,?,?)').run(facadeSecretName, secretId, secretHash);
     }

@@ -3,12 +3,16 @@ import { reconcileUsage, readConversationDetails } from './server.js';
 import { AI_NOTICE, aiNoticeText } from '@inspr/aithema-core/ai-notice';
 import { manifest } from './manifest.js';
 import { voiceOverrides } from './options.js';
+import { watchBearerRejections } from './secret-repair.js';
+
+const REJECTION_WINDOW_MS = 5 * 60_000, REPAIR_WINDOW_MS = 30 * 60_000;
+const REJECTION_THRESHOLD = 3;
 export { normalizeElevenLabsDurationBinding } from './config.js';
 
 export async function createElevenLabsVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
   apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env, random = Math.random,
   spokenOpeners, spokenContinuations, agentName, facadeSecretName, costConfig, qualifyBinding,
-  accountRef = agentName } = {}) {
+  accountRef = agentName, facadeSecrets, now = Date.now } = {}) {
   for (const [name, value] of Object.entries({ agentName, facadeSecretName })) {
     if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(value)) {
       throw new TypeError(`${name} is required and must be a host-specific identifier (1–128 letters, digits, _ or -)`);
@@ -28,7 +32,9 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       return [locale, firstMessage];
     })));
   const stop = new AbortController(), listeners = new Set();
-  let timer, inFlight, backoff = 30_000, costs;
+  let timer, inFlight, backoff = 30_000, costs, running = false, repairMode = false, repairPatchAt, repairSnapshot;
+  let rejections = [], lastRepairAt = -Infinity;
+  let unwatch = () => {};
   let availability = { state: 'starting', disabledReason: null, transient: false };
   const host = { voicePresentation: manifest.presentation, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET', log,
     get binding() { return availability.binding; },
@@ -39,7 +45,7 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     // No listener may mutate the active registry, policy or presets.
     onAvailable(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     async close() {
-      stop.abort(); clearTimeout(timer); timer = undefined;
+      stop.abort(); unwatch(); rejections = []; clearTimeout(timer); timer = undefined;
       await inFlight;
     },
     // These ports exist while off so the server can keep its handlers alive.
@@ -61,8 +67,11 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     if (changed) log({ event: 'voice-availability', from, to, reason });
   };
   const retryLater = () => {
-    // +/-20% jitter, with the actual delay also bounded by ten minutes.
-    const delay = Math.min(600_000, Math.round(backoff * (0.8 + random() * 0.4)));
+    // +/-20% jitter, capped at ten minutes before the repair write cooldown.
+    const delay = Math.max(Math.min(600_000, Math.round(backoff * (0.8 + random() * 0.4))),
+      // Even a failed/ambiguous PATCH consumes the repair write budget. Read/API
+      // recovery uses the existing single timer, never a second retry loop.
+      repairMode && repairPatchAt !== undefined ? Math.max(0, repairPatchAt + REPAIR_WINDOW_MS - now()) : 0);
     backoff = Math.min(600_000, backoff * 2);
     timer = setTimeout(() => {
       timer = undefined;
@@ -71,11 +80,20 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
     timer.unref?.();
   };
   const attempt = async () => {
+    running = true;
     try {
       const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, usdPerCredit } = costs;
       const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
-        templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, spokenOpeners, agentName, facadeSecretName, signal: stop.signal });
+        templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, spokenOpeners, agentName, facadeSecretName, signal: stop.signal,
+        beforeSecretPatch: repairMode ? () => { lastRepairAt = repairPatchAt = now(); } : undefined });
       if (stop.signal.aborted) return;
+      repairMode = false; backoff = 30_000;
+      // A secret-only repair restores the already prepared runtime, even after
+      // a transient outage. Recovery listeners would register its plugin twice.
+      if (repairSnapshot) {
+        const prepared = repairSnapshot; repairSnapshot = undefined;
+        transition('available', null, prepared); return;
+      }
       const binding = qualifyBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
         endpoint, accountRef, secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
         maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds, minRunwaySeconds,
@@ -91,11 +109,27 @@ export async function createElevenLabsVoiceHost({ storage, resolveSecret, public
       const transient = error instanceof AgentEnsureError && error.transient;
       transition('off', error instanceof AgentEnsureError ? error.message : 'voice-host-unavailable', { transient });
       if (host.transient) retryLater();
-    }
+    } finally { running = false; }
   };
   try { costs = typeof costConfig === 'function' ? costConfig(values) : costConfig; }
   catch { transition('off', 'voice-host-unavailable'); return host; }
   inFlight = attempt();
   await inFlight;
+  unwatch = watchBearerRejections(facadeSecrets, () => {
+    if (stop.signal.aborted || running || timer || !host.binding) return;
+    const time = now();
+    if (time - lastRepairAt < REPAIR_WINDOW_MS) return;
+    // At most three timestamps, no values, IPs, request objects or per-client map.
+    rejections = rejections.filter(at => time - at < REJECTION_WINDOW_MS);
+    rejections.push(time);
+    if (rejections.length < REJECTION_THRESHOLD) return;
+    rejections = []; lastRepairAt = time;
+    const deleted = storage.db.prepare('DELETE FROM host_voice_secret_hashes WHERE name=?').run(facadeSecretName);
+    if (!deleted.changes) return;
+    repairMode = true; repairPatchAt = undefined; repairSnapshot = availability;
+    try { Promise.resolve(log({ event: 'voice-secret-repair', name: facadeSecretName })).catch(() => {}); }
+    catch { /* Diagnostics cannot block repair. */ }
+    inFlight = attempt();
+  });
   return host;
 }

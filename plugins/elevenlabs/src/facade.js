@@ -26,7 +26,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
   buildRequest, admitReasoning, onCompletion, onDelivered, staticSecretRef, now = Date.now, timeoutMs = 30_000,
   maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log, turnOperations,
-  beforeAdmission, beforeOutput, onAdmission, onRetry, reportAllowed, onOpenerStripped } = {}) {
+  beforeAdmission, beforeOutput, onAdmission, onRetry, reportAllowed, onOpenerStripped, onBearerRejected } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) throw new TypeError('Positive facade byte limit required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
@@ -79,7 +79,11 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       if (typeof call?.callId === 'string') callIdHash = digest(call.callId).toString('hex').slice(0, 16);
       const secretRef = staticSecretRef ?? call?.facadeSecretRef;
       const secret = secretRef && await voiceOperation({ signal: scope.signal }, () => resolveSecret(secretRef));
-      if (!bearerMatches(request.headers.get('authorization'), secret)) { await cleanup(true); return json('unauthorized', 401); }
+      if (!bearerMatches(request.headers.get('authorization'), secret)) {
+        // The signal carries no header/value and cannot change auth or read the body.
+        try { onBearerRejected?.(); } catch { /* Repair is best-effort; authentication stays closed. */ }
+        await cleanup(true); return json('unauthorized', 401);
+      }
       if (staticSecretRef) {
         // START src/pages/api/v2/llm/chat/completions.ts: authenticate before any body read.
         body = await readBody();

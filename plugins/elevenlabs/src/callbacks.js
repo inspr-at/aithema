@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createCompletionsHandler } from './facade.js';
 import { CUSTOM_LLM_BASE_PATH } from './ensure-agent.js';
 import { elevenLabsConfig } from './config.js';
+import { reportBearerRejection } from './secret-repair.js';
 
 const perCallPath = '/api/voice/:callId/llm/chat/completions';
 const callRoute = /^\/api\/voice\/([a-zA-Z0-9_-]{1,128})\/llm\/chat\/completions$/u;
@@ -23,7 +24,8 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs, log,
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   const facade = createCompletionsHandler({ ...operations, resolveSecret: ref => secrets.resolve(ref),
-    staticSecretRef, timeoutMs,
+    staticSecretRef, timeoutMs, log,
+    onBearerRejected: staticSecretRef ? () => reportBearerRejection(secrets) : undefined,
     onOpenerStripped() {
       try { (log ?? console.log)({ event: 'reply.opener-stripped', count: 1, lane: 'voice' }); }
       catch { /* Diagnostics cannot interrupt speech or accounting. */ }
