@@ -221,7 +221,7 @@ test('AIT-294: a tablet footer that drops Rolle opens the existing settings shee
   window.innerWidth = 768;
   const f = fixture(t), footer = document.createElement('footer');
   footer.className = 'display-foot'; f.root.append(footer);
-  for (const fit of ['full', 'copy', 'timer']) {
+  for (const fit of ['full', 'identity', 'timer']) {
     footer.dataset.fit = fit;
     assert.equal(f.actor.openSheet(f.root.querySelector('.gear')), false);
   }

@@ -237,7 +237,7 @@ export async function hostChromeCheck(t) {
   }
   // AIT-294: real host copy and measured rail rows, one reused page, no provider calls.
   const rail294Checks = [];
-  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [600, 700, 768, 820, 1024]) {
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [600, 700, 768, 820, 1024, 1180]) {
     await page.setViewport({ width, height: 900 }); await page.select('#theme', theme);
     const frames = [];
     for (const voice of [false, true, false]) {
@@ -292,13 +292,14 @@ export async function hostChromeCheck(t) {
         assert.equal(sheet, true, `${label}: dropped Rolle is available in the gear sheet`);
       }
       frames.push(metric.frame); rail294Checks.push({ pass: true, label, ...metric, shiftPx: 0 });
+      if (voice && theme === 'light' && (width === 768 || width === 820 && locale === 'de')) await shot(`${width}-voice-${locale}-light`);
       if ((width === 700 && locale === 'de' && voice) || (width === 768 && locale === 'en' && theme === 'light' && frames.length <= 2)) await shot(label);
     }
   }
   await shadow(page, () => { window.rail294 = false; });
-  assert.equal(rail294Checks.length, 60, 'AIT-294: all five widths, locales, palettes and bind/unbind states');
+  assert.equal(rail294Checks.length, 72, 'AIT-294: all six widths, locales, palettes and bind/unbind states');
   checks.push(...rail294Checks);
-  const rail294Pass = 'AIT-294 PASS: 600/700/768/820/1024 DE/EN light/dark, long role/legal with credits; footer fits, legal/flag/dot visible, composer above footer; voice bind/unbind 0 px.';
+  const rail294Pass = 'AIT-294 PASS: 600/700/768/820/1024/1180 DE/EN light/dark, long role/legal with credits; footer fits, legal/flag/dot visible, composer above footer; voice bind/unbind 0 px.';
   console.log(rail294Pass);
   if (evidence) await writeFile(join(evidence, 'ait-294-checks.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', reducedMotion: true, blurredControls: true, passLines: [rail294Pass], checks: rail294Checks }, null, 2));
   console.log('AIT-260 PASS: 48 paused composer cases (restore/blur/limits, both controls, DE/EN, light/dark, 1440/390), acknowledged resume and focus, composer/Send 0 px; 58 rail-fit cases 320–1440; phone status and KI/AI accessible name.');

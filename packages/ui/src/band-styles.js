@@ -48,12 +48,15 @@ export const bandStyles = `
 .voice-signal:has(.voice-state:empty):has(.voice-caption:empty) .voice-wave { mask-image:none; visibility:visible; }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
-.voice-state { max-width:50%; text-wrap:balance; }
+.voice-state { max-width:100%; white-space:nowrap; overflow-wrap:normal; word-break:normal; }
+/* Phone held-call copy keeps its accepted multi-line reservation, at word boundaries. */
+@media(width < 600px) { .audio-rail[data-state="waiting"] .voice-state,
+  .audio-rail[data-call-reconciling] .voice-state { white-space:normal; } }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
-  left:var(--voice-message-left,0px); right:auto; overflow-wrap:normal; word-break:normal; hyphens:auto; }
+  left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
 .header-actions > .settings-open { flex:none; }

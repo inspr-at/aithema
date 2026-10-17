@@ -57,6 +57,8 @@ export async function scrollbarFirstPaintCheck(t) {
     await mkdir(evidence, { recursive: true });
     cases.push(...[1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ actions: 216, width, theme, locale, classic: true })))));
   }
+  cases.push(...[false, true].flatMap(classic => [1204, 1205, 1226, 1227].map(width =>
+    ({ actions: 216, width, locale: 'de', theme: 'light', classic, boundary294: true }))));
   // AIT-294 r3: reuse the same page for the full status/startup matrix.
   cases.push(...[600, 700, 768, 820, 1024, 1180].flatMap(width => ['de', 'en'].flatMap(locale =>
     ['light', 'dark'].map(theme => ({ actions: 216, width, locale, theme, classic: false, status294: true })))));
@@ -101,6 +103,15 @@ export async function scrollbarFirstPaintCheck(t) {
     assert.equal(mounted.intersection, 0, `${name}: mounted rail/actions box intersection is 0`);
     assert.ok(mounted.rail[2] >= 208, `${name}: mounted rail keeps its 208px floor`);
     if (scene.status294) {
+      const scrollFits = await page.evaluate(async () => {
+        const footer = document.querySelector('aithema-session').shadowRoot.querySelector('.display-foot');
+        const changes = []; const observer = new MutationObserver(records => changes.push(...records));
+        observer.observe(footer, { attributes:true, attributeFilter:['data-fit'] });
+        for (let i = 0; i < 5; i++) visualViewport.dispatchEvent(new Event('scroll'));
+        await new Promise(resolve => requestAnimationFrame(resolve)); observer.disconnect();
+        return changes.length;
+      });
+      assert.equal(scrollFits, 0, `${name}: visual viewport scrolling does not refit the footer`);
       const labels = await page.evaluate(async locale => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const root = document.querySelector('aithema-session').shadowRoot;
@@ -144,8 +155,9 @@ export async function scrollbarFirstPaintCheck(t) {
         assert.deepEqual(frame.band, initial.band, `${name}: band stays stable through mount`);
         assert.deepEqual(frame.rail, initial.rail, `${name}: rail stays stable through mount`);
       }
-      if (!classic) assert.equal(mounted.band[3], width < 600 ? 124 : width < 768 ? 150 : 90, `${name}: existing default host geometry`);
+      if (!classic && !scene.boundary294) assert.equal(mounted.band[3], width < 600 ? 124 : width <= 1180 ? 150 : 90, `${name}: status-inclusive default host geometry`);
     }
+    if (scene.boundary294) assert.equal(mounted.row, width < (classic ? 1227 : 1205) ? '2' : '1', `${name}: measured status reservation switches at the content boundary`);
     checks.push({ head: evidenceCommit, ...scene, initial, mounted, resized, pass: true,
       shiftPx: Math.max(...mounted.band.map((value, i) => Math.abs(value - initial.band[i])),
         ...mounted.rail.map((value, i) => Math.abs(value - initial.rail[i]))),

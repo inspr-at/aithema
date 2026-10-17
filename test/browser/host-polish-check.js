@@ -348,7 +348,7 @@ export async function hostPolishCheck(t, { evidenceDirectory } = {}) {
                 const actionRects = textRects(actions);
                 return { height: line.clientHeight, scrollHeight: line.scrollHeight, width: line.clientWidth, scrollWidth: line.scrollWidth,
                   copyHeight: copy.clientHeight, copyScrollHeight: copy.scrollHeight, hiddenDetail,
-                  short: line.querySelector('.question-why').textContent, full: copy.textContent,
+                  short: line.querySelector('.send-failure-short')?.dataset.text ?? line.querySelector('.question-why').textContent, full: copy.textContent,
                   separate: sentenceRects.every(a => actionRects.every(b => a[3] <= b[1])),
                   actionsOneLine: actionRects.every(b => b[1] === actionRects[0][1]),
                   noTrailingSeparator: !copy.textContent.trimEnd().endsWith('·') && !actions.textContent.trimEnd().endsWith('·') };

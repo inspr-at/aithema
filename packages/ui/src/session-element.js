@@ -32,7 +32,7 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, languageFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
-import { voiceSingleRowMinWidth } from './first-paint.js';
+import { voiceSingleRowMinWidth, voiceRailMinWidth } from './first-paint.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups, PhoneComposerViewport } from './layout.js';
 import { createReveal } from './reveal.js';
 import { mountVersionDetails, renderHostVersion } from './version-display.js';
@@ -620,7 +620,7 @@ export class AithemaSession extends HTMLElement {
         consent: opener => this.#dialog.openConsent('voice', opener),
         feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, endReason: () => this.#host?.endReason, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
         ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
-        onRender: rail => this.#syncVoicePause(rail),
+        onRender: rail => { this.#syncVoicePause(rail); this.#syncRailFit(); },
         onPartial: event => {
           if (this.#session.paused || this.#session.consentWithdrawn || this.#session.tombstone) return;
           this.#updateVoiceTranscript(event);
@@ -1328,12 +1328,19 @@ export class AithemaSession extends HTMLElement {
       reason.toggleAttribute('data-send-failed', this.#sendFailed && text.available && !this.#rail?.moved);
       if (reason.hasAttribute('data-send-failed')) {
         const line = reason.querySelector('.upload-retry-copy') ?? reason;
-        paintFailureLine(line, copy.failed);
-        // Keep the full sentence in the polite region; phones show its first sentence.
-        if (!line.querySelector('.send-failure-detail')) {
-          const short = copy.failedShort ?? line.querySelector('.question-why').textContent;
-          const detail = node('span', 'send-failure-detail', copy.failed.slice(short.length));
+        // The default sentence and phone short copy need not share a prefix.
+        // Keep the full polite announcement and reuse its nodes on repaints.
+        if (!line.querySelector('.send-failure-detail') || line.dataset.failureCopy !== copy.failed) {
+          paintFailureLine(line, copy.failed);
+          const why = line.querySelector('.question-why'), first = why.textContent;
+          const detail = node('span', 'send-failure-detail', copy.failed.slice(first.length));
           line.lastChild.replaceWith(detail);
+          if (copy.failedShort && copy.failedShort !== first) {
+            const full = node('span', 'send-failure-first', first);
+            const short = node('span', 'send-failure-short'); short.dataset.text = copy.failedShort; short.setAttribute('aria-hidden', 'true');
+            why.replaceChildren(full, short);
+          }
+          line.dataset.failureCopy = copy.failed;
         }
       }
       if (reason.hasAttribute('data-shortcut') && words) {
@@ -1700,14 +1707,23 @@ export class AithemaSession extends HTMLElement {
     }
   }
   // Measure the actual brand and reserved actions, so host copy/account changes
-  // use the same 208 px rail floor as viewport changes. Row placement does not
+  // reserve controls and a complete status in the single row. Row placement does not
   // change either measurement and therefore cannot oscillate.
   #syncRailFit() {
     const root = this.shadowRoot, band = root.querySelector('.band');
     // The host stylesheet hides unmounted components. A zero-width measurement
     // must not select a second row that would flash before the first visible fit.
     if (!band?.querySelector('.audio-rail') || !band.clientWidth) return;
-    const style = this.ownerDocument.defaultView.getComputedStyle(band);
+    const view = this.ownerDocument.defaultView;
+    const style = view.getComputedStyle(band), rail = band.querySelector('.audio-rail');
+    const label = rail.querySelector('.voice-state');
+    const range = this.ownerDocument.createRange(); range.selectNodeContents(label);
+    const labelStyle = view.getComputedStyle(label), railStyle = view.getComputedStyle(rail);
+    // A message bubble does not consume the inline status track. Measure the
+    // rendered text (not the capped label box) for host-supplied inline labels.
+    const textWidth = rail.hasAttribute('data-message') ? 0 : range.getBoundingClientRect().width;
+    const required = Math.max(voiceRailMinWidth, Math.ceil(textWidth + parseFloat(labelStyle.paddingLeft)
+      + parseFloat(labelStyle.paddingRight) + 4 * (44 + parseFloat(railStyle.columnGap))));
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
     const railTrack = tracks.length === 3 ? tracks[1] : 0;
     // Honor the CSS reservation, but keep older hosts with wider actions safe.
@@ -1715,13 +1731,13 @@ export class AithemaSession extends HTMLElement {
     // row placement, so this fallback cannot oscillate.
     const reserved = style.getPropertyValue('--aithema-header-rail-row').trim();
     if (reserved) {
-      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || railTrack < 208);
+      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || railTrack < required);
       return;
     }
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       - root.querySelector('.band-identity').getBoundingClientRect().width
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
-    band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < 208);
+    band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < required);
   }
   #observePanes() {
     this.#paneObserver?.disconnect();

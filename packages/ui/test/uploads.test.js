@@ -735,9 +735,9 @@ for (const copy of [de, en]) for (const action of ['retry', 'discard'])
     const line = root.querySelector('.composer-reason');
     assert.equal(line.querySelector('.upload-retry-copy').textContent, copy.failed);
     assert.equal(line.querySelector('.upload-retry-actions').textContent, `${copy.uploads.tryAgain}\u00a0· ${copy.uploads.discard}`);
-    assert.equal(line.querySelector('.question-why').textContent, copy.failedShort);
+    assert.equal(line.querySelector('.send-failure-short')?.dataset.text ?? line.querySelector('.question-why').textContent, copy.failedShort);
     assert.equal(copy.failedShort, copy === de ? 'Nicht gespeichert.' : 'Not saved.');
-    assert.equal(line.querySelector('.send-failure-detail').textContent, copy.failed.slice(copy.failedShort.length));
+    assert.equal(line.querySelector('.send-failure-detail').textContent, copy.failed.slice(copy.failed.indexOf('.') + 1));
     assert.equal(line.getAttribute('role'), 'status'); assert.equal(line.getAttribute('aria-live'), 'polite');
     assert.equal(line.hasAttribute('data-send-failed'), true);
     const warning = line.querySelector('.warning'), detail = line.querySelector('.send-failure-detail');

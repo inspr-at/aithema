@@ -375,9 +375,12 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-reason[data-send-failed]:has(.upload-discard) { padding-bottom:8px; }
 .composer-reason[data-send-failed] .upload-retry-copy { flex:none; overflow:visible; }
 .composer-reason[data-send-failed] .upload-retry-actions { white-space:nowrap; }
+.send-failure-short { display:none; }
+.send-failure-short::before { content:attr(data-text); }
 @media(width < 600px) {
+  .send-failure-short { display:inline; }
   /* Visually omit the retry sentence, while the polite region retains it. */
-  .composer-reason[data-send-failed] .send-failure-detail { position:absolute; width:1px; height:1px;
+  .composer-reason[data-send-failed] :is(.send-failure-first,.send-failure-detail) { position:absolute; width:1px; height:1px;
     padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 }
 .upload-retry-copy[data-consent-feature] { display:flex; flex:none; gap:.25em; overflow:visible; }
