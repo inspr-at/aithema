@@ -399,6 +399,7 @@ test('AIT-282 round 3: phone access stays inert behind the email ask through sta
   window.happyDOM.setWindowSize({ width: 390, height: 844 });
   t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
   const { c, root, calls } = setup(t, { session: { visualsBound: true, conceptCost: { maxMicro: 30000 } } });
+  document.body.append(c);
   const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
   assert.ok(access.closest('.composer-dock'), 'the real access row is mounted in the phone dock');
   const email = { canCollect: true, address: '', numbers: {}, paintNotice() {} };
@@ -413,9 +414,11 @@ test('AIT-282 round 3: phone access stays inert behind the email ask through sta
   retry.click(); await tick();
   assert.equal(calls.filter(call => call.options.body).length, 0, 'blocked retry cannot send a paid request');
   window.happyDOM.setWindowSize({ width: 800, height: 844 });
+  window.dispatchEvent(new window.Event('resize'));
   assert.ok(access.closest('.concept-bar'));
   assert.equal(access.inert, true, 'moving the same row retains its guard');
   window.happyDOM.setWindowSize({ width: 390, height: 844 });
+  window.dispatchEvent(new window.Event('resize'));
   ask.open = false; ask.paint();
   assert.equal(access.inert, false, 'live controls return after dismissal');
   retry.click(); await tick();
@@ -426,6 +429,7 @@ test('AIT-282 round 3: phone access is hidden and inert outside live, including 
   t.after(() => window.happyDOM.setWindowSize({ width: 1024, height: 768 }));
   for (const origin of ['default', 'chosen']) {
     const { c, root, calls } = setup(t, { session: { transcript: [], visualsBound: true, settings: { origin }, conceptStatus: { phase: 'failed' } } });
+    document.body.append(c);
     const access = root.querySelector('.concept-access'), retry = root.querySelector('.concept-request');
     assert.ok(access.closest('.composer-dock'));
     assert.equal(root.querySelector('.workspace').dataset.stage, origin === 'chosen' ? 'ready' : 'entrance');
