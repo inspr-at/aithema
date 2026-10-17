@@ -153,6 +153,8 @@ export class SQLiteStorage {
     // New tombstones queue through the trigger. Revisit at most one indexed page
     // of older tombstones per sweep; restart may safely revisit already queued IDs.
     this.erasedRetirementCursor = '';
+    this.erasedRetirementEnd = this.db.prepare(`SELECT id FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL
+      ORDER BY id DESC LIMIT 1`).get()?.id ?? '';
   }
   /** Activity rule: direct storage calls are host activity; system scopes never
    * renew retention, including events and async work spawned inside that scope.
@@ -185,7 +187,8 @@ export class SQLiteStorage {
   queueErasedRetirements(limit) {
     const rows = this.transaction(() => {
       const rows = this.db.prepare(`SELECT id,json_extract(snapshot,'$.ownerHash') AS owner_hash FROM sessions
-        WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL AND id>? ORDER BY id LIMIT ?`).all(this.erasedRetirementCursor, limit);
+        WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL AND id>? AND id<=? ORDER BY id LIMIT ?`)
+        .all(this.erasedRetirementCursor, this.erasedRetirementEnd, limit);
       const queue = this.db.prepare('INSERT OR IGNORE INTO retirement_pending(session_id,owner_hash) VALUES (?,?)');
       for (const row of rows) queue.run(row.id, row.owner_hash);
       return rows;
@@ -194,7 +197,7 @@ export class SQLiteStorage {
   }
   hasErasedRetirementBacklog() {
     return Boolean(this.db.prepare(`SELECT 1 FROM sessions WHERE json_extract(snapshot,'$.tombstone') IS NOT NULL
-      AND id>? LIMIT 1`).get(this.erasedRetirementCursor));
+      AND id>? AND id<=? LIMIT 1`).get(this.erasedRetirementCursor, this.erasedRetirementEnd));
   }
   pendingRetirements(limit, now = Date.now()) {
     return this.db.prepare('SELECT session_id FROM retirement_pending WHERE retry_at<=? ORDER BY retry_at,session_id LIMIT ?').all(now, limit).map(row => row.session_id);
