@@ -259,6 +259,8 @@ slot[name="brand"]::slotted(*) { display:block; margin:0; font:inherit !importan
 .conversations-toggle > svg:last-child { display:block; width:10px; height:10px; color:var(--aithema-muted); }
 .conversations-toggle:hover, .conversations-toggle[aria-expanded="true"] { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 .footer-right { grid-column:3; min-width:0; }
+/* Host legal text yields before the preset button's existing 44 px target. */
+.footer-right .preset-panel { flex:none; }
 .display-foot:has(.host-credits[hidden]) .footer-right { gap:14px; }
 .display-foot:has(.host-legal:not([hidden])):has(.host-credits:not([hidden])) .display-foot__row { grid-template-columns:auto auto minmax(0,1fr); }
 .host-legal { display:flex; align-items:center; min-width:0; margin-left:10px; font:inherit; color:inherit; }

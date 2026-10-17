@@ -651,14 +651,16 @@ async function postRelease297(page, t, legalHTML) {
           const range = document.createRange(); range.selectNodeContents(text);
           return new Set([...range.getClientRects()].filter(b => b.width > 0).map(b => b.y)).size;
         }), legal: [...c.querySelectorAll('#demo-legal a')].map(n => {
-          const b = n.getBoundingClientRect(); return { width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }) };
-        }) };
+          const b = n.getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width: b.width, height: b.height, visible: n.checkVisibility({ visibilityProperty: true }) };
+        }), preset: (() => { const b = r.querySelector('.engine-info').getBoundingClientRect(); return { left:b.left, top:b.top, right:b.right, bottom:b.bottom, width:b.width }; })() };
       });
       reserved ??= state.boxes;
       assert.deepEqual(state.boxes, reserved, `${label}: action targets stay in place across tier receipts`);
       assert.deepEqual(state.lines, [1, 1], `${label}: both action labels occupy one line`);
       for (const [x, y, w, h] of state.boxes) { assert.ok(x >= 0 && x + w <= width && y >= 0 && y + h <= height, `${label}: action is in viewport`); assert.ok(h >= 44); }
       assert.equal(state.legal.length, 2);
+      assert.equal(state.preset.width, 44, `${label}: preset target cannot shrink`);
+      assert.ok(state.legal.every(n => n.left >= state.preset.right), `${label}: legal links clear the preset target`);
       assert.ok(state.legal.every(n => n.visible && n.width >= 24 && n.height >= 24), `${label}: legal target size`);
       assert.equal(await overflow(page), 0, `${label}: no horizontal overflow`);
       checks.push({ head: evidenceCommit, locale, theme, width, variant, shift: 0, ...state });
