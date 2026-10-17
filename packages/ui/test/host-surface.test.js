@@ -1663,6 +1663,9 @@ for (const failure of ['http', 'network']) test(`AIT-292 r2: ${failure} credits 
   assert.equal(reads('/credits'), creditReads + 1, 'the exhausted wallet was polled');
   assert.equal(reads(''), featureReads, 'a failed receipt cannot justify a feature request');
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false', 'acknowledged exhaustion stays visible');
+  failed = false; t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(reads('/credits'), creditReads + 2);
+  assert.ok(reads('') > featureReads, 'a later successful receipt still refreshes denied features');
 });
 
 for (const copy of [de, en]) for (const failure of ['http', 'network']) {
