@@ -5,9 +5,13 @@ import { spawn } from 'node:child_process';
 import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+function environment(trace) {
+  return { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
+    CHROME_PATH: process.env.CHROME_PATH, AITHEMA_EVIDENCE_DIR: process.env.AITHEMA_EVIDENCE_DIR,
+    AITHEMA_UNIT_TRACE_HANDLES: trace ? '1' : '' };
+}
 async function measure(label, args, trace) {
-  const started = performance.now(), env = { ...process.env };
-  delete env.NODE_TEST_CONTEXT;
+  const started = performance.now(), env = environment(trace);
   if (trace) env.AITHEMA_UNIT_TRACE_HANDLES = '1'; else delete env.AITHEMA_UNIT_TRACE_HANDLES;
   const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
@@ -27,9 +31,8 @@ for (const mode of ['baseline', 'default', 'trace']) test(`AIT-299 watchdog cost
   await measure(`${mode}-host`, [...args, ...files], mode === 'trace');
   // Identical scope before and after; omit the new red-before regressions only.
   const command = JSON.parse(await (await import('node:fs/promises')).readFile('package.json', 'utf8')).scripts.test;
-  const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
-  childEnv.AITHEMA_UNIT_TRACE_HANDLES = mode === 'trace' ? '1' : '';
-  const child = spawn('/bin/sh', ['-c', `${command} --test-skip-pattern=AIT-299`], {
+  const childEnv = environment(mode === 'trace');
+  const child = spawn('/bin/sh', ['-c', command.replace('node --test ', 'node --test --test-skip-pattern=AIT-299 ')], {
     env: childEnv, stdio: ['ignore', 'pipe', 'pipe'],
   });
   const started = performance.now(); let output = '';
@@ -39,5 +42,6 @@ for (const mode of ['baseline', 'default', 'trace']) test(`AIT-299 watchdog cost
   console.log(`${mode}-full: exit=${code}, wall_ms=${ms}`);
   if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${mode}-full.json`), JSON.stringify({ label: `${mode}-full`, code, wall_ms: ms }));
   if (process.env.AITHEMA_EVIDENCE_DIR) await writeFile(join(process.env.AITHEMA_EVIDENCE_DIR, `${mode}-full.log`), output);
+  assert.ok(/(?:ℹ|#) tests [5-9][0-9]{3}/.test(output), 'the full child must execute the unit suite');
   assert.equal(code, 0, output.slice(-12000));
 });
