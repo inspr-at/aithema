@@ -4,6 +4,7 @@ import { postJson, sameOrigin } from './post-json.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
 import { draftsLine, creditCost } from './display.js';
+import { conceptControlsBlocked, guardConceptControls } from './concept-guards.js';
 
 // START generated-ui-progress: estimates reserve completion for durable success.
 export function conceptProgress(status, now = Date.now()) {
@@ -90,6 +91,7 @@ export class ConceptView {
       const access = root.querySelector('.concept-access');
       const parent = this.#phone.matches && this.#imageLayout ? phoneSlot : root.querySelector('.concept-bar');
       if (access.parentNode !== parent) parent.prepend(access);
+      guardConceptControls(root);
       if (event && this.#session) this.render();
     };
     this.#placeAccess();
@@ -310,7 +312,8 @@ export class ConceptView {
     preview.disabled = !latest; preview.style.visibility = latest ? '' : 'hidden';
     preview.querySelector('.concept-preview-thumbs').hidden = latestDraft;
     for (const image of preview.querySelectorAll('img')) image.hidden = latestDraft; preview.querySelector('.concept-preview-glyph').hidden = !latestDraft;
-    preview.querySelector('.concept-preview-label').textContent = this.#phone.matches && this.#imageLayout ? this.copy.conceptPhoneReady : view; preview.setAttribute('aria-label', view);
+    const previewLabel = this.#phone.matches && this.#imageLayout ? this.copy.conceptPhoneReady : view;
+    preview.querySelector('.concept-preview-label').textContent = previewLabel; preview.setAttribute('aria-label', previewLabel);
     if (latest && !latestDraft && (this.visualKind() === 'html' || !this.backdropHidden())) void this.load(latest.id).then(url => {
       if (owner === this.#session?.id && epoch === this.#epoch && this.items.at(-1)?.id === latest.id && url && (this.visualKind() === 'html' || !this.backdropHidden())) this.paintThumbnail(latest.id, url);
     });
@@ -557,6 +560,7 @@ export class ConceptView {
     (node?.isConnected && !node.disabled && this.dialog.contains(node) ? node : this.root.querySelector('.concept-close')).focus();
   }
   open(id = this.items.at(-1)?.id) {
+    if (conceptControlsBlocked(this.root)) return;
     if (!id || !this.items.some(c => c.id === id)) return;
     this.#trigger = this.root.activeElement; this.#selected = id; this.#seen.add(id); this.rememberViewed();
     if (!this.dialog.open) this.dialog.showModal(); this.render(); this.root.querySelector('.concept-close').focus();
@@ -594,6 +598,7 @@ export class ConceptView {
     this.#loads.set(id, promise); return promise;
   }
   async request(artifactId) {
+    if (conceptControlsBlocked(this.root)) return;
     if (this.#busy || !this.feature().available || !draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature: this.feature() }).action || this.#session.conceptStatus?.phase === 'pending') return;
     const sourceTurnId = this.#session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id;
     if (!sourceTurnId) return;

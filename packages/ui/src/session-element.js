@@ -1,5 +1,6 @@
 import { paintConsentLine, reasonAction, reasonSeparator } from './consent-line.js';
 import { ConceptView } from './concept-view.js';
+import { guardConceptControls } from './concept-guards.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion, openQuestionItems } from '../../core/src/session.js';
 import { ReplyStream } from '../../core/src/reply.js';
@@ -1736,7 +1737,8 @@ export class AithemaSession extends HTMLElement {
     }
     workspace.dataset.understanding = understanding; root.querySelector('.understanding').inert = understanding === 'absent';
     // Before the start only the entrance is operable: the call and concept rails wait for it.
-    for (const control of root.querySelectorAll('.audio-rail, .concept-bar')) control.inert = stage !== 'live';
+    for (const control of root.querySelectorAll('.audio-rail')) control.inert = stage !== 'live';
+    guardConceptControls(root);
     this.#placeOrb(stage);
     intro.dataset.mode = mode; intro.hidden = !mode;
     const card = intro.querySelector('.intro__card');

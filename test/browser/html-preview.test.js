@@ -273,7 +273,7 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const browser = await puppeteer.launch({ executablePath:await browserPath(), headless:true, userDataDir:join(directory,'chrome'), args:process.platform==='linux'&&isCI?['--no-sandbox']:[] });
   t.after(async () => { await browser.close(); await new Promise(resolve => server.close(resolve)); await rm(directory, {recursive:true,force:true}); });
-  const page = await browser.newPage(), errors = [], shots = [], passes = [];
+  const page = await browser.newPage(), errors = [], shots = [], passes = [], guardShots = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.ready, {timeout:5000}).catch(cause => { throw new Error(`Backdrop fixture startup: ${JSON.stringify(errors)}`, {cause}); });
@@ -347,6 +347,35 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
     await page.evaluate(()=>{document.querySelector('aithema-session').removeAttribute('motion');window.state({phase:'ready'},window.conceptItem('reduce-system'));});await settle();
     assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.concept-backdrop img[data-on]')).transitionDuration),'0s');
     assert.deepEqual(errors,[]);
+    // Round-3 screenshots are evidence only; guard coverage lives in units and
+    // adds no states or browser work to the nearly full CI bins.
+    if(evidence && width===390){
+      const captureGuard=async state=>{
+        await settle();
+        await page.evaluate(()=>document.querySelector('aithema-session').shadowRoot.activeElement?.blur());
+        await page.mouse.move(-10,-10);
+        const file=locale+'-'+width+'-'+theme+'-'+state+'.png';
+        await page.screenshot({path:join(evidence,file),fullPage:false,captureBeyondViewport:false});
+        guardShots.push({file,head,theme,locale,state,width});
+      };
+      await page.evaluate(async locale=>{
+        const {EmailAsk}=await import('/packages/ui/src/email-ask.js');
+        const {[locale]:copy}=await import('/packages/ui/src/i18n/'+locale+'.js');
+        const c=document.querySelector('aithema-session');
+        const email={canCollect:true,address:'',delivery:false,numbers:{email:'1,500',confirmed:'2,000'},paintNotice(){}};
+        window.evidenceAsk=new EmailAsk({root:c.shadowRoot,copy,verification:{email},session:()=>c.session,streaming:()=>false,request:async()=>({ok:false})});
+        window.evidenceAsk.credits={balance:{owner:{availableMicro:6550000,limitMicro:10000000}},tiers:{next:'emailGiven',delta:5000000}};
+        window.evidenceAsk.open=true;window.evidenceAsk.paint();
+      },locale);
+      await captureGuard('email-ask-ready');
+      await page.evaluate(()=>window.evidenceAsk.destroy());
+      await page.evaluate(async locale=>{
+        await window.seed(locale);const c=document.querySelector('aithema-session');
+        c.configure({session:{...c.session,transcript:[],concepts:[window.conceptItem('not-live')],conceptStatus:{phase:'ready'}},sessionToken:'fixture-owner'});
+        c.setAttribute('motion','off');
+      },locale);
+      await captureGuard('not-live');
+    }
   }
   for(const width of [800,390]) {
   await page.setViewport({width,height:900});
@@ -371,6 +400,6 @@ test('AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN'
   assert.equal(await page.evaluate(()=>window.posts.length),0,'all reads and state fixtures are free');
   const reads=await page.evaluate(()=>window.artifactReads);
   assert.ok(reads.length>0);assert.ok(reads.every(r=>r.path.startsWith('/api/sessions/backdrop-owner/concepts/')&&r.token==='fixture-owner'&&r.cache==='no-store'));
-  if(evidence)await writeFile(join(evidence,'checks.json'),JSON.stringify({head,shots,passes,security:['PASS authenticated active-conversation loader only','PASS immediate withdrawal redaction','PASS no generation calls'],errors},null,2));
+  if(evidence)await writeFile(join(evidence,'checks.json'),JSON.stringify({head,shots,guardShots,passes,security:['PASS authenticated active-conversation loader only','PASS immediate withdrawal redaction','PASS no generation calls'],errors},null,2));
   console.log(`PASS AIT-282: ${passes.length} state comparisons, 0 px; authenticated bytes and immediate revocation`);
 });

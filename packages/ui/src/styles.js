@@ -1,4 +1,5 @@
 import { reasonSeparator } from './consent-line.js';
+import { CONCEPT_CONTROLS } from './concept-guards.js';
 
 // START's look (src/styles/app.css palette, type and shell; src/pages/index.astro workspace, transcript,
 // composer, conversation rail and understanding), adapted to the component; INSPR rights (D3).
@@ -89,7 +90,9 @@ svg { display:block; flex:none; }
 /* The conversation column (START .v2): quiet header line, then the entrance or the live conversation. */
 .conversation { position:relative; min-width:0; display:grid; grid-template-rows:auto; align-content:start; gap:.85rem; }
 .head { display:flex; align-items:baseline; justify-content:space-between; gap:.15rem 1.5rem; }
-.workspace:not([data-stage="live"]) :is(.audio-rail, .concept-bar, .transcript-shell, .composer) { display:none; }
+.workspace:not([data-stage="live"]) :is(.audio-rail, .transcript-shell, .composer) { display:none; }
+/* Stage visibility wins over later image/phone layout rules in either mount. */
+.workspace:not([data-stage="live"]) :is(${CONCEPT_CONTROLS}) { display:none !important; }
 
 /* The conversation rail (START .v2__conversation-rail): orb dock, sound, waveform with one status phrase,
    pause, microphone and end. 44 px controls in fixed cells. */
