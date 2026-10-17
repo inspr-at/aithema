@@ -1419,15 +1419,19 @@ export class AithemaSession extends HTMLElement {
     // must not select a second row that would flash before the first visible fit.
     if (!band?.querySelector('.audio-rail') || !band.clientWidth) return;
     const style = this.ownerDocument.defaultView.getComputedStyle(band);
+    // A first-paint shell owns the reservation in CSS. Re-measuring its flex
+    // content (including empty account gaps) must not introduce another row.
+    const reserved = style.getPropertyValue('--aithema-header-rail-row').trim();
+    if (reserved) {
+      band.toggleAttribute('data-rail-row', reserved === '2' || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth);
+      return;
+    }
     const tracks = style.gridTemplateColumns.split(' ').map(Number.parseFloat);
     const railTrack = tracks.length === 3 ? tracks[1] : 0;
     const available = Math.min(railTrack, band.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       - root.querySelector('.band-identity').getBoundingClientRect().width
       - root.querySelector('.header-actions').getBoundingClientRect().width - 2 * parseFloat(style.columnGap));
-    // The render-blocking shell query reserves the same content-width budget.
-    // Honour its conservative row even when the actual brand is shorter.
-    const reserved = style.getPropertyValue('--aithema-header-rail-row').trim() === '2';
-    band.toggleAttribute('data-rail-row', reserved || this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < 208);
+    band.toggleAttribute('data-rail-row', this.ownerDocument.defaultView.innerWidth < voiceSingleRowMinWidth || available < 208);
   }
   #observePanes() {
     this.#paneObserver?.disconnect();
