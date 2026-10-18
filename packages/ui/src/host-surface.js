@@ -292,8 +292,14 @@ export class HostSurface {
       if (this.#credits?.reconciling) button.setAttribute(attribute, c.reconciling);
       else button.removeAttribute(attribute);
     }
-    // Use the exact formatted width: separators are narrower than a tabular digit.
-    amount.setAttribute('data-credit-measure', owner ? format(reservedLimit, locale) : '…');
+    // Tick AIT-357: reserve the six-glyph 10,000-credit envelope before the
+    // first receipt. Larger host allowances still grow and use the normal refit.
+    const initialMaximum = 100_000_000; // microUSD: 10,000 whole credits
+    const measuredMaximum = format(Math.max(initialMaximum, reservedLimit ?? 0), locale);
+    // Reserve both numbers before the receipt so the unit never moves.
+    amount.setAttribute('data-credit-reserve', measuredMaximum);
+    total.setAttribute('data-credit-reserve', fill(layout.creditsTotal, { limit: measuredMaximum }));
+    line.querySelector('.host-credits__measure-amount').setAttribute('data-credit-reserve', measuredMaximum);
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
     line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));
@@ -303,9 +309,9 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__low-short'), owner ? fill(c.lowShort, { available: format(warningAvailable, locale) }) : '');
     // Reserve the width using the highest server tier; digit changes never
     // narrow the cell, including EN where the used-up label is shorter.
-    setText(line.querySelector('.host-credits__measure-amount'), owner ? format(reservedLimit, locale) : '…');
-    setText(line.querySelector('.host-credits__measure-total'), owner ? fill(layout.creditsTotal, { limit: format(reservedLimit, locale) }) : '');
-    setText(line.querySelector('.host-credits__measure-unit'), owner ? layout.creditsUnit : '');
+    setText(line.querySelector('.host-credits__measure-amount'), owner ? format(reservedLimit, locale) : measuredMaximum);
+    setText(line.querySelector('.host-credits__measure-total'), fill(layout.creditsTotal, { limit: measuredMaximum }));
+    setText(line.querySelector('.host-credits__measure-unit'), layout.creditsUnit);
     setText(line.querySelector('.host-credits__measure-low-full'), owner && Number.isSafeInteger(warningLimit) ? fill(c.low, { available: format(warningLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__measure-low-short'), owner && Number.isSafeInteger(warningLimit) ? fill(c.lowShort, { available: format(warningLimit, locale) }) : '');
     const timedOut = this.endReason === 'one-hour';
@@ -313,8 +319,8 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__used-up-short'), timedOut ? c.timeExpired : c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount.querySelector('.host-credits__value'), owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
-    setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
-    const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
+    setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, layout.creditsUnit);
+    const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : c.loading;
     setText(scope, balance); button.setAttribute('aria-label', balance);
     if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + reasonSeparator + balance);
     current.hidden = !tiers || tiers.current === 'anonymous';
@@ -323,7 +329,8 @@ export class HostSurface {
     setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out && this.limitCopy.footer !== false ? c.noMore : '');
     nextLine.hidden = !next && (!out || this.limitCopy.footer === false); link.hidden = !next;
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
-    track.hidden = !owner;
+    // Reserve the track without overriding narrow/legal-host display rules.
+    track.hidden = false; track.style.visibility = owner ? '' : 'hidden';
     if (owner) {
       const value = wholeCredits(exhausted ? 0 : owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
       track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;

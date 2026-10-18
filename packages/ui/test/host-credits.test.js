@@ -8,6 +8,29 @@ import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
 import { window, tick, v, l, h, cr, identity, locked, pending, entry, balance, setup, userTurn, a2Setup, a2Allowances } from './host-surface-helpers.js';
 
+for (const [copy, loadingName] of [[de, 'Credits werden geladen'], [en, 'Loading credits']]) {
+  test(`AIT-357: one placeholder and the loading accessible name until the first receipt (${copy.display.locale})`, async t => {
+    let release;
+    const receipt = new Promise(resolve => { release = resolve; });
+    const { root } = setup(t, { copy, host: { credits: true }, routes: { 'GET /credits': () => receipt } });
+    await tick(8);
+    const button = root.querySelector('.host-credits__button'), total = root.querySelector('.host-credits__total');
+    const track = root.querySelector('.host-credits__track');
+    assert.equal(root.querySelector('.host-credits__value').textContent, '…');
+    assert.equal(total.textContent, '');
+    assert.ok(total.dataset.creditReserve.length > 0, 'the empty total keeps its reserved width');
+    assert.equal(track.hidden, false, 'the loading track keeps its layout slot');
+    assert.equal(track.style.visibility, 'hidden', 'no track is painted before the receipt');
+    assert.equal(button.getAttribute('aria-label'), loadingName);
+    release(Response.json({ balance, limitSlot: null })); await tick(8);
+    assert.equal(root.querySelector('.host-credits__value').textContent, '425');
+    assert.equal(button.getAttribute('aria-label'), copy.hostSurface.credits.balance.replace('{available}', '425').replace('{limit}', '500'));
+    assert.notEqual(button.getAttribute('aria-label'), loadingName);
+    assert.equal(track.style.visibility, '');
+    assert.ok(total.textContent.length > 0);
+  });
+}
+
 test('AIT-164: mail Settings saves and raises the tier before the confirmation request finishes', async t => {
   let finish, requested;
   const waiting = new Promise(resolve => { finish = resolve; });

@@ -8,6 +8,10 @@ import { measureFooterGeometry, assertFits } from './footer-geometry.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
 import { demoLegalPhoneCheck } from './demo-legal-phone-check.js';
+import { creditsFirstReceiptCheck } from './credits-first-receipt-check.js';
+
+test('AIT-357: first credits receipt moves nothing at 320/390/700/1024/1100/1440, DE/EN, light/dark, legal/no-legal',
+  { timeout: 90_000 }, creditsFirstReceiptCheck);
 
 test('AIT-304: demo phone legal links each occupy one line; full names, clear targets and 0px holds',
   { timeout: 90_000 }, demoLegalPhoneCheck);
