@@ -1,8 +1,8 @@
 {
   "schema": "aithema-candidate-evidence/1",
-  "version": "261017195050.0.0",
-  "source_commit": "dbe5f9118d498441370e508891ebf020467d7978",
-  "built_at": "2026-10-17T19:51:19.742Z",
+  "version": "261018104037.0.0",
+  "source_commit": "3a052ebf32faa5755d7da42d10b0931a062f6544",
+  "built_at": "2026-10-18T10:43:06.971Z",
   "runner": "mbp2606",
   "toolchain": {
     "node": "24.20.0",
@@ -10,171 +10,171 @@
   },
   "reproducible": true,
   "builds": 2,
-  "manifest_sha256": "sha256:702dd57d30c659b93ebd2d129461544ec1311e0c446aad766b9c9e3ff9bff6b0",
+  "manifest_sha256": "sha256:b5a3a8541c814c686884db61541b2d23d423976d76659e8ca41355e432d77f79",
   "artifacts": [
     {
-      "path": "aithema-reset-261017195050.0.0.tgz",
-      "sha256": "sha256:3f3425af30985cf38a2f9f8bd3d03c301d61191bc2f00dae3439b4d3d659d0fa"
+      "path": "aithema-reset-261018104037.0.0.tgz",
+      "sha256": "sha256:5de38f8e8a0332d40d58d549b44898eba2d61d51ee8ef8f04a764fe6824e11c0"
     },
     {
-      "path": "inspr-aithema-core-261017195050.0.0.tgz",
+      "path": "inspr-aithema-core-261018104037.0.0.tgz",
       "name": "@inspr/aithema-core",
-      "sha256": "sha256:b2db7e8edbded7198c7904f60340a1d944345a5eecb31a6a05e3aeac28de289d"
+      "sha256": "sha256:8a41150dc331975eaf6b212517665cb0d6759f7402a9591907d166b86bde7c23"
     },
     {
-      "path": "inspr-aithema-server-261017195050.0.0.tgz",
+      "path": "inspr-aithema-server-261018104037.0.0.tgz",
       "name": "@inspr/aithema-server",
-      "sha256": "sha256:090d8c10be8437604b624fa69f767c4c7bfafc4d4dbcbaba5b07129555c0c69a"
+      "sha256": "sha256:ec9cc1d2a5bc0169bd7e2455fd3eddaab4dd714cd8abc1b671fae9f37ebfff55"
     },
     {
-      "path": "inspr-aithema-ui-261017195050.0.0.tgz",
+      "path": "inspr-aithema-ui-261018104037.0.0.tgz",
       "name": "@inspr/aithema-ui",
-      "sha256": "sha256:8a2bd9cdec43d9081528f97b9a2529fb08e3090f272175e5324f2a4479cb922a"
+      "sha256": "sha256:53e9fad3383bf5bc89412cfef5a5876b718bc5eb1cb0703edf589b037fc7e48a"
     },
     {
-      "path": "inspr-aithema-plugin-claude-html-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-claude-html-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-claude-html",
-      "sha256": "sha256:123b57503a455cdcc731e25fb46a43756b45bc6e397a44c431e78f5180188e39"
+      "sha256": "sha256:80b04dca0611eea5f9ab89e142fe84dc3851aa8d811a04769b4e769bd25cae46"
     },
     {
-      "path": "inspr-aithema-plugin-codex-imagegen-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-codex-imagegen-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-codex-imagegen",
-      "sha256": "sha256:985fbfd2ecb240e22b93e2ca25a467ca02c0474732b48d48719d7d536530ad39"
+      "sha256": "sha256:1cf7495278204ac23f6e96292040ec86219c9908602ce023a34ebbc31cc0f1ef"
     },
     {
-      "path": "inspr-aithema-plugin-device-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-device-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-device",
-      "sha256": "sha256:67f23c31b0e2b6e8ce4dce536a21cf594ccc2eedb93f6f31cb200037ebb8c87f"
+      "sha256": "sha256:87fafeae690c399fd29f0db987a29275641d2e85ca470520318bdf6f958cf16c"
     },
     {
-      "path": "inspr-aithema-plugin-elevenlabs-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-elevenlabs-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-elevenlabs",
-      "sha256": "sha256:e7116f0c8447295c8fa5b506fef48a17a3bddb4fc22e487601a40659e5b92242"
+      "sha256": "sha256:8a9569c1c2b0f435d8e823701f36fb68e9b8d14cb151a44736ac25a592f02cd9"
     },
     {
-      "path": "inspr-aithema-plugin-extract-ooxml-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-extract-ooxml-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-extract-ooxml",
-      "sha256": "sha256:7be63292ee21d21c2ee029dc2688702bc7720c93f9fccbb589620978588ee513"
+      "sha256": "sha256:2b0ae4deec8837ff352777a19ff86f41f68f263d4dc2f50baab66af234c11ad6"
     },
     {
-      "path": "inspr-aithema-plugin-extract-pdf-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-extract-pdf-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-extract-pdf",
-      "sha256": "sha256:557c9e7620be27bcaf78af6a09acce1e6b47d2691baba0c309b6c5fe648859f6"
+      "sha256": "sha256:8fb5cd8a19197ad77c2cb92b893cc49d4481c9a8290f46d2e2989fde9a53d930"
     },
     {
-      "path": "inspr-aithema-plugin-extract-text-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-extract-text-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-extract-text",
-      "sha256": "sha256:fde097765c6fc3d081fa7371157bafda813c105f52a5adecd2f4ac6a904c967a"
+      "sha256": "sha256:a0e90877870cdf1b934d1c26a0c3e3930db7008b28f2120dabb23e3709b64bba"
     },
     {
-      "path": "inspr-aithema-plugin-mail-smtp-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-mail-smtp-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-mail-smtp",
-      "sha256": "sha256:2bbc5ed986ea17d3b2f1a1a207c5549420e594119d4d617c495b092d0ad681a0"
+      "sha256": "sha256:250807e77616d08ece4ad7dc2b551c0e2cbaf8db592cc1eae4467563c4813e8d"
     },
     {
-      "path": "inspr-aithema-plugin-mistral-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-mistral-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-mistral",
-      "sha256": "sha256:691aa0c8b49b9e7744fe9c54c84c042e42c6220a6cbb73cb86dd07aa97bbe86d"
+      "sha256": "sha256:c5f74b280e4a30c3e862e6e145112efb599830de87556269e395e780a2dabce3"
     },
     {
-      "path": "inspr-aithema-plugin-openai-images-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-openai-images-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-openai-images",
-      "sha256": "sha256:d06971e5f6c325a0cbf498c7f17c6c5c161b42b7f76b7eae0d2100294b29de29"
+      "sha256": "sha256:251aeafee89cc22ba456500b713edcb0f5cb8cd7013f6447d74fb15cd092ae01"
     },
     {
-      "path": "inspr-aithema-plugin-openrouter-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-openrouter-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-openrouter",
-      "sha256": "sha256:af4836fe5462ee0adb792d390994ff39164ac7f4676ad7f3dff1d8f80e716c3c"
+      "sha256": "sha256:517d8f70b00e6881d37e67991041134e86d0ff8b71d2d7a70fa55a3351a1473b"
     },
     {
-      "path": "inspr-aithema-plugin-zitadel-oidc-261017195050.0.0.tgz",
+      "path": "inspr-aithema-plugin-zitadel-oidc-261018104037.0.0.tgz",
       "name": "@inspr/aithema-plugin-zitadel-oidc",
-      "sha256": "sha256:0c263917c2d80431e9147d4ca532b3b844810ca9bdcefd253757d34aa5bd6322"
+      "sha256": "sha256:b103520fbd0ccdf1929e84aa65b451af113ce07582a5c9b050e88d7fb2f75097"
     }
   ],
   "consumer": {
     "schema": "aithema-consumer-evidence/1",
-    "version": "261017195050.0.0",
+    "version": "261018104037.0.0",
     "version_scheme": "inspr-calver-3",
     "release_channel": "stable",
-    "release_sequence": 14,
-    "source_commit": "dbe5f9118d498441370e508891ebf020467d7978",
-    "manifest_sha256": "sha256:702dd57d30c659b93ebd2d129461544ec1311e0c446aad766b9c9e3ff9bff6b0",
+    "release_sequence": 15,
+    "source_commit": "3a052ebf32faa5755d7da42d10b0931a062f6544",
+    "manifest_sha256": "sha256:b5a3a8541c814c686884db61541b2d23d423976d76659e8ca41355e432d77f79",
     "packages": [
       {
         "name": "@inspr/aithema-core",
-        "path": "inspr-aithema-core-261017195050.0.0.tgz",
-        "sha256": "sha256:b2db7e8edbded7198c7904f60340a1d944345a5eecb31a6a05e3aeac28de289d"
+        "path": "inspr-aithema-core-261018104037.0.0.tgz",
+        "sha256": "sha256:8a41150dc331975eaf6b212517665cb0d6759f7402a9591907d166b86bde7c23"
       },
       {
         "name": "@inspr/aithema-server",
-        "path": "inspr-aithema-server-261017195050.0.0.tgz",
-        "sha256": "sha256:090d8c10be8437604b624fa69f767c4c7bfafc4d4dbcbaba5b07129555c0c69a"
+        "path": "inspr-aithema-server-261018104037.0.0.tgz",
+        "sha256": "sha256:ec9cc1d2a5bc0169bd7e2455fd3eddaab4dd714cd8abc1b671fae9f37ebfff55"
       },
       {
         "name": "@inspr/aithema-ui",
-        "path": "inspr-aithema-ui-261017195050.0.0.tgz",
-        "sha256": "sha256:8a2bd9cdec43d9081528f97b9a2529fb08e3090f272175e5324f2a4479cb922a"
+        "path": "inspr-aithema-ui-261018104037.0.0.tgz",
+        "sha256": "sha256:53e9fad3383bf5bc89412cfef5a5876b718bc5eb1cb0703edf589b037fc7e48a"
       },
       {
         "name": "@inspr/aithema-plugin-claude-html",
-        "path": "inspr-aithema-plugin-claude-html-261017195050.0.0.tgz",
-        "sha256": "sha256:123b57503a455cdcc731e25fb46a43756b45bc6e397a44c431e78f5180188e39"
+        "path": "inspr-aithema-plugin-claude-html-261018104037.0.0.tgz",
+        "sha256": "sha256:80b04dca0611eea5f9ab89e142fe84dc3851aa8d811a04769b4e769bd25cae46"
       },
       {
         "name": "@inspr/aithema-plugin-codex-imagegen",
-        "path": "inspr-aithema-plugin-codex-imagegen-261017195050.0.0.tgz",
-        "sha256": "sha256:985fbfd2ecb240e22b93e2ca25a467ca02c0474732b48d48719d7d536530ad39"
+        "path": "inspr-aithema-plugin-codex-imagegen-261018104037.0.0.tgz",
+        "sha256": "sha256:1cf7495278204ac23f6e96292040ec86219c9908602ce023a34ebbc31cc0f1ef"
       },
       {
         "name": "@inspr/aithema-plugin-device",
-        "path": "inspr-aithema-plugin-device-261017195050.0.0.tgz",
-        "sha256": "sha256:67f23c31b0e2b6e8ce4dce536a21cf594ccc2eedb93f6f31cb200037ebb8c87f"
+        "path": "inspr-aithema-plugin-device-261018104037.0.0.tgz",
+        "sha256": "sha256:87fafeae690c399fd29f0db987a29275641d2e85ca470520318bdf6f958cf16c"
       },
       {
         "name": "@inspr/aithema-plugin-elevenlabs",
-        "path": "inspr-aithema-plugin-elevenlabs-261017195050.0.0.tgz",
-        "sha256": "sha256:e7116f0c8447295c8fa5b506fef48a17a3bddb4fc22e487601a40659e5b92242"
+        "path": "inspr-aithema-plugin-elevenlabs-261018104037.0.0.tgz",
+        "sha256": "sha256:8a9569c1c2b0f435d8e823701f36fb68e9b8d14cb151a44736ac25a592f02cd9"
       },
       {
         "name": "@inspr/aithema-plugin-extract-ooxml",
-        "path": "inspr-aithema-plugin-extract-ooxml-261017195050.0.0.tgz",
-        "sha256": "sha256:7be63292ee21d21c2ee029dc2688702bc7720c93f9fccbb589620978588ee513"
+        "path": "inspr-aithema-plugin-extract-ooxml-261018104037.0.0.tgz",
+        "sha256": "sha256:2b0ae4deec8837ff352777a19ff86f41f68f263d4dc2f50baab66af234c11ad6"
       },
       {
         "name": "@inspr/aithema-plugin-extract-pdf",
-        "path": "inspr-aithema-plugin-extract-pdf-261017195050.0.0.tgz",
-        "sha256": "sha256:557c9e7620be27bcaf78af6a09acce1e6b47d2691baba0c309b6c5fe648859f6"
+        "path": "inspr-aithema-plugin-extract-pdf-261018104037.0.0.tgz",
+        "sha256": "sha256:8fb5cd8a19197ad77c2cb92b893cc49d4481c9a8290f46d2e2989fde9a53d930"
       },
       {
         "name": "@inspr/aithema-plugin-extract-text",
-        "path": "inspr-aithema-plugin-extract-text-261017195050.0.0.tgz",
-        "sha256": "sha256:fde097765c6fc3d081fa7371157bafda813c105f52a5adecd2f4ac6a904c967a"
+        "path": "inspr-aithema-plugin-extract-text-261018104037.0.0.tgz",
+        "sha256": "sha256:a0e90877870cdf1b934d1c26a0c3e3930db7008b28f2120dabb23e3709b64bba"
       },
       {
         "name": "@inspr/aithema-plugin-mail-smtp",
-        "path": "inspr-aithema-plugin-mail-smtp-261017195050.0.0.tgz",
-        "sha256": "sha256:2bbc5ed986ea17d3b2f1a1a207c5549420e594119d4d617c495b092d0ad681a0"
+        "path": "inspr-aithema-plugin-mail-smtp-261018104037.0.0.tgz",
+        "sha256": "sha256:250807e77616d08ece4ad7dc2b551c0e2cbaf8db592cc1eae4467563c4813e8d"
       },
       {
         "name": "@inspr/aithema-plugin-mistral",
-        "path": "inspr-aithema-plugin-mistral-261017195050.0.0.tgz",
-        "sha256": "sha256:691aa0c8b49b9e7744fe9c54c84c042e42c6220a6cbb73cb86dd07aa97bbe86d"
+        "path": "inspr-aithema-plugin-mistral-261018104037.0.0.tgz",
+        "sha256": "sha256:c5f74b280e4a30c3e862e6e145112efb599830de87556269e395e780a2dabce3"
       },
       {
         "name": "@inspr/aithema-plugin-openai-images",
-        "path": "inspr-aithema-plugin-openai-images-261017195050.0.0.tgz",
-        "sha256": "sha256:d06971e5f6c325a0cbf498c7f17c6c5c161b42b7f76b7eae0d2100294b29de29"
+        "path": "inspr-aithema-plugin-openai-images-261018104037.0.0.tgz",
+        "sha256": "sha256:251aeafee89cc22ba456500b713edcb0f5cb8cd7013f6447d74fb15cd092ae01"
       },
       {
         "name": "@inspr/aithema-plugin-openrouter",
-        "path": "inspr-aithema-plugin-openrouter-261017195050.0.0.tgz",
-        "sha256": "sha256:af4836fe5462ee0adb792d390994ff39164ac7f4676ad7f3dff1d8f80e716c3c"
+        "path": "inspr-aithema-plugin-openrouter-261018104037.0.0.tgz",
+        "sha256": "sha256:517d8f70b00e6881d37e67991041134e86d0ff8b71d2d7a70fa55a3351a1473b"
       },
       {
         "name": "@inspr/aithema-plugin-zitadel-oidc",
-        "path": "inspr-aithema-plugin-zitadel-oidc-261017195050.0.0.tgz",
-        "sha256": "sha256:0c263917c2d80431e9147d4ca532b3b844810ca9bdcefd253757d34aa5bd6322"
+        "path": "inspr-aithema-plugin-zitadel-oidc-261018104037.0.0.tgz",
+        "sha256": "sha256:b103520fbd0ccdf1929e84aa65b451af113ce07582a5c9b050e88d7fb2f75097"
       }
     ],
     "installed": {
@@ -266,9 +266,9 @@
         "aithema-html-preview"
       ],
       "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
-      "version": "261017195050.0.0",
+      "version": "261018104037.0.0",
       "verified_packages": 15,
-      "verified_files": 260,
+      "verified_files": 261,
       "isolation": "all module resolutions confined to temporary host"
     },
     "locked_reinstall": {
@@ -360,20 +360,20 @@
         "aithema-html-preview"
       ],
       "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
-      "version": "261017195050.0.0",
+      "version": "261018104037.0.0",
       "verified_packages": 15,
-      "verified_files": 260,
+      "verified_files": 261,
       "isolation": "all module resolutions confined to temporary host"
     },
     "update": {
       "from": "0.10.1",
-      "to": "261017195050.0.0",
+      "to": "261018104037.0.0",
       "scope": "dependency pin replacement and anchored ordering; no legacy API/database migration",
       "legacy_source_commit": "e89c1cdad0c3f608f2ae06fb0cfc87d9048b1ca0",
       "legacy_install": "not applicable: private, retired monolith; no compatible split package release"
     },
     "rollback": {
-      "retained_manifest_sha256": "sha256:702dd57d30c659b93ebd2d129461544ec1311e0c446aad766b9c9e3ff9bff6b0",
+      "retained_manifest_sha256": "sha256:b5a3a8541c814c686884db61541b2d23d423976d76659e8ca41355e432d77f79",
       "verified_packages": 15,
       "smoke": {
         "imports": 25,
@@ -464,9 +464,9 @@
           "aithema-html-preview"
         ],
         "dom": "happy-dom mount; browser policy/layout is covered by the browser suite",
-        "version": "261017195050.0.0",
+        "version": "261018104037.0.0",
         "verified_packages": 15,
-        "verified_files": 260,
+        "verified_files": 261,
         "isolation": "all module resolutions confined to temporary host"
       }
     }

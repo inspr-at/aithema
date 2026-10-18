@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261017195050.0.0",
+  "version": "261018104037.0.0",
   "release_channel": "stable",
-  "release_sequence": 14,
+  "release_sequence": 15,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-303 third October candidate preparation for START-548/549; AEON-LEAD 2026-10-17 21:45 Europe/Vienna relaying Markus authorizes preparation and Tick release QA; OPS publishes only after Tick QA and Markus's separate Desk go; no tag or publication authorization"
+  "reservation_purpose": "AIT-315 fourth October candidate preparation; AEON-LEAD 2026-10-18 ~12:35 Europe/Vienna authorizes preparation after AIT-308, including concept images through the spending cap as START-549's unblocker; prepare only; OPS publishes only on Markus's separate Desk go; no tag, tag push, GitHub release or publication authorization"
 }
