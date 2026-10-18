@@ -161,7 +161,9 @@ keyboard focus, and one settled attempt per failed lane after a single click.
 No `process.env.CI` reads were added or changed.
 
 The measured file weight is 80 s (round 60.692487 s up to 70, plus 10 s margin).
-The six planned shards are 410/420/420/420/420/420 s; shard count is unchanged.
+The historical AIT-212 six-shard plan was 410/420/420/420/420/420 s.
+AIT-312 later expands worker capacity to seven with a 380 s planning target;
+the 420 s hard ceiling remains unchanged.
 Final-head viewport evidence belongs at
 `/Users/markus/Code/aithema-evidence/AIT-221/<head>/`: two failures, overview-only
 and recovered states at 390/1024/1440 × light/dark × DE/EN, reduced motion,

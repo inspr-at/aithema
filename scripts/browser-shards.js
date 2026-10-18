@@ -122,9 +122,10 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
   browserTestWeights['test/browser/email-mail-space.test.js'], 83);
 
-// Six bins and the seven-minute file-work budget are capacity policy.
-export const browserShardCount = 6;
+// AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
+export const browserShardCount = 7;
 export const browserShardBudget = 420;
+export const browserShardHeadroomTarget = 380;
 
 export function packBrowserTests(files, weights = browserTestWeights, shardCount = browserShardCount) {
   if (!Number.isInteger(shardCount) || shardCount < 1) throw new Error('Invalid browser shard count');
@@ -146,6 +147,41 @@ export function packBrowserTests(files, weights = browserTestWeights, shardCount
     const index = totals.indexOf(Math.min(...totals));
     shards[index].push(file);
     totals[index] += weightOf(file);
+  }
+  // AIT-312: refine LPT with deterministic whole-file moves/swaps. Minimize
+  // makespan first, then squared load; never worsen LPT's makespan bound.
+  // Strict improvement and stable iteration order make the result repeatable.
+  const score = loads => [Math.max(...loads), loads.reduce((sum, load) => sum + load * load, 0)];
+  const better = (a, b) => a[0] < b[0] - 1e-9 || (Math.abs(a[0] - b[0]) <= 1e-9 && a[1] < b[1] - 1e-9);
+  for (;;) {
+    let best = score(totals), change;
+    for (let from = 0; from < shardCount; from++) {
+      for (let to = from + 1; to < shardCount; to++) {
+        for (let left = -1; left < shards[from].length; left++) {
+          for (let right = -1; right < shards[to].length; right++) {
+            if (left === -1 && right === -1) continue;
+            if (left === -1 && shards[to].length <= 1 || right === -1 && shards[from].length <= 1) continue;
+            const delta = (left === -1 ? 0 : weightOf(shards[from][left])) -
+              (right === -1 ? 0 : weightOf(shards[to][right]));
+            const candidate = [...totals];
+            candidate[from] -= delta;
+            candidate[to] += delta;
+            const next = score(candidate);
+            if (better(next, best)) {
+              best = next;
+              change = { from, to, left, right, candidate };
+            }
+          }
+        }
+      }
+    }
+    if (!change) break;
+    const { from, to, left, right, candidate } = change;
+    const a = left === -1 ? [] : shards[from].splice(left, 1);
+    const b = right === -1 ? [] : shards[to].splice(right, 1);
+    shards[from].push(...b);
+    shards[to].push(...a);
+    totals.splice(0, totals.length, ...candidate);
   }
   return { shards, totals };
 }
@@ -182,6 +218,17 @@ export function assertBrowserShardBudget(totals = browserShardTotals) {
   }
 }
 
+// Separate planning guard: report the overloaded bins and their measured files
+// so capacity/workload changes can be reviewed without weakening the hard cap.
+export function assertBrowserShardHeadroom(packing = browserPacking, weights = browserTestWeights) {
+  const overloaded = packing.totals.flatMap((total, index) => total > browserShardHeadroomTarget
+    ? [`Shard ${index + 1}/${packing.shards.length}: ${total.toFixed(3)}s; files: ${packing.shards[index]
+      .map(file => `${file} (${weights[file].toFixed(3)}s)`).join(', ')}`] : []);
+  if (overloaded.length) {
+    throw new Error(`Browser shard headroom target exceeded (${browserShardHeadroomTarget}s; hard ceiling remains ${browserShardBudget}s). Review measured workloads and repack; do not lower weights without evidence.\n${overloaded.join('\n')}`);
+  }
+}
+
 export function selectBrowserTests(args = []) {
   assertBrowserShardCoverage();
   assertBrowserShardBudget();
@@ -202,6 +249,7 @@ export function selectBrowserTests(args = []) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   assertBrowserShardCoverage();
   assertBrowserShardBudget();
+  assertBrowserShardHeadroom();
   browserShardTotals.forEach((total, index) => {
     console.log(`Browser shard ${index + 1}/${browserShards.length}: projected file work ${total.toFixed(3)}s (${browserShards[index].length} files).`);
   });

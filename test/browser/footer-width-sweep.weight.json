@@ -1,20 +1,56 @@
 {
-  "seconds": 15.613,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 48.544,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "6b23e45427d9f1c38e882d1acef7d9793ff80242a0ebcc1eda84eee85c28ff09",
+    "workload": "cf53acf4efb430372a93e4b74cf18916865c10efb2e289ad13698b24277c3b6a",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:50.422Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:22.703Z",
         "tests": [
           {
             "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
-            "seconds": 12.489583061
+            "seconds": 13.051426937
+          },
+          {
+            "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
+            "seconds": 23.280958476
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:52.992Z",
+        "tests": [
+          {
+            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "seconds": 12.942188701
+          },
+          {
+            "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
+            "seconds": 21.247809928
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:38.266Z",
+        "tests": [
+          {
+            "name": "AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping",
+            "seconds": 14.389005261
+          },
+          {
+            "name": "AIT-281: actor role state matrix has exactly 0px movement at 1440/1024/390, DE/EN, light/dark",
+            "seconds": 24.445230119
           }
         ]
       }

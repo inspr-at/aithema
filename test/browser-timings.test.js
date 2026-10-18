@@ -199,6 +199,17 @@ else if (args[0] === 'run' && args[1] === 'download' && args[2] === '123' && arg
     assert.match(rejected.stderr, /Untrusted|provenance mismatch|not on canonical main history/u);
     assert.equal(readFileSync(weightPath, 'utf8'), before, 'rejected input writes no weights');
   }
+  const seven = Array.from({ length: 7 }, (_, i) => ({ ...artifacts[0], name: `browser-timings-${i + 1}-of-7` }));
+  const sevenSuccess = invoke({ artifacts: seven });
+  assert.equal(sevenSuccess.status, 0, sevenSuccess.stderr);
+  for (const incomplete of [artifacts.slice(1), seven.slice(1), [...seven.slice(1), seven[1]],
+    [...artifacts, seven[6]], seven.map((a, i) => i ? a : { ...a, name: 'browser-timings-8-of-7' }),
+    seven.map((a, i) => i ? a : { ...a, expired: true })]) {
+    const rejected = invoke({ artifacts: incomplete });
+    assert.notEqual(rejected.status, 0, rejected.stdout);
+    assert.match(rejected.stderr, /incomplete or mixed/u);
+    assert.equal(readFileSync(weightPath, 'utf8'), before, 'incomplete input writes no weights');
+  }
   const local = invoke({}, ['--artifacts', root]);
   assert.notEqual(local.status, 0);
   assert.match(local.stderr, /only verified canonical main push/u);

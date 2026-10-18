@@ -1,24 +1,296 @@
 {
-  "seconds": 33.11,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 28.824,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39013642167-1, 39013889487-1, 39023622869-1, 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "f3a2d2de22f19469cebf55571760be24c82f57da125f21ebc9831fe2601686b1",
+    "workload": "c3656a0bc0f69e6237045dc45dbd69cec4d3c44666f20d7526a4df12a550efa2",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39013642167",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:49.554Z",
+        "sha": "9e123986be8135f3637e703dd95a780a36a376c9",
+        "observedAt": "2026-10-17T07:26:49.624Z",
         "tests": [
           {
             "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
-            "seconds": 18.412708941
+            "seconds": 20.150119592
           },
           {
             "name": "real Chrome isolates the html preview and renders the sample click-dummy",
-            "seconds": 8.074516757
+            "seconds": 8.088840372
+          }
+        ]
+      },
+      {
+        "runId": "39013889487",
+        "attempt": 1,
+        "sha": "e9ab64d92474d1b984778ea05b6e19ef557f891a",
+        "observedAt": "2026-10-17T07:32:39.174Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.144571611
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.073149267
+          }
+        ]
+      },
+      {
+        "runId": "39023622869",
+        "attempt": 1,
+        "sha": "22f8f7dd6767356d4711ff86e39b1987bed423ab",
+        "observedAt": "2026-10-17T10:06:32.686Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.196333347
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.080081493
+          }
+        ]
+      },
+      {
+        "runId": "39023698636",
+        "attempt": 1,
+        "sha": "c285d36041d3378423b41646b66aea8c3846552b",
+        "observedAt": "2026-10-17T10:12:26.909Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.229639046
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.067915576
+          }
+        ]
+      },
+      {
+        "runId": "39037005434",
+        "attempt": 1,
+        "sha": "9dd785036bd427744cb7e2f63a496bd5b8acec96",
+        "observedAt": "2026-10-17T13:33:07.628Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.586948168
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.118464695
+          }
+        ]
+      },
+      {
+        "runId": "39038781216",
+        "attempt": 1,
+        "sha": "394abbcbb6aba7a9006ba566b31cf5139e63f0ad",
+        "observedAt": "2026-10-17T13:59:01.465Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.521502776000002
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 7.890590103
+          }
+        ]
+      },
+      {
+        "runId": "39039445872",
+        "attempt": 1,
+        "sha": "49bf93cc180d7700e28f99ff57eb4841ffbdf6d2",
+        "observedAt": "2026-10-17T14:08:22.360Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.215908720999998
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.043056295
+          }
+        ]
+      },
+      {
+        "runId": "39042299729",
+        "attempt": 1,
+        "sha": "3fca08988a4d46e2e88aaf94374acd8f252ec727",
+        "observedAt": "2026-10-17T14:48:38.741Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.450835792000003
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.144613935999999
+          }
+        ]
+      },
+      {
+        "runId": "39043853700",
+        "attempt": 1,
+        "sha": "fd60b642adc4ac75e786f24a49bf21ad320271d0",
+        "observedAt": "2026-10-17T15:10:27.108Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.005803554
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 7.9311200909999995
+          }
+        ]
+      },
+      {
+        "runId": "39045777435",
+        "attempt": 1,
+        "sha": "19f77faa5fcbd4b290ffd57f970bdfd28ac244d8",
+        "observedAt": "2026-10-17T15:36:45.579Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.515681086
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.138012661
+          }
+        ]
+      },
+      {
+        "runId": "39053533603",
+        "attempt": 1,
+        "sha": "4acfbf36bd041f3670888814cc6f9dbd53a464cc",
+        "observedAt": "2026-10-17T17:23:37.731Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.387585864000002
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 7.894509288999999
+          }
+        ]
+      },
+      {
+        "runId": "39062644384",
+        "attempt": 1,
+        "sha": "0f428437d479a4ebd2a5c60e11a9ba7eae9d10b2",
+        "observedAt": "2026-10-17T19:29:15.505Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.266779363
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.041140288
+          }
+        ]
+      },
+      {
+        "runId": "39063200371",
+        "attempt": 1,
+        "sha": "45cd69959b485ddc6162bc529ae37709391fec5e",
+        "observedAt": "2026-10-17T19:36:56.238Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.375450336
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 7.918174453
+          }
+        ]
+      },
+      {
+        "runId": "39067382504",
+        "attempt": 1,
+        "sha": "04f3376c65a04f93c2f7942e54e27bb62b74cfd7",
+        "observedAt": "2026-10-17T20:36:05.510Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.634409820000002
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 7.924041468
+          }
+        ]
+      },
+      {
+        "runId": "39107139388",
+        "attempt": 1,
+        "sha": "1530d90e8859651dfddf67bc6f3af892e1bc7de8",
+        "observedAt": "2026-10-18T07:18:27.413Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.324035252999998
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.139099694
+          }
+        ]
+      },
+      {
+        "runId": "39112261287",
+        "attempt": 1,
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:22.703Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.321060589000002
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.105255355999999
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:58.724Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 20.678714216
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 8.119681188
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:33.922Z",
+        "tests": [
+          {
+            "name": "AIT-282: concept backdrop has zero layout shift at 1440/1024/390 in DE/EN",
+            "seconds": 19.209979156000003
+          },
+          {
+            "name": "real Chrome isolates the html preview and renders the sample click-dummy",
+            "seconds": 7.821335973
           }
         ]
       }

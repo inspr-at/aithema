@@ -1,6 +1,6 @@
 {
-  "seconds": 47.813,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 41.551,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); runs 39009665180-1, 39013248459-1, 39013642167-1, 39013889487-1, 39023622869-1, 39023698636-1, 39037005434-1, 39038781216-1, 39039445872-1, 39042299729-1, 39043853700-1, 39045777435-1, 39053533603-1, 39062644384-1, 39063200371-1, 39067382504-1, 39107139388-1, 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
@@ -27,6 +27,462 @@
           {
             "name": "AIT-272 baseline setup completes while production session events stay open",
             "seconds": 1.983968873
+          }
+        ]
+      },
+      {
+        "runId": "39013248459",
+        "attempt": 1,
+        "sha": "75acb3cc7b32a324cda01c3654937568f232f8f8",
+        "observedAt": "2026-10-17T07:20:30.481Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.803157163
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.772193302
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.271702527
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.965262643
+          }
+        ]
+      },
+      {
+        "runId": "39013642167",
+        "attempt": 1,
+        "sha": "9e123986be8135f3637e703dd95a780a36a376c9",
+        "observedAt": "2026-10-17T07:26:56.131Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.987309689
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 2.054061732
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.501831255999996
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.113996086
+          }
+        ]
+      },
+      {
+        "runId": "39013889487",
+        "attempt": 1,
+        "sha": "e9ab64d92474d1b984778ea05b6e19ef557f891a",
+        "observedAt": "2026-10-17T07:32:38.772Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.610203678
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.901355281
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 32.443051427
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.80850379
+          }
+        ]
+      },
+      {
+        "runId": "39023622869",
+        "attempt": 1,
+        "sha": "22f8f7dd6767356d4711ff86e39b1987bed423ab",
+        "observedAt": "2026-10-17T10:06:35.833Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.420278487
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 3.4614061780000003
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 34.454495468
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.551204423
+          }
+        ]
+      },
+      {
+        "runId": "39023698636",
+        "attempt": 1,
+        "sha": "c285d36041d3378423b41646b66aea8c3846552b",
+        "observedAt": "2026-10-17T10:12:26.025Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.7828881120000002
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 1.204937572
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.734879454
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.128459375
+          }
+        ]
+      },
+      {
+        "runId": "39037005434",
+        "attempt": 1,
+        "sha": "9dd785036bd427744cb7e2f63a496bd5b8acec96",
+        "observedAt": "2026-10-17T13:33:03.972Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.1083802190000003
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.8709582920000001
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 34.200312565
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.117803957
+          }
+        ]
+      },
+      {
+        "runId": "39038781216",
+        "attempt": 1,
+        "sha": "394abbcbb6aba7a9006ba566b31cf5139e63f0ad",
+        "observedAt": "2026-10-17T13:59:02.965Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.8265578550000001
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.8566987370000001
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 34.004266332
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.110448618
+          }
+        ]
+      },
+      {
+        "runId": "39039445872",
+        "attempt": 1,
+        "sha": "49bf93cc180d7700e28f99ff57eb4841ffbdf6d2",
+        "observedAt": "2026-10-17T14:08:24.795Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.4116367949999997
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 1.202237542
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 32.964626443
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.2282269350000004
+          }
+        ]
+      },
+      {
+        "runId": "39042299729",
+        "attempt": 1,
+        "sha": "3fca08988a4d46e2e88aaf94374acd8f252ec727",
+        "observedAt": "2026-10-17T14:48:35.398Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.5488841740000001
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.6578659099999999
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 32.76435275
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.925916274
+          }
+        ]
+      },
+      {
+        "runId": "39043853700",
+        "attempt": 1,
+        "sha": "fd60b642adc4ac75e786f24a49bf21ad320271d0",
+        "observedAt": "2026-10-17T15:10:29.330Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.87907155
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 2.2218445449999997
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.185878492
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.96116538
+          }
+        ]
+      },
+      {
+        "runId": "39045777435",
+        "attempt": 1,
+        "sha": "19f77faa5fcbd4b290ffd57f970bdfd28ac244d8",
+        "observedAt": "2026-10-17T15:36:41.310Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.358367999
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.829413603
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.756591841
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.084908912
+          }
+        ]
+      },
+      {
+        "runId": "39053533603",
+        "attempt": 1,
+        "sha": "4acfbf36bd041f3670888814cc6f9dbd53a464cc",
+        "observedAt": "2026-10-17T17:23:39.992Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.33356566
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.878622253
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.772558399000005
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.99681504
+          }
+        ]
+      },
+      {
+        "runId": "39062644384",
+        "attempt": 1,
+        "sha": "0f428437d479a4ebd2a5c60e11a9ba7eae9d10b2",
+        "observedAt": "2026-10-17T19:29:14.665Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.733833641
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.53973769
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 32.559271456
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.83707874
+          }
+        ]
+      },
+      {
+        "runId": "39063200371",
+        "attempt": 1,
+        "sha": "45cd69959b485ddc6162bc529ae37709391fec5e",
+        "observedAt": "2026-10-17T19:36:56.238Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.664461007
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.69072998
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.057315598
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.779422308
+          }
+        ]
+      },
+      {
+        "runId": "39067382504",
+        "attempt": 1,
+        "sha": "04f3376c65a04f93c2f7942e54e27bb62b74cfd7",
+        "observedAt": "2026-10-17T20:36:05.510Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.77850853
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.751675149
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.775273917999996
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.8131062199999999
+          }
+        ]
+      },
+      {
+        "runId": "39107139388",
+        "attempt": 1,
+        "sha": "1530d90e8859651dfddf67bc6f3af892e1bc7de8",
+        "observedAt": "2026-10-18T07:18:27.413Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.697083476
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 2.0534657099999998
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 34.275489923
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.317154305
+          }
+        ]
+      },
+      {
+        "runId": "39112261287",
+        "attempt": 1,
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:24.279Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.8215440920000001
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.776091575
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 34.458119423999996
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.975774468
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:56.283Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 1.6624460349999999
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.757577312
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.121541634
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 1.961675767
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:37.083Z",
+        "tests": [
+          {
+            "name": "AIT-160 CLI: output-device gate before fake pair through different-port tunnel",
+            "seconds": 2.557113816
+          },
+          {
+            "name": "AIT-160 actual Chrome command line: connected output switches and unavailable arguments refuse; clean local passes",
+            "seconds": 0.7938203429999999
+          },
+          {
+            "name": "AIT-160 production baseline: injected probe captures PCM and final utterance; CDP auth stays on its origin",
+            "seconds": 33.774345709
+          },
+          {
+            "name": "AIT-272 baseline setup completes while production session events stay open",
+            "seconds": 2.0689214820000004
           }
         ]
       }

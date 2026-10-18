@@ -1,36 +1,36 @@
 {
-  "seconds": 44.523,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 44.213,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "1e5051f5b659d52785bb08aa8e578303627a663cd0f86af140b4b7d0a406372d",
+    "workload": "edf899b429928f7b0a5318b55b87f11c9c1f91f4bfd13c972350ae25b76f13c5",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39114014147",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:47.908Z",
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:40.037Z",
         "tests": [
           {
             "name": "AIT-219 round 7: 1440 de to en light keeps the complete retained-file line",
-            "seconds": 5.453026035
+            "seconds": 5.463962072999999
           },
           {
             "name": "AIT-219 round 7: 390 en to de dark keeps the complete retained-file line",
-            "seconds": 4.01741819
+            "seconds": 4.2127139289999995
           },
           {
             "name": "AIT-219: 1440 de light retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.89404766
+            "seconds": 8.747749212
           },
           {
             "name": "AIT-219: 390 en dark retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.349814582999999
+            "seconds": 8.338242493
           },
           {
             "name": "AIT-219: 400 de light retained-file retry, refusal, discard and toast above question card",
-            "seconds": 8.903522144
+            "seconds": 8.606339742
           }
         ]
       }

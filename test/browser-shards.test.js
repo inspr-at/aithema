@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { plannedSeconds } from '../scripts/browser-timings.js';
-import { readBrowserTestWeights, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
+import { readBrowserTestWeights, assertBrowserShardHeadroom, assertBrowserShardBudget, assertBrowserShardCoverage, browserShardCount, browserShards, browserTestWeights, browserShardTotals, packBrowserTests, discoverBrowserTests, selectBrowserTests } from '../scripts/browser-shards.js';
 
 const measuredWeight = (seconds = 90) => {
   const samples = [{ runId: '123', attempt: 1, sha: 'b'.repeat(40), observedAt: '2026-10-16T12:00:00Z',
@@ -187,4 +187,31 @@ test('weights cannot replace observations with an estimate or a manually lowered
     writeFileSync(path, JSON.stringify(measurement));
     assert.throws(() => readBrowserTestWeights([file], root), /Invalid browser test weight/u);
   }
+});
+
+test('current measured packing keeps every shard at or below the 380s headroom target', () => {
+  assertBrowserShardHeadroom();
+});
+
+test('headroom guard accepts 380s and reports overloaded totals and files below the hard ceiling', () => {
+  const weights = { 'a.test.js': 200, 'b.test.js': 180, 'c.test.js': 0.001 };
+  assert.doesNotThrow(() => assertBrowserShardHeadroom({ shards: [['a.test.js', 'b.test.js']], totals: [380] }, weights));
+  const packing = { shards: [['a.test.js', 'b.test.js', 'c.test.js']], totals: [380.001] };
+  assert.doesNotThrow(() => assertBrowserShardBudget(packing.totals));
+  assert.throws(() => assertBrowserShardHeadroom(packing, weights), error => {
+    assert.match(error.message, /target exceeded \(380s; hard ceiling remains 420s\)/u);
+    assert.match(error.message, /Shard 1\/1: 380\.001s/u);
+    for (const [file, seconds] of Object.entries(weights)) assert.ok(error.message.includes(`${file} (${seconds.toFixed(3)}s)`));
+    assert.match(error.message, /do not lower weights without evidence/u);
+    return true;
+  });
+});
+
+test('whole-file refinement recovers headroom that greedy LPT leaves unused', () => {
+  const weights = { a: 3, b: 3, c: 2, d: 2, e: 2 };
+  // Greedy LPT gives 7 / 5; exchanging one 3s and one 2s file gives 6 / 6.
+  const packed = packBrowserTests(Object.keys(weights), weights, 2);
+  assert.deepEqual(packed.totals, [6, 6]);
+  assert.deepEqual(packed.shards.flat().sort(), Object.keys(weights));
+  assert.deepEqual(packBrowserTests(Object.keys(weights).reverse(), Object.fromEntries(Object.entries(weights).reverse()), 2), packed);
 });
