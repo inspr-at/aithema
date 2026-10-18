@@ -1105,10 +1105,10 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     de: 'Nicht gespeichert: Ihre Einwilligung wurde inzwischen in einem anderen Fenster geändert. Der aktuelle Stand ist geladen.',
     en: 'Not saved: your consent was changed in another window. The current state is loaded.',
   };
-  const geometry = ['.done', '.consent-items', '.consent-item input', '.save-state'];
+  const geometry = ['.done', '.footer-links', '.consent-items', '.consent-item', '.consent-item input', '.save-state'];
   await page.setViewport({ width: 1440, height: 900 });
   const baselineFont = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.save-state')).fontSize);
-  for (const locale of ['de', 'en']) for (const width of [320, 352, 390, 1440]) {
+  for (const locale of ['de', 'en']) for (const width of [320, 352, 390, 1024, 1440]) {
     await otherDecision(true);
     await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', 'light');
     await shadow(page, async (c, locale) => {
@@ -1155,6 +1155,8 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
         iconOverlap: [...range.getClientRects()].some(rect => rect.left < infoBox.right && rect.right > infoBox.left && rect.top < infoBox.bottom && rect.bottom > infoBox.top),
         font: css.font, fontSize: css.fontSize, slotHeight: r.querySelector('.save-state').getBoundingClientRect().height,
         statusHeight: status.getBoundingClientRect().height, statusWidth: status.getBoundingClientRect().width,
+        slotLeft: r.querySelector('.save-state').getBoundingClientRect().left,
+        statusLeft: status.getBoundingClientRect().left, linksLeft: r.querySelector('.footer-links').getBoundingClientRect().left,
         lines: lines.size, fits: status.scrollHeight <= status.clientHeight, dialogOpen: r.querySelector('dialog.settings').open };
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
@@ -1184,6 +1186,20 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
     assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');
+    if (width === 390) {
+      // Remove only AIT-327's additive wide-width rules to compare with the base.
+      const phoneBase = await shadow(page, c => {
+        const style = c.shadowRoot.querySelector('style'), current = style.textContent;
+        style.textContent = current.replace(/\/\* AIT-327: wide footer start \*\/[\s\S]*?\/\* AIT-327: wide footer end \*\//u, '');
+        const selectors = ['.settings__footer', '.footer-links', '.save-state', '.save-status', '.done', '.consent-items', '.consent-item', '.consent-item input'];
+        const measure = () => selectors.flatMap(selector => [...c.shadowRoot.querySelectorAll(selector)].map(n => {
+          const b = n.getBoundingClientRect(); return { selector, x: b.x, y: b.y, width: b.width, height: b.height };
+        }));
+        const base = measure(); style.textContent = current;
+        return { base, current: measure() };
+      });
+      assert.deepEqual(phoneBase.current, phoneBase.base, `${locale}/390: phone geometry matches base 3369a9a5`);
+    }
     const pass = { head: evidenceCommit, locale, width, ...state, viewportOnly: true, reducedMotion: true, baselineFonts: true, layoutShiftPx: 0, posts: 1, pass: true };
     passes.push(pass); t.diagnostic(`PASS AIT-321 ${JSON.stringify(pass)}`);
     if (process.env.AITHEMA_EVIDENCE_DIR) {
@@ -1195,6 +1211,12 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
       });
       await page.mouse.move(-10, -10); await frame(page);
       await page.screenshot({ path: join(dir, `ait321-${width}-light-${locale}-stale.png`), fullPage: false, captureBeyondViewport: false });
+      if ([390, 1024, 1440].includes(width)) {
+        const polishDir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-327'); await mkdir(polishDir, { recursive: true });
+        await page.screenshot({ path: join(polishDir, `ait327-${width}-light-${locale}-stale.png`), fullPage: false, captureBeyondViewport: false });
+        await writeFile(join(polishDir, 'ait327-checks.json'), JSON.stringify({ head: evidenceCommit, base: '3369a9a5',
+          passes: passes.filter(pass => [390, 1024, 1440].includes(pass.width)) }, null, 2));
+      }
       await writeFile(join(dir, 'ait321-checks.json'), JSON.stringify({ head: evidenceCommit, passes, passLines: passes.map(pass => `PASS AIT-321 ${JSON.stringify(pass)}`) }, null, 2));
     }
     // The next visitor change removes the notice and is the only way to save again.
@@ -1209,6 +1231,11 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     await shadow(page, c => c.shadowRoot.querySelector('.consent-items input').click());
     await page.locator('aithema-session >>> .done').click();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  }
+  for (const pass of passes.filter(pass => pass.width >= 1024)) {
+    assert.ok(Math.abs(pass.slotLeft - pass.linksLeft) <= .5, `${pass.locale}/${pass.width}: status slot aligns with footer links`);
+    assert.ok(Math.abs(pass.statusLeft - pass.linksLeft) <= .5, `${pass.locale}/${pass.width}: status aligns with footer links`);
+    if (pass.width === 1440) assert.equal(pass.lines, 1, `${pass.locale}/1440: stale notice fits one line`);
   }
   assert.ok(passes.find(pass => pass.locale === 'de' && pass.width === 320).lines >= 3, 'AIT-321 gate 1: reserve the taller 320 DE notice at normal message size');
   assert.equal(passes.find(pass => pass.locale === 'de' && pass.width === 320).fontSize, passes.find(pass => pass.locale === 'de' && pass.width === 1440).fontSize);
