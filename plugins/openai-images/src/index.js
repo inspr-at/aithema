@@ -75,7 +75,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
   async function run(operation, spec, feedback, options, artifact) {
     const scope = operationScope(options); let invocation, completed = false, reporting;
     const cap = spendCap;
-    let reservation, dispatched = false, chargedMicro = null;
+    let reservation, dispatched = false, chargedMicro = null, responseGenerationId = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
     const directCost = usage => {
@@ -89,7 +89,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       return cost <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cost) : null;
     };
     const observe = (payload, cost = gateway ? usdCostMicro(payload?.usage?.cost) : directCost(usageOf(payload?.usage))) => {
-      const id = generationId(payload?.id);
+      const id = responseGenerationId ?? generationId(payload?.id);
       chargedMicro = cost;
       invocation.usage(usageOf(payload?.usage) ?? (gateway ? providerUsage(payload?.usage) : null));
       invocation.cost(chargedMicro); invocation.generationId(id);
@@ -137,6 +137,12 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       const response = await abortable(Promise.resolve().then(() => fetchImpl(endpoint(wireOperation), { method: 'POST', headers, body,
         signal: scope.signal, redirect: 'error' })), scope.signal);
       checkLifetime();
+      // OpenRouter's image body has no documented ID; use its generation header.
+      // https://openrouter.ai/docs/api_reference/streaming#additional-information
+      if (gateway) {
+        try { responseGenerationId = generationId(response.headers?.get?.('x-generation-id')); }
+        catch { /* Optional audit metadata must not prevent receipt settlement. */ }
+      }
       if (!response.ok) {
         if (cap) {
           // Only a fully received rejection can release a dispatched hold.
@@ -158,6 +164,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       catch (error) { if (error instanceof PluginError || scope.signal.aborted) throw error; throw new PluginError('invalid-output'); }
       if (cap) observe(payload);
       else {
+        if (gateway) invocation.generationId(responseGenerationId ?? generationId(payload?.id));
         invocation.usage(usageOf(payload?.usage) ?? (gateway ? providerUsage(payload?.usage) : null));
         if (gateway) invocation.cost(usdCostMicro(payload?.usage?.cost));
       }

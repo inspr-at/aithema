@@ -64,6 +64,21 @@ function fixture(t, { capMicro = 100, imageCeiling = 40, cost = 0.00004, imageFe
   return { storage, cap, fetches, images, reasoning };
 }
 
+test('AIT-326: gateway image generation ID persists on the SQLite reservation without affecting settlement', async t => {
+  for (const variant of ['header', 'body', 'absent']) {
+    const id = `gen-sqlite-image-${variant}`;
+    const h = fixture(t, { imageFetch: () => Response.json({ ...imagePayload(0.00004),
+      id: variant === 'body' ? id : undefined }, { headers: variant === 'header' ? { 'X-Generation-Id': id } : {} }) });
+    const o = options();
+    await h.images.generate(spec, '', o);
+    assert.deepEqual(h.cap.evidence(o.attempt.attemptId), { ...(variant === 'absent' ? {} : { generationId: id }), chargedMicro: 40 });
+    const row = h.storage.db.prepare('SELECT id,generation_id,actual_micro,state FROM spend_reservations WHERE attempt_id=?').get(o.attempt.attemptId);
+    assert.equal(typeof row.id, 'string');
+    assert.equal(row.generation_id, variant === 'absent' ? null : id);
+    assert.equal(row.actual_micro, 40); assert.equal(row.state, 'confirmed');
+    assert.deepEqual(h.cap.snapshot(), { spentMicro: 40, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
+  }
+});
 test('AIT-306: one SQLite spend cap totals reasoning and images; either plugin can exhaust it for the other', async t => {
   for (const last of ['images', 'reasoning']) {
     const h = fixture(t, { capMicro: 80 }), calls = {
