@@ -20,7 +20,10 @@ const roundedMicro = (value, tokens = 1) => {
 export function costMicro(cost) {
   return typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? roundedMicro(cost) : null;
 }
-/** All serialized message bytes, at most one input token per byte, plus capped output. */
+/** All serialized message bytes, at most one input token per byte, plus maxTokens
+ * at the output rate. maxTokens includes reasoning and visible output together;
+ * effort never discounts the reservation or silently increases the token limit.
+ */
 export function callCeilingMicro(messages, binding) {
   const input = roundedMicro(binding.rates.inputUSD, Buffer.byteLength(JSON.stringify(messages), 'utf8'));
   const output = roundedMicro(binding.rates.outputUSD, binding.maxTokens), ceiling = input + output;

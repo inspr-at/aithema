@@ -68,3 +68,47 @@ test('HTML observes persistent shared-cap breaches even when total spend remains
   assert.deepEqual(await plugin.health(options()), { available: false, reason: 'cost ceiling breached' });
   await assert.rejects(plugin.generate(spec, '', options()), { code: 'limit' }); assert.equal(dispatches, 0);
 });
+
+for (const hostCap of ['same', 'higher']) test(`high refuses an over-cap reasoning-plus-output reservation before fetch (${hostCap} plugin cap)`, async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const binding = { ...htmlBinding, effort: 'high', maxTokens: 1000 };
+  const inputCeiling = Math.ceil(Buffer.byteLength(JSON.stringify(buildMessages(spec, '').messages), 'utf8') * 1.4);
+  const htmlCeiling = inputCeiling + 14_000; // All 1,000 tokens, reasoning plus visible output, at 14 micro.
+  assert.equal(callCeilingMicro(buildMessages(spec, '').messages, binding), htmlCeiling);
+  const capMicro = htmlCeiling + 1, spend = createSpendCap({ storage, account: 'shared', capMicro });
+  let otherFetches = 0, htmlFetches = 0;
+  const other = createOpenRouterReasoning({ binding: reasoningBinding, spendCap: spend,
+    prices: { [reasoningBinding.model]: price }, resolveSecret: () => 'fake', fetchImpl: async () => {
+      otherFetches++;
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"ok"}' } }],
+        usage: { prompt_tokens: 1, completion_tokens: 0, cost: 0.000002 } });
+    } });
+  await other.structured(reasoningRequest, options());
+  assert.equal(otherFetches, 1); assert.equal(spend.snapshot().spentMicro, 2);
+  assert.equal(capMicro - spend.snapshot().spentMicro, htmlCeiling - 1);
+  const plugin = createClaudeHTML({ binding, spend, capMicro: hostCap === 'same' ? capMicro : capMicro * 2,
+    resolveSecret: () => 'fake', fetchImpl: () => { htmlFetches++; assert.fail('over-cap request must never fetch'); } });
+  assert.equal(plugin.spend, spend, 'both plugins use the real shared account cap');
+  assert.equal(plugin.estimateCost(spec), htmlCeiling);
+  await assert.rejects(plugin.generate(spec, '', options()), { code: 'not-admitted' });
+  assert.equal(htmlFetches, 0);
+  assert.deepEqual(spend.snapshot(), { spentMicro: 2, reservedMicro: 0, uncertainMicro: 0, capMicro, breached: false });
+});
+
+test('high holds its full total-token ceiling in the shared cap and settles reasoning-inclusive cost', async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const binding = { ...htmlBinding, effort: 'high', maxTokens: 1000 }, capMicro = 1_000_000;
+  const spend = createSpendCap({ storage, account: 'shared', capMicro }), reports = [];
+  const ceiling = callCeilingMicro(buildMessages(spec, '').messages, binding);
+  const plugin = createClaudeHTML({ binding, spend, capMicro, resolveSecret: () => 'fake', fetchImpl: async (_, init) => {
+    const body = JSON.parse(init.body);
+    assert.deepEqual(body.reasoning, { effort: 'high' }); assert.equal(body.max_tokens, 1000);
+    assert.equal(spend.snapshot().reservedMicro, ceiling);
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: html } }],
+      usage: { prompt_tokens: 10, completion_tokens: 1000, completion_tokens_details: { reasoning_tokens: 800 }, cost: 0.014014 } });
+  } });
+  await plugin.generate(spec, '', { ...options(), report: report => reports.push(report) });
+  assert.deepEqual(reports[0].usage, { inputTokens: 10, outputTokens: 1000 });
+  assert.equal(reports[0].chargedMicro, 14_014);
+  assert.deepEqual(spend.snapshot(), { spentMicro: 14_014, reservedMicro: 0, uncertainMicro: 0, capMicro, breached: false });
+});

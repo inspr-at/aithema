@@ -20,7 +20,8 @@ test('AIT-211: host keeps local defaults, manifests, zero cost and artifact prov
   assert.equal(html.binding, localHTMLBinding); assert.equal(images.binding, localImageBinding);
   for (const [configured, original, model] of [[html, htmlManifest, 'deterministic-html'], [images, imageManifest, 'deterministic-ui']]) {
     assert.deepEqual(configured.plugin.manifest, { ...original, id: configured.binding.plugin,
-      vendor: { name: 'Local deterministic fake', url: 'https://example.test' }, models: [{ ...original.models[0], id: model }] });
+      vendor: { name: 'Local deterministic fake', url: 'https://example.test' },
+      models: [{ ...original.models[0], id: model, efforts: ['none'] }] });
   }
   const reasoning = createMockReasoning();
   const presets = demoPresets({ htmlPlugin: html.plugin, htmlBinding: html.binding, imagePlugin: images.plugin, imageBinding: images.binding });
