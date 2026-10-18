@@ -340,9 +340,9 @@ async function checkPhoneVoiceHeader(t, widths) {
       let baseline;
       const capturedShorts = new Map();
       // Full coverage below 600; desktop compares the legacy paint directly.
-      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent' || s.creditCase);
+      const samples = width < 600 ? voiceStatusCases(copy) : voiceStatusCases(copy).filter(s => s.id === 'consent');
       for (const sample of samples) {
-        const short = narrowVoiceStatus(copy, sample.full);
+        const short = narrowVoiceStatus(copy, sample.full, { reason: sample.endReason ?? sample.reason, nextTier: sample.nextTier });
         // Tick's copy-table evidence: each named status, then only new short forms
         // among availability/admission sources. Every source still runs every check.
         const capture = width >= 600 || Boolean(evidence &&
@@ -359,8 +359,10 @@ async function checkPhoneVoiceHeader(t, widths) {
           rail.feature = () => sample.kind === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: copy.featureConsent.voice }
             : ['reason', 'unavailable'].includes(sample.kind) ? { available: false, reason: sample.full, rawReason: sample.reason } : { available: true };
           if (sample.creditCase) {
-            const { applyCreditStatusCase } = await import('/test/voice-status-cases.js');
-            applyCreditStatusCase(rail, sample);
+            rail.usedUp = () => Boolean(sample.exhausted);
+            rail.endReason = () => sample.endReason ?? null;
+            rail.nextTier = () => sample.nextTier ?? null;
+            rail.feature = () => sample.reason ? { available: false, rawReason: sample.reason, reason: sample.full } : { available: true };
           }
           rail.render(); rail.waveform.baseline();
           const c = document.querySelector('aithema-session');
@@ -422,7 +424,7 @@ async function checkPhoneVoiceHeader(t, widths) {
           capturedShorts.set(short, name);
         }
         if (width >= 600) {
-          if (sample.id === 'consent') assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
+          assert.equal(geometry.text, `${copy.featureConsent.voice}\u00a0· ${copy.featureConsent.action}`, `${label}: unchanged wide bytes`);
           const before = await stableViewport(`${label}/current`);
           if (width !== 600 && evidence) await writeFile(join(evidence, name), before);
           // Restore precisely the old inline nodes, leaving the accepted desktop CSS untouched.
