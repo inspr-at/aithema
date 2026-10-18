@@ -29,7 +29,7 @@ function fixture(t, overrides = {}) {
   const route = createComposedRelayRoute({ authenticate: () => 'owner', authorize: () => allowed, connect: grant => relay.connect(grant) });
   const open = createNetworkRelayClient({ url: 'http://fixture/composed/relay', fetch: (url, init) => route.handle(new Request(url, init)) });
   t.after(async () => { route.close(); await coordinator.close(); await coordinator.idle(); });
-  return { relay, coordinator, open, commits, executions, roles, events, withdraw: () => { allowed = false; } };
+  return { relay, coordinator, open, commits, executions, roles, events, withdraw: () => { allowed = false; }, reconsent: () => { allowed = true; } };
 }
 const receipt = deliveryId => ({ deliveryId, providerSessionId: 'generation', epoch: 2 });
 
@@ -71,6 +71,59 @@ test('AIT-348: invalid, paused, withdrawn, cancelled and stale-generation typing
   await assert.rejects(h.coordinator.sendText('Ja', { ...receipt('cancelled'), signal: AbortSignal.abort() }), { code: 'cancelled' });
   h.withdraw(); await assert.rejects(h.coordinator.sendText('Ja', receipt('withdrawn')), { code: 'not-admitted' });
   assert.equal(h.commits.length, 0); assert.deepEqual(h.roles, []);
+});
+
+for (const refusal of ['pause', 'withdrawal', 'cancel', 'deadline']) test(`AIT-348 round 2: ${refusal} leaves the same typed delivery retryable`, async t => {
+  const h = fixture(t), id = receipt('retryable'), controller = new AbortController();
+  if (refusal === 'pause') await h.coordinator.pause();
+  if (refusal === 'withdrawal') h.withdraw();
+  if (refusal === 'cancel') controller.abort();
+  const failed = { ...id, ...(refusal === 'cancel' ? { signal: controller.signal } : {}),
+    ...(refusal === 'deadline' ? { deadlineAt: Date.now() - 1 } : {}) };
+  await assert.rejects(h.coordinator.sendText('Noch einmal', failed),
+    { code: { pause: 'not-admitted', withdrawal: 'not-admitted', cancel: 'cancelled', deadline: 'deadline' }[refusal] });
+  assert.equal(h.executions.length, 0); assert.equal(h.commits.length, 0);
+  if (refusal === 'pause') await h.coordinator.resume();
+  if (refusal === 'withdrawal') h.reconsent();
+  const retried = await Promise.all(Array.from({ length: 4 }, () => h.coordinator.sendText('Noch einmal', id)));
+  assert.ok(retried.every(value => value.acknowledged && value.turnId === retried[0].turnId));
+  await h.coordinator.idle();
+  assert.deepEqual(await h.coordinator.sendText('Noch einmal', id), retried[0]);
+  assert.equal(h.executions.length, 1); assert.equal(h.commits.length, 1);
+  assert.deepEqual(h.roles, ['tts']);
+});
+
+for (const refusal of ['pause', 'withdrawal', 'cancel', 'deadline']) test(`AIT-348 round 2: ${refusal} before executor hand-off rejects the receipt and permits retry`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), controller = new AbortController();
+  let first = true, settled = false;
+  const h = fixture(t, { commitUtterance: async () => {
+    if (first) { first = false; entered.resolve(); await release.promise; }
+  } });
+  t.after(() => release.resolve());
+  const id = receipt('handoff-retry'), pending = h.coordinator.sendText('Noch einmal', { ...id, signal: controller.signal,
+    ...(refusal === 'deadline' ? { deadlineAt: Date.now() + 100 } : {}) });
+  const rejected = assert.rejects(pending, { code: refusal === 'withdrawal' ? 'not-admitted' : refusal === 'deadline' ? 'deadline' : 'cancelled' });
+  void rejected.catch(() => {});
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  await entered.promise; await tick();
+  assert.equal(settled, false, 'receipt waits for executor hand-off');
+  assert.equal(h.executions.length, 0);
+  if (refusal === 'pause') await h.coordinator.pause();
+  if (refusal === 'withdrawal') h.withdraw();
+  if (refusal === 'cancel') controller.abort();
+  if (refusal === 'deadline') t.mock.timers.tick(100);
+  release.resolve(); await rejected; await h.coordinator.idle();
+  assert.equal(h.executions.length, 0, 'refused attempt never reaches the executor');
+  if (refusal === 'pause') await h.coordinator.resume();
+  if (refusal === 'withdrawal') h.reconsent();
+  const retried = await Promise.all(Array.from({ length: 4 }, () => h.coordinator.sendText('Noch einmal', id)));
+  await h.coordinator.idle();
+  assert.ok(retried.every(value => value.acknowledged && value.turnId === retried[0].turnId));
+  assert.deepEqual(await h.coordinator.sendText('Noch einmal', id), retried[0]);
+  assert.equal(h.executions.length, 1);
+  assert.deepEqual(h.executions[0].payload.callbackBody.messages, [{ role: 'user', content: 'Noch einmal' }]);
+  assert.deepEqual(h.roles, ['tts']);
 });
 
 function mediaFixture(t, { command, capture, player, recover } = {}) {
