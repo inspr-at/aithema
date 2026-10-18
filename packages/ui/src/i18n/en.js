@@ -519,6 +519,7 @@ export const en = {
     'voice off': 'Voice is off in your settings', 'visuals off': 'Visual concepts are off in your settings',
     'visual kind not selected': 'Another kind of visual concept is selected',
     'model not offered': 'This model is no longer offered', 'effort not offered': 'This response style is no longer offered',
+    'grok-account-not-configured': 'This host has not configured an account for Grok Voice (xAI).',
     'voice not offered': 'This voice is no longer offered', 'visuals not offered': 'This visual option is no longer offered',
     'not offered': 'Not offered by this host',
     // Document upload availability.

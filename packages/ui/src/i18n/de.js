@@ -517,6 +517,7 @@ export const de = {
     'voice off': 'Sprache ist in Ihren Einstellungen aus', 'visuals off': 'Visuelle Entwürfe sind in Ihren Einstellungen aus',
     'visual kind not selected': 'Eine andere Art visueller Entwürfe ist gewählt',
     'model not offered': 'Dieses Modell wird nicht mehr angeboten', 'effort not offered': 'Dieser Antwortstil wird nicht mehr angeboten',
+    'grok-account-not-configured': 'Dieser Host hat kein Konto für Grok Voice (xAI) eingerichtet.',
     'voice not offered': 'Diese Stimme wird nicht mehr angeboten', 'visuals not offered': 'Diese visuelle Option wird nicht mehr angeboten',
     'not offered': 'Von diesem Host nicht angeboten',
     // Document upload availability.

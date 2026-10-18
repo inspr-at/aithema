@@ -190,11 +190,11 @@ const qualificationMount = qualificationOps?.createQualificationMount({ ...quali
   control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
-  const grokResponse = await grokHost?.handle?.(request); if (grokResponse) return grokResponse;
   const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
   const qualificationPath = new URL(request.url).pathname;
   if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
+  const grokResponse = await grokHost?.handle?.(request); if (grokResponse) return grokResponse;
   const qualificationHold = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/(?:pause|consent|erase|settings|withdraw)$/u.exec(new URL(request.url).pathname);
   if (qualificationPorts.revokeSession && qualificationPath === '/api/visitor/erase' && request.method === 'POST') {
     try {

@@ -634,7 +634,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             facts: f, status: status(textReason), reason: textReason, features: { text: textReason, analysis: analysisReason } };
         }));
         const optional = (list, feature) => Promise.all(list.map(async option => {
-          const reason = await verdict(option.kind ?? feature, option.binding);
+          const reason = option.id === 'grok-voice' && !option.binding ? 'grok-account-not-configured' : await verdict(option.kind ?? feature, option.binding);
           return { id: option.id, label: label(option, option.binding), ...(option.kind ? { kind: option.kind } : {}), configured: Boolean(option.binding),
             facts: facts(option.binding ?? { plugin: option.id }, preset), status: status(reason), reason };
         }));

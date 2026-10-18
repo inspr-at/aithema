@@ -753,6 +753,40 @@ the readiness bootstrap or the preview response's digest.
 locale and operator UI slots. It supplies presentation only; the server ports
 still authorize every action. `voiceClients` maps allowed option IDs to browser
 adapter clients; `voicePresentation` supplies that adapter's label and copy.
+The Settings voice choice can also offer `grok-voice`, labelled “Grok Voice (xAI)”.
+It remains **not yet qualified in live use**, including when account evidence is
+current. ElevenLabs keeps its existing default. An unconfigured Grok option is
+disabled with a short reason and a localized full tooltip. Selecting a configured
+Grok option that lacks `voice-xai` v1 opens the existing consent editor before
+saving the provider. Cancelling consent leaves the acknowledged choice in force.
+A running call requires the inline **Switch and end call** action or **Cancel**;
+its slot is always reserved. Closing media fences its old generation, and saving
+a provider never starts another call. Success, cancellation and retry return
+focus to the voice choice, with polite status announcements.
+
+The runtime catalogue exposes `facts.providerProcessing`: `vendor`,
+`recipientCountries`, `processingCountries` (null when no location is guaranteed),
+and `evidence` (`current` or `unverified`). This projection uses current
+binding-specific admission evidence. Missing, expired or mismatched evidence
+removes country guarantees; provider nationality and endpoint names never supply
+processing countries. The existing provider disclosure renders recipient seat
+separately from processing geography, without introducing legal entity names
+for just one provider. For Grok with current account evidence, it says “Provider
+based in the US (xAI)” and “Processed internationally; no guaranteed processing
+location”. Its voice vial uses the existing neutral hatched Unverified style.
+
+For the reference host, `AITHEMA_GROK_VOICE_HOST_MODULE` optionally names a
+host-owned module exporting `createVoiceHost({ storage, publicOrigin,
+resolveSecret, consent })`. It returns `{ plugin, binding, processingBindings,
+handle, close }`: the fully bound Grok voice provider, its parent binding, both
+STT/TTS processing bindings, and its authenticated relay handler/cleanup.
+`consent.coverage` delegates to the same authoritative ledger as ElevenLabs.
+The browser uses the normal voice control port and `/api/voice/grok/relay`;
+the host must mount that same authenticated relay path. No private account
+configuration enters `/demo/config`, the catalogue, or the browser. Without
+this module an ElevenLabs host lists Grok as not configured. Qualification and
+publication remain separate gates; this option does not qualify live use.
+
 A host has bound voice when `voiceClient` is truthy or `voiceClients` contains
 at least one truthy client under an option ID other than `off`. These clients represent the allowed catalog voice
 options. An off-only/unconfigured host supplies neither (including an empty

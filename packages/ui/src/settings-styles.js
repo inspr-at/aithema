@@ -85,7 +85,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .select__option[aria-selected=true] .option-check { visibility:visible; }
 /* Both provider lines and the inline confirmation always keep their geometry. */
 [data-select=voice] .select__button { height:4.25rem; }
-[data-select=voice] .select__value { display:grid; gap:.1rem; }
+[data-select=voice] .select__value { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.1rem .6rem; }
+[data-select=voice] .select__label, [data-select=voice] .select__detail { grid-column:1/-1; }
+[data-select=voice] .preset-icon + .select__label { grid-column:2; grid-row:1; }
 .select__detail { display:block; height:2.5em; font-size:.72rem; line-height:1.25; font-weight:400; color:var(--aithema-muted); overflow:hidden; }
 [data-select=voice] .option-label { display:grid; gap:.1rem; }
 [data-select=voice] .option-label .option-detail { border:0; padding:0; font-weight:400; min-height:1.25em; }
