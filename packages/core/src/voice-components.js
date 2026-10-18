@@ -156,6 +156,7 @@ export async function componentInvocation(options, { role, unit, model }) {
       try {
         const next = assertComponentUsage({ attemptId, role, unit, quantity, upstreamMicro, source, estimated });
         usage = next; observedMicro = Math.max(observedMicro, next.upstreamMicro);
+        options.observe?.(next);
         if (usage.upstreamMicro > maxMicro) throw new PluginError('limit', 'Component exceeded its admitted ceiling');
       } catch (error) { invalidUsage = true; throw error; }
     },

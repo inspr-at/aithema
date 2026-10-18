@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { PluginError } from '@inspr/aithema-core';
 import { generationId } from '@inspr/aithema-core/cost';
+import { assertComponentUsage } from '@inspr/aithema-core/voice-components';
+import { createVoiceComponentStore } from './voice-operation-storage.js';
 const integer = n => Number.isSafeInteger(n) && n >= 0;
-const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0";
+const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(usage,'$.estimated'),0)=0 AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0";
+const maximumExposure = "MAX(max_micro,COALESCE(json_extract(component_json,'$.observedMicro'),0))";
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,
 // UNIQUE claims, burned before provider opening, conservative unknown recovery.
 export class SQLiteBudgetLedger {
@@ -35,9 +38,10 @@ export class SQLiteBudgetLedger {
     }
     if (!columns.some(c => c.name === 'voice_estimate_json')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN voice_estimate_json TEXT');
     if (!columns.some(c => c.name === 'voice_reconciliation_json')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN voice_reconciliation_json TEXT');
-    for (const name of ['owner_hash', 'provider_cost_json', 'cost_reconciliation_json']) {
+    for (const name of ['owner_hash', 'provider_cost_json', 'cost_reconciliation_json', 'component_json']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
     }
+    this.components = createVoiceComponentStore(storage);
     for (const name of ['diagnostic_lane', 'diagnostic_outcome']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
     }
@@ -82,7 +86,7 @@ export class SQLiteBudgetLedger {
     return counters;
   }
   breakdown(sessionId, { visitor = false, ownerHash, visitorCredits = false } = {}) {
-    const settled = visitor ? 'settled_visitor_micro' : 'settled_micro', maximum = visitor ? 'max_visitor_micro' : 'max_micro';
+    const settled = visitor ? 'settled_visitor_micro' : 'settled_micro', maximum = visitor ? 'max_visitor_micro' : maximumExposure;
     const filter = ownerHash === undefined ? 'session_id=?' : 'owner_hash=?';
     return this.db.prepare(`SELECT
       COALESCE(SUM(CASE WHEN state!='settled' AND voice_closing=0 THEN ${maximum} ELSE 0 END),0) AS reservedMicro,
@@ -104,11 +108,11 @@ export class SQLiteBudgetLedger {
       // An uncertain call keeps its frozen estimate even if it never reconciles.
       // Its full exposure remains an admission hold, not a confirmed charge.
       if (row.state !== 'settled' || frozenVoice) costs.pendingHoldMicro += row.state === 'settled' ? row.settled_micro : row.max_micro;
-      const estimatedReceipt = row.state === 'settled' && (row.voice_estimate_json && JSON.parse(row.usage ?? 'null')?.costEstimated === true ||
+      const estimatedReceipt = row.state === 'settled' && (JSON.parse(row.usage ?? 'null')?.estimated === true || row.voice_estimate_json && JSON.parse(row.usage ?? 'null')?.costEstimated === true ||
         JSON.parse(row.cost_reconciliation_json ?? 'null')?.estimated === true);
       if (frozenVoice || estimatedReceipt || row.voice_closing && row.state !== 'settled' ||
         row.state === 'settled' && row.provider_cost_json && !row.cost_reconciliation_json) costs.reconciling = true;
-      let expected = row.state === 'settled' ? row.settled_micro : row.max_micro;
+      let expected = row.state === 'settled' ? row.settled_micro : Math.max(row.max_micro, JSON.parse(row.component_json ?? 'null')?.observedMicro ?? 0);
       if (row.lane === 'voice' && (row.state !== 'settled' || frozenVoice)) {
         const estimate = JSON.parse(row.voice_estimate_json ?? 'null'), usage = JSON.parse(row.usage ?? 'null');
         const ceiling = estimate?.maxMicro ?? row.max_micro;
@@ -134,7 +138,7 @@ export class SQLiteBudgetLedger {
       FROM budget_attempts WHERE session_id=? AND lane='voice'`).get(sessionId).n;
   }
   used(sessionId) {
-    return this.db.prepare(`SELECT COALESCE(SUM(CASE WHEN state='settled' THEN settled_micro ELSE max_micro END),0) AS n
+    return this.db.prepare(`SELECT COALESCE(SUM(CASE WHEN state='settled' THEN settled_micro ELSE ${maximumExposure} END),0) AS n
       FROM budget_attempts WHERE session_id=?`).get(sessionId).n;
   }
   canAdmit(sessionId, maxMicro, maxVisitorMicro = 0) { return integer(maxMicro) && integer(maxVisitorMicro) &&
@@ -153,15 +157,23 @@ export class SQLiteBudgetLedger {
       maxMicro <= this.sessionCapMicro - this.used(sessionId) + this.reconcilingVoiceHold(sessionId) &&
       maxVisitorMicro <= this.visitorCapMicro - this.visitorUsed(sessionId) + this.reconcilingVoiceHold(sessionId, { visitor: true });
   }
-  admit({ attemptId = randomUUID(), sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256, providerCost, voiceExposure, voiceEstimate }) {
+  admit({ attemptId = randomUUID(), sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256, providerCost, voiceExposure, voiceEstimate, component }) {
     if (voiceEstimate !== undefined && (lane !== 'voice' || !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(k => integer(voiceEstimate?.[k])))) throw new TypeError('Invalid voice estimate');
-    if (!integer(maxMicro) || !integer(maxVisitorMicro) || !['reaction', 'understanding', 'voice', 'concept', 'extractor'].includes(lane) ||
+    if (!integer(maxMicro) || !integer(maxVisitorMicro) || !['reaction', 'understanding', 'voice', 'concept', 'extractor', 'stt', 'tts'].includes(lane) ||
+      ['stt', 'tts'].includes(lane) && (!component || component.role !== lane || maxVisitorMicro !== 0) ||
+      component !== undefined && (!['stt', 'tts'].includes(lane) || !Number.isSafeInteger(component.epoch) || component.epoch < 0 ||
+        ![component.parentAttemptId, component.callId, component.providerSessionId, component.model].every(value => typeof value === 'string' && value.length > 0 && value.length <= 128) ||
+        component.unit !== (lane === 'stt' ? 'seconds' : 'characters')) ||
       lane === 'extractor' && (maxMicro !== 0 || maxVisitorMicro !== 0) ||
       voiceExposure !== undefined && (lane !== 'voice' || !integer(voiceExposure?.maxMicro) || !integer(voiceExposure?.maxVisitorMicro) ||
         voiceExposure.maxMicro < maxMicro || voiceExposure.maxVisitorMicro < maxVisitorMicro) ||
       ![attemptId, sessionId].every(v => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(v)) ||
       ![requestSha256, bindingSha256].every(v => typeof v === 'string' && /^[a-f0-9]{64}$/u.test(v))) throw new TypeError('Invalid admission');
     return this.storage.transaction(() => {
+      if (component) {
+        const parent = this.get(component.parentAttemptId);
+        if (!parent || parent.session_id !== sessionId || parent.lane !== 'voice' || parent.state !== 'dispatched' || parent.voice_closing) throw new PluginError('not-admitted');
+      }
       if (this.db.prepare('SELECT 1 FROM budget_attempts WHERE attempt_id=?').get(attemptId)) throw new PluginError('already-claimed');
       if (!this.canAdmit(sessionId, maxMicro, maxVisitorMicro)) throw new PluginError('not-admitted', 'Budget denied');
       this.db.prepare(`INSERT INTO budget_attempts(attempt_id,session_id,lane,max_micro,state,request_sha256,binding_sha256)
@@ -174,7 +186,44 @@ export class SQLiteBudgetLedger {
       const ownerHash = this.db.prepare("SELECT json_extract(snapshot,'$.ownerHash') AS h FROM sessions WHERE id=?").get(sessionId).h;
       this.db.prepare('UPDATE budget_attempts SET owner_hash=?,provider_cost_json=? WHERE attempt_id=?')
         .run(ownerHash ?? null, providerCost ? JSON.stringify(providerCost) : null, attemptId);
+      if (component) this.components.attach(attemptId, component);
       return { attemptId, maxMicro };
+    });
+  }
+  observeComponent(attemptId, usage) {
+    assertComponentUsage(usage);
+    const row = this.get(attemptId), record = this.components.get(attemptId);
+    if (!row || !record || row.state !== 'dispatched' || usage.attemptId !== attemptId || usage.role !== record.role || usage.unit !== record.unit) throw new PluginError('not-admitted');
+    this.components.observe(attemptId, usage.upstreamMicro);
+  }
+  settleComponent(claimId, terminal) {
+    if (!terminal || !['completed', 'cancelled', 'uncertain'].includes(terminal.outcome) ||
+      terminal.chargedMicro !== undefined && !integer(terminal.chargedMicro)) throw new TypeError('Invalid component terminal');
+    return this.storage.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM budget_attempts WHERE claim_id=?').get(claimId);
+      const component = row && this.components.get(row.attempt_id);
+      if (!component || terminal.attemptId !== row.attempt_id) throw new PluginError('not-admitted');
+      if (terminal.usage) {
+        assertComponentUsage(terminal.usage);
+        if (terminal.usage.attemptId !== row.attempt_id || terminal.usage.role !== component.role || terminal.usage.unit !== component.unit) throw new PluginError('not-admitted');
+      } else if (terminal.outcome !== 'uncertain') throw new TypeError('Component usage required');
+      if (terminal.outcome !== 'uncertain' && terminal.chargedMicro !== undefined && terminal.chargedMicro !== terminal.usage.upstreamMicro) throw new TypeError('Component cost mismatch');
+      const bytes = JSON.stringify(terminal);
+      if (row.state === 'settled') {
+        if (row.terminal_json !== bytes) throw new PluginError('already-claimed');
+        return row;
+      }
+      const dispatched = row.state === 'dispatched';
+      const observed = Math.max(component.observedMicro, terminal.usage?.upstreamMicro ?? 0);
+      const actual = !dispatched ? 0 : terminal.outcome === 'uncertain'
+        ? Math.max(row.max_micro, observed, terminal.chargedMicro ?? 0) : terminal.usage.upstreamMicro;
+      // A terminal cannot erase usage already observed before a failed report.
+      if (dispatched && terminal.outcome !== 'uncertain' && actual < component.observedMicro) throw new PluginError('invalid-output');
+      this.components.observe(row.attempt_id, observed);
+      this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=? WHERE claim_id=?")
+        .run(!dispatched ? 'cancelled' : terminal.outcome, terminal.usage ? JSON.stringify(terminal.usage) : null,
+          actual, bytes, actual > row.max_micro ? 1 : 0, claimId);
+      return this.get(row.attempt_id);
     });
   }
   observeCost(attemptId, evidence) {
@@ -409,7 +458,8 @@ export class SQLiteBudgetLedger {
         const actual = dispatched && integer(evidence?.chargedMicro) ? evidence.chargedMicro : null;
         if (providerRecord) this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.settledAt',?) WHERE attempt_id=?")
           .run(Date.now(), row.attempt_id);
-        const exposure = dispatched && row.lane === 'voice' ? Math.max(row.max_micro, row.voice_exposure_micro) : row.max_micro;
+        const exposure = dispatched && row.lane === 'voice' ? Math.max(row.max_micro, row.voice_exposure_micro)
+          : Math.max(row.max_micro, JSON.parse(row.component_json ?? 'null')?.observedMicro ?? 0);
         const visitorExposure = dispatched && row.lane === 'voice' ? Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro) : row.max_visitor_micro;
         const terminal = { attemptId: row.attempt_id, outcome: dispatched ? actual !== null ? 'completed' : 'uncertain' : 'cancelled',
           ...(row.lane === 'voice' ? { closureConfirmed: !dispatched, chargedMicro: dispatched ? exposure : 0,

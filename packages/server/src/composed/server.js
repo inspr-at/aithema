@@ -59,7 +59,8 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       const pausedSeconds = Math.min(providerSeconds, record.pauses.reduce((sum, pause) => sum + Math.max(0, (pause.to ?? now()) - pause.from) / 1000, 0));
       return { providerSessionId, outcome, closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds, providerMinutes: providerSeconds / 60, pausedSeconds, visitorSeconds: providerSeconds - pausedSeconds,
-          upstreamMicro: 0, visitorMicro: 0, costSource: 'separate-component-claims', costEstimated: false } };
+          upstreamMicro: 0, visitorMicro: Math.ceil((providerSeconds - pausedSeconds) / 60 * (binding?.visitorMicroPerMinute ?? 0)),
+          costSource: 'separate-component-claims', costEstimated: false } };
     }
     function close(reason = 'closed', outcome = 'completed') {
       if (closing) return closing;

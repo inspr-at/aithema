@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as composed from '@inspr/aithema-server/composed-voice';
+import * as composed from '@inspr/aithema-server/composed-voice/accounting';
 import { createComposedVoice } from '@inspr/aithema-server/composed-voice/server';
 import { componentInvocation } from '@inspr/aithema-core/voice-components';
 import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';

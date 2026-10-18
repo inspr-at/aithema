@@ -5,6 +5,8 @@ import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createPluginRuntime } from '../../../packages/server/src/plugin-runtime.js';
 import { createVoiceHandlers } from '../../../packages/server/src/voice-handlers.js';
 import { createGrokVoiceClient } from '../src/client.js';
+import { createComposedComponentAccounting } from '@inspr/aithema-server/composed-voice/accounting';
+import { SQLiteBudgetLedger } from '../../../packages/server/src/budget.js';
 import { binding, provider } from './admission-fixtures.js';
 import { harness as sttHarness } from './fixtures.js';
 import { ttsHarness } from './tts-fixtures.js';
@@ -14,6 +16,7 @@ const pcm = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.
 function fixture(t, { denied, preset = 'best', missingTransport = false } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'owner' });
   const voice = binding(), stt = sttHarness(), tts = ttsHarness(), consumed = [], reports = [], coverage = [], played = [], persisted = [];
+  const budget = new SQLiteBudgetLedger(storage), accounting = createComposedComponentAccounting({ storage, budget });
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
     effort: 'none', accountRef: 'private:reasoning-account', secretRef: 'private:reasoning-secret',
     maxMicro: 100000, maxTokens: 100, rates: { inputMicro: 1, outputMicro: 1 } };
@@ -35,15 +38,18 @@ function fixture(t, { denied, preset = 'best', missingTransport = false } = {}) 
   const p = provider({ storage, consent, connect: missingTransport ? undefined : options =>
     options.url.includes('/v1/stt') ? stt.connect(options) : tts.connect(options),
     authenticateRelay: request => request.headers.get('x-owner'), relayOrigin: 'https://host.test',
-    async admitComponent({ role, signal, deadlineAt, binding: selected }) {
+    async admitComponent(request) {
+      const { role, binding: selected } = request;
       assert.equal(selected.plugin, 'grok-voice');
-      return { signal, deadlineAt, attempt: { attemptId: `${role}-${crypto.randomUUID()}`, claimId: 'child', maxMicro: 100000,
-        consume() { consumed.push(role); } }, report(terminal) { reports.push(terminal); } };
+      const admission = await accounting.admit(request);
+      return { ...admission, attempt: { ...admission.attempt, async consume() {
+        await admission.attempt.consume(); consumed.push(role);
+      } }, report(terminal) { reports.push(terminal); return admission.report(terminal); } };
     } });
   const registry = new PluginRegistry().register(p).register(reasoningPlugin);
   const settings = { plugins: ['grok-voice', reasoning.plugin], bindings: { voice, reaction: reasoning, understanding: reasoning },
     policy: { endpoints: [voice.endpoint, reasoning.endpoint] } };
-  const runtime = createPluginRuntime({ storage, registry, consent, presets: { best: settings, eu: settings } });
+  const runtime = createPluginRuntime({ storage, budget, registry, consent, presets: { best: settings, eu: settings } });
   if (preset !== 'best') storage.db.prepare('UPDATE sessions SET snapshot=json_set(snapshot,\'$.processingPreset\',?) WHERE id=?').run(preset, session.id);
   const handlers = createVoiceHandlers({ storage, runtime, ownership: { token: request => request.headers.get('x-owner') },
     readBody: async request => new Uint8Array(await request.arrayBuffer()), publish: (_id, event) => persisted.push(event), onTurn() {} });
