@@ -36,6 +36,13 @@ export const HTML_MEDIA_TYPE: 'text/html';
 export const MAX_HTML_BYTES: number;
 export const HTML_PREVIEW_CSP: string;
 export const HTML_PREVIEW_HOST_CSP: string;
+export const HTML_PREVIEW_PATH: '/_aithema/html-preview';
+export const HTML_PREVIEW_READY: 'aithema-html-preview-ready';
+/** Exact configured absolute URL, without credentials, query, fragment or trailing slash.
+ * Merge these frame/child directives into the host CSP; retain its script restrictions. */
+export function htmlPreviewHostPolicy(previewURL: string): string;
+/** Trusted readiness bootstrap for the sandboxed server response; never the standalone export. */
+export function previewDocument(html: string): string;
 export function frameDocument(html: string, options?: { standalone?: boolean }): string;
 export function inspectHTML(bytes: Uint8Array): { ok: boolean; problems: HTMLProblem[] };
 export function isHTMLArtifact(artifact: unknown): artifact is UIHTMLArtifact;

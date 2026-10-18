@@ -1,11 +1,16 @@
-import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES, HTML_MEDIA_TYPE } from '@inspr/aithema-core';
+import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES, HTML_MEDIA_TYPE, HTML_PREVIEW_PATH } from '@inspr/aithema-core';
 import { NotFoundError, ConflictError } from './storage.js';
+import { createHTMLPreviewCapabilities } from './html-preview-capabilities.js';
+import { previewConfiguration, previewArtifact, previewResponse, previewDenied } from './html-preview.js';
 import { UI_RENDER_SESSION_REASON, UI_RENDER_DAY_REASON } from './ui-render-limits.js';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 export function createConceptHandlers({ storage, runtime, ownership, readBody, publish, signal, policy, deadlineMs, estimateMs,
-  references = () => [] }) {
+  references = () => [], previewURL, previewCapabilities = createHTMLPreviewCapabilities() }) {
+  const preview = previewConfiguration(previewURL);
+  const scopeFor = (session, artifactId, artifact) => ({ sessionId: session.id, artifactId, ownerHash: session.ownerHash,
+    consentRevision: session.consentRevision, contentDigest: artifact.provenance?.subject?.contentDigest });
   const prepare = session => {
     const visualKind = runtime.visualKind(session);
     const history = (session.concepts ?? []).filter(c => (c.mediaType === HTML_MEDIA_TYPE ? 'html' : 'images') === visualKind);
@@ -62,6 +67,35 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     }
   }
   return { lane, schedule, ended,
+    closePreviews() { previewCapabilities.clear(); },
+    async handlePreview(request) {
+      const url = new URL(request.url), head = request.method === 'HEAD';
+      if (url.pathname !== HTML_PREVIEW_PATH) return null;
+      if (head) {
+        // Refuse before looking at the query or registry: link probes must
+        // neither consume a delegation nor reveal whether it exists.
+        const response = previewDenied(405, true);
+        response.headers.set('allow', 'GET');
+        return response;
+      }
+      // Never consult the ownership adapter or host middleware here. Never log
+      // request URLs/errors: the query contains a delegated bearer credential.
+      try {
+        if (signal?.aborted || !preview || request.method !== 'GET' || url.searchParams.size !== 1 ||
+          !url.searchParams.has('cap')) return previewDenied(403, head);
+        const scope = previewCapabilities.redeem(url.searchParams.get('cap'));
+        if (!scope) return previewDenied(403, head);
+        const checked = previewArtifact(storage, scope);
+        if (!checked) return previewDenied(403, head);
+        const { session, artifact } = checked;
+        await gate(session, { read: true, visualKind: 'html', operation: artifact.operation ??
+          (artifact.referenceIds?.length ? 'edit' : 'generate'), visuals: artifact.visuals });
+        const current = previewArtifact(storage, scope);
+        return current ? previewResponse(current.artifact, preview, head) : previewDenied(403, head);
+      } catch (error) {
+        return previewDenied(error instanceof NotFoundError ? 404 : 403, head);
+      }
+    },
     onTurn(id, turnId) {
       const session = storage.get(id), turn = session.transcript.find(t => t.id === turnId && t.role === 'user' && !t.erased && !t.withdrawn);
       if (!turn || session.consentWithdrawn || session.tombstone) return;
@@ -92,11 +126,28 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         if (body?.eligible !== false) throw new TypeError('Only ending eligibility may be signalled');
         return json({ event: ended(id) });
       }
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/concepts(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(image|html|provenance|feedback|regenerate|reject))?)?$/u.exec(new URL(request.url).pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/concepts(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(image|html|preview|provenance|feedback|regenerate|reject))?)?$/u.exec(new URL(request.url).pathname);
       if (!match) return null;
       const [, id, artifactId, action] = match;
       const ownerToken = ownership.token(request), session = storage.authorize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(session) };
+      if (action === 'preview') {
+        if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
+        if (signal?.aborted || !preview) return json({ error: 'not-admitted' }, 403);
+        const artifact = storage.conceptArtifact(id, artifactId);
+        const scope = scopeFor(session, artifactId, artifact);
+        const checked = previewArtifact(storage, scope);
+        if (!checked) return json({ error: 'not-admitted' }, 403);
+        await gate(session, { read: true, visualKind: 'html', operation: artifact.operation ??
+          (artifact.referenceIds?.length ? 'edit' : 'generate'), visuals: artifact.visuals });
+        storage.authorize(id, ownerToken);
+        if (!previewArtifact(storage, scope)) return json({ error: 'not-admitted' }, 403);
+        const token = previewCapabilities.mint(scope);
+        if (token === null) return new Response('Preview capacity unavailable', { status: 503, headers: {
+          'content-type': 'text/plain; charset=utf-8', 'cache-control': 'private, no-store', 'retry-after': '60',
+        } });
+        return json({ url: `${preview.url}?cap=${token}`, expiresInMs: previewCapabilities.ttlMs });
+      }
       if (request.method === 'GET') {
         const stored = artifactId ? storage.conceptArtifact(id, artifactId) : null;
         if (stored?.erased) throw new NotFoundError();
