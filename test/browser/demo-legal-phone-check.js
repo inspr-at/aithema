@@ -37,7 +37,10 @@ const measure = page => shadow(page, c => {
   const zones = ['.footer-info', '.actor-role', '.host-credits', '.preset-panel', '.footer-right > .status'].map(s => root.querySelector(s))
     .filter(n => n?.checkVisibility({ visibilityProperty: true, opacityProperty: true })).map(box);
   const row = box(root.querySelector('.display-foot__row')), footer = box(root.querySelector('.display-foot'));
+  const flagBounds = box(root.querySelector('.engine__flag'));
   return {
+    flagBounds,
+    flagLegalGap: box(links[0]).x - (flagBounds.x + flagBounds.width),
     fixed: ['.display-foot', '.display-foot__row', '.footer-info', '.host-credits', '.footer-right', '.host-legal', '.engine__flag', '.status__dot'].map(s => box(root.querySelector(s))),
     flag: root.querySelector('.engine__flag').checkVisibility({ visibilityProperty: true, opacityProperty: true }),
     dot: root.querySelector('.status__dot').checkVisibility({ visibilityProperty: true, opacityProperty: true }),
@@ -96,8 +99,13 @@ export async function demoLegalPhoneCheck(t) {
     const file = `ait304-${width}-${theme}-${locale}-footer.png`;
     await shadow(page, c => { c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); });
     await page.mouse.move(-1, -1); await settle(page);
-    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
-    shots.push({ file, viewport: true, reducedMotion: true, blurred: true });
+    const clip = width === 320 && theme === 'light' && locale === 'en' ? await shadow(page, c => {
+      const footer = c.shadowRoot.querySelector('.display-foot').getBoundingClientRect();
+      const y = Math.max(0, Math.floor(footer.y));
+      return { x: 0, y, width: innerWidth, height: Math.min(innerHeight, Math.ceil(footer.bottom)) - y };
+    }) : undefined;
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false, ...(clip ? { clip } : {}) });
+    shots.push({ file, viewport: true, reducedMotion: true, blurred: true, ...(clip ? { clip } : {}) });
   };
   for (const locale of ['de', 'en']) {
     await page.select('#locale', locale);
@@ -108,6 +116,8 @@ export async function demoLegalPhoneCheck(t) {
       await page.mouse.move(-1, -1); await settle(page);
       const state = await measure(page), label = `${width}/${theme}/${locale}`;
       if ([320, 360, 390].includes(width) || width === 1440 && theme === 'light' && locale === 'de') await capture(width, theme, locale);
+      assert.ok(state.flagBounds.x + state.flagBounds.width + 8 <= state.links[0].bounds.x,
+        `${label}: flag right edge + 8px <= first legal link left edge (gap ${state.flagLegalGap}px)`);
       if (width < 600) for (const [i, link] of state.links.entries()) {
         assert.equal(link.lines, 1, `${label} ${i}: legal link has exactly one line box (got ${link.lines})`);
         assert.equal(link.text, i === 0 ? 'AGPL-3.0' : locale === 'de' ? 'Quellcode' : 'Source', `${label}: short visible wording`);
@@ -148,7 +158,7 @@ export async function demoLegalPhoneCheck(t) {
         assert.equal(held.links[i].unobscured, true);
         await page.select('#theme', theme); await settle(page);
       }
-      const line = `PASS ${label}: legal one line below 600; >=44px; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
+      const line = `PASS ${label}: legal one line below 600; >=44px; full accessible name/title; visible/unclipped/unobscured; no overlap; flag/dot visible; flag/legal gap ${state.flagLegalGap}px >=8px; 0px held movement${width >= 600 ? '; labels/geometry match base beb35ba2' : ''}`;
       pass.push(line); checks.push({ width, theme, locale, ...state }); t.diagnostic(line);
     }
   }
