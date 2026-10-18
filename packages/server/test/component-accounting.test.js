@@ -138,3 +138,115 @@ test('AIT-347 P8: zero upstream parent charges active visitor duration and exclu
   assert.equal(terminal.usage.visitorMicro, 400); assert.equal(reports.length, 1);
   assert.equal(h.budget.visitorUsed(h.session.id), 400);
 });
+
+async function durationFixture(t, { request = {}, save } = {}) {
+  const h = fixture(t); let at = Date.now();
+  const startedAt = at, reports = [], originalSave = h.storage.saveVoiceCall.bind(h.storage);
+  if (save) h.storage.saveVoiceCall = (...args) => save(originalSave, ...args);
+  const plugin = createComposedVoice({ enabled: true, storage: h.storage, config: { maxDurationSeconds: 120 },
+    binding: { visitorMicroPerMinute: 601 }, stt: { stream() {} }, tts: { speak() {} },
+    replyExecutor: { execute() {} }, authorize: async () => true, commitUtterance() {}, admitComponent() {}, now: () => at });
+  const call = await plugin.start({ sessionId: h.session.id, callId: 'server-duration', ownerToken: 'owner', ...request }, {
+    deadlineAt: at + 5000, spendDeadlineAt: at + 120000, browserLivenessDeadlineAt: at + 120000,
+    attempt: { ...h.claim, maxMicro: 0, consume() {} },
+    report: terminal => { reports.push(terminal); h.budget.settleVoice(h.claim.claimId, terminal); } });
+  t.after(() => call.close());
+  return { ...h, call, startedAt, reports, advance(ms) { at += ms; } };
+}
+
+test('AIT-347 b2: client duration and timing fields cannot override server coordinator timestamps or lifetime', async t => {
+  const h = await durationFixture(t, { request: {
+    maxDurationSeconds: 1, startedAt: 0, endedAt: Number.MAX_SAFE_INTEGER,
+    providerSeconds: 0, visitorSeconds: 0, pausedSeconds: 9999, duration: 0, durationMs: 0,
+    pauses: [{ from: 0, to: Number.MAX_SAFE_INTEGER }], paused: true,
+    spendDeadlineAt: 0, browserLivenessDeadlineAt: 0, now: () => 0,
+    context: { startedAt: 0, duration: 0, pausedSeconds: 9999 },
+  } });
+  assert.equal(h.call.snapshot().startedAt, h.startedAt);
+  assert.equal(h.call.snapshot().spendDeadlineAt, h.startedAt + 120000, 'client timing must not shorten the server lifetime');
+  h.advance(60001);
+  const terminal = await h.call.close({ duration: 0, durationMs: 0, visitorSeconds: 0, endedAt: 0 });
+  assert.equal(terminal.usage.providerSeconds, 60.001);
+  assert.equal(terminal.usage.visitorSeconds, 60.001);
+  assert.equal(terminal.usage.pausedSeconds, 0);
+  assert.equal(terminal.usage.visitorMicro, 602, 'ceil the tariff from server elapsed time only');
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.costEstimated, false);
+});
+
+test('AIT-347 b2: confirmed visitor duration persists Aithema provenance while STT and TTS children stay estimated', async t => {
+  const h = await durationFixture(t), children = [];
+  for (const role of ['stt', 'tts']) {
+    const options = await h.admit({ ...h.request, role });
+    await options.attempt.consume();
+    await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 75,
+      usage: { ...usage(options.attempt.attemptId), role, unit: role === 'stt' ? 'seconds' : 'characters' } });
+    children.push(options.attempt.attemptId);
+  }
+  h.advance(60000);
+  const terminal = await h.call.close();
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.costEstimated, false);
+  assert.equal(terminal.usage.visitorDurationSource, 'aithema-measured');
+  const persisted = h.storage.voiceCalls(h.session.id).find(row => row.providerSessionId === h.call.providerSessionId);
+  assert.equal(persisted.terminal.usage.visitorDurationSource, 'aithema-measured');
+  assert.equal(JSON.parse(h.budget.get(h.parent.attemptId).usage).visitorDurationSource, 'aithema-measured');
+  for (const id of children) {
+    assert.equal(JSON.parse(h.budget.get(id).usage).estimated, true, 'parent confirmation cannot confirm provider spend');
+    assert.equal(h.budget.get(id).settled_micro, 75);
+  }
+  assert.equal(h.budget.breakdown(h.session.id).confirmedSpendMicro, 0);
+  assert.equal(h.budget.breakdown(h.session.id).uncertainSpendMicro, 150);
+  assert.equal(h.budget.visitorUsed(h.session.id), 601);
+});
+
+for (const refusal of ['throw', 'unacknowledged', 'wrong-state']) {
+  test(`AIT-347 b2: ${refusal} pause never excludes visitor time, even after heartbeat`, async t => {
+    const h = await durationFixture(t, { save(original, sessionId, record, options) {
+      if (options?.paused === true) {
+        if (refusal === 'throw') throw new Error('pause-save-failed');
+        return { acknowledged: refusal !== 'unacknowledged', paused: false };
+      }
+      return original(sessionId, record, options);
+    } });
+    h.advance(10000); await assert.rejects(h.call.pause());
+    h.advance(5000); await assert.rejects(h.call.heartbeat(), { code: 'not-admitted' });
+    h.advance(15000);
+    const terminal = await h.call.close();
+    assert.equal(terminal.usage.pausedSeconds, 0);
+    assert.equal(terminal.usage.visitorSeconds, 30);
+    assert.equal(terminal.usage.visitorMicro, 301);
+  });
+}
+
+test('AIT-347 b2: acknowledged open pause is excluded; unacknowledged resume cannot restart charging', async t => {
+  const h = await durationFixture(t, { save(original, sessionId, record, options) {
+    if (options?.paused === false) return { acknowledged: false, paused: false };
+    return original(sessionId, record, options);
+  } });
+  h.advance(10000); await h.call.pause();
+  h.advance(10000); await h.call.pause(); // Idempotent: no duplicate interval.
+  h.advance(10000); await assert.rejects(h.call.resume(), { code: 'invalid-output' });
+  h.advance(10000);
+  const terminal = await h.call.close();
+  assert.equal(terminal.usage.pausedSeconds, 30);
+  assert.equal(terminal.usage.visitorSeconds, 10);
+  assert.equal(terminal.usage.visitorMicro, 101);
+});
+
+test('AIT-347 b2: pending pause at close excludes no time and a late acknowledgement cannot change settlement', async t => {
+  const entered = Promise.withResolvers(), ack = Promise.withResolvers();
+  const h = await durationFixture(t, { save(original, sessionId, record, options) {
+    if (options?.paused === true) { entered.resolve(); return ack.promise; }
+    return original(sessionId, record, options);
+  } });
+  h.advance(10000); const holding = h.call.pause();
+  await entered.promise; h.advance(20000);
+  const terminal = await h.call.close();
+  ack.resolve({ acknowledged: true, paused: true });
+  await assert.rejects(holding, { code: 'unavailable' });
+  assert.equal(terminal.usage.pausedSeconds, 0);
+  assert.equal(terminal.usage.visitorSeconds, 30);
+  assert.equal(h.reports.length, 1);
+  assert.equal(h.budget.visitorUsed(h.session.id), 301);
+});

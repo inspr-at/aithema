@@ -47,19 +47,22 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     const relay = createComposedRelay({ callId: request.callId, providerSessionId, epoch,
       expiresAt: Math.min(end, options.browserLivenessDeadlineAt, now() + 60_000),
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt, now });
-    const coordinator = createComposedVoiceCoordinator({ ...config, ...request, providerSessionId, epoch,
+    // Browser request fields never configure the coordinator clock or duration limits.
+    const coordinator = createComposedVoiceCoordinator({ ...config, sessionId: request.sessionId, callId: request.callId,
+      context: request.context, providerSessionId, epoch,
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
       stt, tts, ...(tts?.format ? { outputFormat: tts.format.encoding, outputAudioFormat: tts.format } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,
       maxMicro: 0, exposureMicro: 0, pauses: [] }, closing, mutations = Promise.resolve(), holdRevision = 0;
     const serial = action => { const job = mutations.then(action); mutations = job.catch(() => {}); return job; };
     const save = (next, opts) => storage.saveVoiceCall(request.sessionId, next, { ...opts, guard: { ...opts?.guard, ownerToken: request.ownerToken } });
-    function terminal(outcome = 'completed') {
-      const providerSeconds = Math.max(0, now() - record.startedAt) / 1000;
-      const pausedSeconds = Math.min(providerSeconds, record.pauses.reduce((sum, pause) => sum + Math.max(0, (pause.to ?? now()) - pause.from) / 1000, 0));
+    function terminal(outcome, endedAt) {
+      const providerSeconds = Math.max(0, endedAt - record.startedAt) / 1000;
+      const pausedSeconds = Math.min(providerSeconds, record.pauses.reduce((sum, pause) => sum + Math.max(0, (pause.to ?? endedAt) - pause.from) / 1000, 0));
       return { providerSessionId, outcome, closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds, providerMinutes: providerSeconds / 60, pausedSeconds, visitorSeconds: providerSeconds - pausedSeconds,
           upstreamMicro: 0, visitorMicro: Math.ceil((providerSeconds - pausedSeconds) / 60 * (binding?.visitorMicroPerMinute ?? 0)),
+          visitorDurationSource: 'aithema-measured',
           costSource: 'separate-component-claims', costEstimated: false } };
     }
     function close(reason = 'closed', outcome = 'completed') {
@@ -68,7 +71,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       coordinator.signal.removeEventListener('abort', cancel);
       void coordinator.close(reason); relay.close(); relays.delete(providerSessionId); relayOwners.delete(providerSessionId); networkRelay?.revoke(providerSessionId);
       options.signal?.removeEventListener('abort', cancel);
-      const result = terminal(outcome); record = { ...record, endedAt: now(), reason, terminal: result };
+      const endedAt = now(), result = terminal(outcome, endedAt); record = { ...record, endedAt, reason, terminal: result };
       void Promise.resolve().then(async () => {
         try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => save(record, opts)); }
         finally { await invocation.finish(result); }
@@ -94,6 +97,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
         }
         const ack = await voiceOperation(opts, command => save(next, { ...command, paused }));
         if (ack?.acknowledged !== true || ack.paused !== paused) throw new PluginError('invalid-output');
+        if (closing) throw new PluginError('unavailable');
         if (!paused) {
           if (revision !== holdRevision) throw new PluginError('cancelled', 'Resume superseded by a hold');
           await coordinator.resume();
