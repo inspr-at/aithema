@@ -2994,7 +2994,7 @@ Inject one instance as `spendCap` into both `createOpenRouterReasoning` and
 admitted `binding.maxMicro`; they do not infer prices. Separate instances can
 also share the same account and database. `snapshot()` returns
 `{spentMicro, reservedMicro, uncertainMicro, capMicro, breached}`. Reservations and settlements
-run under SQLite transactions. Every OpenRouter request sends the binding's
+run under SQLite transactions. Every OpenRouter reasoning request sends the binding's
 `max_tokens` (default 1200 for reaction, 8000 for understanding),
 `provider.require_parameters: true`, and `provider.max_price` derived from the
 operator's prices using exact decimal arithmetic before JSON number conversion.
