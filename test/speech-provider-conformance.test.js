@@ -70,6 +70,18 @@ function local(provider, role) {
       : [{ text: 'wrong', final: false }, { text, final: false }, { text, final: true }] } };
 }
 
+test('provider diagnostic timeout guard detects a stalled component', async () => {
+  const { component, fixtures } = local('voxtral', 'stt');
+  const transcribe = component.transcribe.bind(component);
+  let first = true;
+  component.transcribe = (...args) => {
+    if (first) { first = false; return new Promise(() => {}); }
+    return transcribe(...args);
+  };
+  const result = await sttConformance(component, { audio: new Uint8Array(64000), language: 'en' }, fixtures);
+  assert.ok(result.failures.some(failure => /conformance timeout/u.test(failure)), JSON.stringify(result));
+});
+
 // These source-only prototypes are diagnostic targets, not conforming released ports.
 // Keep their full matrix visible in TAP without changing helpers or filing tickets.
 for (const provider of ['voxtral', 'elevenlabs']) for (const role of ['stt', 'tts']) {

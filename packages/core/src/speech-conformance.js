@@ -25,7 +25,10 @@ async function speechConformance(role, component, request, { formats, incompatib
   const bounded = async work => {
     let timer;
     try { return await Promise.race([Promise.resolve().then(work), new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('conformance timeout')), timeoutMs);
+      timer = setTimeout(() => {
+        check(false, 'conformance timeout');
+        reject(new Error('conformance timeout'));
+      }, timeoutMs);
     })]); } finally { clearTimeout(timer); }
   };
   const rejects = async (work, code, rule) => {
@@ -50,7 +53,6 @@ async function speechConformance(role, component, request, { formats, incompatib
     : ['speak', ...(component.capabilities?.heardPrefix === 'aligned' ? ['speakAligned'] : [])];
   if (operations.includes('stream')) check(Array.isArray(expectedTranscripts) && expectedTranscripts.length > 0, 'transcript replacement fixture required');
   if (operations.includes('speakAligned')) check(playback && ['reset', 'deliver', 'confirm', 'heardPrefix'].every(key => typeof playback[key] === 'function'), 'playback-confirmed heard prefix fixture required');
-  const attempts = new Set(), claims = new Set();
   for (const operation of operations) {
     const modes = ['completed', 'provider-error', 'retry', ...(role === 'tts' ? ['fragment'] : []),
       'cancelled', 'deadline', 'consume-refused', 'pending-consume', 'active-cancelled', 'active-deadline',
@@ -59,7 +61,7 @@ async function speechConformance(role, component, request, { formats, incompatib
     for (const mode of modes) {
       const label = `${operation}/${mode}`, abort = new AbortController(), reports = [];
       const reportError = new Error('Synthetic report rejection');
-      let consumed = 0, settledConsume = false, iterator, sourceReturned = false, sourceOpened = false, bytes = 0, finalCount = 0, previousEnd = 0;
+      let consumed = 0, settledConsume = false, iterator, sourceReturned = false, sourceOpened = false, sourceExhausted = false, bytes = 0, finalCount = 0, previousEnd = 0, confirmedPrefix = '';
       let error, cancelTimer, reportCalls = 0, textEvents = [], successful = false;
       const input = { ...request, format: selected.encoding };
       if (mode === 'fragment') input.text = [...request.text].slice(0, Math.max(1, Math.floor([...request.text].length / 2))).join('');
@@ -68,15 +70,13 @@ async function speechConformance(role, component, request, { formats, incompatib
       if (operation === 'stream') input.audio = { [Symbol.asyncIterator]() {
         sourceOpened = true; let sent = 0;
         const count = mode === 'overflow-input-total' ? Math.floor(maxInputBytes / maxInputChunkBytes) + 1 : 1;
-        return { async next() { if (sent++ >= count) return { done: true };
+        return { async next() { if (sent++ >= count) { sourceExhausted = true; return { done: true }; }
           return { value: mode === 'overflow-input-total' ? new Uint8Array(maxInputChunkBytes) : sourceAudio, done: false }; },
           async return() { sourceReturned = true; return { done: true }; } };
       } };
       try { await bounded(() => prepare({ role, operation, mode, request: input })); }
       catch { check(false, `${label} fixture preparation`); continue; }
       const before = requestCount(), attemptId = crypto.randomUUID(), claimId = crypto.randomUUID();
-      check(!attempts.has(attemptId) && !claims.has(claimId), `${label} fresh retry/fragment claims`);
-      attempts.add(attemptId); claims.add(claimId);
       if (mode === 'cancelled') abort.abort();
       const options = { signal: abort.signal, deadlineAt: Date.now() + (mode === 'deadline' ? -1 : mode === 'active-deadline' ? Math.min(100, timeoutMs / 2) : timeoutMs),
         attempt: { attemptId, claimId, maxMicro: mode === 'over-ceiling' ? 1 : maxMicro, async consume() {
@@ -125,12 +125,14 @@ async function speechConformance(role, component, request, { formats, incompatib
                   !(end > 0 && end < input.text.length && /[\uD800-\uDBFF]/u.test(input.text[end - 1]) && /[\uDC00-\uDFFF]/u.test(input.text[end])), `${label} aligned offsets`);
                 if (playback) {
                   const heard = await playback.heardPrefix();
+                  check(heard === confirmedPrefix, `${label} playback-confirmed heard prefixes: generation is not playback`);
                   await playback.deliver(item.value);
                   check(await playback.heardPrefix() === heard, `${label} playback-confirmed heard prefixes: delivery is not playback`);
                   await playback.confirm(bytes - 1);
                   check(await playback.heardPrefix() === heard, `${label} playback-confirmed heard prefixes: whole chunk required`);
                   await playback.confirm(bytes);
                   check(await playback.heardPrefix() === input.text.slice(0, end), `${label} playback-confirmed heard prefixes`);
+                  confirmedPrefix = input.text.slice(0, end);
                 }
                 previousEnd = end;
               }
@@ -163,7 +165,7 @@ async function speechConformance(role, component, request, { formats, incompatib
         if (iterator?.return) { try { await bounded(() => iterator.return()); } catch { check(false, `${label} cancellation cleanup: iterator return`); } }
       }
       check(activeCount() === 0, `${label} cancellation cleanup: provider still active`);
-      if (operation === 'stream' && sourceOpened) check(sourceReturned, `${label} cancellation cleanup: audio source return`);
+      if (operation === 'stream' && sourceOpened && !sourceExhausted) check(sourceReturned, `${label} cancellation cleanup: audio source return`);
       check(reportCalls === 1, `${label} once-only terminal settlement after cleanup`);
       const noDispatch = ['cancelled', 'deadline', 'consume-refused', 'pending-consume'].includes(mode);
       if (noDispatch) check(requestCount() === before, `${label} consume-before-dispatch: preflight/refusal`);

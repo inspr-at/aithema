@@ -1508,6 +1508,11 @@ bytes per synthesis; configure `maxInputChunkBytes`, `maxInputBytes`,
 `maxAudioBytes` to the provider's documented smaller limits. `timeoutMs`
 (default 1000, minimum 100) bounds bad fixtures; `maxMicro` defaults to 1,000,000.
 A harness timeout fails conformance and does not prove abandoned work stopped.
+An opened STT source must be exhausted or receive `return()` when abandoned;
+normal exhaustion through `for await` does not require a redundant `return()`.
+Fresh-claim checks observe exactly one consume per supplied attempt, including
+retries and fragments; generating unique fixture IDs alone proves nothing
+about component claim reuse.
 
 For `heardPrefix: 'aligned'`, supply a `playback` fixture with `reset(request)`,
 `deliver(chunk)`, `confirm(cumulativePlayedBytes)` and `heardPrefix()` methods.

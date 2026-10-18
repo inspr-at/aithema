@@ -10,7 +10,7 @@ export function speechFixture(role, fault, { consumeSource = 'manual' } = {}) {
   let mode, requests = 0, active = 0, observed = 0, cachedOptions, heard = '', delivered = [], playbackRequest;
   const playback = {
     reset(input) { heard = ''; delivered = []; playbackRequest = input; },
-    deliver(chunk) { delivered.push(chunk); if (fault === 'heard') heard = playbackRequest.text.slice(0, chunk.textEnd); },
+    deliver(chunk) { delivered.push(chunk); },
     confirm(count) { let bytes = 0; for (const chunk of delivered) { bytes += chunk.audio.byteLength; if (bytes <= count) heard = playbackRequest.text.slice(0, chunk.textEnd); } },
     heardPrefix() { return heard; },
   };
@@ -19,6 +19,7 @@ export function speechFixture(role, fault, { consumeSource = 'manual' } = {}) {
     maxInputChunkBytes: 8, maxInputBytes: 16, maxTranscriptCharacters: 32, maxChunkBytes: 16, maxAudioBytes: 32,
     prepare(value) { mode = value.mode; observed = 0; }, requestCount: () => requests, activeCount: () => active, observedMicro: () => observed };
   async function* run(operation, input, rawOptions) {
+    if (fault === 'timeout' && mode === 'completed') await new Promise(() => {});
     let options = rawOptions;
     if (fault === 'cancel' && mode === 'active-cancelled') options = { ...options, signal: new AbortController().signal };
     if (fault === 'deadline' && mode === 'active-deadline') options = { ...options, deadlineAt: Date.now() + 1000 };
@@ -45,13 +46,13 @@ export function speechFixture(role, fault, { consumeSource = 'manual' } = {}) {
             if (audio.byteLength > 8 || inputBytes > 16) throw new PluginError('limit');
           }
         } else {
-        audioIterator = input.audio[Symbol.asyncIterator]();
-        let inputBytes = 0;
-        for (;;) { const item = await audioIterator.next(); if (item.done) break;
-          inputBytes += item.value.byteLength;
-          if (fault !== 'input-bounds' && (item.value.byteLength > 8 || inputBytes > 16)) throw new PluginError('limit');
-          if (fault === 'source-return') break;
-        }
+          audioIterator = input.audio[Symbol.asyncIterator]();
+          let inputBytes = 0;
+          for (;;) { const item = await audioIterator.next(); if (item.done) break;
+            inputBytes += item.value.byteLength;
+            if (fault !== 'input-bounds' && (item.value.byteLength > 8 || inputBytes > 16)) throw new PluginError('limit');
+            if (fault === 'source-return') break;
+          }
         }
       }
       if (operation === 'transcribe' && fault !== 'input-bounds' && input.audio.byteLength > 8) throw new PluginError('limit');
@@ -69,6 +70,7 @@ export function speechFixture(role, fault, { consumeSource = 'manual' } = {}) {
       } else {
         for (const end of mode === 'overflow-total' ? Array(9).fill(input.text.length) : [1, input.text.length]) {
           const audio = new Uint8Array(mode === 'overflow' ? 34 : 4);
+          if (fault === 'heard' && operation === 'speakAligned') heard = input.text.slice(0, end);
           yield operation === 'speakAligned' ? { audio, textEnd: fault === 'alignment' ? 2 : fault === 'alignment-backwards' ? input.text.length + 1 - end : fault === 'alignment-range' ? input.text.length + 1 : fault === 'alignment-fraction' ? 1.5 : end } : audio;
         }
       }
