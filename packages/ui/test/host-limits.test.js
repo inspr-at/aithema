@@ -267,3 +267,19 @@ test('AIT-299 r3: an explicit exhausted receipt recognises operator-budget recov
   assert.equal(surface.usedUp, false);
   assert.equal(root.querySelector('.host-credits').dataset.ended, 'false');
 });
+
+for (const [locale, copy] of Object.entries({ de, en })) for (const confirmed of [false, true]) {
+  test(`AIT-310 ${locale}: actual host-limit nextTier, confirmed ${confirmed}`, async t => {
+    const { root } = a2Setup(t, { copy, confirmed, endReason: 'host-limit', voiceClient: {} });
+    await waitForText(root.querySelector('.credit-announcement'), confirmed
+      ? `${releaseLimits[locale]['host-limit'][0]} ${releaseLimits[locale]['host-limit'][1]}`
+      : `${copy.hostSurface.usedUp.title} ${locale === 'de' ? 'Mit Ihrer E-Mail-Adresse erhalten Sie +600 weitere Credits. Ihr Gespräch bleibt gespeichert.' : 'Add your email address to get +600 more Credits. Your conversation stays saved.'}`);
+    const status = root.querySelector('.voice-state');
+    assert.equal(status.querySelector('.consent-narrow').dataset.copy,
+      confirmed ? (locale === 'de' ? 'Budget ausgeschöpft' : 'Budget used up')
+        : (locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up'));
+    assert.equal(status.querySelector('.consent-wide').textContent, copy.voiceStates.usedUp);
+    assert.equal(status.getAttribute('aria-label'), copy.voiceStates.usedUp);
+    assert.equal(status.getAttribute('aria-live'), 'off');
+  });
+}

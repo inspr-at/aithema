@@ -114,6 +114,16 @@ browserTestWeights['test/browser/start-look.test.js'] = Math.max(
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
   browserTestWeights['test/browser/voice-presentation.test.js'], 153.649);
 
+// AIT-310: full successful PR #280 CI 39114118981, head 756e755a7b,
+// shard 3/6. All four voice-presentation tests passed with the four credit
+// cases added to the existing phone matrix and viewport evidence.
+// Observed 53.207330244s + 18.799388979s + 51.797338594s
+// + 15.992038937s = 139.796096754s; with 25% margin, round up
+// to 174.746s. Supersedes the 151.858s mbp2606 provisional floor;
+// retain until rolling main covers this workload, without importing PR samples.
+browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
+  browserTestWeights['test/browser/voice-presentation.test.js'], 174.746);
+
 // AIT-311: PR #279 CI 39111500207, head 4ae057bd9b, shard 2/6:
 // all five email-mail-space tests passed after condition-based Settings
 // settling. Observed 65.657098318s; with 25% margin, 82.071372898s,

@@ -5,6 +5,7 @@ export const voiceMessageKeys = ['voiceMicDenied', 'voiceMicMissing', 'voiceAdmi
   'voiceConnectionFailed', 'voiceRecoveryFailed', 'voiceMoved', 'voiceClosureUncertain', 'voiceEnded', 'voicePauseFailed', 'voicePlaybackBlocked'];
 export function voiceStatusCases(copy) {
   return [
+    ...creditStatusCases(copy),
     { id: 'consent', full: copy.featureConsent.voice, kind: 'consent' },
     ...Object.entries(copy.voiceStates).map(([id, full]) => ({ id, full, kind: 'state' })),
     ...voiceMessageKeys.map(id => ({ id, full: copy[id], kind: 'error' })),
@@ -44,5 +45,26 @@ const approvedNarrowForms = {
   'session-erased': ['Gespräch gelöscht', 'Conversation deleted'],
 };
 export function approvedNarrowForm(copy, sample) {
+  if (sample.creditCase) return sample.short;
   return approvedNarrowForms[sample.reason ?? sample.id]?.[copy.display.locale === 'de' ? 0 : 1];
+}
+
+// Tick's binding AIT-310 table: only a host limit without an upgrade is budget copy.
+export function creditStatusCases(copy) {
+  const credits = copy.display.locale === 'de' ? 'Credits aufgebraucht' : 'Credits used up';
+  const budget = copy.display.locale === 'de' ? 'Budget ausgeschöpft' : 'Budget used up';
+  return [
+    { id: 'host-limit-with-upgrade', endReason: 'host-limit', nextTier: 'emailGiven', exhausted: true, short: credits },
+    { id: 'host-limit-without-upgrade', endReason: 'host-limit', nextTier: null, exhausted: true, short: budget },
+    { id: 'usedUp', exhausted: true, short: credits },
+    { id: 'budget-denied', reason: 'budget denied', short: credits },
+  ].map(sample => ({ ...sample, creditCase: true, kind: 'credit', full: sample.reason ? copy.reasons[sample.reason] : copy.voiceStates.usedUp }));
+}
+
+export function applyCreditStatusCase(rail, sample) {
+  rail.session = null; rail.state = 'idle'; rail.errorKey = null; rail.errorReason = null;
+  rail.usedUp = () => Boolean(sample.exhausted);
+  rail.endReason = () => sample.endReason ?? null;
+  rail.nextTier = () => sample.nextTier ?? null;
+  rail.feature = () => sample.reason ? { available: false, rawReason: sample.reason, reason: sample.full } : { available: true };
 }

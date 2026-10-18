@@ -1243,7 +1243,7 @@ test('AIT-235: an already saved typed echo removes its hypothesis without duplic
 });
 
 for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header status has a <=22 character narrow form; wide and AT keep the full sentence`, async t => {
-  const { voiceStatusCases, voiceMessageKeys, approvedNarrowForm } = await import('../../../test/voice-status-cases.js');
+  const { voiceStatusCases, voiceMessageKeys, approvedNarrowForm, applyCreditStatusCase } = await import('../../../test/voice-status-cases.js');
   assert.deepEqual(Object.keys(copy.voiceStatesNarrow).sort(), Object.keys(copy.voiceStates).sort());
   assert.deepEqual(Object.keys(copy.voiceMessagesNarrow).sort(), [...voiceMessageKeys].sort());
   for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.values(copy.voiceMessagesNarrow), ...Object.values(copy.voiceReasonsNarrow)]) {
@@ -1262,6 +1262,7 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     if (sample.id === 'low') { rail.state = 'listening'; rail.session = {}; }
     rail.feature = () => sample.kind === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: copy.featureConsent.voice }
       : ['reason', 'unavailable'].includes(sample.kind) ? { available: false, reason: sample.full, rawReason: sample.reason } : { available: true };
+    if (sample.creditCase) applyCreditStatusCase(rail, sample);
     rail.render();
     const narrow = status.querySelector('.consent-narrow'), full = status.querySelector('.consent-wide');
     assert.ok(narrow, `${sample.id}: narrow variant exists`);
@@ -1276,5 +1277,27 @@ for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header 
     assert.equal(status.getAttribute('aria-live'), rail.usedUp() ? 'off' : 'polite', 'existing single exhaustion announcement is preserved');
     assert.equal(status.textContent, expected + (sample.kind === 'consent' ? copy.featureConsent.action : ''), `${sample.id}: live announcement keeps full text`);
     if (sample.kind === 'consent') assert.equal(status.querySelector('.consent-action').textContent, copy.featureConsent.action);
+  }
+});
+
+for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit ownership and upgrade pins across end, admission and preview`, async t => {
+  const { creditStatusCases, applyCreditStatusCase } = await import('../../../test/voice-status-cases.js');
+  const { rail, root } = fixture(t); rail.copy = copy;
+  for (const sample of creditStatusCases(copy)) for (const source of sample.endReason ? ['end', 'admission', 'preview'] : sample.reason ? ['admission', 'preview'] : ['end']) {
+    applyCreditStatusCase(rail, sample);
+    let full = sample.full;
+    if (source !== 'end') {
+      rail.usedUp = () => false; rail.endReason = () => null;
+      rail.feature = () => ({ available: false, rawReason: sample.endReason ?? sample.reason, reason: copy.voiceStates.usedUp });
+      full = copy.voiceStates.usedUp;
+      if (source === 'admission') rail.failure({ code: 'not-admitted', reason: sample.endReason ?? sample.reason });
+    }
+    rail.render();
+    const status = root.querySelector('.voice-state');
+    assert.equal(status.querySelector('.consent-narrow').dataset.copy, sample.short, `${sample.id}/${source}: exact narrow copy`);
+    assert.equal(status.querySelector('.consent-wide').textContent, full);
+    assert.equal(status.getAttribute('aria-label'), full);
+    assert.equal(status.textContent, full);
+    assert.equal(status.getAttribute('aria-live'), rail.usedUp() ? 'off' : 'polite');
   }
 });
