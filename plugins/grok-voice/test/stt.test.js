@@ -143,3 +143,9 @@ test('malformed socket is closed even when it lacks a send or events port', asyn
   await assert.rejects(stt.transcribe(request(), op.options), { code: 'invalid-output' });
   assert.equal(closes, 1); assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
 });
+
+test(`duplicate transcript.done raises before publishing final (${STREAM_DOC})`, async () => {
+  const h = harness({ mode: 'duplicate-terminal' }), op = operation();
+  await assert.rejects(component(h).transcribe(request(), op.options), { code: 'invalid-output' });
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'uncertain');
+});
