@@ -97,6 +97,31 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 107.270);
 
+// AIT-307: PR #277 CI 39107993703, head 6548950b43, shard 6/6:
+// both start-look tests passed at 28.513415211s + 10.019822398s
+// = 38.533237609s. Reserve 48.167s with the 25% warmup margin
+// until trusted rolling-main measurements cover the readiness matrix.
+browserTestWeights['test/browser/start-look.test.js'] = Math.max(
+  browserTestWeights['test/browser/start-look.test.js'], 48.167);
+
+// AIT-302 round 2: full successful PR #274 CI 39106097121, head
+// ca4ab97310, shard 2/6. Copy-table screenshot representatives retain all
+// 133 source assertions without repainting source-only cases. Completed file:
+// 51.803124071s + 18.453931710s + 36.807815884s + 15.853129671s
+// = 122.918001336s; round up to 122.919s, then add 25% = 153.649s.
+// Supersedes the partial-work 200.818s floor and the round-1 224.717s
+// completed workload. PR observations stay outside trusted rolling-main history.
+browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
+  browserTestWeights['test/browser/voice-presentation.test.js'], 153.649);
+
+// AIT-311: PR #279 CI 39111500207, head 4ae057bd9b, shard 2/6:
+// all five email-mail-space tests passed after condition-based Settings
+// settling. Observed 65.657098318s; with 25% margin, 82.071372898s,
+// rounded up to 83s. Keep this floor until rolling main reflects the
+// changed workload; PR measurements remain outside trusted main history.
+browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
+  browserTestWeights['test/browser/email-mail-space.test.js'], 83);
+
 // AIT-309: PR #278 CI 39109940156, head 7b4a488a4c, shards 2/6 and 3/6.
 // Geometry: five passing tests total 153.615841488s; the 64-state legal-fit
 // matrix accounts for 33.080272039s. ceil(total * 1.25) = 193s.

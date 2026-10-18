@@ -117,6 +117,9 @@ export const de = {
   voiceProvisional: 'Wird erkannt …',
   voiceStates: { low: 'Noch wenig Guthaben', idle: 'Bereit zum Sprechen', connecting: 'Verbindung wird aufgebaut …', listening: 'Ich höre zu', speaking: 'Antwort wird gesprochen',
     paused: 'Anruf pausiert', recovering: 'Verbindung wird wiederhergestellt …', waiting: 'Sprache pausiert. Fortsetzen, wenn Sie bereit sind.', closing: 'Anruf wird beendet …', failed: 'Anruf beendet', usedUp: 'Credits aufgebraucht', timeExpired: 'Zeit abgelaufen', creditEnding: 'Anruf wird beendet …' },
+  voiceStatesNarrow: { low: 'Wenig Guthaben', idle: 'Bereit', connecting: 'Verbindet …', listening: 'Ich höre zu', speaking: 'Antwortet', paused: 'Pausiert', recovering: 'Verbindet erneut …', waiting: 'Pausiert', closing: 'Wird beendet …', failed: 'Anruf beendet', usedUp: 'Credits aufgebraucht', timeExpired: 'Zeit abgelaufen', creditEnding: 'Wird beendet …' },
+  voiceMessagesNarrow: { voiceMicDenied: 'Mikrofon gesperrt', voiceMicMissing: 'Kein Mikrofon', voiceAdmissionDenied: 'Nicht verfügbar', voiceConflict: 'Anruf in anderem Tab', voiceDeadline: 'Zeitlimit erreicht', voiceConnectionFailed: 'Verbindung gestört', voiceRecoveryFailed: 'Verbindung gestört', voiceMoved: 'In anderem Tab', voiceClosureUncertain: 'Kostenabgleich …', voiceEnded: 'Anruf beendet', voicePauseFailed: 'Pause unbestätigt', voicePlaybackBlocked: 'Ton gesperrt' },
+  voiceReasonsNarrow: { unavailable: 'Nicht verfügbar', consent: 'Einwilligung nötig', paused: 'Pausiert', credits: 'Credits aufgebraucht', checking: 'Kostenabgleich …', off: 'Sprache aus', setup: 'Nicht eingerichtet', provider: 'Anbieter unerreichbar', ended: 'Anruf beendet', permission: 'Freigabe abgelaufen', verification: 'E-Mail bestätigen', providerLimit: 'Anbieterlimit erreicht', voiceLimit: 'Sprachlimit erreicht', consentWithdrawn: 'Freigabe widerrufen', consentRevised: 'Freigabe geändert', sessionRevoked: 'Freigabe widerrufen', cancelled: 'Abgebrochen', disconnected: 'Verbindung getrennt', connectionExpired: 'Verbindung abgelaufen', notSaved: 'Nicht gespeichert', transcriptFull: 'Transkript voll', storageFull: 'Speicher voll', renderLimit: 'Limit erreicht', erased: 'Gespräch gelöscht' },
   voiceMicDenied: 'Kein Zugriff auf das Mikrofon. Erlauben Sie den Zugriff und versuchen Sie es erneut.',
   voiceMicMissing: 'Es wurde kein Mikrofon gefunden. Schließen Sie eines an und versuchen Sie es erneut.',
   voiceAdmissionDenied: 'Sprache ist nicht verfügbar. Prüfen Sie die Einwilligung und die verfügbaren Credits.',
@@ -251,7 +254,7 @@ export const de = {
     granted: 'Freigegeben', missing: 'Freigabe fehlt', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
     checkOnStart: 'Beim Start prüfen', onOnStart: 'Beim Start aktiv', notConnected: 'Unter Einstellungen › Erweitert verbinden',
     micGranted: `Erlaubt${reasonSeparator}noch nicht aktiv`, micDenied: 'Im Browser blockiert', micPrompt: 'Beim Start erlauben',
-    change: 'Einstellungen ändern', inputMode: 'Eingabemodus', voice: 'Spracheingabe', type: 'Texteingabe', start: 'Gespräch starten',
+    change: 'Einstellungen ändern', inputMode: 'Eingabemodus', textOnly: 'Eingabe: Text', voice: 'Spracheingabe', type: 'Texteingabe', start: 'Gespräch starten',
   },
   local: {
     title: 'Lokal', intro: 'Verbinden Sie ein KI-Modell, das auf dem Gerät läuft, das Sie gerade verwenden.', connection: 'Verbindung', textBadge: 'Nur Text',

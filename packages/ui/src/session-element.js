@@ -1964,13 +1964,7 @@ export class AithemaSession extends HTMLElement {
     const copy = this.#copy, r = copy.ready, section = node('section', 'ready'); section.setAttribute('aria-labelledby', 'ready-title');
     const title = node('h3', '', r.title); title.id = 'ready-title';
     const route = node('p', 'ready__route'); route.id = 'ready-route';
-    const modes = node('div', 'ready__modes'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', r.inputMode);
-    for (const [mode, glyph, label] of [...this.#voiceBound ? [['voice', 'mic', r.voice]] : [], ['type', 'keyboard', r.type]]) {
-      const choice = node('button', 'ready__mode'); choice.type = 'button'; choice.dataset.mode = mode; choice.dataset.focusKey = `mode-${mode}`;
-      choice.innerHTML = icon(glyph); choice.append(node('span', '', label));
-      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { this.#inputMode = mode; this.#render('transcript'); } });
-      modes.append(choice);
-    }
+    const modes = node('div', 'ready__input-slot');
     const start = node('button', 'ready__start'); start.type = 'button'; start.dataset.focusKey = 'start';
     start.setAttribute('aria-describedby', 'ready-route ai-notice');
     const arrow = node('span', 'ready__arrow'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = icon('arrowRight');
@@ -1979,6 +1973,23 @@ export class AithemaSession extends HTMLElement {
     section.append(title, node('dl'), node('div', 'ready__actions'), route, modes, start);
     if (this.#voiceBound) this.#watchMicrophone();
     return section;
+  }
+  #readyInput() {
+    const r = this.#copy.ready;
+    if (!this.#voiceBound) {
+      const line = node('p', 'ready__input');
+      const glyph = node('span', 'ready__icon'); glyph.setAttribute('aria-hidden', 'true'); glyph.innerHTML = icon('keyboard');
+      line.append(glyph, node('span', '', r.textOnly));
+      return line;
+    }
+    const modes = node('div', 'ready__modes'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', r.inputMode);
+    for (const [mode, glyph, label] of [['voice', 'mic', r.voice], ['type', 'keyboard', r.type]]) {
+      const choice = node('button', 'ready__mode'); choice.type = 'button'; choice.dataset.mode = mode; choice.dataset.focusKey = `mode-${mode}`;
+      choice.innerHTML = icon(glyph); choice.append(node('span', '', label));
+      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { this.#inputMode = mode; this.#render('transcript'); } });
+      modes.append(choice);
+    }
+    return modes;
   }
   // Voice is offered here only when a voice client exists and the selection allows it (or will, after consent).
   #voiceChoice() {
@@ -1999,7 +2010,11 @@ export class AithemaSession extends HTMLElement {
     const copy = this.#copy, r = copy.ready, device = this.#session.processingPreset === 'device', view = engineView(this.#session);
     setText(section.querySelector('#ready-title'), r.title);
     setText(section.querySelector('.ready__start > span'), r.start);
-    section.querySelector('.ready__modes').setAttribute('aria-label', r.inputMode);
+    const slot = section.querySelector('.ready__input-slot');
+    if (Boolean(slot.querySelector('.ready__modes')) !== this.#voiceBound || !slot.firstElementChild) slot.replaceChildren(this.#readyInput());
+    slot.querySelector('.ready__modes')?.setAttribute('aria-label', r.inputMode);
+    const textOnly = slot.querySelector('.ready__input > span:last-child');
+    if (textOnly) setText(textOnly, r.textOnly);
     for (const button of section.querySelectorAll('.ready__mode')) setText(button.querySelector('span'), r[button.dataset.mode]);
     const consent = this.#consentState(), local = this.#device?.model, mode = this.#mode(), voiceMode = mode === 'voice';
     const visuals = device ? SETTINGS_OFF : view.visuals;
