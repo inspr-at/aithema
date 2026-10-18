@@ -614,7 +614,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
         } }));
         if (path.endsWith('/preview')) {
           window.keyboardMints++;
-          if (window.keyboardMints === 1) return new Response('Unavailable', { status: 503 });
+          if (window.keyboardMints === 1) throw new Error('fixture network failure');
           return new Promise(resolve => { window.finishKeyboardMint = resolve; });
         }
         if (path.startsWith('/api/')) return Response.json(c.session);
