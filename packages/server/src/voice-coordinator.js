@@ -331,13 +331,17 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     const controller = new AbortController(), signal = AbortSignal.any([turnSignal, controller.signal]);
     let pending = '', full = '', replyId, complete = false, playback;
     try {
-      for await (const item of boundedEvents(replyExecutor.execute(envelope, options(signal)), options(signal))) {
+      const source = replyExecutor.execute(envelope, options(signal));
+      if (typeof source?.[Symbol.asyncIterator] !== 'function') throw new PluginError('invalid-output');
+      // Hand-off is the executor accepting the trusted envelope and returning
+      // its stream. Waiting for its first event can wait for the entire reply.
+      onAccepted?.();
+      for await (const item of boundedEvents(source, options(signal))) {
         if (complete) throw new PluginError('invalid-output');
         if (item.type === 'operation') {
           if (replyId || typeof item.replyId !== 'string') throw new PluginError('invalid-output');
           replyId = item.replyId;
           playback = createPlayback(revision, signal, replyId, error => controller.abort(error));
-          onAccepted?.();
         } else if (item.type === 'delta' && replyId && typeof item.text === 'string') {
           full += item.text; pending += item.text;
           if (full.length > maxTextCharacters) throw new PluginError('limit');

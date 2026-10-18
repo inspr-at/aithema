@@ -138,7 +138,10 @@ test('AIT-348 round 2: concurrent in-flight duplicates share hand-off and an acc
   } } });
   t.after(() => { handoff.resolve(); finish.resolve(); });
   const id = receipt('held-success'), pending = h.coordinator.sendText('Ja', id);
-  await entered.promise;
+  let acknowledged = false;
+  void pending.then(() => { acknowledged = true; }, () => {});
+  await entered.promise; await tick();
+  assert.equal(acknowledged, true, 'executor hand-off does not wait for reasoning output');
   const duplicate = h.coordinator.sendText('Ja', id);
   handoff.resolve();
   const [first, second] = await Promise.all([pending, duplicate]);
