@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Window } from 'happy-dom';
+import { de } from '../src/i18n/de.js';
+import { en } from '../src/i18n/en.js';
 import { HTML_PREVIEW_CSP, htmlPreviewHostPolicy } from '@inspr/aithema-core';
 // happy-dom enforces neither sandbox nor CSP; it checks the markup. The browser test proves isolation.
 const window = new Window({ url: 'http://localhost/', settings: { disableJavaScriptEvaluation: true, disableIframePageLoading: true } });
@@ -38,7 +40,7 @@ async function render(element, value) {
 test('missing host policy refuses a draft visibly before it can execute', () => {
   const element = setup(); element.artifact = source();
   assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null);
-  assert.equal(element.shadowRoot.querySelector('.state').textContent, previewCopy.policy);
+  assert.equal(element.shadowRoot.querySelector('.state-message').textContent, previewCopy.policy);
 });
 test('host policy accepts empty, scheme-only and full data probe URIs only while its sole probe is pending', async () => {
   for (const blockedURI of ['', 'data', 'data:text/html,%3Ctitle%3Epolicy%20probe%3C/title%3E']) {
@@ -101,7 +103,7 @@ test('the policy probe rejects report-only and wrong-directive event-like object
 test('renders only the scoped src in an allow-scripts sandbox; the route owns CSP', async () => {
   const element = setup(), root = element.shadowRoot;
   assert.equal(element.state, 'empty'); assert.equal(root.querySelector('iframe'), null);
-  assert.equal(root.querySelector('.state').textContent, previewCopy.empty);
+  assert.equal(root.querySelector('.state-message').textContent, previewCopy.empty);
   await render(element, source());
   const frame = root.querySelector('iframe'); assert.equal(element.state, 'ready');
   assert.equal(PREVIEW_SANDBOX, 'allow-scripts'); assert.equal(frame.getAttribute('sandbox'), 'allow-scripts');
@@ -109,7 +111,7 @@ test('renders only the scoped src in an allow-scripts sandbox; the route owns CS
   assert.equal(frame.getAttribute('referrerpolicy'), 'no-referrer'); assert.match(frame.getAttribute('allow'), /camera 'none'/u);
   assert.equal(frame.hasAttribute('srcdoc'), false); assert.equal(frame.getAttribute('title'), previewCopy.title);
   assert.match(frame.src, /^http:\/\/localhost\/_aithema\/html-preview\?cap=[A-Za-z0-9_-]{43}$/u);
-  assert.equal(root.querySelector('.label-text').textContent, 'Draft — generated');
+  assert.equal(root.querySelector('.label-text').textContent, 'Draft, generated');
 });
 test('refuses unsafe, non-html and broken bytes in place, without a frame', async () => {
   const element = setup(), root = element.shadowRoot;
@@ -119,7 +121,7 @@ test('refuses unsafe, non-html and broken bytes in place, without a frame', asyn
     await render(element, source()); assert.ok(root.querySelector('iframe'));
     await render(element, value);
     assert.equal(element.state, 'invalid'); assert.equal(root.querySelector('iframe'), null);
-    assert.equal(root.querySelector('.state').textContent, previewCopy.invalid);
+    assert.equal(root.querySelector('.state-message').textContent, previewCopy.invalid);
   }
   element.artifact = null; assert.equal(element.state, 'empty');
 });
@@ -141,7 +143,7 @@ test('host copy replaces every visible string, including in the empty state', as
   const element = setup(), root = element.shadowRoot;
   element.copy = { label: 'Entwurf — generiert', empty: 'Noch kein Entwurf.', wide: 'Breit', phone: 'Telefon', width: 'Vorschaubreite' };
   assert.equal(root.querySelector('.label-text').textContent, 'Entwurf — generiert');
-  assert.equal(root.querySelector('.state').textContent, 'Noch kein Entwurf.');
+  assert.equal(root.querySelector('.state-message').textContent, 'Noch kein Entwurf.');
   assert.deepEqual([...root.querySelectorAll('.seg button')].map(b => b.textContent), ['Breit', 'Telefon']);
   assert.equal(root.querySelector('.seg').getAttribute('aria-label'), 'Vorschaubreite');
   element.copy = { label: '<img src=x onerror=alert(1)>' }; assert.equal(root.querySelector('.label-text img'), null);
@@ -211,7 +213,7 @@ test('blocked navigation is visible both before first load and after load, with 
     frame.dispatchEvent(new window.Event('load'));
     if (loaded) frame.dispatchEvent(new window.Event('load')); else t.mock.timers.tick(1500);
     assert.equal(element.state, 'navigated'); assert.equal(root.querySelector('iframe'), null);
-    assert.equal(root.querySelector('.state').hidden, false); assert.equal(root.querySelector('.state').textContent, previewCopy.navigated);
+    assert.equal(root.querySelector('.state').hidden, false); assert.equal(root.querySelector('.state-message').textContent, previewCopy.navigated);
     assert.equal(root.activeElement, root.querySelector('.seg [data-width="phone"]'));
     assert.equal(channels.at(-1).port1.closed, true);
     element.artifact = null; frame.dispatchEvent(new window.Event('load')); t.mock.timers.tick(1500);
@@ -271,7 +273,7 @@ test('pre-load budget expires into failure, never navigation, and only explicit 
     t.mock.timers.tick(budget / 2); assert.equal(root.querySelector('iframe'), frame);
     t.mock.timers.tick(budget / 2);
     assert.equal(element.state, 'failure'); assert.equal(root.querySelector('iframe'), null);
-    assert.equal(root.querySelector('.state').textContent, previewCopy.failure);
+    assert.equal(root.querySelector('.state-message').textContent, previewCopy.failure);
     assert.equal(root.activeElement, root.querySelector('.seg [data-width="wide"]'));
     element.width = 'phone'; element.copy = {}; t.mock.timers.tick(60_000); await Promise.resolve();
     assert.equal(element.state, 'failure'); assert.equal(calls, 1, 'timeouts do not automatically spend another capability');
@@ -329,4 +331,38 @@ test('a replaced pre-load timer cannot discard a newer generation', async t => {
   oldFrame.dispatchEvent(new window.Event('load')); t.mock.timers.tick(1000);
   assert.equal(element.state, 'ready'); assert.equal(element.shadowRoot.querySelector('iframe'), currentFrame);
   element.remove(); t.mock.timers.tick(30_000); assert.equal(element.shadowRoot.querySelector('iframe'), null);
+});
+
+test('AIT-353: localized visitor copy, operator guidance and a persistent decorative alert slot', async () => {
+  assert.equal(de.conceptPreview.failure, 'Der Entwurf konnte nicht geladen werden. Schließen Sie die Vorschau und öffnen Sie sie später erneut.');
+  assert.equal(en.conceptPreview.failure, 'The draft could not be loaded. Try closing and reopening it later.');
+  assert.equal(de.conceptPreview.label, 'Entwurf, generiert');
+  assert.equal(en.conceptPreview.label, 'Draft, generated');
+  assert.equal(de.conceptPreview.policy, 'Die Vorschau ist auf dieser Website nicht freigeschaltet.');
+  assert.equal(en.conceptPreview.policy, "Previews aren't enabled on this site.");
+  assert.equal(de.conceptPreview.policyOperator, 'Für Betreiber: Die genaue Vorschau-Adresse muss als Rahmen erlaubt sein.');
+  assert.equal(en.conceptPreview.policyOperator, 'For site operators: the exact preview address must be allowed as a frame.');
+  for (const key of ['label', 'failure', 'policy', 'policyOperator']) assert.equal(previewCopy[key], en.conceptPreview[key]);
+  for (const copy of [de.conceptPreview, en.conceptPreview]) {
+    const element = setup(), root = element.shadowRoot, icon = root.querySelector('.state-icon');
+    element.copy = copy;
+    assert.equal(icon.getAttribute('aria-hidden'), 'true');
+    let finish;
+    await render(element, { ...source(), mint: () => new Promise(resolve => { finish = resolve; }) });
+    assert.equal(element.state, 'loading');
+    finish(await source().mint()); for (let i = 0; i < 8; i++) await Promise.resolve();
+    assert.equal(element.state, 'ready'); assert.equal(root.querySelector('.state').getAttribute('aria-hidden'), 'true');
+    await render(element, { ...source(), mint: async () => { throw new Error('fixture'); } });
+    assert.equal(element.state, 'failure'); assert.equal(root.querySelector('.state-message').textContent, copy.failure);
+    assert.equal(root.querySelector('.operator-message').textContent, '');
+    await render(element, { ...source(), previewURL: undefined });
+    assert.equal(element.state, 'policy'); assert.equal(root.querySelector('.state-message').textContent, copy.policy);
+    assert.equal(root.querySelector('.operator-message').textContent, copy.policyOperator);
+    assert.equal(root.querySelector('.state').getAttribute('aria-hidden'), 'false');
+    assert.equal(root.querySelector('.state-icon'), icon, 'all state transitions preserve the alert slot');
+    assert.deepEqual([...root.querySelectorAll('.state-text .state-sizer')].map(n => n.dataset.reserve),
+      ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy'].map(state => copy[state]));
+    assert.equal(root.querySelector('.state-operator .state-sizer').dataset.reserve, copy.policyOperator);
+    element.remove();
+  }
 });

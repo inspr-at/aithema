@@ -50,11 +50,13 @@ function verifyHostPolicy(document, previewURL) {
 // Powerful features stay off even where a browser would delegate them.
 const PERMISSIONS = ['camera', 'microphone', 'geolocation', 'display-capture', 'clipboard-read', 'clipboard-write', 'payment', 'usb',
   'serial', 'hid', 'bluetooth', 'midi', 'publickey-credentials-get', 'screen-wake-lock', 'fullscreen'].map(f => `${f} 'none'`).join('; ');
-export const previewCopy = Object.freeze({ label: 'Draft — generated', title: 'Generated clickable draft', width: 'Preview width',
+export const previewCopy = Object.freeze({ label: 'Draft, generated', title: 'Generated clickable draft', width: 'Preview width',
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
   loading: 'Loading draft…', failure: 'The draft could not be loaded. Try closing and reopening it later.',
-  policy: 'The host page must allow only the exact preview route before drafts can be shown.' });
+  policy: "Previews aren't enabled on this site.",
+  policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' });
+const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy'];
 const FRAME_READY = 'aithema-html-preview-ready';
 // A private reply port distinguishes a served draft from an error document.
 // It proves display readiness; the response and host CSP enforce containment.
@@ -80,12 +82,23 @@ iframe { position:absolute; top:0; bottom:0; left:50%; transform:translateX(-50%
 .stage[data-width="phone"] iframe { width:min(var(--preview-phone),100%); box-shadow:0 0 0 1px var(--aithema-line,#d5dfda); }
 iframe:focus-visible { outline:2px solid var(--aithema-accent,#1d6e6a); outline-offset:-2px; }
 .state { position:absolute; inset:0; margin:0; display:grid; place-items:center; padding:1.5rem; text-align:center; color:var(--aithema-muted,#566669); }
+/* Every locale's longest message and operator line reserve space in all states.
+   Visibility keeps the 20px alert slot and message anchors fixed, even in ready. */
+.state-content { display:grid; justify-items:center; gap:.5rem; width:100%; }
+.state-icon { width:20px; height:20px; color:var(--aithema-muted,#566669); visibility:hidden; }
+.state-text, .state-operator { display:grid; width:100%; }
+.state-text > *, .state-operator > * { grid-area:1/1; }
+.state-sizer { visibility:hidden; } .state-sizer::before { content:attr(data-reserve); }
+.state-operator { font-size:.85rem; visibility:hidden; }
+:host([state="ready"]) .state { visibility:hidden; pointer-events:none; }
+:host([state="failure"]) .state-icon, :host([state="policy"]) .state-operator { visibility:visible; }
 /* fill: the stage takes whatever height the host gives the element, e.g. a viewer row. */
 :host([fill]) { display:grid; grid-template-rows:auto minmax(0,1fr); height:100%; min-height:0; }
 :host([fill]) .stage { height:auto; min-height:0; }
 @media (pointer:coarse) { .seg button { min-height:2.75rem; } }
 `;
 const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1-3.5L10.5 3 13 5.5 6.5 12z M9.5 4l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+const ALERT_ICON = '<svg class="state-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5 18 17H2z M10 7v4.5 M10 14v.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 export class AithemaHTMLPreview extends HTMLElement {
   #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #frameFocused = false; #renderId = 0; #refocus = false;
   #frameCleanup = null; #mintAbort = null;
@@ -94,7 +107,10 @@ export class AithemaHTMLPreview extends HTMLElement {
     const root = this.attachShadow({ mode: 'open', delegatesFocus: true });
     root.innerHTML = `<style>${styles}</style><div class="bar"><span class="label">${DRAFT_ICON}<span class="label-text"></span></span>
       <div class="seg" role="radiogroup"><button type="button" role="radio" data-width="wide"></button><button type="button" role="radio" data-width="phone"></button></div></div>
-      <div class="stage"><p class="state" role="status"></p></div>`;
+      <div class="stage"><div class="state" role="status"><div class="state-content">${ALERT_ICON}
+        <div class="state-text"><span class="state-message"></span>${MESSAGE_STATES.map(state => `<span class="state-sizer" data-state="${state}" aria-hidden="true"></span>`).join('')}</div>
+        <div class="state-operator"><span class="operator-message"></span><span class="state-sizer" aria-hidden="true"></span></div>
+      </div></div></div>`;
     const seg = root.querySelector('.seg');
     seg.addEventListener('click', event => { const button = event.target.closest('button'); if (button) this.width = button.dataset.width; });
     seg.addEventListener('keydown', event => {
@@ -126,12 +142,16 @@ export class AithemaHTMLPreview extends HTMLElement {
       button.textContent = this.#copy[button.dataset.width]; button.setAttribute('aria-checked', String(on)); button.tabIndex = on ? 0 : -1;
     }
     root.querySelector('.stage').dataset.width = this.#width;
+    for (const sizer of root.querySelectorAll('.state-text .state-sizer')) sizer.dataset.reserve = this.#copy[sizer.dataset.state];
+    root.querySelector('.state-operator .state-sizer').dataset.reserve = this.#copy.policyOperator;
     this.#frame?.setAttribute('title', this.#copy.title);
   }
   #show(state) {
     this.setAttribute('state', state);
     const message = this.shadowRoot.querySelector('.state');
-    message.hidden = state === 'ready'; message.textContent = state === 'ready' ? '' : this.#copy[state];
+    message.setAttribute('aria-hidden', String(state === 'ready'));
+    message.querySelector('.state-message').textContent = state === 'ready' ? '' : this.#copy[state];
+    message.querySelector('.operator-message').textContent = state === 'policy' ? this.#copy.policyOperator : '';
   }
   #discard() {
     this.#mintAbort?.abort(); this.#mintAbort = null;

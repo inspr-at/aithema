@@ -94,7 +94,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   await page.evaluate(html => window.show(html), hostile(port));
   await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'policy');
   assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
-  assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent), /host page must allow only the exact preview route/u);
+  assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state-message').textContent), /^Previews aren't enabled on this site\.$/u);
   assert.deepEqual(await page.evaluate(() => window.results), []);
   // A report-only header and meta do not enforce the host policy. The element
   // rejects this declaration before starting its browser policy probe.
@@ -212,7 +212,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
       await page.waitForFunction(url => window.violations.some(v => v.trusted && v.directive === 'frame-src' && v.blocked === url && v.disposition === 'enforce'), {}, destination);
       await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'navigated');
       assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
-      assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent), /tried to open another page and was stopped/u);
+      assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state-message').textContent), /tried to open another page and was stopped/u);
       assert.equal(page.url(), `http://127.0.0.1:${port}${hostPath}`);
       assert.deepEqual(hits, [], `${hostPath}: ZERO navigation requests and ZERO requests from destination scripts`);
     }
@@ -261,7 +261,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     await request;
     await page.waitForFunction(() => ['failure', 'navigated'].includes(document.querySelector('aithema-html-preview').state), { timeout: 5000 });
     assert.equal(await state(), 'failure');
-    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent),
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state-message').textContent),
       'The draft could not be loaded. Try closing and reopening it later.');
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
     await page.evaluate(() => { const preview = document.querySelector('aithema-html-preview'); preview.width = 'phone'; preview.copy = {}; });
@@ -591,7 +591,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
     });
   }
-  // Reuse one page for the complete Tick matrix. Viewport-only shots, reduced
+  // Reuse one page for Tick checks. Viewport-only shots, reduced
   // motion and the baseline system font keep evidence deterministic and cheap.
   await page.goto(`http://127.0.0.1:${server.address().port}/strict-header-only`);
   await page.waitForFunction(() => window.ready === true);
@@ -600,11 +600,15 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
   if (evidence) await mkdir(evidence, { recursive: true });
   const geometry = () => page.evaluate(() => {
     const root = document.querySelector('aithema-html-preview').shadowRoot;
-    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]'].map(selector => {
+    return ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-operator'].map(selector => {
       const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
     });
   });
-  for (const width of [1440, 1024, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
+  // Local evidence is exactly Tick's two requested configurations. CI retains
+  // the existing geometry coverage, while uploading only the four new crops.
+  const scenarios = evidence && !isCI ? [{ width: 1440, theme: 'light', locale: 'de' }, { width: 390, theme: 'dark', locale: 'en' }]
+    : [1440, 1024, 390].flatMap(width => ['light', 'dark'].flatMap(theme => ['de', 'en'].map(locale => ({ width, theme, locale }))));
+  for (const { width, theme, locale } of scenarios) {
     await page.setViewport({ width, height: 1000 });
     await page.evaluate(async ({ theme, locale }) => {
       document.documentElement.dataset.theme = theme; document.documentElement.lang = locale;
@@ -624,8 +628,26 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       });
       await page.mouse.move(-10, -10);
       const boxes = await geometry(); assert.deepEqual(boxes, baseline, `${width}/${theme}/${locale}/${state}: 0 px`);
-      checks.push({ width, theme, locale, state, boxes, movementPx: 0 });
-      if (evidence) {
+      const presentation = await page.evaluate(() => {
+        const preview = document.querySelector('aithema-html-preview'), root = preview.shadowRoot;
+        const icon = root.querySelector('.state-icon'), operator = root.querySelector('.state-operator');
+        return { iconSize: [icon.getBoundingClientRect().width, icon.getBoundingClientRect().height],
+          iconVisibility: getComputedStyle(icon).visibility, iconColor: getComputedStyle(icon).color,
+          ink2: getComputedStyle(root.querySelector('.state')).color,
+          operatorVisibility: getComputedStyle(operator).visibility,
+          operatorText: root.querySelector('.operator-message').textContent,
+          message: root.querySelector('.state-message').textContent, expected: preview.copy[preview.state],
+          expectedOperator: preview.copy.policyOperator };
+      });
+      assert.deepEqual(presentation.iconSize, [20, 20]);
+      assert.equal(presentation.iconVisibility, state === 'failure' ? 'visible' : 'hidden');
+      assert.equal(presentation.iconColor, presentation.ink2, 'alert uses the host muted ink token');
+      assert.equal(presentation.operatorVisibility, state === 'policy' ? 'visible' : 'hidden');
+      assert.equal(presentation.operatorText, state === 'policy' ? presentation.expectedOperator : '');
+      assert.equal(presentation.message, state === 'ready' ? '' : presentation.expected);
+      checks.push({ width, theme, locale, state, boxes, presentation, movementPx: 0, iconSlotMovementPx: 0 });
+      const requestedCrop = width === 1440 && theme === 'light' && locale === 'de' || width === 390 && theme === 'dark' && locale === 'en';
+      if (evidence && requestedCrop && ['failure', 'policy'].includes(state)) {
         const file = `ait353-${width}-${theme}-${locale}-${state}.png`;
         await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false }); shots.push(file);
       }
@@ -655,7 +677,8 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'policy'); await capture('policy');
     await handle.dispose();
   }
-  if (evidence) await writeFile(join(evidence, 'ait353-checks.json'), JSON.stringify({ shots, checks, focus, movementPx: 0,
+  if (evidence) await writeFile(join(evidence, 'ait353-checks.json'), JSON.stringify({ shots, checks, focus, movementPx: 0, iconSlotMovementPx: 0,
+    geometrySelectors: ['.bar', '.stage', '.seg', '[data-width="wide"]', '[data-width="phone"]', '.state-content', '.state-icon', '.state-text', '.state-operator'],
     strictHost: ['header-only: handshake and click/dialog PASS', 'header-and-meta: handshake and click/dialog PASS'],
     refusedPolicies: ['none', 'overbroad', 'report-only'], offline: true }, null, 2));
   console.log(`PASS AIT-353: ${checks.length} geometry states, 0 px; ${focus.length} focus checks; strict host todos removed`);
