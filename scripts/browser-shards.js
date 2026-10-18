@@ -70,6 +70,14 @@ for (const [file, seconds] of Object.entries({
 browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
   browserTestWeights['test/browser/consent-lines.test.js'], 167);
 
+// AIT-341 P1: mbp2606 committed-head run b7727c6d05-67262, 2026-10-18:
+// 6.228956916s isolation + 19.702862417s backdrop + 5.178417708s strict-host
+// = 31.110237041s top-level work (5 pass, 2 executing todos, zero skips).
+// ceil(observed * 1.25) = 39s. Keep this diagnostic floor outside trusted
+// rolling-main history until matching successful main samples can replace it.
+browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
+  browserTestWeights['test/browser/html-preview.test.js'], 39);
+
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
 export const browserShardBudget = 420;
