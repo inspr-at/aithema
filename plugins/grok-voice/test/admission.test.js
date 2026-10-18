@@ -44,3 +44,13 @@ test('AIT-346: complete audio scope admits only permitted endpoint and preset', 
   assert.equal(await adapter.admissionReason({ session, preset: 'best', policy: { endpoints: [] } }, {}), 'endpoint not allowed');
   assert.deepEqual(adapter.processingScopes().map(s => [s.purpose, s.operation]), [['voice-xai', 'stream'], ['voice-xai', 'speak']]);
 });
+
+// Coverage is issued asynchronously; validate it against the clock after receipt.
+test('AIT-346: fresh consent issued across a clock tick admits the audio chain', async () => {
+  let at = Date.now();
+  const p = provider({ now: () => at, consent: { async coverage({ scope, consentRevision }) {
+    await Promise.resolve(); at++;
+    return { ...scope, scope, covered: true, consentRevision, checkedAt: at, expiresAt: at + 60000 };
+  } } });
+  assert.equal(await p.ports.serverAdapter.admissionReason({ session, preset: 'best', policy }, {}), null);
+});
