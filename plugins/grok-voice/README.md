@@ -1,4 +1,4 @@
-# Grok Voice (xAI) — component pipeline (AIT-344–AIT-347)
+# Grok Voice (xAI) — component pipeline (AIT-344–AIT-348)
 
 **not yet qualified in live use**
 
@@ -213,3 +213,66 @@ settles or releases speech children. Reasoning keeps its existing admission and
 accounting. Package 5 should carry call/provider/epoch identity through typed
 turns and lifecycle transitions, request fresh claims for retries, and leave
 unresolved children available to recovery after logical-call closure.
+
+
+### Typed turns and call lifecycle (package 5, AIT-348)
+
+`sendText(text, options)` now uses the supported authenticated network relay.
+Text must be nonblank and at most 16,384 UTF-16 code units, matching ElevenLabs.
+The browser supplies a fresh `deliveryId` for each submission; an explicit retry
+may reuse that id within the same admitted segment. Repeated delivery returns
+the same server turn id. Reusing an id with different text is refused; identical
+text with distinct ids creates distinct turns. Provider session/epoch checks,
+current consent/ownership authorization and pause holds fence every delivery.
+The delivery id never becomes a reasoning operation key. Server-owned sequences
+and immutable history envelopes share the spoken-turn commit chain and the
+trusted admitted reply executor. Typing dispatches no STT child.
+
+Physical capture exposes RMS from actual PCM16 samples, with a 150 ms stale
+sample cutoff. Playback exposes an AnalyserNode measurement on the output graph.
+`session.audioLevels()` reports independent input/output levels and zero during
+holds or for disabled channels. Pause stops media synchronously, then requires
+a durable `{ acknowledged: true, paused: true }` receipt. Resume cannot restart
+capture before its matching acknowledgement. Recovery retains channel choices,
+uses fresh bounded control/connect operations and the existing three-attempt
+lifecycle policy. Hidden pages stay held on return; visible window blur keeps
+running (AIT-116 D7).
+
+Blocked playback calls the existing `onPlaybackBlocked` host callback. Only the
+existing explicit playback retry invokes `session.retryPlayback()` to resume
+the audio context; it does not dispatch STT, reasoning or another speech claim.
+The bounded failed frame may play after unlock; interruption, output-off,
+pause and replacement discard it. No playback-position or heard claim is made.
+
+All presentation stays in the existing provider-neutral composer/audio rail:
+
+| Fixture condition | Existing state / copy key |
+| --- | --- |
+| Listening / speaking / paused / recovering | Same-named `voiceStates` entries |
+| Microphone permission denied / missing at start | `failed`: `voiceMicDenied` / `voiceMicMissing` |
+| Admission refused at start | `failed`: `voiceAdmissionDenied` |
+| Start deadline / transport failure | `failed`: `voiceDeadline` / `voiceConnectionFailed` |
+| Three failed recoveries | Existing `waiting` state, reason `recovery-failed`; `voiceStates.waiting` |
+| Auth lost after connection | Existing terminal `call-authorization-lost`; `voiceConnectionFailed` |
+| Rate limit during transport recovery | Existing bounded recovery, then `waiting` / `recovery-failed` |
+| Browser blocks playback | Existing `voicePlaybackBlocked` and `voicePlaybackRetry` action |
+
+There is **no dedicated provider-authentication or rate-limit UI copy** in the
+ElevenLabs reference. This gap is reported for the coordinator/Tick; package 5
+adds no state, wording or provider-specific UI for it. Microphone errors retain
+their DOM exception identity for the existing rail mapping.
+
+Offline regressions live in `plugins/grok-voice/test/turns-lifecycle.test.js`.
+`test/browser/composed-media.test.js` retains the physical fake-device journey
+and adds the Grok light/DE 1440/390 viewport matrix, exact 0 px control geometry,
+composer focus, typed-send and D7 visibility checks. With `AITHEMA_EVIDENCE_DIR`
+it emits `ait348-<width>-light-de-<state>.png`, the 390 typed-send viewport and
+`ait348-checks.json`. These are synthetic fixture results, **not yet qualified
+in live use**. Tick's morning QA and the coordinator's review gate precede merge.
+
+Package 6 owns the durable interruption marker and joined offline conformance.
+It must retain full answer text without inventing a heard prefix, persist/fence
+the interrupted reply identity through recovery/reload and duplicate events,
+and exercise the public Grok factories with fresh child claims. Package 5's
+`playbackRevision`, trusted turn envelopes and lifecycle events are its inputs;
+this package does not add the interruption marker or change ElevenLabs.
