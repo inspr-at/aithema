@@ -13,7 +13,7 @@ import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
-import { HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core/ui-html';
+import { htmlPreviewHostPolicy, HTML_PREVIEW_PATH } from '@inspr/aithema-core/ui-html';
 import { createOwnership, startExpiry, startVisitorRetention } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
@@ -160,7 +160,13 @@ const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigi
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ purposePolicy: start2PurposePolicy, storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
+// Bind before composing the route so ephemeral local ports have a trusted,
+// canonical URL. Requests remain closed until recovery and host gates are ready.
+let serving = false;
+const { server, url } = await listen(handle, { port: deployment.port, hostname: deployment.hostname });
+const previewURL = new URL(HTML_PREVIEW_PATH, deployment.publicOrigin ?? url).href;
+const previewHostPolicy = htmlPreviewHostPolicy(previewURL);
+const handlers = createHandlers({ concepts: { previewURL }, purposePolicy: start2PurposePolicy, storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
 voiceHost?.onAvailable?.(candidate => prepareVoiceRuntime({ current: readVoiceState(), binding: candidate.binding,
   createPlugin: configuredVoicePlugin,
   extendPolicy: (before, binding) => imageHost?.policy || voiceHost.policy ? before
@@ -181,6 +187,7 @@ const qualificationMount = qualificationOps?.createQualificationMount({ ...quali
   control: qualificationControl, authenticateRelay: request => ownership.token(request) });
 let allowedHosts = new Set();
 async function handle(request, context) {
+  if (!serving) return new Response(null, { status: 503 });
   const qualificationResponse = await qualificationMount?.handle(request); if (qualificationResponse) return qualificationResponse;
   const qualificationPath = new URL(request.url).pathname;
   if (!qualification.enabled && (qualificationPath.startsWith('/composed/') || qualificationPath.startsWith('/plugins/composed-voice/'))) return new Response(null, { status: 404 });
@@ -207,7 +214,7 @@ async function handle(request, context) {
   }
   const url = new URL(request.url);
   const privacyResponse = privacy.handle(request); if (privacyResponse) return privacyResponse;
-  if (url.pathname.startsWith('/api/')) return handlers.handle(request, context);
+  if (url.pathname === HTML_PREVIEW_PATH || url.pathname.startsWith('/api/')) return handlers.handle(request, context);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') {
     const operator = operatorSessions?.session(request);
@@ -216,7 +223,7 @@ async function handle(request, context) {
     ...(operatorSessions ? { operatorLogin: operatorSessions.entry() } : {}), ...(operator ? { operator: { name: operator.name } } : {}), label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
     voicePresentation: voiceHost?.voicePresentation ?? voicePlugin?.manifest.presentation,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
-    htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
+    previewURL, htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
     verificationRequired: host.policy.verificationRequired, privacy: privacy.config, build }, { headers: { 'cache-control': 'no-store', vary: 'Cookie' } });
   }
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
@@ -233,19 +240,20 @@ async function handle(request, context) {
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
-    const source = await readFile(file);
+    const raw = await readFile(file);
+    const source = file.endsWith('.html') ? raw.toString().replace("frame-src 'none'; child-src 'none'", previewHostPolicy) : raw;
     const bytes = path === '/demo/host.css' ? source.toString() + firstPaintStyles
       : path === '/demo/index.html' ? source.toString().replace('<!--aithema-first-paint-->', firstPaintMarkupFor({ voice: voiceMode === 'fake' || Boolean(readVoiceState().binding) })) : source;
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
       'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-      ...(file.endsWith('.html') ? { 'content-security-policy': HTML_PREVIEW_HOST_CSP } : {}),
+      ...(file.endsWith('.html') ? { 'content-security-policy': previewHostPolicy } : {}),
     } });
   } catch { return new Response(null, { status: 404 }); }
 }
-const { server, url } = await listen(handle, { port: deployment.port, hostname: deployment.hostname });
 const port = server.address().port;
 allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+serving = true;
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {

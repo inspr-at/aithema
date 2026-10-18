@@ -89,8 +89,23 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // ceil(CI observed * 1.25) = 41s, superseding the 39s remote floor. Keep
 // this diagnostic floor outside trusted rolling-main history until matching
 // successful main samples can replace it.
+// AIT-353: PR #307 CI 39150584262, head b2c8ff3a, shard 2/7 passed
+// all ten preview tests with no todos/skips: 8.001041562s isolation +
+// 19.367865619s backdrop + 9.704025264s strict host/evidence = 37.072932445s.
+// ceil(observed * 1.25) = 47s, superseding the 41s AIT-341 floor.
+// PR diagnostics stay outside trusted rolling-main timing history.
+// Round 2: PR #307 CI 39153830260 at 0388f17f, shard 1/7, passed
+// all 12 preview tests: 15.749681849 + 20.370036503 + 10.638330447
+// = 46.758048799s. ceil(observed * 1.25) = 59s; reserve 60s, rounding
+// up to the next 5s for warmup variation. This supersedes the mixed
+// CI/remote 56s forecast; rolling-main timing history stays unchanged.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 41);
+  browserTestWeights['test/browser/html-preview.test.js'], 60);
+// The same CI run, shard 5/7, passed all ten demo top-level tests in
+// 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
+// Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
+browserTestWeights['test/browser/demo.test.js'] = Math.max(
+  browserTestWeights['test/browser/demo.test.js'], 71);
 
 // AIT-346: physical Grok start reuses the existing page/device. mbp2606
 // committed-head run 5d799ebac1-85300 passed in 2.143716584s;
