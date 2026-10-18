@@ -1241,3 +1241,40 @@ test('AIT-235: an already saved typed echo removes its hypothesis without duplic
   assert.equal(root.querySelector('.partial'), null);
   await emit(partial); assert.equal(root.querySelectorAll('.turn').length, 2);
 });
+
+for (const copy of [de, en]) test(`AIT-302: every ${copy.display.locale} header status has a <=22 character narrow form; wide and AT keep the full sentence`, async t => {
+  const { voiceStatusCases, voiceMessageKeys, approvedNarrowForm } = await import('../../../test/voice-status-cases.js');
+  assert.deepEqual(Object.keys(copy.voiceStatesNarrow).sort(), Object.keys(copy.voiceStates).sort());
+  assert.deepEqual(Object.keys(copy.voiceMessagesNarrow).sort(), [...voiceMessageKeys].sort());
+  for (const short of [...Object.values(copy.voiceStatesNarrow), ...Object.values(copy.voiceMessagesNarrow), ...Object.values(copy.voiceReasonsNarrow)]) {
+    assert.ok(short && [...short].length <= 22, `bounded localized short form: ${short}`);
+  }
+  const { rail, root } = fixture(t), status = root.querySelector('.voice-state');
+  rail.copy = copy;
+  for (const sample of voiceStatusCases(copy)) {
+    rail.session = sample.kind === 'state' && !['idle', 'failed'].includes(sample.id) ? {} : null;
+    rail.state = sample.kind === 'state' && !['low', 'usedUp', 'timeExpired', 'creditEnding'].includes(sample.id) ? sample.id : 'idle';
+    rail.errorKey = sample.kind === 'error' ? sample.id : null;
+    rail.paused = sample.id === 'paused'; rail.waitingCall = null;
+    rail.usedUp = () => ['usedUp', 'timeExpired', 'creditEnding'].includes(sample.id);
+    rail.endReason = () => sample.id === 'timeExpired' ? 'one-hour' : null;
+    rail.ending = () => sample.id === 'creditEnding'; rail.lowCredit = () => sample.id === 'low';
+    if (sample.id === 'low') { rail.state = 'listening'; rail.session = {}; }
+    rail.feature = () => sample.kind === 'consent' ? { available: false, rawReason: 'current processing consent required', reason: copy.featureConsent.voice }
+      : ['reason', 'unavailable'].includes(sample.kind) ? { available: false, reason: sample.full, rawReason: sample.reason } : { available: true };
+    rail.render();
+    const narrow = status.querySelector('.consent-narrow'), full = status.querySelector('.consent-wide');
+    assert.ok(narrow, `${sample.id}: narrow variant exists`);
+    const short = narrow.dataset.copy;
+    const approved = approvedNarrowForm(copy, sample);
+    if (approved) assert.equal(short, approved, `${sample.reason ?? sample.id}: Tick’s approved short form`);
+    assert.ok(short && [...short].length <= 22, `${sample.id}: ${short}`);
+    assert.equal(narrow.getAttribute('aria-hidden'), 'true');
+    const expected = sample.full + (sample.kind === 'consent' ? '\u00a0· ' : '');
+    assert.equal(full.textContent, expected, `${sample.id}: >=600px output unchanged`);
+    assert.equal(status.getAttribute('aria-label'), sample.full, `${sample.id}: accessible name`);
+    assert.equal(status.getAttribute('aria-live'), rail.usedUp() ? 'off' : 'polite', 'existing single exhaustion announcement is preserved');
+    assert.equal(status.textContent, expected + (sample.kind === 'consent' ? copy.featureConsent.action : ''), `${sample.id}: live announcement keeps full text`);
+    if (sample.kind === 'consent') assert.equal(status.querySelector('.consent-action').textContent, copy.featureConsent.action);
+  }
+});

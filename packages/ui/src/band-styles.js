@@ -51,13 +51,31 @@ export const bandStyles = `
 .voice-state { max-width:100%; white-space:nowrap; overflow-wrap:normal; word-break:normal; }
 /* At 600px the CI baseline's longest DE status needs 306px of the 314px signal. */
 @media(600px <= width < 640px) { .voice-state { padding-inline:2px; } }
-/* Preserve the accepted phone label reservation, with whole-word wrapping. */
-@media(width < 600px) { .voice-state { white-space:normal; text-wrap:balance; } }
 /* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
 @media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; }
   .audio-rail[data-call-reconciling] .voice-state { max-width:100%; } }
 .audio-rail[data-message] .voice-state { width:min(280px,calc(100vw - 32px)); max-width:none;
   left:var(--voice-message-left,0px); right:auto; white-space:normal; overflow-wrap:normal; word-break:normal; hyphens:auto; }
+/* Reuse the consent variants without adding short copy to polite announcements. */
+.voice-state .consent-narrow { display:none; }
+.voice-state .consent-narrow::before { content:attr(data-copy); }
+@media(width < 600px) {
+  /* A permanent two-line row below the 44px controls also fits at 320px. */
+  .voice-signal { height:44px; }
+  .voice-wave { align-self:start; margin-top:7px; }
+  .band .audio-rail .voice-state, .audio-rail[data-message] .voice-state {
+    position:absolute; top:44px; left:-48px; right:auto; width:calc(100% + 192px); max-width:none; height:36px;
+    display:flex; flex-wrap:wrap; align-content:center; justify-content:center; column-gap:.35em;
+    padding:3px 8px; border:0; border-radius:0; background:none; box-shadow:none;
+    font-size:10px; line-height:1.25; text-align:center; white-space:normal; text-wrap:initial;
+  }
+  .audio-rail .voice-state:empty { display:none; }
+  .voice-state .consent-line-copy { display:contents; }
+  /* Keep the full sentence in the accessibility tree and the live region. */
+  .voice-state .consent-wide { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .voice-state .consent-narrow { display:inline-block; white-space:nowrap; }
+  .voice-state .consent-action { flex:none; white-space:nowrap; }
+}
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; justify-content:flex-end; }
 .header-actions > .settings-open { flex:none; }
@@ -227,13 +245,10 @@ export const bandStyles = `
   .conversations-wrap, .host-bar { min-width:0; }
   .conversations-wrap { position:static; }
   .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
+  .band:has(> .audio-rail) .conversations-menu { top:50px; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
   .voice-state { max-width:100%; }
-  /* The hidden pause stays reserved; only reconciliation copy borrows its space. */
-  .audio-rail[data-call-reconciling]:not(:has(:is(.pause,.voice-pause)[aria-pressed="true"])) .voice-state {
-    position:absolute; left:0; width:calc(100% + 48px); max-width:none;
-  }
   .fold-strip { gap:8px; padding-left:max(12px,calc(54px - var(--aithema-gutter))); padding-right:12px; grid-template-columns:auto minmax(0,1fr); }
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }

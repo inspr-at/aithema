@@ -356,7 +356,8 @@ export async function displayMatrix(t, section) {
           assert.ok(Math.abs(gap - 16) <= .5, `8px clear space plus 8px fade beside the widest line: ${JSON.stringify(label)}`);
           assert.ok(Math.abs(gap - single.gaps[i]) <= 2, 'one-line and wrapped text have the same gap (±2px)');
         }
-        assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
+        if (width >= 600) assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
+        else { const rail = (await boxes(page, ['.audio-rail']))[0]; assert.ok(Math.abs(label.x + label.width / 2 - rail[0] - rail[2] / 2) <= .5, 'phone status is centred below the controls'); }
         assert.ok(label.lines <= 2.05, `${width}/${theme}/${locale}: at most two lines ${JSON.stringify(label)}`);
         if (width >= 600) assert.ok(label.width <= label.waveWidth / 2 + .5, 'the wide status label uses at most half the wave');
         assert.notEqual(label.overflow, 'ellipsis'); assert.ok(label.scrollHeight <= label.clientHeight + 1, 'the full consent text stays readable');
@@ -366,8 +367,11 @@ export async function displayMatrix(t, section) {
         // the text itself, retaining the layout and mask while hiding only the glyphs.
         const text = label.textBox, clip = { x: Math.ceil(text.x), y: Math.ceil(text.y), width: Math.floor(text.right) - Math.ceil(text.x), height: Math.floor(text.bottom) - Math.ceil(text.y) };
         const background = await shadow(page, c => {
-          const signal = c.shadowRoot.querySelector('.voice-signal');
-          const saved = [signal.style.getPropertyValue('background'), signal.style.getPropertyPriority('background')];
+          const signal = c.shadowRoot.querySelector('.voice-signal'), band = c.shadowRoot.querySelector('.band');
+          const saved = { signal: [signal.style.getPropertyValue('background'), signal.style.getPropertyPriority('background')],
+            band: [band.style.getPropertyValue('background'), band.style.getPropertyPriority('background')] };
+          // Phone text is below the signal; its opaque comparison backdrop is the band.
+          if (innerWidth < 600) band.style.setProperty('background', 'var(--aithema-paper)');
           // The transparent hole must expose exactly the same backdrop in both shots.
           // Gradient dithering can change by 1/255 when Chrome changes compositing layers.
           signal.style.setProperty('background', 'var(--aithema-paper)');
@@ -380,9 +384,11 @@ export async function displayMatrix(t, section) {
           await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.visibility = 'hidden'; });
           clear = Buffer.from(await page.screenshot({ clip }));
         } finally {
-          await shadow(page, (c, [value, priority]) => {
-            const signal = c.shadowRoot.querySelector('.voice-signal');
-            value ? signal.style.setProperty('background', value, priority) : signal.style.removeProperty('background');
+          await shadow(page, (c, saved) => {
+            for (const [selector, [value, priority]] of [['.voice-signal', saved.signal], ['.band', saved.band]]) {
+              const element = c.shadowRoot.querySelector(selector);
+              value ? element.style.setProperty('background', value, priority) : element.style.removeProperty('background');
+            }
             c.shadowRoot.querySelector('.voice-wave').style.removeProperty('visibility');
             c.shadowRoot.querySelector('.voice-state').style.removeProperty('visibility');
           }, background);
