@@ -704,18 +704,26 @@ normal owner authentication (header-token or host cookie adapter). No body is
 required. A successful `200` JSON response is `{ url, expiresInMs: 60000 }` with
 `Cache-Control: no-store`. Missing/wrong owners or artifacts return `404`;
 publication/consent refusal returns `403`; methods other than POST return `405`.
+A registry full of live tokens refuses minting with a plain `503`,
+`Cache-Control: private, no-store` and `Retry-After: 60`; retry with a fresh mint.
 The parent mounts that URL in an iframe with `sandbox="allow-scripts"` and
 `referrerpolicy="no-referrer"`, retaining powerful-feature denials. Never add
 `allow-same-origin`, top navigation, forms, popups or downloads.
 
-`GET/HEAD /_aithema/html-preview?cap=…` accepts only the capability, bypassing
+`GET /_aithema/html-preview?cap=…` accepts only the capability, bypassing
 owner cookies/headers and host authentication middleware. Tokens contain 256
 CSPRNG bits, are stored only as hashes in a bounded process-local registry
-(default 1024 entries), and expire in 60 seconds. GET **and HEAD** consume the
-token before asynchronous checks. Ownership, consent revision, publication,
+(default 1024 entries), and expire in 60 seconds measured by a monotonic clock.
+GET consumes the token before asynchronous checks. HEAD always returns `405`
+with `Allow: GET` and `private, no-store`, without checking or consuming a token,
+redirecting or setting cookies. Expired registry entries are purged first;
+a full live registry refuses new mints instead of evicting live tokens.
+Each session holds at most eight live tokens by default; exceeding that share
+replaces only that session's oldest token. Ownership, consent revision, publication,
 erasure and the artifact's digest/static policy are checked on redemption;
 current ownership/consent/erasure/bytes are checked again after publication.
-Restart, another instance, reuse, expiry or eviction requires a fresh mint.
+Restart, another instance, reuse, expiry or replacement at the session's own
+quota requires a fresh mint.
 The parent must re-mint on every retry/reload: **no network; a self-reload is refused**.
 Already delivered bytes cannot be revoked, so lifecycle events must remove frames.
 

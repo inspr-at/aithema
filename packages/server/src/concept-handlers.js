@@ -71,10 +71,17 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     async handlePreview(request) {
       const url = new URL(request.url), head = request.method === 'HEAD';
       if (url.pathname !== HTML_PREVIEW_PATH) return null;
+      if (head) {
+        // Refuse before looking at the query or registry: link probes must
+        // neither consume a delegation nor reveal whether it exists.
+        const response = previewDenied(405, true);
+        response.headers.set('allow', 'GET');
+        return response;
+      }
       // Never consult the ownership adapter or host middleware here. Never log
       // request URLs/errors: the query contains a delegated bearer credential.
       try {
-        if (signal?.aborted || !preview || !['GET', 'HEAD'].includes(request.method) || url.searchParams.size !== 1 ||
+        if (signal?.aborted || !preview || request.method !== 'GET' || url.searchParams.size !== 1 ||
           !url.searchParams.has('cap')) return previewDenied(403, head);
         const scope = previewCapabilities.redeem(url.searchParams.get('cap'));
         if (!scope) return previewDenied(403, head);
@@ -136,6 +143,9 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         storage.authorize(id, ownerToken);
         if (!previewArtifact(storage, scope)) return json({ error: 'not-admitted' }, 403);
         const token = previewCapabilities.mint(scope);
+        if (token === null) return new Response('Preview capacity unavailable', { status: 503, headers: {
+          'content-type': 'text/plain; charset=utf-8', 'cache-control': 'private, no-store', 'retry-after': '60',
+        } });
         return json({ url: `${preview.url}?cap=${token}`, expiresInMs: previewCapabilities.ttlMs });
       }
       if (request.method === 'GET') {
