@@ -17,7 +17,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
   async function connect(grant, options = {}) {
     assertVoiceMediaGrant(grant, now());
     const events = voiceEvents(); let transport, recording, input = true, output = true, stopped = false,
-      playbackRevision = 0, holdRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0, captureController, playbackBlocked = false, blockedFrame;
+      playbackRevision = 0, holdRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0, speechActive = false, speechSilenceMs = 0, lastSpeechAt = 0, captureController, playbackBlocked = false, blockedFrame;
     const owner = Symbol('composed-media'), pendingPlayback = new Set();
     const stopPlayback = (origin = 'interrupt') => {
       if (mediaOwner === owner) player.stop({ origin });
@@ -32,7 +32,22 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
       const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
       const next = await capture({ signal, format: 'pcm_s16le', sampleRateHz: 16000,
         onError: () => { if (!stopped && !hold) void lifecycle.recover(); },
-        onAudio: audio => stopped || hold || !input || mediaOwner !== owner ? Promise.resolve() : transport.sendAudio(audio) });
+        onAudio: audio => {
+          if (stopped || hold || !input || mediaOwner !== owner) return Promise.resolve();
+          // The capture format is PCM16 mono 16 kHz. Mirror the server's
+          // onset threshold locally so network latency cannot extend playback.
+          if (audio instanceof Uint8Array && audio.byteLength && audio.byteLength % 2 === 0) {
+            const view = new DataView(audio.buffer, audio.byteOffset, audio.byteLength); let energy = 0;
+            for (let i = 0; i < audio.byteLength; i += 2) energy += (view.getInt16(i, true) / 32768) ** 2;
+            const voiced = Math.sqrt(energy / (audio.byteLength / 2)) >= 0.015;
+            if (now() - lastSpeechAt >= 500) speechActive = false;
+            if (voiced) {
+              if (!speechActive) mute('barge-in');
+              speechActive = true; speechSilenceMs = 0; lastSpeechAt = now();
+            } else if ((speechSilenceMs += audio.byteLength / 32) >= 500) speechActive = false;
+          }
+          return transport.sendAudio(audio);
+        } });
       if (stopped || hold || !input || signal.aborted || captureController !== controller || mediaOwner !== owner) next.stop(); else recording = next;
     }
     const lifecycle = createVoiceLifecycleController({ callId: grant.callId, now,
@@ -73,7 +88,10 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
             if (!playbackBlocked) playFrame(frame, source);
           } else if (frame.type === 'event') {
             if (frame.event.type === 'waiting') { hold = true; holdRevision++; localStop(); lifecycle.wait(frame.event.reason); }
-            else if (frame.event.type === 'ended') { stop(); lifecycle.end(frame.event.reason); }
+            else if (frame.event.type === 'ended') {
+              stop(); lifecycle.end(frame.event.reason); events.push(frame.event);
+              await session.close({ reason: frame.event.reason }); return;
+            }
             events.push(frame.event);
           }
         }

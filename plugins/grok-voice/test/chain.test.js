@@ -15,7 +15,7 @@ const pcm = () => { const bytes = Buffer.alloc(3200); for (let i = 0; i < bytes.
 
 function fixture(t, { denied, preset = 'best', missingTransport = false, defaultAccounting = false, visitorMicroPerMinute = 0, ttsMode = 'completed', ttsAudioBytes = 4 } = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'owner' });
-  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode, audioBytes: ttsAudioBytes }), consumed = [], reports = [], coverage = [], played = [], persisted = [], reasoningRequests = [];
+  const voice = binding(), stt = sttHarness(), tts = ttsHarness({ mode: ttsMode, audioBytes: ttsAudioBytes }), consumed = [], reports = [], coverage = [], played = [], persisted = [], reasoningRequests = [], controlErrors = [];
   const budget = new SQLiteBudgetLedger(storage), accounting = createComposedComponentAccounting({ storage, budget });
   voice.visitorMicroPerMinute = visitorMicroPerMinute;
   const reasoning = { plugin: 'fixture-reasoning', model: 'admitted-answer', endpoint: 'https://reasoning.test',
@@ -61,7 +61,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
   }) };
   for (const action of ['close', 'pause', 'resume', 'heartbeat', 'recover']) control[action] = async identity => {
     const response = await post(`/${identity.callId}/${action}`, { ...identity, tabId: 'tab' });
-    const value = await response.json(); if (!response.ok) throw Object.assign(new Error(value.error), { status: response.status, code: value.error }); return value;
+    const value = await response.json(); if (!response.ok) { controlErrors.push({ action, ...value }); throw Object.assign(new Error(value.error), { status: response.status, code: value.error }); } return value;
   };
   let onAudio, captureStops = 0, stops = 0;
   const client = createGrokVoiceClient({ control,
@@ -70,7 +70,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false, default
     capture: async options => { onAudio = options.onAudio; return { stop() { captureStops++; } }; },
     player: { play(bytes, format) { played.push({ bytes, ...format }); }, stop() { stops++; } } });
   t.after(async () => { p.networkRelay?.close(); await handlers.close(); storage.close(); });
-  return { storage, session, runtime, post, p, client, control, played, consumed, reports, coverage, persisted, reasoningRequests,
+  return { storage, session, runtime, post, p, client, control, played, consumed, reports, coverage, persisted, reasoningRequests, controlErrors,
     audio: bytes => onAudio(bytes), get captureStops() { return captureStops; }, get stops() { return stops; } };
 }
 
@@ -153,7 +153,8 @@ test('AIT-349: real Grok chain interrupts synthesis locally, persists full reply
   assert.equal(reply.content, 'Which company?'); assert.deepEqual(reply.interruption, { heardLength: 'unknown' });
   assert.equal(h.persisted.filter(event => event.type === 'voice.interrupted').length, 1);
   const original = session.providerSessionId;
-  await session.pause(); await session.resume();
+  await session.pause();
+  try { await session.resume(); } catch (error) { t.diagnostic(JSON.stringify(h.controlErrors)); throw error; }
   assert.notEqual(session.providerSessionId, original);
   assert.deepEqual(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).interruption, { heardLength: 'unknown' });
   assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);

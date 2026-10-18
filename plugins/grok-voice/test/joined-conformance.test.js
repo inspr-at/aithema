@@ -45,7 +45,7 @@ for (const locale of ['de', 'en']) test(`AIT-349: ${locale} joined public sessio
     const frames = transport.frames;
     return { ...transport, frames: { [Symbol.asyncIterator]() { return this; }, async next() {
       const item = await frames.next(); if (item.done) relayClosed = true; return item;
-    }, return: () => frames.return() } };
+    }, async return() { const result = await frames.return(); relayClosed = result.done; return result; } } };
   },
     capture: async () => { inputOn = true; return { stop() { inputOn = false; captureStops++; } }; },
     player: { play() { plays++; }, stop() { stops++; } } });
