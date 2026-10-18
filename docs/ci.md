@@ -414,7 +414,8 @@ target, packing algorithm nor workflow/check names changes.
 
 Completed-file work below sums only completed top-level tests, never nested
 tests or shard/setup wall time. Values are seconds, rounded here to six decimals;
-full precision is retained in the sibling samples. Times are in A/B/C/D/E order.
+full precision for the current workload is retained in the sibling samples.
+Times are in A/B/C/D/E order.
 An asterisk marks an **older workload**, shown for comparison and excluded from
 that file’s current p95. “File p95” is nearest-rank p95 of the matching completed
 file sums from these five runs (max for this short series).

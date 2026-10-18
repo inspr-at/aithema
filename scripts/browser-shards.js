@@ -37,7 +37,7 @@ export function readBrowserTestWeights(files = discoverBrowserTests(), root = re
 }
 
 export const browserTestWeights = readBrowserTestWeights();
-// AIT-314: main-only re-derivation and per-file evidence: docs/ci.md.
+// AIT-314: main-only re-derivation; per-file evidence is in the CI guide.
 // Mature rolling-main series replace the old ticket floors. Geometry's fresh
 // two-sample weight (216.968s, including 25%) already exceeds its old 196s floor.
 // Keep the conservative PR floors for these changed workloads until at least
