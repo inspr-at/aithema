@@ -13,6 +13,7 @@ export function createComposedVoiceAuthority(operations) {
   }
   const authorize = (request, options) => authorizeComposition(request, options);
   return Object.freeze({ authorize,
+    admitComponent: request => operations.admitComponent(request),
     commitUtterance: (envelope, options) => commitCoordinator(envelope, options),
     replyExecutor: createVoiceReplyExecutor({ execute(envelope, options) {
       const context = envelope.payload, { callId, providerSessionId, callbackBody } = context;

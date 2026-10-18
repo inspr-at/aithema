@@ -61,6 +61,8 @@ export type VoiceEvent = { callId: string; providerSessionId?: string; generatio
 export interface VoiceUsage {
   providerSeconds: number; providerMinutes: number; pausedSeconds: number; visitorSeconds: number;
   upstreamMicro: number; visitorMicro: number; providerCredits?: number; characters?: number;
+  // Visitor tariff provenance is independent of upstream provider receipts.
+  visitorDurationSource?: 'aithema-measured';
   costSource?: string; costEstimated?: boolean; usdPerCredit?: number; estimateMicroPerMinute?: number;
 }
 export interface VoiceTerminal {
@@ -84,7 +86,7 @@ export interface VoiceSession {
   resume(options: VoiceCommandOptions): Promise<{ acknowledged: true; paused: false }>;
   setInput(on: boolean, options: VoiceCommandOptions): Promise<void>;
   setOutput(on: boolean, options: VoiceCommandOptions): Promise<void>;
-  sendText(text: string, options: VoiceCommandOptions): Promise<void>;
+  sendText(text: string, options: VoiceCommandOptions & { deliveryId?: string }): Promise<void>;
   updateContext(context: object | string, options: VoiceCommandOptions): Promise<void>;
   interrupt(options: VoiceCommandOptions): Promise<void>;
   retryPlayback?(options: VoiceCommandOptions): Promise<void>;

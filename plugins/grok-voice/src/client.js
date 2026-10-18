@@ -20,7 +20,7 @@ export function createGrokVoiceClient({ control, openRelay, capture, player, net
     return grant;
   };
   const media = createComposedBrowserMedia({ capture, player, now,
-    control: { async recover(identity) { return receiptGrant(await control.recover(identity)); } },
+    control: { tabId: control.tabId, async recover(identity, opts) { return receiptGrant(await control.recover(identity, opts)); } },
     async openRelay(grant, options) {
       const transport = await openRelay(grant, options), identity = () => ({ callId: grant.callId, providerSessionId: grant.providerSessionId, epoch: grant.opaque.epoch });
       return { ...transport, recoverOnResume: true,

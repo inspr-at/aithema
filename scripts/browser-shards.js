@@ -92,11 +92,14 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 41);
 
-// AIT-346: physical Grok start reuses the existing page/device. mbp2606
-// committed-head run 5d799ebac1-85300 passed in 2.143716584s;
-// ceil(observed * 1.25) = 3s. PR CI must remeasure this changed workload.
+// AIT-348: physical Grok media plus the light/DE lifecycle/composer matrix.
+// mbp2606 committed-head run 0491ecdb8f-42210: 3.959652083s, 2/2 PASS.
+// PR #312 CI 39164323171, shard 1/7: complete file 2/2 PASS, top-level work
+// 1.132739243s + 3.052219941s = 4.184959184s; ceil(*1.25) = 6s. That run
+// was superseded after this file completed. Keep this diagnostic floor outside
+// trusted rolling-main history; no shard count, ceiling or check-name change.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 3);
+  browserTestWeights['test/browser/composed-media.test.js'], 6);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;

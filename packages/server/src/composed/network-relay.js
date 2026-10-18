@@ -108,9 +108,11 @@ export function createComposedRelayRoute({ authenticate, connect, authorize, pat
           return json({ acknowledged: true });
         }
         if (action === 'command') {
-          const { name, args = [] } = JSON.parse(Buffer.from(await boundedBody(request, 8192)).toString());
+          const body = await boundedBody(request, 128_000);
+          const { name, args = [] } = JSON.parse(Buffer.from(body).toString());
+          if (name !== 'sendText' && body.byteLength > 8192) throw new PluginError('limit');
           await assertActive(entry, owner);
-          if (!Array.isArray(args) || !['pause', 'resume', 'interrupt', 'setInput', 'setOutput', 'updateContext', 'heartbeat', 'close'].includes(name)) throw new PluginError('not-admitted');
+          if (!Array.isArray(args) || !['pause', 'resume', 'interrupt', 'setInput', 'setOutput', 'sendText', 'updateContext', 'heartbeat', 'close'].includes(name)) throw new PluginError('not-admitted');
           // Lease maintenance never occupies the ordered command slot. Drop it
           // during commands and coalesce concurrent renewals, still charging rate limits above.
           if (name === 'heartbeat') {

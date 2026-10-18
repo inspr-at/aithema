@@ -159,6 +159,7 @@ export class AudioRail {
     if (!this.errorKey) return null;
     if (this.errorKey === 'voiceAdmissionDenied' && isConsentReason(this.errorReason)) return featureConsentText(this.copy, 'voice');
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
+    if (this.errorKey === 'voiceEnded' && this.endedCall?.visitorDurationSource === 'aithema-measured') return this.copy.voiceEndedAithemaMeasured;
     return this.copy[this.errorKey];
   }
   // Reconcile only after a fresh server feature read. A repaint immediately
@@ -546,10 +547,10 @@ export class AudioRail {
     if (this.state === 'connecting' || this.session && (!this.paused || this.busy)) void this.pause(true);
     return true;
   }
-  async sendText(text) {
+  async sendText(text, options) {
     if (!this.session || this.paused || this.state === 'recovering' || !this.capability('sendText')) throw new Error('Voice text unavailable');
     this.notices.clear();
-    return this.session.sendText(text);
+    return this.session.sendText(text, options);
   }
   async updateContext() {
     if (!this.session || this.paused || !this.capability('updateContext')) return;
@@ -584,8 +585,11 @@ export class AudioRail {
   }
   settlement(data) {
     const ended = this.endedCall;
-    if (this.session || !ended || ended.settled || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
+    if (this.session || !ended || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
       data.terminal?.closureConfirmed !== true || !data.terminal.usage || data.terminal.usage.costEstimated === true) return;
+    const measured = data.terminal.usage.visitorDurationSource === 'aithema-measured';
+    if (ended.settled && (!measured || ended.visitorDurationSource === 'aithema-measured')) return;
+    if (measured) ended.visitorDurationSource = 'aithema-measured';
     ended.settled = true;
     if (this.errorKey === 'voiceClosureUncertain') this.errorKey = 'voiceEnded';
     this.render();

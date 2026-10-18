@@ -1,11 +1,11 @@
-# Grok Voice (xAI) — component package (AIT-344 / AIT-345)
+# Grok Voice (xAI) — component pipeline (AIT-344–AIT-348)
 
 **not yet qualified in live use**
 
 Architecture: xAI STT → Aithema's separately admitted reasoning → xAI TTS.
 Aithema owns answers. This workspace package provides STT, streaming TTS,
 private configuration validation and supported component/preflight exports.
-Relay, browser start and full-chain admission arrive in package 3. Publication
+Relay, browser start and full-chain admission use the supported composed host. Publication
 is deferred to package 8 (`private: true`); no release module is added here.
 
 ## Public evidence
@@ -154,6 +154,7 @@ The component never exposes a playback cursor: `heardPrefix: unavailable`.
 | `/client` | Browser-safe manifest only; no media start or credential path |
 | `/manifest` | Public STT/TTS metadata; empty, closed public config schema because private account configuration belongs in the host binding |
 | `@inspr/aithema-server/composed-voice` | Reusable coordinator and `callDurationSeconds`, with a core-only helper closure and bounded mono PCM playback |
+| `@inspr/aithema-server/composed-voice/accounting` | `createComposedComponentAccounting`: durable host admission, observation and terminal ports for individual speech children |
 
 The coordinator implementation lives in `voice-coordinator.js`; the old source
 path forwards to it. Existing prototype release guards remain intact. Grok
@@ -184,5 +185,96 @@ Every wire fixture is synthetic and cites the public contract in
 
 `test/speech-provider-conformance.test.js` adds `ttsConformance` for the real
 Grok factory and synthetic ports. Existing provider assertions remain unchanged.
-Package 3 must consume the supported coordinator and preflight, add the relay and
-browser-start path, and bind fresh full-chain admission before parent/child claims.
+### Durable host accounting (package 4)
+
+The ordinary Grok mount uses the runtime's owner-wallet and SQLite budget ports
+for every speech admission. Hosts supplying their own `admitComponent` use
+`createComposedComponentAccounting({ storage, budget, reserve, assertCurrent })`;
+`reserve(session, admission)` must use the host's normal owner-wallet gate.
+Its `admit` takes the call/provider/epoch identity, role, exact request, private
+component binding and `maxMicro`. Mounted calls locate their persisted parent;
+synthetic hosts may supply `parentAttemptId` explicitly. The reservation and
+component scope share one budget row. Only request/binding digests and bounded
+scope/cost metadata persist, without speech or text.
+
+Every STT utterance, TTS fragment and retry receives a fresh child claim. Its
+consume commits before provider dispatch. Synchronous `observe` persists the
+largest observed cost before a terminal report can fail. Exact terminal retries
+are idempotent; conflicting reports fail. Cancel, timeout, abandonment and crash
+recovery retain at least the larger of the consumed reservation and observed
+cost. Undispatched claims recover at zero. Completed speech estimates remain
+estimated in the ledger and visitor cost display until receipt evidence exists.
+
+The parent binding requires `maxMicro: 0` and `upstreamMicroPerMinute: 0`.
+Its independent `visitorMicroPerMinute` still reserves and charges the ordinary
+visitor tariff: elapsed active duration, with acknowledged pause intervals
+excluded, rounded up once per segment. Parent closure or reconciliation never
+settles or releases speech children. Reasoning keeps its existing admission and
+accounting. Package 5 should carry call/provider/epoch identity through typed
+turns and lifecycle transitions, request fresh claims for retries, and leave
+unresolved children available to recovery after logical-call closure.
+
+
+### Typed turns and call lifecycle (package 5, AIT-348)
+
+`sendText(text, options)` now uses the supported authenticated network relay.
+Text must be nonblank and at most 16,384 UTF-16 code units, matching ElevenLabs.
+The browser supplies a fresh `deliveryId` for each submission; an explicit retry
+may reuse that id within the same admitted segment. The shared composer forwards
+its persisted `clientEventId`, so a retry after a lost response keeps that same
+delivery identity. Repeated delivery returns
+the same server turn id. Reusing an id with different text is refused; identical
+text with distinct ids creates distinct turns. Provider session/epoch checks,
+current consent/ownership authorization and pause holds fence every delivery.
+The delivery id never becomes a reasoning operation key. Server-owned sequences
+and immutable history envelopes share the spoken-turn commit chain and the
+trusted admitted reply executor. Typing dispatches no STT child.
+
+Physical capture exposes RMS from actual PCM16 samples, with a 150 ms stale
+sample cutoff. Playback exposes an AnalyserNode measurement on the output graph.
+`session.audioLevels()` reports independent input/output levels and zero during
+holds or for disabled channels. Pause stops media synchronously, then requires
+a durable `{ acknowledged: true, paused: true }` receipt. Resume cannot restart
+capture before its matching acknowledgement. Recovery retains channel choices,
+uses fresh bounded control/connect operations and the existing three-attempt
+lifecycle policy. Hidden pages stay held on return; visible window blur keeps
+running (AIT-116 D7).
+
+Blocked playback calls the existing `onPlaybackBlocked` host callback. Only the
+existing explicit playback retry invokes `session.retryPlayback()` to resume
+the audio context; it does not dispatch STT, reasoning or another speech claim.
+The bounded failed frame may play after unlock; interruption, output-off,
+pause and replacement discard it. No playback-position or heard claim is made.
+
+All presentation stays in the existing provider-neutral composer/audio rail:
+
+| Fixture condition | Existing state / copy key |
+| --- | --- |
+| Listening / speaking / paused / recovering | Same-named `voiceStates` entries |
+| Microphone permission denied / missing at start | `failed`: `voiceMicDenied` / `voiceMicMissing` |
+| Admission refused at start | `failed`: `voiceAdmissionDenied` |
+| Start deadline / transport failure | `failed`: `voiceDeadline` / `voiceConnectionFailed` |
+| Three failed recoveries | Existing `waiting` state, reason `recovery-failed`; `voiceStates.waiting` |
+| Auth lost after connection | Existing terminal `call-authorization-lost`; `voiceConnectionFailed` |
+| Rate limit during transport recovery | Existing bounded recovery, then `waiting` / `recovery-failed` |
+| Browser blocks playback | Existing `voicePlaybackBlocked` and `voicePlaybackRetry` action |
+
+There is **no dedicated provider-authentication or rate-limit UI copy** in the
+ElevenLabs reference. This gap is reported for the coordinator/Tick; package 5
+adds no state, wording or provider-specific UI for it. Microphone errors retain
+their DOM exception identity for the existing rail mapping.
+
+Offline regressions live in `plugins/grok-voice/test/turns-lifecycle.test.js`.
+`test/browser/composed-media.test.js` retains the physical fake-device journey
+and adds the Grok light/DE 1440/390 viewport matrix, exact 0 px control geometry,
+composer focus, typed-send and D7 visibility checks. With `AITHEMA_EVIDENCE_DIR`
+it emits `ait348-<width>-light-de-<state>.png`, the 390 typed-send viewport and
+`ait348-checks.json`. These are synthetic fixture results, **not yet qualified
+in live use**. Tick's morning QA and the coordinator's review gate precede merge.
+
+Package 6 owns the durable interruption marker and joined offline conformance.
+It must retain full answer text without inventing a heard prefix, persist/fence
+the interrupted reply identity through recovery/reload and duplicate events,
+and exercise the public Grok factories with fresh child claims. Package 5's
+`playbackRevision`, trusted turn envelopes and lifecycle events are its inputs;
+this package does not add the interruption marker or change ElevenLabs.
