@@ -165,3 +165,55 @@ test('AIT-321: omitting the revision retains deprecated host compatibility', asy
   }
   assert.equal(grants.length, 2); assert.equal(grants[1].consentRevision, 2);
 });
+
+// Withdrawal is a revocation path: host latency must never hold it up.
+for (const transport of ['external', 'http']) test(`AIT-321 R2: ${transport} withdrawal bypasses a hanging grant and its late completion fails closed`, async t => {
+  const storage = new SQLiteStorage(), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  const handlers = createHandlers({ storage, consent: { coverage: () => ({ covered: false }),
+    grant: async () => { entered.resolve(); await release.promise; return true; } } });
+  t.after(async () => { release.resolve(); await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  const save = granted => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ granted, processing: { revision: 0, items: granted ? ['images'] : [] } }),
+  }));
+  const pending = save(true); await entered.promise;
+  let timer;
+  try {
+    const withdrawal = transport === 'external' ? handlers.withdrawConsent(session.id) : save(false);
+    const result = await Promise.race([withdrawal, new Promise(resolve => { timer = setTimeout(() => resolve(null), 500); })]);
+    assert.ok(result, 'withdrawal completes while the host grant is still hanging');
+    if (transport === 'http') assert.equal(result.status, 200);
+    assert.equal(storage.get(session.id).consentWithdrawn, true);
+    assert.equal(storage.get(session.id).consentRevision, 1);
+  } finally { clearTimeout(timer); release.resolve(); await pending; }
+  const response = await pending;
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: 'consent-stale', consentRevision: 1 });
+  assert.equal(storage.get(session.id).consentWithdrawn, true, 'a late grant cannot undo withdrawal');
+  assert.equal(storage.get(session.id).consentRevision, 1);
+});
+
+for (const port of ['describe', 'conversationUnchanged', 'grant']) test(`AIT-321 R2: a host can withdraw inside its own ${port} port without deadlock`, async t => {
+  const storage = new SQLiteStorage(), calls = [];
+  let handlers, session, timer;
+  const consent = { coverage: () => ({ covered: false }), describe: () => document(), grant: () => { calls.push('grant'); return true; } };
+  consent[port] = async () => {
+    const event = await Promise.race([handlers.withdrawConsent(session.id), new Promise(resolve => { timer = setTimeout(() => resolve(null), 500); })]);
+    clearTimeout(timer);
+    assert.ok(event, 'reentrant withdrawal completes before the host port returns');
+    calls.push('withdrawn');
+    return port === 'describe' ? document() : true;
+  };
+  handlers = createHandlers({ storage, consent });
+  t.after(async () => { clearTimeout(timer); await handlers.close(); storage.close(); });
+  session = storage.create({ ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ granted: true, intent: 'settings-save', processing: { contract: 'host-v1', revision: 0, items: ['mock-processing'] } }),
+  }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: 'consent-stale', consentRevision: 1 });
+  assert.deepEqual(calls, ['withdrawn'], 'no later host grant after withdrawal inside an earlier port');
+  assert.equal(storage.get(session.id).consentWithdrawn, true);
+});
