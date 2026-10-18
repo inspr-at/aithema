@@ -53,7 +53,10 @@ export function qualifyStartBinding(binding, now = Date.now()) {
 export function createProcessingConsent({ storage, bindings, voiceConfigured = false, grokConfigured = false, voiceBinding, operationsForBinding, now = Date.now }) {
   // HTML requires its own purpose; reasoning grants never authorize drafts.
   const coveredBindings = bindings.filter(binding => binding.plugin !== 'claude-html' || binding.legal?.purpose === 'drafts-anthropic');
-  const allowed = coveredBindings.filter(binding => !voiceBinding || binding.plugin !== 'elevenlabs').flatMap(binding => (operationsForBinding?.(binding) ?? (binding.plugin === 'grok-voice' ? binding.model === 'grok-voice' ? ['start'] : binding.model === 'grok-voice-tts' ? ['speak'] : ['stream'] : binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured']))
+  const operations = binding => operationsForBinding?.(binding) ?? (binding.plugin === 'grok-voice'
+    ? binding.model === 'grok-voice' ? ['start'] : binding.model === 'grok-voice-tts' ? ['speak'] : ['stream']
+    : binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured']);
+  const allowed = coveredBindings.filter(binding => !voiceBinding || binding.plugin !== 'elevenlabs').flatMap(binding => operations(binding)
     .map(operation => processingScope(binding, operation)));
   const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => modelProvider(b.model)))];
   // The configured processing contract is stable even while voice is unavailable.
@@ -81,7 +84,7 @@ export function createProcessingConsent({ storage, bindings, voiceConfigured = f
   return { describe,
     conversationUnchanged({ sessionId, decision }) {
       if (!validDecision(decision)) return false;
-      // Only the separate draft item may change without the conversation's D5
+      // Separate draft and Grok voice items may change without the conversation's D5
       // cascade. Expired or withdrawn grants cannot authorize preservation.
       const conversation = selected => selected.filter(id => !['drafts-anthropic', 'voice-xai'].includes(id)).sort();
       const before = conversation(describe(sessionId).selected), after = conversation(decision.items);

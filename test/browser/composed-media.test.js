@@ -312,10 +312,10 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     const c = document.querySelector('aithema-session'), root = c.shadowRoot;
     c.setAttribute('motion', 'off');
     root.querySelector('dialog.settings').remove();
-    const dialog = document.createElement('dialog'); dialog.className = 'settings'; root.append(dialog);
-    let editor;
+    let dialog, editor;
     window.ait350 = { dialog, root, async reset(locale) {
-      editor?.close();
+      editor?.close(); dialog?.remove();
+      dialog = document.createElement('dialog'); dialog.className = 'settings'; root.append(dialog); this.dialog = dialog;
       this.session = { ...structuredClone(c.session), locale, processingPreset: 'best', settings: { revision: 0, model: 'mock', effort: 'none', voice: 'elevenlabs', visuals: 'off', origin: 'chosen' } };
       this.status = 'available'; this.active = false; this.fail = false; this.stops = 0; this.starts = 0; this.saves = []; this.selected = [];
       const f = this;
@@ -389,7 +389,9 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
       const f = window.ait350; f.status = 'available'; f.active = true; f.editor.setCatalog(f.catalog());
       f.q('[data-value="grok-voice"]').click();
     });
-    await measure('in-call-confirmation'); await shot(`ait350-${locale}-${width}-in-call-confirmation`);
+    await measure('in-call-confirmation');
+    assert.ok(await page.evaluate(() => ['#settings-select-voice', '.voice-switch-apply', '.voice-switch-cancel'].every(s => window.ait350.q(s).getBoundingClientRect().height >= 44)), '44 px voice targets');
+    await shot(`ait350-${locale}-${width}-in-call-confirmation`);
     await page.evaluate(() => window.ait350.q('.voice-switch-cancel').click()); await settle();
     assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
     await measure('cancel');
@@ -400,7 +402,9 @@ test('AIT-350: Settings provider switch viewports, focus and 0 px geometry', { t
     assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
     await page.evaluate(() => { window.ait350.fail = false; window.ait350.q('.save-retry').click(); });
     await page.waitForFunction(() => window.ait350.session.settings.voice === 'grok-voice');
-    await measure('grok-selected'); await shot(`ait350-${locale}-${width}-grok-selected`);
+    await measure('grok-selected');
+    assert.equal(await page.evaluate(() => window.ait350.root.activeElement === window.ait350.q('#settings-select-voice')), true);
+    await shot(`ait350-${locale}-${width}-grok-selected`);
     await page.evaluate(() => window.ait350.q('.disclosure').open = true);
     await measure('provider-processing-detail'); await shot(`ait350-${locale}-${width}-provider-processing-detail`);
     await page.evaluate(() => window.ait350.q('.disclosure').open = false);

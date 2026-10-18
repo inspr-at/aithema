@@ -122,7 +122,7 @@ async function adopt(session) {
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
     component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client,
-      voiceClients: { ...(liveVoiceClient ? { elevenlabs: liveVoiceClient } : {}), ...(fakeVoice ? { 'fake-voice': fakeVoice.client } : {}), ...(grokVoiceClient ? { 'grok-voice': grokVoiceClient } : {}) }, voicePresentation: binding.voicePresentation, copy: componentCopy(), session,
+      voiceClients: { ...(liveVoiceClient ? { elevenlabs: liveVoiceClient } : {}), ...(fakeVoice ? { 'fake-voice': fakeVoice.client } : {}), ...(grokVoiceClient ? { 'grok-voice': grokVoiceClient } : {}) }, voicePresentation: (locale, voice) => voice?.id === 'grok-voice' ? grokVoiceClient?.manifest.presentation : binding.voicePresentation, copy: componentCopy(), session,
       paimosImportUrl: binding.paimosImportUrl, paimosImportVersion: binding.paimosImportVersion,
       copyForLocale: locale => bundles[locale] && componentCopy(bundles[locale]),
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',

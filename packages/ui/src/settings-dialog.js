@@ -290,7 +290,10 @@ export class SettingsDialog {
     });
     this.#q('.voice-switch-apply').addEventListener('click', () => void this.#applyVoiceSwitch());
     this.#q('.done').addEventListener('click', () => void this.#done());
-    this.#q('.save-retry').addEventListener('click', () => { this.#failed = false; void this.#save(true); });
+    this.#q('.save-retry').addEventListener('click', () => {
+      const voice = this.#draft?.voice !== this.#active?.voice; this.#failed = false;
+      void this.#save(true).then(() => { if (voice && this.#dialog.open) this.#focusVoice(); });
+    });
     // The hidden .notice-measure copy is prepended before .notice-body; scope to the visible notice (AIT-245).
     this.#q('.notice-body .notice-action').addEventListener('click', () => {
       if (this.#notice?.action) void this.#notice.action();
@@ -533,7 +536,9 @@ export class SettingsDialog {
   async #finishVoiceConsent() {
     const value = this.#pendingVoice;
     if (!value) { this.close(); return; }
+    const generation = this.#closeGeneration;
     const doc = await this.#ports.consentDocument().catch(() => null);
+    if (!this.#dialog.open || this.#pendingVoice !== value || generation !== this.#closeGeneration) return;
     this.#pendingVoice = null; this.#consentEditor.close();
     this.#setTab('model');
     if (doc?.items?.some(item => item.id === 'voice-xai' && item.version === 1) && doc.selected?.includes('voice-xai')) {
