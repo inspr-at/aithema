@@ -209,7 +209,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       // Bound admission through executor hand-off, without making PCM ingress
       // wait for a prior spoken turn to finish or extending the caller deadline.
       const handoff = voiceOperation(bounded, async ({ signal: admissionSignal }) => {
-        const turn = { id: `${providerSessionId}-${++sequence}`, sequence, beforeCommit: commitTail, playbackRevision };
+        // Host publication can succeed before admission or the final event
+        // refuses this attempt. Derive its receipt identity from the delivery,
+        // not the capture sequence, so retries (also after restart) dedupe it.
+        const turn = { id: `typed-${opts.deliveryId}`, sequence: ++sequence, beforeCommit: commitTail, playbackRevision };
         const committed = Promise.withResolvers(); commitTail = committed.promise;
         // The admission scope is disposed at hand-off; retain the call/hold
         // signal independently for the remainder of reply playback.
