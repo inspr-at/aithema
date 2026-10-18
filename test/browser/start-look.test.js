@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -246,7 +246,7 @@ test('AIT-307: readiness has a static text input line without voice; binding and
       const rect = n => { const b = n.getBoundingClientRect(); return { y: b.y, height: b.height }; };
       return { start: rect(start), card: rect(r.querySelector('.ready')), switch: Boolean(r.querySelector('.ready__modes')),
         buttons: r.querySelectorAll('.ready__mode').length, groups: r.querySelectorAll('.ready [role="group"], .ready [role="radiogroup"]').length,
-        line: line && { visible: line.checkVisibility(), text: line.textContent, icon: Boolean(line.querySelector('svg[aria-hidden="true"]')),
+        line: line && { visible: line.checkVisibility(), text: line.textContent, icon: Boolean(line.querySelector('svg[aria-hidden="true"] rect[width="20"][height="16"]') && line.querySelector('svg path[d="M7 16h10"]')),
           focusable: line.tabIndex >= 0 || Boolean(line.querySelector('button,a,input,[tabindex]')), height: line.getBoundingClientRect().height,
           color: getComputedStyle(line).color, rowColor: getComputedStyle(r.querySelector('.ready__route')).color,
           font: getComputedStyle(line).fontSize, rowX: r.querySelector('dt').getBoundingClientRect().x, x: line.getBoundingClientRect().x,
@@ -295,11 +295,12 @@ test('AIT-307: readiness has a static text input line without voice; binding and
       }), ['true', 'true'], 'unavailable bound voice keeps the switch with text selected');
       still(two, disabled, `${width}/${theme}/${locale}: unavailable voice`);
       await configure(locale, false); const unbound = await snapshot(); oneMode(unbound, locale); still(two, unbound, `${width}/${theme}/${locale}: unbind`);
-      checks.push({ width, theme, locale, one, two, unbound, pass: 'static copy/icon/nonfocusable; input slot/card/Start 0 px across bind/unbind' });
+      checks.push({ width, theme, locale, one, two, disabled, unbound, pass: 'static copy/icon/nonfocusable; input slot/card/Start 0 px across bind/unbind' });
     }
     assert.equal(checks.length, 12);
     const passLines = ['AIT-307 PASS: 1440/1024/390 × light/dark × DE/EN; static localized keyboard line without input group/buttons; two-mode switch retained; Start/card/input slot 0 px across bind/unbind.'];
     console.log(passLines[0]);
-    if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: evidenceCommit,
+    const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+    if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: event?.pull_request?.head?.sha ?? evidenceCommit, testedCommit: evidenceCommit,
       capture: 'viewport', reducedMotion: true, blurredControls: true, pinnedFontStack: true, passLines, checks }, null, 2));
   });

@@ -252,7 +252,8 @@ for (const copy of [de, en]) test(`AIT-307: ${copy.display.locale} text-only rea
   assert.equal(j.root.activeElement, start, 'Start receives the first focus after Continue');
   assert.equal(j.root.querySelector('.ready__modes, .ready__mode, .ready [role="group"], .ready [role="radiogroup"]'), null);
   assert.equal(line.textContent, copy === de ? 'Eingabe: Text' : 'Input: Text');
-  assert.ok(line.querySelector('.ready__icon[aria-hidden="true"] svg[aria-hidden="true"]'));
+  assert.ok(line.querySelector('.ready__icon[aria-hidden="true"] svg[aria-hidden="true"] rect[width="20"][height="16"]'));
+  assert.ok(line.querySelector('svg path[d="M7 16h10"]'), 'the existing keyboard icon includes its space bar');
   assert.equal(line.tabIndex, -1); assert.equal(line.querySelector('button,a,input,[tabindex]'), null);
   line.focus(); assert.equal(j.root.activeElement, start, 'the static line adds no focus stop');
   const other = copy === de ? en : de;
