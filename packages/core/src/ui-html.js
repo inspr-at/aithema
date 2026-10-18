@@ -13,7 +13,7 @@ export function htmlPreviewHostPolicy(previewURL) {
   let url;
   try { url = new URL(previewURL); } catch { throw new TypeError('Invalid preview URL'); }
   if (typeof previewURL !== 'string' || url.href !== previewURL || !['http:', 'https:'].includes(url.protocol) ||
-    url.username || url.password || url.search || url.hash || url.pathname !== HTML_PREVIEW_PATH ||
+    url.username || url.password || url.href !== `${url.origin}${HTML_PREVIEW_PATH}` ||
     !/^[a-z0-9.\[\]:-]+$/iu.test(url.hostname)) throw new TypeError('Invalid preview URL');
   return `frame-src ${url.href}; child-src 'none'`;
 }

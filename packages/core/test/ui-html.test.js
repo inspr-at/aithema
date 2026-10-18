@@ -146,6 +146,7 @@ test('AIT-352: exact preview URL host policy preserves the legacy srcdoc policy'
     "frame-src https://start.example.test/_aithema/html-preview; child-src 'none'");
   for (const url of ['/_aithema/html-preview', 'https://start.example.test/', 'https://start.example.test/_aithema/html-preview/',
     'https://start.example.test/_aithema/html-preview?cap=x', 'https://start.example.test/_aithema/html-preview#x',
+    'https://start.example.test/_aithema/html-preview?', 'https://start.example.test/_aithema/html-preview#',
     'https://user:pass@start.example.test/_aithema/html-preview', 'data:text/html,x',
     "https://start.example.test/_aithema/html-preview; script-src *"]) assert.throws(() => htmlPreviewHostPolicy(url), TypeError);
 });
