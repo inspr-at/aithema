@@ -122,6 +122,17 @@ browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
 browserTestWeights['test/browser/email-mail-space.test.js'] = Math.max(
   browserTestWeights['test/browser/email-mail-space.test.js'], 83);
 
+// AIT-309: PR #278 CI 39109940156, head 7b4a488a4c, shards 2/6 and 3/6.
+// Geometry: five passing tests total 153.615841488s; the 64-state legal-fit
+// matrix accounts for 33.080272039s. ceil(total * 1.25) = 193s.
+// Footer sweep: two passing tests total 36.694525912s; ceil(total * 1.25) = 46s.
+// PR measurements remain diagnostic; trusted rolling-main history and the
+// six-bin/420s capacity policy stay intact.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 193);
+browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
+  browserTestWeights['test/browser/footer-width-sweep.test.js'], 46);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;

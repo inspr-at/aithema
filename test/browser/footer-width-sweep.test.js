@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from './launch.js';
+import { measureFooterGeometry, assertFits } from './footer-geometry.js';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
 
@@ -16,78 +17,8 @@ const settle = page => shadow(page, async () => {
   await new Promise(requestAnimationFrame);
 });
 
-// Measure the original text ranges too: overflow:hidden, ellipsis or a smaller
-// fixed box must not turn an overlong translation into a passing measurement.
-const geometry = page => shadow(page, c => {
-  const root = c.shadowRoot, row = root.querySelector('.display-foot__row');
-  const rect = node => {
-    const b = node.getBoundingClientRect();
-    return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
-  };
-  const visible = node => {
-    if (!node || !node.getClientRects().length || getComputedStyle(node).visibility !== 'visible') return false;
-    for (let parent = node; parent && parent !== root; parent = parent.parentElement) {
-      const style = getComputedStyle(parent);
-      // Fully clipped live regions remain accessible, but paint no footer footprint.
-      if (style.display === 'none' || Number(style.opacity) === 0 || style.clipPath === 'inset(50%)') return false;
-    }
-    // The feature list is an intentional 1px screen-reader-only description,
-    // not a painted footer item. Keep clipping checks for all visible labels.
-    return !node.closest('.footer-popup, .features');
-  };
-  const outside = (inner, outer) => Math.max(0, outer.left - inner.left, inner.right - outer.right,
-    outer.top - inner.top, inner.bottom - outer.bottom);
-  const container = rect(row), footprints = new Map(), violations = [];
-  let maxOverflowPx = 0, maxOverlapPx = 0;
-  for (const selector of ['.footer-info', '.host-credits', '.footer-right']) {
-    const zone = root.querySelector(selector), bounds = rect(zone), painted = { ...bounds };
-    const record = (box, limit, item) => {
-      const overflow = Math.max(outside(box, limit), outside(box, container));
-      maxOverflowPx = Math.max(maxOverflowPx, overflow);
-      if (overflow > 0) violations.push({ item, overflowPx: overflow });
-      painted.left = Math.min(painted.left, box.left); painted.right = Math.max(painted.right, box.right);
-      painted.top = Math.min(painted.top, box.top); painted.bottom = Math.max(painted.bottom, box.bottom);
-    };
-    record(bounds, container, selector);
-    for (const node of zone.querySelectorAll('*')) if (visible(node)) record(rect(node), bounds, node.className);
-    const walker = document.createTreeWalker(zone, NodeFilter.SHOW_TEXT);
-    for (let text; (text = walker.nextNode());) {
-      if (!text.textContent.trim() || !visible(text.parentElement)) continue;
-      const range = document.createRange(); range.selectNodeContents(text);
-      for (const box of range.getClientRects()) record(box, rect(text.parentElement), `${text.parentElement.className}: ${text.textContent}`);
-    }
-    footprints.set(selector, painted);
-  }
-  const groups = [
-    ['.footer-info', '.host-credits', '.footer-right'],
-    ['.ai-notice .speaker-sign', '.display-version', '.ai-notice__label', '.ai-notice__short', '.ai-notice__voice'],
-    ['.host-credits__stack', '.host-credits__track'],
-    ['.host-credits__amount', '.host-credits__total', '.host-credits__unit'],
-    ['.engine', '.status'],
-    ['.status__label', '.connection-timer'],
-  ];
-  for (const selectors of groups) {
-    const items = selectors.filter(selector => visible(root.querySelector(selector)))
-      .map(selector => ({ selector, box: footprints.get(selector) ?? rect(root.querySelector(selector)) }));
-    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
-      const a = items[i], b = items[j];
-      const overlap = Math.max(0, Math.min(Math.min(a.box.right, b.box.right) - Math.max(a.box.left, b.box.left),
-        Math.min(a.box.bottom, b.box.bottom) - Math.max(a.box.top, b.box.top)));
-      maxOverlapPx = Math.max(maxOverlapPx, overlap);
-      if (overlap > 0) violations.push({ items: [a.selector, b.selector], overlapPx: overlap });
-    }
-  }
-  return { maxOverflowPx, maxOverlapPx, violations,
-    compact: getComputedStyle(root.querySelector('.host-credits__total')).display === 'none',
-    legal: !root.querySelector('.host-legal').hidden,
-    measureCompact: getComputedStyle(root.querySelector('.host-credits__measure-total')).display === 'none',
-    amount: root.querySelector('.host-credits__amount').textContent };
-});
-
-const assertFits = (measurement, label) => {
-  assert.ok(measurement.maxOverflowPx <= tolerancePx, `${label}: footer overflow ${JSON.stringify(measurement)}`);
-  assert.ok(measurement.maxOverlapPx <= tolerancePx, `${label}: footer overlap ${JSON.stringify(measurement)}`);
-};
+// Shared with the legal-host compact-fit regression; existing sweep semantics stay exact.
+const geometry = page => shadow(page, measureFooterGeometry);
 
 test('AIT-164: footer width sweep 600–1100/20 plus 699/700/701, DE/EN, full/fewer digits; no overflow, overlap or clipping',
   { timeout: 90_000 }, async t => {
