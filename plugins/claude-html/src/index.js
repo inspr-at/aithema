@@ -12,11 +12,15 @@ export { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } fro
 // Rates stay unset: the host binding must carry explicit per-token USD prices.
 const ledgerFailures = new WeakMap();
 export const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
+// The adapter forwards reasoning.effort; values follow START's 2026-09-13 check of
+// OpenRouter reasoning.supported_efforts. Which model supports which value is the
+// host's allowlist decision, and require_parameters forbids a silent fallback.
+const EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const manifest = deepFreeze({ id: 'claude-html', version: '0.0.0', apiVersion: '^1.0.0',
   kinds: ['ui-generation'], placement: 'server', entrypoints: { server: './src/index.js' },
   configSchema: { type: 'object', properties: {}, additionalProperties: false }, vendor: { name: 'Anthropic via OpenRouter', url: 'https://openrouter.ai' },
   models: [{ id: '*', operations: ['generate', 'edit'], streaming: false, structured: false,
-    efforts: ['none'], languages: ['en', 'de'], germanQuality: 'unverified', formats: ['text/html'],
+    efforts: EFFORTS, languages: ['en', 'de'], germanQuality: 'unverified', formats: ['text/html'],
     processingLocations: ['unverified'], qualification: 'unverified', expiresAt: null,
     evidence: ['https://openrouter.ai/anthropic'],
     cost: { unit: 'token', inputMicro: null, outputMicro: null, reviewedAt: null } }] });
@@ -49,12 +53,14 @@ async function readText(response, signal, observeId) {
  * `spend` is the persistent per-deployment ledger (or `spendPath` to create one);
  * `capMicro` is the hard USD cap in micro-dollars, checked before each dispatch
  * against a byte/token cost ceiling within the admitted `maxMicro`.
+ * Binding `maxTokens` is the total reasoning plus visible output allowance;
+ * all of it is reserved at the output rate, without increasing the token limit.
  */
 export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro = DEFAULT_CAP_MICRO,
   resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch, now = Date.now } = {}) {
   binding = createBinding(binding);
   if (binding.plugin !== manifest.id || !/^(?:anthropic\/claude-[a-z0-9.:-]+|~anthropic\/claude-[a-z0-9.:-]+-latest)$/u.test(binding.model) ||
-    !manifest.models[0].efforts.includes(binding.effort)) throw new TypeError('Claude HTML binding requires an anthropic/claude-* model and effort none');
+    !manifest.models[0].efforts.includes(binding.effort)) throw new TypeError(`Claude HTML binding requires an anthropic/claude-* model and effort ${EFFORTS.join(', ')}`);
   if (!['inputUSD', 'outputUSD'].every(k => typeof binding.rates[k] === 'number' && Number.isFinite(binding.rates[k]) && binding.rates[k] > 0)) {
     throw new TypeError('Claude HTML binding requires explicit positive per-token USD rates');
   }
@@ -138,16 +144,21 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       const { messages } = buildMessages(spec, feedback, previous);
       ceiling = callCeilingMicro(messages, binding);
       const current = await snapshot();
+      // A shared account may have a lower, host-adjusted cap than this plugin.
+      // Refuse with the spend port's admission code before any provider dispatch.
+      if (Number.isSafeInteger(current.capMicro) && ceiling > current.capMicro - current.totalMicro) {
+        throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
+      }
       if (ledgerFailures.has(ledger) || current.costCeilingBreached || ceiling > binding.maxMicro || ceiling > capMicro - current.totalMicro) {
         throw new PluginError('limit');
       }
       // Verified live on AIT-113, 2026-10-09: provider.max_price is USD per
       // million tokens. Shift configured decimals exactly, as on the reasoning route.
-      // reasoning.enabled=false explicitly disables billable thinking.
+      // max_tokens covers reasoning plus visible output; never raise it for effort.
       const body = JSON.stringify({ model: binding.model, messages, max_tokens: binding.maxTokens, stream: false,
         usage: { include: true }, provider: { ...binding.routing, require_parameters: true, allow_fallbacks: false,
           max_price: providerMaxPrice({ prompt: binding.rates.inputUSD, completion: binding.rates.outputUSD }) },
-        reasoning: { enabled: false } });
+        reasoning: binding.effort === 'none' ? { enabled: false } : { effort: binding.effort } });
       checkLifetime();
       reservation = await ledger.reserve(ceiling, { attemptId: options.attempt?.attemptId, provider: 'openrouter' });
       checkLifetime();
