@@ -113,7 +113,7 @@ test('renders only the scoped src in an allow-scripts sandbox; the route owns CS
 });
 test('refuses unsafe, non-html and broken bytes in place, without a frame', async () => {
   const element = setup(), root = element.shadowRoot;
-  for (const value of [html(dummy.replace('<main', '<img src="https://example.invalid/p.png"><main')),
+  for (const value of [html(dummy), html(dummy.replace('<main', '<img src="https://example.invalid/p.png"><main')),
     { bytes: new TextEncoder().encode(dummy), mediaType: 'image/png' }, { bytes: Uint8Array.from([0xff]), mediaType: 'text/html' },
     { mediaType: 'text/html', bytes: dummy }, html('<p>fragment</p>')]) {
     await render(element, source()); assert.ok(root.querySelector('iframe'));

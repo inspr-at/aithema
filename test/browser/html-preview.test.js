@@ -216,6 +216,17 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     }
     t.diagnostic(`${hostPath} CSP evidence: ${JSON.stringify(await page.evaluate(() => window.violations.filter(v => v.directive === 'frame-src')))}`);
   }
+  // A draft can attempt a self-reload only against its already consumed cap.
+  const reloadable = '<!doctype html><html><head><title>Reload</title></head><body><button id="reload">Reload</button><script>document.querySelector("#reload").onclick=()=>self["loc"+"ation"]["re"+"load"]();</script></body></html>';
+  assert.equal(inspectHTML(new TextEncoder().encode(reloadable)).ok, true);
+  await page.evaluate(html => window.show(html), reloadable);
+  const reloadFrame = await waitFrame('#reload'), oldSource = reloadFrame.url();
+  const denied = page.waitForResponse(response => response.url() === oldSource && response.status() === 403);
+  await reloadFrame.click('#reload'); await denied;
+  await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'navigated');
+  await page.evaluate(html => window.show(html), dummy);
+  const refreshed = await waitFrame('#new'); assert.notEqual(refreshed.url(), oldSource, 'reopening mints a fresh single-use capability');
+  assert.deepEqual(hits, [], 'self-reload is refused; no destination script or foreign network request runs');
   t.diagnostic(`navigation and destination-script requests: ${JSON.stringify(hits)} (ZERO)`);
 });
 
@@ -434,14 +445,16 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
   const hash = createHash('sha256').update(importMap).digest('base64');
   const servePreview = previewFixture();
   let policy;
-  const strictPolicy = route => `default-src 'self'; script-src 'self' 'sha256-${hash}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; ${route}; object-src 'none'; base-uri 'self'; form-action 'self'`;
+  // START local mode, middleware.ts:96-116. The route replaces frame-src 'none';
+  // only this fixture's exact import map is additionally hash-approved.
+  const strictPolicy = route => `default-src 'self'; base-uri 'self'; connect-src http://127.0.0.1:* http://localhost:* https://127.0.0.1:* https://localhost:*; font-src 'self'; form-action 'none'; frame-ancestors 'none'; ${route}; img-src 'self' data:; manifest-src 'self'; media-src 'none'; object-src 'none'; script-src 'self' 'sha256-${hash}'; style-src 'self' 'unsafe-inline'; worker-src 'none'`;
   const server = createServer(async (req, res) => {
     if (await servePreview(req, res)) return;
     const path = new URL(req.url, 'http://localhost').pathname;
     const routePolicy = htmlPreviewHostPolicy(`http://${req.headers.host}/_aithema/html-preview`);
     policy = strictPolicy(routePolicy);
     if (['/strict-header-only', '/strict-header-and-meta', '/strict-none', '/strict-overbroad', '/strict-report-only'].includes(path)) {
-      const refused = path === '/strict-none' ? HTML_PREVIEW_HOST_CSP : path === '/strict-overbroad' ? "frame-src 'self'; child-src 'none'" : routePolicy;
+      const refused = path === '/strict-none' ? "frame-src 'none'" : path === '/strict-overbroad' ? "frame-src 'self'; child-src 'none'" : routePolicy;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8',
         [path === '/strict-report-only' ? 'content-security-policy-report-only' : 'content-security-policy']: strictPolicy(refused) });
       return res.end(template.replace('<!-- HOST_POLICY_DECLARATION -->', path === '/strict-header-and-meta' ? `<meta http-equiv="Content-Security-Policy" content="${routePolicy}">` : ''));
@@ -471,7 +484,7 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
     page.on('console', record);
     const response = await page.goto(`http://127.0.0.1:${server.address().port}/strict-${variant}`);
     assert.equal(response.headers()['content-security-policy'], policy, 'strict script CSP is an enforcing response header');
-    // These prerequisites are outside the todos: broken fixtures must fail CI.
+    // Fixture prerequisites must fail CI independently of the executing regressions.
     // Importing the bare specifier also proves the hash-approved map executed.
     await page.waitForFunction(() => window.ready === true, { timeout: 5000 });
     assert.equal(await page.evaluate(() => Boolean(customElements.get('aithema-html-preview'))), true);
