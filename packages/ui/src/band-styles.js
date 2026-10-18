@@ -276,15 +276,16 @@ slot[name="legal"]::slotted(a) { display:inline-flex; align-items:center; min-he
 .footer-popup .phone-status { display:none; color:var(--aithema-muted); }
 .connection-timer::before { content:'${reasonSeparator}'; }
 /* A legal host without a credit balance matches the approved two ends at
-   tablet widths too. Credit-enabled hosts retain their existing compact rules. */
+   tablet widths too, only in full fit. Compact fits yield to the shared rules
+   below; credit-enabled hosts retain their existing compact rules. */
 @media(min-width:900px) {
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.ai-notice,.status) { font-size:12.5px; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .ai-notice__label { display:inline; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:6px auto minmax(8ch,max-content); gap:6px; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__group { grid-column:1/3; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__sizer,
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.status__label,.status__placeholder) { display:grid; }
-  .display-foot:has(.host-legal:not([hidden])):has(.host-credits[hidden]) .connection-timer { grid-column:3; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.ai-notice,.status) { font-size:12.5px; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .ai-notice__label { display:inline; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status { grid-template-columns:6px auto minmax(8ch,max-content); gap:6px; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__group { grid-column:1/3; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .status__sizer,
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) :is(.status__label,.status__placeholder) { display:grid; }
+  .display-foot:is(:not([data-fit]),[data-fit="full"]):has(.host-legal:not([hidden])):has(.host-credits[hidden]) .connection-timer { grid-column:3; }
 }
 @media(max-width:599px) {
   .band > .header-actions { grid-column:2; }
