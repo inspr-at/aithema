@@ -519,14 +519,18 @@ regression and the six DE/EN × 320/390/1440 reload/evidence states. No browser
 file or shard is added. Keep **7 shards**, the **400 s projected headroom guard**,
 the 420 s hard ceiling, and all existing shard/check names.
 
-The temporary **137 s** floor in `scripts/browser-shards.js` preserves the old
-126.939 s rolling-main file weight and adds 25% on the measured new coverage:
-0.897227781 s for the two-page regression in PR CI
-[39128561317](https://github.com/inspr-at/aithema/actions/runs/39128561317)
-(shard 5/7), plus 6.770130083 s for all six viewport states on mbp2606 run
-`7c8a8cb564-36837`. The latter passed the exact copy, single POST, focus, busy,
-icon clearance, two-line 320 DE case, and strict 0 px checks. Formula:
-`ceil(126.939 + 1.25 × (0.897227781 + 6.770130083)) = 137`.
-This diagnostic PR/remote evidence does not enter trusted rolling-main p95
-history. Final PR CI remeasures the full changed file; its timings and viewport
-artifacts are linked from PR #290. The guard must pass before handoff.
+The temporary **158 s** floor in `scripts/browser-shards.js` comes from the
+complete changed file in successful PR CI
+[39130528163](https://github.com/inspr-at/aithema/actions/runs/39130528163),
+head `64239bad`, shard 5/7: all **33/33** tests passed; summed top-level test
+work was **126.270045745 s**. Applying the 25% warmup margin gives
+`ceil(126.270045745 × 1.25) = 158`. This supersedes the provisional 137 s
+incremental estimate from old rolling-main history plus new-test measurements.
+
+The six DE/EN × 320/390/1440 states pass the exact copy, single POST, focus,
+busy/live, inert items, icon clearance, two-line 320 DE case, and strict 0 px
+checks. Final remote run `64239bad97-37546` passed **163/163** Settings and
+consent-browser tests. The diagnostic PR/remote evidence does not enter trusted
+rolling-main p95 history. Keep the measured floor until matching main samples
+mature. Final PR CI and its viewport artifact are linked from PR #290; the
+unchanged 400 s guard must pass before handoff.

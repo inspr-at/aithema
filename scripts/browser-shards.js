@@ -62,14 +62,13 @@ for (const [file, seconds] of Object.entries({
   'test/browser/start2-display.test.js': 257,
 })) browserTestWeights[file] = Math.max(browserTestWeights[file], seconds);
 
-// AIT-321: reserve the changed consent workload without changing capacity.
-// Old rolling-main file weight 126.939s + 25% margin on the added coverage:
-// two-page regression 0.897227781s (PR CI 39128561317, shard 5/7) and full
-// six-state UI 6.770130083s (mbp2606 7c8a8cb564-36837, all checks green).
-// ceil(126.939 + 1.25 * (0.897227781 + 6.770130083)) = 137s.
-// Final PR CI remeasures the complete file; keep the 7 bins / 400s guard.
+// AIT-321: complete changed file passed all 33 tests in PR CI 39130528163,
+// head 64239bad, shard 5/7: summed top-level work 126.270045745s.
+// ceil(observed * 1.25) = 158s; replaces the provisional 137s incremental
+// estimate. Keep this diagnostic floor until matching rolling-main samples
+// mature; PR observations do not enter trusted main timing history.
 browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
-  browserTestWeights['test/browser/consent-lines.test.js'], 137);
+  browserTestWeights['test/browser/consent-lines.test.js'], 158);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
