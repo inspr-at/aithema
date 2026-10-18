@@ -103,6 +103,197 @@ Enforce owner- or visitor-wide limits in the host's owner-wallet port
 See the [README host ports section](../README.md#host-ports-ait-104-part-a)
 for the wallet admission contract.
 
+## Visitor tier settings and host administration (AIT-320)
+
+A consuming host can implement visitor tiers through the existing public ports;
+it does not import the demo's operator page, settings SQL or private module paths.
+The complete executable reference is
+[`test/host-fixtures/visitor-tier-host.js`](../test/host-fixtures/visitor-tier-host.js),
+qualified by [`test/visitor-tier-host.test.js`](../test/visitor-tier-host.test.js).
+Copy/adapt that **host-owned** file into your host. It is an example integration,
+not a new package export. It imports only `node:crypto`,
+`@inspr/aithema-core` and `@inspr/aithema-server`. Its SQL touches only its own
+`host_tier_*` and `host_visitor_tiers` tables through `SQLiteStorage.db` and
+`transaction`; module accounting is accessed through `SQLiteBudgetLedger` methods.
+There is no dependency on demo storage layout or an internal operator page.
+
+The reference combines these responsibilities:
+
+| Host responsibility | Public module boundary |
+| --- | --- |
+| Durable settings, revisions and atomic old/new audit | `SQLiteStorage.db`, synchronous `storage.transaction(fn)` |
+| Trusted operator login and revocable session | `createOperatorSessions`, `createSQLiteOperatorStore`; core `OperatorSessionPort` / `OperatorIdentityProvider` contracts |
+| Current owner allowance and durable admission holds | core `OwnerWalletPort` behavior, checked by `ownerWalletConformance` |
+| Per-conversation reservations, settlement and voice extension | `SQLiteBudgetLedger`, core `admitCredits` |
+| Visitor credit projection and runtime wallet binding | `createHandlers({ host, pluginRuntime })`, `host.wallet`, `host.walletForSession`, `host.creditTiers` |
+
+### Settings, revisions and administrator identity
+
+Store all three integer **micro-USD** allowances (`1_000_000` = USD 1) in one
+revisioned record: `anonymous`, `emailGiven`, `emailConfirmed`. The reference
+starts at USD 10/15/20 and revision 1; these are host defaults, not module policy.
+`settings()` reads SQLite on each call, validates stored values, and never resets
+them on restart. Saves require exactly `{ baseRevision, allowancesMicro }`.
+Reject unknown/missing fields, fractions, negatives, unsafe integers, strings,
+values above the host ceiling (`1_000_000_000`, USD 1,000 here), or descending
+tiers. Equality and zero are allowed. A decimal USD presentation can use the
+public server `usdMicro` converter before applying the same validation; it must
+not use floating-point multiplication as its accounting parser.
+
+The reference routes are host choices:
+
+| Route | Authorized operation |
+| --- | --- |
+| `GET /host/admin/tiers` | Read current revision and allowances |
+| `POST /host/admin/tiers` | Validate and save the complete allowance record |
+| `GET /host/admin/tier-audit` | Read the latest 100 settings changes |
+
+Every route first requires `operatorSessions.session(request)`. Missing, forged,
+expired, revoked or no-longer-allowlisted sessions receive 401, including reads.
+Mount `operatorSessions.handle(request)` for `/api/operator/login/`,
+`/api/operator/callback/` and `/api/operator/logout/` before the host routes.
+Create it with a trusted `OperatorIdentityProvider`, its SQLite store, a fixed
+`publicOrigin` and host clock. A production host can supply `createZitadelOIDC`
+from `@inspr/aithema-plugin-zitadel-oidc` with its own verified configuration and
+exact subject allowlist. The tests substitute an entirely offline provider but
+exercise real login state, callback, cookies, grant persistence and revocation.
+Operator identity is separate from visitor email, visitor cookies and ownership.
+
+The write route requires exact same-origin `Origin`, rejects cross-site fetches,
+accepts only JSON, bounds input at 16 KiB, and rechecks the live operator session
+after reading the asynchronous body. It rejects client `actor`, `subject` and
+`source` fields. The audit actor is `{ namespace, subject, name }` from the
+server-configured provider namespace and **current operator session**; the
+subject and namespace identify authority, while name is display metadata.
+The host must safely escape names in its own admin presentation.
+
+A save uses one `BEGIN IMMEDIATE` transaction: read and compare `baseRevision`,
+update the complete record with revision + 1, then insert immutable old/new
+JSON, revision, host timestamp and trusted actor into the audit table. An audit
+insert failure rolls back the settings update too. A competing or repeated old
+revision returns 409 `{ error: 'stale-settings', current }` without another audit
+entry. On 409, reload and let the administrator reconsider their edit. After an
+uncertain response, read current settings/audit before retrying; replaying the
+old revision cannot apply a second write. The initial default record has no
+administrator change entry; subsequent changes have exactly one entry each.
+The host owns audit retention/export and migration policy; this minimal reference
+returns a bounded recent history and prevents audit UPDATE/DELETE.
+
+For example, a host admin client with a live operator cookie can read and save:
+
+```js
+const current = await fetch('/host/admin/tiers', { credentials: 'same-origin' }).then(r => r.json());
+const response = await fetch('/host/admin/tiers', {
+  method: 'POST', credentials: 'same-origin',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ baseRevision: current.revision,
+    allowancesMicro: { anonymous: 10_000_000, emailGiven: 15_000_000, emailConfirmed: 20_000_000 } }),
+});
+if (response.status === 409) {
+  const { current: latest } = await response.json();
+  // Present latest to the administrator before issuing a new edit.
+}
+```
+
+The browser supplies its same-origin `Origin` header. The host serves admin
+responses with `Cache-Control: no-store` and `Vary: Cookie`. Host-owned HTML,
+access policy and routing must preserve those authorization and CSRF checks.
+
+### Current policy, owner admission and nextTier
+
+The host must persist authoritative tier evidence keyed by the same owner hash
+as `session.ownerHash` (SHA-256 of its owner token in this reference). Never use
+an address as the accounting key. The fixture's `recordTrustedTier` is a trusted
+server callback, **not an HTTP command**: it substitutes for the host's identity
+store. The production host supplies optional email collection, privacy notice
+and document capability, consent, address retention/erasure, qualified delivery
+and server-confirmed verification evidence. A request body cannot select its
+tier. Confirmation is disabled by default; enable `canConfirm` only with that
+evidence and delivery capability. Without it, confirmed evidence projects as
+`emailGiven` and cannot offer a confirmation upgrade.
+
+Use the same current settings/evidence reader in the wallet and credit projection:
+
+```js
+const host = {
+  wallet: ownerToken => walletForHash(hash(ownerToken)),
+  walletForSession: session => walletForHash(session.ownerHash),
+  creditTiers: ownerToken => creditTiers(ownerToken),
+  credits: { ownerGuard: true },
+  privacyDocumentConfigured: () => hostHasValidatedPrivacyDocument,
+};
+const pluginRuntime = createPluginRuntime({ storage, budget, consent, reasoning, registry, presets });
+const handlers = createHandlers({ storage, pluginRuntime, consent, ownership, host });
+```
+
+Here `hash`, `walletForHash` and `creditTiers` are host functions implemented in
+the reference file; the remaining configured ports come from the earlier mount
+example. Supply the **same ledger** to runtime and wallet. `createHandlers` binds
+`walletForSession` into runtime owner admission; `wallet(ownerToken)` serves
+owned credit reads. In the reference, `balance()` and every `canAdmit`/atomic
+`admit` read current SQLite settings, even on a previously obtained wallet.
+There is no startup allowance cache. USD 10 changed to USD 5 changes the limit,
+not the already committed amount. `committedMicro` includes ledger reservations,
+confirmed and uncertain spend plus durable owner holds not yet in the ledger.
+Never count a wallet hold and its ledger row twice. All conversations/tabs for
+one owner share this balance; other owners remain independent.
+
+The reference owner policy charges upstream `maxMicro` (including voice) and
+therefore assumes visitor voice price equals upstream price. `maxVisitorMicro`
+still bounds per-conversation voice in the ledger. Hosts with different visitor
+pricing must implement that billing policy in their wallet, settlements and
+extension checks; they must not silently reuse this upstream-cost policy.
+
+`creditTiers(ownerToken)` returns
+`{ current, next, delta, canConfirm, allowancesMicro }` from those same live
+settings. `next` is `emailGiven` for anonymous visitors only when it raises the
+allowance, or `emailConfirmed` for email-given visitors only when qualified
+confirmation is enabled and raises the allowance; otherwise it is `null` and
+`delta` is 0. Equal allowances do not advertise an upgrade. The owned
+`GET /api/sessions/:id/credits` exposes this as `tiers`. AIT-291's UI `nextTier`
+derives from **`tiers.next`**, subject to the existing collection/end-reason
+gates; it is not another server field. Set `privacyDocumentConfigured` only
+after validating the host's document, otherwise the server suppresses collection
+and next-tier offers. Host identity/verification ports must also enable the
+corresponding visitor actions before the UI can offer them.
+
+Admission uses `admitCredits(budget, request, ownerWallet)` before provider claim
+and dispatch. The owner wallet transaction atomically checks live policy plus
+all conversations' committed costs and inserts a fingerprinted, durable hold.
+It is idempotent per attempt ID and refuses mismatching session/lane/maxima/
+request/binding fingerprints, even after release. The ledger then reserves under
+the same ID. Definitive pre-dispatch refusal releases only that hold; uncertain
+outcomes retain it for recovery. The fixture qualifies this contract with the
+public conformance kit. The host must recover orphaned owner-only holds using
+authoritative dispatch evidence; the reference conservatively retains them.
+
+For ongoing voice, the runtime calls
+`budget.extendVoice(attemptId, totalMaxima, extra => wallet.canAdmit(extra))`.
+The callback receives **additional** maxima, not total cost. It must read live
+policy inside the ledger's existing transaction; do not start a nested SQLite
+transaction or await there. The reference uses `db.isTransaction` to reuse that
+transaction. A reduction can refuse the next extension while preserving the
+existing reservation, provider exposure and settlement obligations. An increase
+can admit the next extension immediately. Normal admissions recheck atomically
+after the preview, so concurrent conversations cannot both spend the same room.
+
+No policy save changes owner tokens/hashes, ledger rows, attempt IDs, historical
+spend, voice exposure or existing holds. Lowering below committed costs leaves
+an overrun visible and refuses new admission; it does not refund spend or cancel
+already dispatched work. Keep durable database files and operator state material
+on the host's private persistent volume across restarts, close handlers before
+storage, and run the normal `handlers.resume()` recovery at host startup before
+accepting traffic. Recovery may conservatively settle unfinished module attempts;
+it never resets settings or creates free allowance. The restart qualification
+compares the persisted ledger before recovery and then exercises extension and
+settlement explicitly, without contacting a provider.
+
+The host fixture is an offline integration qualification, not proof that START
+has deployed this policy. It deliberately provides no admin UI and performs no
+live identity, mail, voice or paid calls. No shared server helper was extracted:
+this host's small settings record/audit policy uses public storage directly and
+does not copy the demo's identity, confirmation, mail-cap or settings schema.
+
 ## Server handlers
 
 This complete local example starts a mock-only server. The memory ledger starts
@@ -1104,7 +1295,8 @@ Budget, host handlers, image binding, memory consent, operator sessions and spen
 cap helpers already come from `@inspr/aithema-server`'s root export. No separate
 subpaths are needed. Icons, JSON requests, reason formatting and release metadata
 remain internal: hosts can supply their own small UI/transport helpers and build
-metadata. The demo's operator page is internal for this release.
+metadata. The demo's operator page is internal for this release; consuming hosts use the
+[documented host settings/admin integration](#visitor-tier-settings-and-host-administration-ait-320).
 
 The demo browser currently resolves source URLs without an import map. Its
 `host.js`, `consent-page.js`, shared `admin-view.js` and test-only `fake-voice.js`
@@ -1125,7 +1317,7 @@ The symbol audit of the original MISS rows is:
 | server/image-binding | Existing public root: `imagePluginBinding` is already re-exported. |
 | server/local-voice | New public dev/test subpath: START needs a credential-free funnel; never production. |
 | server/memory-consent | Existing public root: `createMemoryConsentLedger` is already re-exported. |
-| server/operator-session | Existing public root: `createOperatorSessions` and `createSQLiteOperatorStore` are already re-exported; the demo operator page stays internal. |
+| server/operator-session | Existing public root: `createOperatorSessions` and `createSQLiteOperatorStore` are already re-exported; the demo operator page stays internal; host administration uses the documented AIT-320 integration above. |
 | server/release-info | Internal: the demo reads its own reservation/runtime build metadata. |
 | server/spend-cap | Existing public root: `usdMicro` is already re-exported. |
 | ui/i18n/admin | Internal: copy moved to `demo/admin-copy.js` with its page and HTTP owner; visitor bundles no longer carry it. |

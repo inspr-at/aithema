@@ -2457,9 +2457,10 @@ within the operating system's Unix socket path limit; oversized overrides
 refuse startup with a request to set a shorter `AITHEMA_ADMIN_SOCKET` path.
 The directory is 0700, the socket
 is 0600, and both belong to the host account. `AITHEMA_ADMIN_SOCKET` overrides
-the path on server and CLI. The public listener has no settings, audit or OPS
-endpoint. The actor is `ops-cli:<socket-owner-account>`; Node cannot identify
-the connecting peer account, so requests cannot supply an actor. The CLI never
+the path on server and CLI. The public listener also exposes settings and audit
+routes authenticated by an operator session under `/api/operator/admin/` (AIT-169); the OPS endpoint remains
+private to the Unix socket. The CLI actor is `ops-cli:<socket-owner-account>`;
+Node cannot identify the connecting peer account, so requests cannot supply an actor. The CLI never
 opens SQLite and refuses when the host is down. Start the authoritative server
 first; the existing exclusive writer lock also rejects a second server process.
 
@@ -3182,7 +3183,10 @@ The optional `plugins/zitadel-oidc` public-client plugin ports START v1's
 code + PKCE flow through the vendor-neutral `OperatorSessionPort` in core/server.
 It adds only a muted final section in Settings › General. Operator authentication
 is independent of visitor email, credits, privacy consent and conversation ownership.
-There are no admin pages yet (AIT-135 Phase B).
+AIT-169 provides the authenticated `/admin` page and settings/audit HTTP routes
+in the demo host. Consuming hosts own their admin presentation and can follow
+the [public-package visitor tier integration](docs/embedding.md#visitor-tier-settings-and-host-administration-ait-320)
+for persistent settings, trusted operator attribution and owner-wallet admission.
 
 OPS deployment steps (configuration names only):
 
