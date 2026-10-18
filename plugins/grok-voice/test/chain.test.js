@@ -26,7 +26,7 @@ function fixture(t, { denied, preset = 'best', missingTransport = false } = {}) 
       checkedAt: Date.now(), expiresAt: Date.now() + 60000 };
   } };
   const reasoningPlugin = { binding: reasoning, manifest: publicReasoningManifest(reasoning.plugin, 'Fixture reasoning', reasoning.endpoint),
-    health: async () => ({ available: true }), async *stream(request, options) {
+    health: async () => ({ available: true }), structured() { assert.fail('Voice reasoning must use streaming'); }, async *stream(request, options) {
       await options.attempt.consume(); consumed.push('reasoning');
       assert.ok(request.messages.some(message => message.role === 'user' && message.content === 'Hello world.'));
       yield 'Which company?'; await options.report({ outcome: 'completed', chargedMicro: 1,

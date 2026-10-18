@@ -98,7 +98,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           events.end(); closing = Promise.resolve().then(() => transport.command('close', opts?.reason ?? 'closed'))
             .finally(() => transport.disconnect()); return closing;
         },
-        pause(opts) { hold = true; holdRevision++; localStop(); lifecycle.pause(); return Promise.resolve(transport.command('pause', opts)).then(async ack => {
+        pause(opts) { hold = true; holdRevision++; localStop(); lifecycle.pause(); return Promise.resolve().then(() => transport.command('pause', opts)).then(async ack => {
           if (transport.recoverOnResume) await lifecycle.recover(); return ack;
         }); },
         async resume(opts) {
