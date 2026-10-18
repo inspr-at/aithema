@@ -110,12 +110,15 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
       try {
         const ack = await renew(options);
         if (ended() || state.providerGeneration !== generation || state.epoch !== epoch || state.needsRecovery) return { acknowledged: true, stale: true };
+        // Backpressure is not transport loss and cannot renew the existing lease.
+        if (ack?.acknowledged === true && ack.deferred === true) return ack;
         if (ack?.acknowledged !== true || !Number.isFinite(ack.browserLivenessDeadlineAt)) throw new PluginError('invalid-output');
         dispatch({ type: 'heartbeat', ...ack }); schedule(); return ack;
       } catch (error) {
         if (ended() || state.providerGeneration !== generation || state.epoch !== epoch || state.needsRecovery) return { acknowledged: true, stale: true };
         if (continuityLoss(error)) { hold(continuityLoss(error)); return { acknowledged: true, waiting: true }; }
         if (voiceAuthorityLost(error)) { dispatch({ type: 'withdraw' }); terminal('call-authorization-lost'); throw error; }
+        if (error?.code === 'limit' || error?.status === 429) return { acknowledged: true, deferred: true };
         await recover(); return { acknowledged: true, waiting: state.state === 'waiting' };
       }
     }).finally(() => { renewal = undefined; });

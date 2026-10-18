@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { createComposedRelay } from '../src/relay.js';
 import { createComposedRelayRoute } from '../src/network-relay.js';
 import { createNetworkRelayClient } from '../src/network-client.js';
+import { createComposedBrowserMedia } from '../src/client.js';
 
-function fixture(options = {}, durationMs = 60_000) {
+function fixture(options = {}, durationMs = 60_000, coordinator = {}) {
   let at = Date.now(), authorized = true, received = 0, disconnects = 0;
   const relay = createComposedRelay({ callId: 'call', providerSessionId: 'segment', epoch: 2,
     expiresAt: at + 30_000, spendDeadlineAt: at + durationMs, now: () => at });
   relay.attach({ receiveAudio(bytes) { received += bytes.length; }, pause: async () => ({ acknowledged: true, paused: true }),
-    close() { disconnects++; relay.close(); }, heartbeat: async () => ({ acknowledged: true }) });
+    close() { disconnects++; relay.close(); }, heartbeat: async () => ({ acknowledged: true }), ...coordinator });
   const route = createComposedRelayRoute({ now: () => at, authenticate: request => request.headers.get('x-owner'),
     authorize: async (_grant, owner) => owner === 'alice' && authorized,
     connect: async (grant, owner) => {
@@ -36,6 +37,109 @@ test('network relay denies unauthenticated, wrong-owner, expired, altered and re
   assert.equal((await h.post('audio', new Uint8Array(1280), connectionId)).status, 200);
   const expired = fixture(); t.after(() => expired.route.close()); expired.advance(31_000);
   assert.equal((await expired.post('open', expired.relay.grant)).status, 403);
+});
+
+for (const name of ['pause', 'interrupt']) test(`AIT-346: composed network heartbeat overlapping ${name} preserves the session`, async t => {
+  const entered = Promise.withResolvers(), saved = Promise.withResolvers(), frameDelivery = Promise.withResolvers();
+  let recoveries = 0, captureStops = 0;
+  const h = fixture({}, 60_000, { async [name]() {
+    entered.resolve(); await saved.promise;
+    return { acknowledged: true, ...(name === 'pause' ? { paused: true } : {}) };
+  }, heartbeat: async () => ({ acknowledged: true, browserLivenessDeadlineAt: h.relay.grant.expiresAt }) });
+  const requests = [];
+  const openRelay = createNetworkRelayClient({ url: 'http://localhost/composed/relay', headers: { 'x-owner': 'alice' },
+    async fetch(url, init) {
+      const action = init.headers['x-composed-action'];
+      const response = await h.route.handle(new Request(url, init));
+      if (action === 'frame') await frameDelivery.promise;
+      requests.push({ action, status: response.status }); return response;
+    } });
+  const media = createComposedBrowserMedia({ openRelay,
+    control: { recover() { recoveries++; throw new Error('Unexpected recovery'); } },
+    capture: async () => ({ stop() { captureStops++; } }), player: { play() {}, stop() {} } });
+  const session = await media.connect(h.relay.grant);
+  t.after(async () => { saved.resolve(); frameDelivery.resolve(); await session.close().catch(() => {}); h.route.close(); });
+  const pending = session[name](); await entered.promise;
+  // Pause's durable save is still in flight; the end-of-frames response may be delayed by the network.
+  const ack = await session.heartbeat();
+  assert.equal(ack.acknowledged, true);
+  assert.equal(recoveries, 0, 'a concurrent heartbeat must not replace the healthy transport');
+  assert.equal(captureStops, name === 'pause' ? 1 : 0, 'only the explicit pause stops capture');
+  assert.ok(requests.every(request => request.status === 200), 'heartbeats must not encounter relay limit or authority errors');
+  saved.resolve(); await pending;
+  if (name === 'interrupt') {
+    const renewed = await session.heartbeat();
+    assert.equal(renewed.browserLivenessDeadlineAt, h.relay.grant.expiresAt);
+    assert.equal(recoveries, 0);
+  }
+});
+
+test('AIT-346: relay defers heartbeats without consuming command capacity or weakening overload bounds', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(); let heartbeats = 0;
+  const h = fixture({}, 60_000, {
+    async interrupt() { entered.resolve(); await release.promise; return { acknowledged: true }; },
+    async heartbeat() { heartbeats++; return { acknowledged: true }; },
+  });
+  t.after(() => { release.resolve(); h.route.close(); });
+  const id = (await (await h.post('open', h.relay.grant)).json()).connectionId;
+  const pending = h.post('command', { name: 'interrupt' }, id); await entered.promise;
+  const heartbeat = await h.post('command', { name: 'heartbeat' }, id);
+  assert.equal(heartbeat.status, 200);
+  assert.equal((await heartbeat.json()).result.acknowledged, true);
+  assert.equal(heartbeats, 0, 'deferred heartbeats do not claim a renewed lease');
+  const overloaded = await h.post('command', { name: 'interrupt' }, id);
+  assert.equal(overloaded.status, 429); assert.deepEqual(await overloaded.json(), { error: 'limit' });
+  release.resolve(); assert.equal((await pending).status, 200);
+  assert.equal((await h.post('command', { name: 'heartbeat' }, id)).status, 200);
+  assert.equal(heartbeats, 1);
+});
+
+test('AIT-346: heartbeat sent before pause but delivered after retirement cannot end the paused session', async t => {
+  const heartbeatSent = Promise.withResolvers(), deliverHeartbeat = Promise.withResolvers();
+  const pauseEntered = Promise.withResolvers(), saved = Promise.withResolvers(), frameDelivery = Promise.withResolvers();
+  let recoveries = 0, closes = 0;
+  const h = fixture({}, 60_000, { async pause() {
+    pauseEntered.resolve(); await saved.promise; return { acknowledged: true, paused: true };
+  } });
+  const openRelay = createNetworkRelayClient({ url: 'http://localhost/composed/relay', headers: { 'x-owner': 'alice' },
+    async fetch(url, init) {
+      const action = init.headers['x-composed-action'];
+      const name = action === 'command' ? JSON.parse(init.body).name : null;
+      if (name === 'heartbeat') { heartbeatSent.resolve(); await deliverHeartbeat.promise; }
+      if (name === 'close') closes++;
+      const response = await h.route.handle(new Request(url, init));
+      if (action === 'frame') await frameDelivery.promise;
+      return response;
+    } });
+  const media = createComposedBrowserMedia({ openRelay,
+    control: { recover() { recoveries++; throw new Error('Unexpected recovery'); } },
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  const session = await media.connect(h.relay.grant);
+  t.after(async () => {
+    saved.resolve(); deliverHeartbeat.resolve(); frameDelivery.resolve();
+    await session.close().catch(() => {}); h.route.close();
+  });
+  const heartbeat = session.heartbeat(); await heartbeatSent.promise;
+  const pause = session.pause(); await pauseEntered.promise;
+  deliverHeartbeat.resolve();
+  assert.equal((await heartbeat).acknowledged, true);
+  assert.equal(recoveries, 0); assert.equal(closes, 0, 'a late heartbeat response must not terminate the logical call');
+  saved.resolve(); await pause;
+});
+
+test('AIT-346: a heartbeat in flight does not take the regular command slot', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(); let heartbeats = 0, interrupts = 0;
+  const h = fixture({}, 60_000, {
+    async heartbeat() { heartbeats++; entered.resolve(); await release.promise; return { acknowledged: true }; },
+    async interrupt() { interrupts++; return { acknowledged: true }; },
+  });
+  t.after(() => { release.resolve(); h.route.close(); });
+  const id = (await (await h.post('open', h.relay.grant)).json()).connectionId;
+  const pending = h.post('command', { name: 'heartbeat' }, id); await entered.promise;
+  assert.equal((await h.post('command', { name: 'interrupt' }, id)).status, 200);
+  assert.equal((await h.post('command', { name: 'heartbeat' }, id)).status, 200);
+  assert.equal(interrupts, 1); assert.equal(heartbeats, 1, 'only one heartbeat may reach the coordinator at a time');
+  release.resolve(); assert.equal((await pending).status, 200);
 });
 
 test('network relay carries explicit formats and PCM, closes on pause and revoke, bounds body/rate', async t => {

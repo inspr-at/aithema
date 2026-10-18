@@ -33,3 +33,5 @@ export function createGrokComponents({ composition, ...options } = {}) {
   };
   return Object.freeze({ stt: guard(stt), tts: guard(tts), preflight, outputFormat: TTS_FORMAT.encoding, outputAudioFormat: TTS_FORMAT });
 }
+
+export { createGrokVoiceProvider } from './provider.js';

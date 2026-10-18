@@ -12,7 +12,7 @@ test('supported entrypoints import offline; manifest is strict; coordinator is p
   ]);
   assert.deepEqual(validateManifest(manifest), { ok: true, errors: [] });
   assert.equal(manifest.configSchema.additionalProperties, false);
-  assert.deepEqual(manifest.kinds, ['stt', 'tts']); assert.equal(client.manifest, manifest);
+  assert.deepEqual(manifest.kinds, ['stt', 'tts', 'live-voice']); assert.equal(client.manifest, manifest);
   assert.equal(typeof components.createGrokSTT, 'function'); assert.equal(typeof components.createGrokTTS, 'function');
   assert.equal(typeof server.createGrokComponents, 'function');
   assert.equal(typeof coordinator.createComposedVoiceCoordinator, 'function');
@@ -41,7 +41,7 @@ test('Grok STT + TTS preflight passes offline and blocks mismatches before claim
 test('package publication remains deferred to package 8 and imports use supported subpaths', async () => {
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
   assert.equal(pkg.private, true);
-  assert.deepEqual(Object.keys(pkg.dependencies), ['@inspr/aithema-core']);
+  assert.deepEqual(Object.keys(pkg.dependencies), ['@inspr/aithema-core', '@inspr/aithema-server']);
   for (const file of ['server', 'components', 'configuration', 'manifest', 'stt', 'tts', 'client']) {
     const source = await readFile(new URL(`../src/${file}.js`, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /from\s+['"]\.\.\//u);
