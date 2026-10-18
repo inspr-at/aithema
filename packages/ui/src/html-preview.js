@@ -53,7 +53,7 @@ const PERMISSIONS = ['camera', 'microphone', 'geolocation', 'display-capture', '
 export const previewCopy = Object.freeze({ label: 'Draft, generated', title: 'Generated clickable draft', width: 'Preview width',
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
-  loading: 'Loading draft…', failure: 'The draft could not be loaded. Try closing and reopening it later.',
+  loading: 'Loading draft…', failure: 'The draft could not be loaded. Close the preview and reopen it later.',
   policy: "Previews aren't enabled on this site.",
   policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' });
 const MESSAGE_STATES = ['empty', 'invalid', 'navigated', 'loading', 'failure', 'policy'];

@@ -105,7 +105,7 @@ export const en = {
   conceptDraftGenerated: 'AI-generated clickable draft', conceptDraftManipulated: 'AI-revised clickable draft',
   conceptDraftFake: 'Demo only: clickable draft, local demo, no AI provider',
   conceptPreview: { label: 'Draft, generated', title: 'Generated clickable draft', width: 'Preview width', wide: 'Wide', phone: 'Phone',
-    loading: 'Loading draft…', failure: 'The draft could not be loaded. Try closing and reopening it later.', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.', navigated: 'The draft tried to open another page and was stopped.',
+    loading: 'Loading draft…', failure: 'The draft could not be loaded. Close the preview and reopen it later.', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.', navigated: 'The draft tried to open another page and was stopped.',
     policy: "Previews aren't enabled on this site.",
     policyOperator: 'For site operators: the exact preview address must be allowed as a frame.' },
   conceptRestarted: 'The server restarted while creating the concept. Select “Retry” to try again.',

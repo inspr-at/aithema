@@ -262,7 +262,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     await page.waitForFunction(() => ['failure', 'navigated'].includes(document.querySelector('aithema-html-preview').state), { timeout: 5000 });
     assert.equal(await state(), 'failure');
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state-message').textContent),
-      'The draft could not be loaded. Try closing and reopening it later.');
+      'The draft could not be loaded. Close the preview and reopen it later.');
     assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
     await page.evaluate(() => { const preview = document.querySelector('aithema-html-preview'); preview.width = 'phone'; preview.copy = {}; });
     // Let the original delayed response finish; it cannot revive the discarded frame.
