@@ -29,9 +29,13 @@ export async function testGrokConsumer() {
     scopes.push(scope);
     return { ...scope, scope, covered: true, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60000 };
   } };
-  const reasoningBinding = { ...binding('fixture-model'), plugin: 'fixture-reasoning', endpoint: 'https://reasoning.test', maxMicro: 1000 };
-  reasoningBinding.legal = { ...reasoningBinding.legal, purpose: 'models-international', recipient: 'Fixture reasoning',
-    countries: ['AT'], evidence: { ...reasoningBinding.legal.evidence, model: reasoningBinding.model, endpoint: reasoningBinding.endpoint } };
+  const reasoningBinding = { plugin: 'fixture-reasoning', model: 'fixture-model', endpoint: 'https://reasoning.test', effort: 'none',
+    accountRef: 'private:fixture-reasoning', secretRef: 'private:fixture-reasoning-secret', maxMicro: 1000, maxTokens: 100,
+    rates: { inputMicro: 1, outputMicro: 1 } };
+  const voiceLegal = binding().legal;
+  reasoningBinding.legal = { ...voiceLegal, purpose: 'models-international', recipient: 'Fixture reasoning', countries: ['AT'],
+    evidence: { ...voiceLegal.evidence, accountRef: reasoningBinding.accountRef, secretRef: reasoningBinding.secretRef,
+      model: reasoningBinding.model, endpoint: reasoningBinding.endpoint } };
   const reasoning = { binding: reasoningBinding,
     manifest: publicReasoningManifest(reasoningBinding.plugin, 'Fixture reasoning', reasoningBinding.endpoint),
     health: async () => ({ available: true }), structured() { assert.fail('Voice uses admitted streaming reasoning'); },
@@ -80,8 +84,9 @@ export async function testGrokConsumer() {
     const post = async (suffix, body) => {
       const response = await handlers.handle(new Request(`https://host.test/api/sessions/${record.id}/voice${suffix}`, {
         method: 'POST', headers: { 'x-owner': 'fixture-owner' }, body: JSON.stringify(body) }));
-      assert.ok(response.ok, `voice control ${suffix}: ${response.status}`);
-      return response.json();
+      const value = await response.json();
+      assert.ok(response.ok, `voice control ${suffix}: ${response.status} ${JSON.stringify(value)}`);
+      return value;
     };
     const control = { start: request => post('', { ...request, tabId: 'fixture-tab' }) };
     for (const action of ['close', 'pause', 'resume', 'heartbeat', 'recover']) control[action] = identity =>

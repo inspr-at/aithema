@@ -2,7 +2,7 @@
 
 Aithema uses **INSPR-CalVer3**; `release/version.json` is the
 single version authority. The root workspace is private. The release packer
-emits independently installable core, server, UI and twelve provider/integration
+emits independently installable core, server, UI and thirteen provider/integration
 plugin tarballs, with exact dependency pins, plus a retained workspace archive.
 Aithema is published as immutable [GitHub releases](https://github.com/inspr-at/aithema/releases)
 with signed, attested tarballs. Hosts pin a release with `deployment-pin.json`
@@ -19,7 +19,7 @@ lifecycle into a consuming application.
 For candidate validation on the build runner, retain the candidate directory
 and its manifest digest.
 Run `npm run release:verify -- /path/to/candidate/first` before installing.
-From a separate host directory, install **all fifteen** module tarballs so npm
+From a separate host directory, install **all sixteen** module tarballs so npm
 can resolve their exact mutual dependencies without a registry publication:
 
 ```sh
@@ -32,7 +32,7 @@ bundler resolves the UI and its core dependency; an unbundled browser needs an
 import map for each exported package subpath. Workspace source browser URLs
 are converted to declared package subpaths by `release:pack`.
 
-For a published release, install the same fifteen modules by release URL in
+For a published release, install the same sixteen modules by release URL in
 one invocation, rather than from a package registry. The URL pattern is:
 
 ```sh
@@ -40,7 +40,7 @@ npm install --save-exact https://github.com/inspr-at/aithema/releases/download/<
 ```
 
 Use the exact `v<version>` tag and module filenames from `release-set.json`, and
-pass all fifteen module URLs together. First download and verify the attested
+pass all sixteen module URLs together. First download and verify the attested
 SHA256SUMS, manifest and tarballs as described in the [release route](../release/README.md).
 Commit the host lockfile with the URL resolutions and **sha512 integrity**; use
 `npm ci` for repeat deployments and retain the verified artifacts for rollback.
