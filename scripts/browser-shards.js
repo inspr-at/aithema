@@ -97,14 +97,15 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/host-surface.test.js'] = Math.max(
   browserTestWeights['test/browser/host-surface.test.js'], 107.270);
 
-// AIT-302: PR #274 CI 39067293678, head 191f550b7d, completed
-// voice matrix 48.277588118s + hangup 18.302740745s + phone 94.073953787s.
-// The runner shut down during the separate desktop case, so 160.654282650s
-// is a measured lower bound, not a completed-file sample. Use its 25% floor
-// (200.818s) to redistribute the expanded workload before full-file remeasurement.
-// PR observations remain diagnostic, outside trusted rolling-main history.
+// AIT-302 round 2: full successful PR #274 CI 39106097121, head
+// ca4ab97310, shard 2/6. Copy-table screenshot representatives retain all
+// 133 source assertions without repainting source-only cases. Completed file:
+// 51.803124071s + 18.453931710s + 36.807815884s + 15.853129671s
+// = 122.918001336s; round up to 122.919s, then add 25% = 153.649s.
+// Supersedes the partial-work 200.818s floor and the round-1 224.717s
+// completed workload. PR observations stay outside trusted rolling-main history.
 browserTestWeights['test/browser/voice-presentation.test.js'] = Math.max(
-  browserTestWeights['test/browser/voice-presentation.test.js'], 200.818);
+  browserTestWeights['test/browser/voice-presentation.test.js'], 153.649);
 
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
