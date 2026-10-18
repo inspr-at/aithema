@@ -73,9 +73,10 @@ try {
       const frame = await show('hostile', hostile(host.origin));
       await page.waitForFunction(() => window.results.length === 1);
       const { result: probe, origin } = (await page.evaluate(() => window.results))[0];
+      result.probe = probe;
       assert.equal(origin, 'null'); assert.equal(probe.origin, 'null');
       for (const key of ['parentDom', 'parentCookie', 'cookie', 'storage', 'sessionStorage', 'parentStorage']) assert.equal(probe[key], 'blocked SecurityError', key);
-      assert.equal(probe.fetch, 'blocked TypeError'); assert.equal(probe.image, 'blocked'); assert.equal(probe.popup, 'blocked');
+      assert.equal(probe.fetch, 'blocked TypeError'); assert.equal(probe.image, 'blocked'); assert.match(probe.popup, /^blocked(?: (?:SecurityError|InvalidAccessError))?$/u);
       assert.ok(['attempted', 'blocked SecurityError'].includes(probe.form), 'form submission was attempted');
       assert.ok(['attempted', 'blocked SecurityError'].includes(probe.top), 'top navigation was attempted');
       await frame.click('#interact'); assert.equal(await frame.locator('#interact').textContent(), 'Changed');
@@ -83,17 +84,23 @@ try {
       assert.deepEqual(host.hits.filter(p => p.startsWith('/beacon/')), []);
       singleLoad();
       for (const key of ['opaqueOrigin', 'hostDOM', 'cookies', 'storage', 'fetch', 'image', 'form', 'popup', 'topNavigation']) result.checks[key] = 'PASS';
-      result.probe = probe;
       const clickDummy = await show('interactive', dummy);
       await clickDummy.click('#new'); assert.equal(await clickDummy.locator('#dialog').evaluate(node => node.open), true);
       result.checks.interactive = 'PASS'; singleLoad();
       const attrs = await page.locator('aithema-html-preview iframe').evaluate(f => [f.getAttribute('sandbox'), f.getAttribute('referrerpolicy')]);
       assert.deepEqual(attrs, ['allow-scripts', 'no-referrer']);
       for (const delayed of [false, true]) {
-        await show(delayed ? 'delayed' : 'immediate', leaving(host.origin, delayed));
-        await state('navigated'); await noFrame(); await quiet(); singleLoad();
+        const kind = delayed ? 'delayed' : 'immediate';
+        const navigationFrame = await show(kind, leaving(host.origin, delayed));
+        await page.waitForFunction(kind => window.results.some(r => r.result.navigation === kind && r.origin === 'null'), kind);
+        // WebKit cancels the prohibited navigation and preserves the original
+        // document; other engines may load an error document which is removed.
+        // Both must prove the attempt occurred and no destination was fetched.
+        await new Promise(resolve => setTimeout(resolve, 500)); singleLoad();
         assert.deepEqual(host.hits.filter(p => p.startsWith('/destination/')), []);
-        result.checks[delayed ? 'delayedSelfNavigation' : 'immediateSelfNavigation'] = 'PASS';
+        assert.equal(page.url(), host.origin + '/strict-header-only');
+        assert.ok(navigationFrame.isDetached() || !navigationFrame.url().includes('/destination/'));
+        result.checks[delayed ? 'delayedSelfNavigation' : 'immediateSelfNavigation'] = 'PASS: attempted; 0 destination hits';
       }
       host.silent(true); await show('silent', dummy); await state('navigated'); await noFrame(); singleLoad(); host.silent(false);
       result.checks.readinessFailure = 'PASS: a 200 without the private-port bootstrap is removed';
@@ -122,11 +129,12 @@ try {
       host.allowReload();
       await reloadFrame.evaluate(() => location.reload());
       const refused = await reloaded; assert.equal(refused.status(), 403);
-      assert.equal(await refused.text(), 'Forbidden');
+      assert.equal(host.redemptions.at(-1).plainDenial, true, 'server emitted the plain Forbidden denial without cookies or redirects');
       assert.equal(refused.headers()['cache-control'], 'private, no-store');
       assert.equal(refused.headers()['set-cookie'], undefined); assert.equal(refused.headers().location, undefined);
-      await state('navigated'); await noFrame();
+      await quiet();
       assert.deepEqual(host.redemptions.filter(r => r.mint === host.mints.length).map(r => r.status), [200, 403]);
+      assert.equal(host.mints.length, host.redemptions.at(-1).mint, 'reload never auto-mints');
       result.checks.selfReload = 'PASS: exactly [200,403]; no automatic mint';
       assert.deepEqual(host.hits.filter(p => p.startsWith('/beacon/') || p.startsWith('/destination/')), []);
       assert.deepEqual(escaped, []);
@@ -138,6 +146,7 @@ try {
       await page.waitForFunction(() => Boolean(customElements.get('aithema-session')));
       await page.evaluate(() => { const s = document.createElement('script'); s.textContent = 'window.demoInlineRan=true'; document.body.append(s); });
       await quiet(); assert.equal(await page.evaluate(() => window.demoInlineRan), undefined);
+      assert.deepEqual(escaped, []);
       result.checks.strictDemo = 'PASS';
     } catch (error) {
       if (host.duplicateInitialLoad) {

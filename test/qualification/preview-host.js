@@ -28,7 +28,10 @@ export async function qualificationHost() {
         if (path === '/_aithema/html-preview') {
           // Keep capability values out of evidence: assign an ordinal per mint.
           const index = mints.findIndex(url => url === request.url);
-          redemptions.push({ mint: index + 1, method: req.method, status: response.status });
+          redemptions.push({ mint: index + 1, method: req.method, status: response.status,
+            ...(response.status === 403 ? { plainDenial: await response.clone().text() === 'Forbidden' &&
+              response.headers.get('content-type') === 'text/plain; charset=utf-8' &&
+              !response.headers.has('set-cookie') && !response.headers.has('location') } : {}) });
           if (silent && response.status === 200) {
             const html = (await response.text()).replace(/<script>addEventListener\('message',[\s\S]*?<\/script>/u, '');
             const headers = new Headers(response.headers); headers.delete('content-length'); headers.delete('content-digest');
@@ -104,6 +107,6 @@ blocked('top',()=>{w['to'+'p']['loc'+'ation']=base+'/beacon/top';return 'attempt
 document.getElementById('interact').onclick=e=>{e.target.textContent='Changed';};w['par'+'ent'].postMessage(r,'*');})();
 </script></body></html>`;
 export const leaving = (origin, delayed) => `<!doctype html><html><head><title>Navigation</title><script>
-const leave=()=>{self['loc'+'ation']['hr'+'ef']='ht'+'tp:/'+'/127.0.0.1:${new URL(origin).port}/destination/${delayed ? 'delayed' : 'immediate'}';};
+const leave=()=>{self['par'+'ent'].postMessage({qualification:true,navigation:'${delayed ? 'delayed' : 'immediate'}'},'*');self['loc'+'ation']['hr'+'ef']='ht'+'tp:/'+'/127.0.0.1:${new URL(origin).port}/destination/${delayed ? 'delayed' : 'immediate'}';};
 ${delayed ? "addEventListener('load',()=>setTimeout(leave,100));" : 'leave();'}
 </script></head><body>Navigation probe</body></html>`;
