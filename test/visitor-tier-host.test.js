@@ -317,7 +317,7 @@ for (const trigger of ['http', 'operator-session', 'storage-retirement', 'expiry
     const a = host.storage.create({ ownerToken: owner }), b = host.storage.create({ ownerToken: owner });
     const wallet = host.host.wallet(owner), db = host.storage.db;
     assert.equal(wallet.admit(request(a.id, 'active-sibling', 10_000_000)).ok, true);
-    assert.equal(host.budget.get('active-sibling'), null, 'hold has not reached the module ledger');
+    assert.equal(host.budget.get('active-sibling'), undefined, 'hold has not reached the module ledger');
     const before = db.prepare('SELECT * FROM host_tier_holds WHERE attempt_id=?').get('active-sibling');
     assert.equal(before.released, 0);
     assert.equal(wallet.balance().reservedMicro, 10_000_000);
