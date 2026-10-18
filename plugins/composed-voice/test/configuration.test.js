@@ -116,3 +116,27 @@ test('AIT-345: source-only start2 compatibility passes an explicit 3600-second c
     assert.equal(plugin.ports.serverAdapter.matchesConfig({ ...args.config, ...raw }), true);
   }
 });
+
+
+test('AIT-359: equivalent composed configurations match independently of key order and legacy host spelling', () => {
+  const configs = [
+    { host: 'start2', voice: 'fixture-voice' },
+    { maxDurationSeconds: 3600, voice: 'fixture-voice' },
+    { voice: 'fixture-voice', maxDurationSeconds: 3600 },
+  ];
+  for (const config of configs) {
+    const adapter = createComposedVoice({ config }).ports.serverAdapter;
+    for (const candidate of configs) assert.equal(adapter.matchesConfig(candidate), true);
+    assert.equal(adapter.matchesConfig({ maxDurationSeconds: 120, voice: 'fixture-voice' }), false);
+    assert.equal(adapter.matchesConfig({ maxDurationSeconds: 3600, voice: 'another-voice' }), false);
+    assert.throws(() => adapter.matchesConfig({ unknown: true }), TypeError);
+  }
+});
+
+test('AIT-359: composed config comparison preserves JSON value semantics while ignoring nested key order', () => {
+  const adapter = createComposedVoice({ config: { voice: { name: 'fixture', settings: { rate: 1, pitch: 2 } } } }).ports.serverAdapter;
+  assert.equal(adapter.matchesConfig({ voice: { settings: { pitch: 2, rate: 1 }, name: 'fixture' } }), true);
+  assert.equal(createComposedVoice({ config: {} }).ports.serverAdapter.matchesConfig({ voice: undefined }), true);
+  assert.equal(createComposedVoice({ config: { voice: null } }).ports.serverAdapter.matchesConfig({ voice: NaN }), true);
+  assert.equal(createComposedVoice({ config: { voice: ['a', 'b'] } }).ports.serverAdapter.matchesConfig({ voice: ['b', 'a'] }), false);
+});
