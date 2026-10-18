@@ -94,6 +94,39 @@ test('AIT-346: relay defers heartbeats without consuming command capacity or wea
   assert.equal(heartbeats, 1);
 });
 
+test('AIT-346: heartbeat sent before pause but delivered after retirement cannot end the paused session', async t => {
+  const heartbeatSent = Promise.withResolvers(), deliverHeartbeat = Promise.withResolvers();
+  const pauseEntered = Promise.withResolvers(), saved = Promise.withResolvers(), frameDelivery = Promise.withResolvers();
+  let recoveries = 0, closes = 0;
+  const h = fixture({}, 60_000, { async pause() {
+    pauseEntered.resolve(); await saved.promise; return { acknowledged: true, paused: true };
+  } });
+  const openRelay = createNetworkRelayClient({ url: 'http://localhost/composed/relay', headers: { 'x-owner': 'alice' },
+    async fetch(url, init) {
+      const action = init.headers['x-composed-action'];
+      const name = action === 'command' ? JSON.parse(init.body).name : null;
+      if (name === 'heartbeat') { heartbeatSent.resolve(); await deliverHeartbeat.promise; }
+      if (name === 'close') closes++;
+      const response = await h.route.handle(new Request(url, init));
+      if (action === 'frame') await frameDelivery.promise;
+      return response;
+    } });
+  const media = createComposedBrowserMedia({ openRelay,
+    control: { recover() { recoveries++; throw new Error('Unexpected recovery'); } },
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  const session = await media.connect(h.relay.grant);
+  t.after(async () => {
+    saved.resolve(); deliverHeartbeat.resolve(); frameDelivery.resolve();
+    await session.close().catch(() => {}); h.route.close();
+  });
+  const heartbeat = session.heartbeat(); await heartbeatSent.promise;
+  const pause = session.pause(); await pauseEntered.promise;
+  deliverHeartbeat.resolve();
+  assert.equal((await heartbeat).acknowledged, true);
+  assert.equal(recoveries, 0); assert.equal(closes, 0, 'a late heartbeat response must not terminate the logical call');
+  saved.resolve(); await pause;
+});
+
 test('AIT-346: a heartbeat in flight does not take the regular command slot', async t => {
   const entered = Promise.withResolvers(), release = Promise.withResolvers(); let heartbeats = 0, interrupts = 0;
   const h = fixture({}, 60_000, {
