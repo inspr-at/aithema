@@ -222,6 +222,7 @@ export class SettingsDialog {
     this.#paintKeys.clear(); this.sync();
   }
   #paintCopy() {
+    this.#dialog.lang = this.#copy.display.locale;
     const c = this.#copy.settings;
     this.#q('.presets').setAttribute('aria-label', c.processing);
     for (const node of this.#all('[data-text]')) node.textContent = c[node.dataset.text];

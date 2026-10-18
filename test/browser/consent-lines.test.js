@@ -1147,6 +1147,7 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
         focus: r.activeElement === button, selected: r.querySelector('.consent-items input').checked,
         disabled: button.getAttribute('aria-disabled'), info: info.checkVisibility(), ink2: css.color === getComputedStyle(info).color,
         iconOverlap: [...range.getClientRects()].some(rect => rect.left < infoBox.right && rect.right > infoBox.left && rect.top < infoBox.bottom && rect.bottom > infoBox.top),
+        font: css.font, statusWidth: status.getBoundingClientRect().width,
         lines: lines.size, fits: status.scrollHeight <= status.clientHeight, dialogOpen: r.querySelector('dialog.settings').open };
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
