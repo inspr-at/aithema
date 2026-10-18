@@ -92,7 +92,11 @@ async function startTyping(page) {
     await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
   }
-  await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="type"]')?.click(); c.shadowRoot.querySelector('.ready__start').click(); });
+  await inShadow(page, c => {
+    const root = c.shadowRoot;
+    if (root.querySelector('.audio-rail')) root.querySelector('.ready__mode[data-mode="type"]').click();
+    root.querySelector('.ready__start').click();
+  });
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
 }
 const sendTurn = (page, text) => inShadow(page, (c, text) => {

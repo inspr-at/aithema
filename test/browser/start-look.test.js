@@ -199,7 +199,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
 
 // AIT-307: one reused page, real host chrome and the existing no-provider fixture.
 // Bind the same inert voice client used by host-chrome-check; never start audio.
-test('AIT-307: readiness has a static text input line without voice; binding and unbinding move Start 0 px',
+test('AIT-307: readiness reserves only the input slot without voice; no empty card/header runs over 24 px',
   { timeout: 120_000 }, async t => {
     const { startChild } = await import('../helpers.js');
     const { browserForFile } = await import('./shared-browser.js');
@@ -244,12 +244,26 @@ test('AIT-307: readiness has a static text input line without voice; binding and
     const snapshot = () => inShadow(page, c => {
       const r = c.shadowRoot, line = r.querySelector('.ready__input'), start = r.querySelector('.ready__start');
       const rect = n => { const b = n.getBoundingClientRect(); return { y: b.y, height: b.height }; };
-      return { start: rect(start), card: rect(r.querySelector('.ready')), switch: Boolean(r.querySelector('.ready__modes')),
+      const card = r.querySelector('.ready'), slot = r.querySelector('.ready__input-slot');
+      // Measure visible layout blocks, including the deliberately reserved input
+      // slot. Inspect rows rather than dl so missing-row padding cannot hide here.
+      const blocks = [...card.querySelectorAll('h3, .ready__row, .ready__actions button, .ready__route, .ready__input-slot, .ready__start')]
+        .filter(n => n.checkVisibility() && n.getBoundingClientRect().height > 0)
+        .map(n => ({ name: n.className || n.tagName, ...rect(n) })).sort((a, b) => a.y - b.y);
+      let bottom = card.getBoundingClientRect().top;
+      const cardGaps = blocks.map(block => {
+        const gap = { before: block.name, px: block.y - bottom }; bottom = Math.max(bottom, block.y + block.height); return gap;
+      });
+      cardGaps.push({ before: 'card bottom', px: card.getBoundingClientRect().bottom - bottom });
+      return { cardGaps, headerGap: r.querySelector('.intro').getBoundingClientRect().top - r.querySelector('.band').getBoundingClientRect().bottom,
+        startAtSlot: start.getBoundingClientRect().top - slot.getBoundingClientRect().top,
+        switchHeight: r.querySelector('.ready__modes')?.getBoundingClientRect().height ?? null,
+        start: rect(start), card: rect(r.querySelector('.ready')), switch: Boolean(r.querySelector('.ready__modes')),
         buttons: r.querySelectorAll('.ready__mode').length, groups: r.querySelectorAll('.ready [role="group"], .ready [role="radiogroup"]').length,
         line: line && { visible: line.checkVisibility(), text: line.textContent, icon: Boolean(line.querySelector('svg[aria-hidden="true"] rect[width="20"][height="16"]') && line.querySelector('svg path[d="M7 16h10"]')),
           focusable: line.tabIndex >= 0 || Boolean(line.querySelector('button,a,input,[tabindex]')), height: line.getBoundingClientRect().height,
           color: getComputedStyle(line).color, rowColor: getComputedStyle(r.querySelector('.ready__route')).color,
-          font: getComputedStyle(line).fontSize, rowX: r.querySelector('dt').getBoundingClientRect().x, x: line.getBoundingClientRect().x,
+          font: getComputedStyle(line).fontSize, rowFont: getComputedStyle(r.querySelector('dt')).fontSize, rowX: r.querySelector('dt').getBoundingClientRect().x, x: line.getBoundingClientRect().x,
           background: getComputedStyle(line).backgroundColor, border: getComputedStyle(line).borderTopWidth },
         slotHeight: r.querySelector('.ready__input-slot').getBoundingClientRect().height };
     });
@@ -259,8 +273,16 @@ test('AIT-307: readiness has a static text input line without voice; binding and
       assert.ok(state.line?.visible, 'AIT-307: the static input line is visible');
       assert.equal(state.line.text, locale === 'de' ? 'Eingabe: Text' : 'Input: Text');
       assert.equal(state.line.icon, true); assert.equal(state.line.focusable, false);
-      assert.equal(state.line.color, state.line.rowColor); assert.equal(state.line.font, '12.48px');
+      assert.equal(state.line.color, state.line.rowColor); assert.equal(state.line.font, state.line.rowFont, 'static input reuses the row font size at this width');
+      assert.ok(state.cardGaps.every(gap => gap.px <= 24), `AIT-307: no empty card run over 24 px: ${JSON.stringify(state.cardGaps)}`);
+      assert.ok(state.headerGap >= 0 && state.headerGap <= 24, `AIT-307: no empty run over 24 px between band and intro: ${state.headerGap}`);
       assert.equal(state.line.x, state.line.rowX); assert.equal(state.line.background, 'rgba(0, 0, 0, 0)'); assert.equal(state.line.border, '0px');
+    };
+    const sameSlot = (one, two, label) => {
+      assert.equal(one.slotHeight, two.switchHeight, `${label}: static input slot equals the two-mode switch height`);
+      assert.equal(one.slotHeight, two.slotHeight, `${label}: same input slot height`);
+      assert.equal(one.startAtSlot, two.startAtSlot, `${label}: Start y relative to the input slot stays equal`);
+      assert.equal(one.start.height, two.start.height, `${label}: Start height stays equal`);
     };
     const still = (before, after, label) => {
       assert.deepEqual(after.start, before.start, `${label}: Start y/height 0 px`);
@@ -290,7 +312,7 @@ test('AIT-307: readiness has a static text input line without voice; binding and
       const other = locale === 'de' ? 'en' : 'de'; oneMode(await snapshot(), other);
       await configure(locale, true); const two = await snapshot();
       assert.equal(two.switch, true); assert.equal(two.buttons, 2); assert.equal(two.groups, 1); assert.equal(two.line, null);
-      still(one, two, `${width}/${theme}/${locale}: bind`); await shot(width, theme, locale, 'two');
+      sameSlot(one, two, `${width}/${theme}/${locale}: bind`); await shot(width, theme, locale, 'two');
       await configure(locale, true, false); const disabled = await snapshot();
       assert.equal(disabled.switch, true); assert.equal(disabled.buttons, 2); assert.equal(disabled.line, null);
       assert.deepEqual(await inShadow(page, c => {
@@ -298,11 +320,12 @@ test('AIT-307: readiness has a static text input line without voice; binding and
         return [voice.getAttribute('aria-disabled'), r.querySelector('.ready__mode[data-mode="type"]').getAttribute('aria-pressed')];
       }), ['true', 'true'], 'unavailable bound voice keeps the switch with text selected');
       still(two, disabled, `${width}/${theme}/${locale}: unavailable voice`);
-      await configure(locale, false); const unbound = await snapshot(); oneMode(unbound, locale); still(two, unbound, `${width}/${theme}/${locale}: unbind`);
-      checks.push({ width, theme, locale, one, two, disabled, unbound, pass: 'static copy/icon/nonfocusable; input slot/card/Start 0 px across bind/unbind' });
+      await configure(locale, false); const unbound = await snapshot(); oneMode(unbound, locale); sameSlot(unbound, two, `${width}/${theme}/${locale}: unbind`);
+      still(one, unbound, `${width}/${theme}/${locale}: returning to one mode`);
+      checks.push({ width, theme, locale, one, two, disabled, unbound, pass: 'static copy/icon/nonfocusable/row font; card/header gaps <=24 px; input slot equals switch height; Start relative to slot 0 px' });
     }
     assert.equal(checks.length, 12);
-    const passLines = ['AIT-307 PASS: 1440/1024/390 × light/dark × DE/EN; static localized keyboard line without input group/buttons; two-mode switch retained; Start/card/input slot 0 px across bind/unbind.'];
+    const passLines = ['AIT-307 PASS: 1440/1024/390 × light/dark × DE/EN; static localized keyboard line without input group/buttons; two-mode switch retained; card/header gaps <=24 px; input slot equals switch height; Start relative to slot 0 px (Tick decision B).'];
     console.log(passLines[0]);
     const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
     if (evidence) await writeFile(join(evidence, 'ait307-ready-checks.json'), JSON.stringify({ head: event?.pull_request?.head?.sha ?? evidenceCommit, testedCommit: evidenceCommit,
