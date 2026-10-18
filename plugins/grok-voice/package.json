@@ -1,6 +1,6 @@
 {
   "name": "@inspr/aithema-plugin-grok-voice",
-  "private": true,
+  "private": false,
   "type": "module",
   "version": "261018162546.0.0",
   "license": "AGPL-3.0-only",

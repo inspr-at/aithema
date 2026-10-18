@@ -1,12 +1,27 @@
-# Grok Voice (xAI) — component pipeline (AIT-344–AIT-348)
+# Grok Voice (xAI) — component pipeline (AIT-317, AIT-344–AIT-351)
 
 **not yet qualified in live use**
 
 Architecture: xAI STT → Aithema's separately admitted reasoning → xAI TTS.
 Aithema owns answers. This workspace package provides STT, streaming TTS,
 private configuration validation and supported component/preflight exports.
-Relay, browser start and full-chain admission use the supported composed host. Publication
-is deferred to package 8 (`private: true`); no release module is added here.
+Relay, browser start and full-chain admission use the supported composed host.
+AIT-351 includes this package in the release closure at the exact existing
+`release/version.json` coordinate, with exact core/server dependencies and the
+server's coordinator, accounting, relay, browser helpers and capture worklet.
+Inclusion does not publish it. See
+[installed imports and host setup](../../docs/embedding.md#grok-voice-host-setup-and-release-imports-ait-351).
+
+Markus approved xAI as a direct recipient (AIT-317, Desk dc3ec428). Use `voice-xai`
+v1 with the manifest's exact DE/EN text and separate reasoning consent. The
+recipient is SpaceXAI LLC (“SpaceXSI”), US seat; processing is international with
+no guaranteed region, as the Settings detail states.
+
+Owner use requires an xAI account with voice access and **Zero Data Retention
+switched on**, plus a server-side secret reference in the private binding.
+**Never ask for a key.** The host privately resolves the reference only after
+current account evidence, consent, ownership and budget admission. Public policy
+does not establish the owner's account configuration.
 
 ## Public evidence
 
@@ -151,7 +166,7 @@ The component never exposes a playback cursor: `heardPrefix: unavailable`.
 | --- | --- |
 | `@inspr/aithema-plugin-grok-voice` and `/server` | Component factories plus `createGrokComponents`, a guarded STT/TTS pair with offline `preflight` |
 | `/components` | `createGrokSTT`, `createGrokStreamingSTT`, `createGrokBatchSTT`, `createGrokTTS`, validator, PCM constants and manifest |
-| `/client` | Browser-safe manifest only; no media start or credential path |
+| `/client` | `createGrokVoiceClient` and browser-safe manifest; host control/network/media ports, no credential path |
 | `/manifest` | Public STT/TTS metadata; empty, closed public config schema because private account configuration belongs in the host binding |
 | `@inspr/aithema-server/composed-voice` | Reusable coordinator and `callDurationSeconds`, with a core-only helper closure and bounded mono PCM playback |
 | `@inspr/aithema-server/composed-voice/accounting` | `createComposedComponentAccounting`: durable host admission, observation and terminal ports for individual speech children |
@@ -210,9 +225,11 @@ Its independent `visitorMicroPerMinute` still reserves and charges the ordinary
 visitor tariff: elapsed active duration, with acknowledged pause intervals
 excluded, rounded up once per segment. Parent closure or reconciliation never
 settles or releases speech children. Reasoning keeps its existing admission and
-accounting. Package 5 should carry call/provider/epoch identity through typed
-turns and lifecycle transitions, request fresh claims for retries, and leave
-unresolved children available to recovery after logical-call closure.
+accounting. Typed turns and lifecycle transitions carry call/provider/epoch identity, request
+fresh claims for retries and leave unresolved children available to recovery after
+logical-call closure. The visitor tariff is server-side **measured by Aithema**,
+excludes acknowledged pauses and is confirmed at close. Upstream costs remain
+estimated until a billed-cost receipt.
 
 
 ### Typed turns and call lifecycle (package 5, AIT-348)
@@ -272,12 +289,9 @@ it emits `ait348-<width>-light-de-<state>.png`, the 390 typed-send viewport and
 `ait348-checks.json`. These are synthetic fixture results, **not yet qualified
 in live use**. Tick's morning QA and the coordinator's review gate precede merge.
 
-Package 6 owns the durable interruption marker and joined offline conformance.
-It must retain full answer text without inventing a heard prefix, persist/fence
-the interrupted reply identity through recovery/reload and duplicate events,
-and exercise the public Grok factories with fresh child claims. Package 5's
-`playbackRevision`, trusted turn envelopes and lifecycle events are its inputs;
-this package does not add the interruption marker or change ElevenLabs.
+Package 6 adds the durable interruption marker and joined offline conformance
+below, retaining the full answer and interrupted identity through recovery/reload
+and duplicate events. ElevenLabs remains unchanged.
 
 ### Truthful interruption and joined conformance (package 6, AIT-349)
 
@@ -316,8 +330,15 @@ rectangles before/after interruption: **0 px** movement. Baseline font stack and
 reduced-motion settings are retained. Tick's morning UI QA and the coordinator's
 review gate still precede merge.
 
-Packages 7/8 can build on these durable identities and fixture-only kit results.
-They must retain the unknown-heard contract, separately settled child costs,
-and the unqualified live label. Actual acoustic/provider qualification and any
-rollout require their own authorized evidence; this package makes no live calls
-and does not qualify German speech quality or a private xAI account.
+AIT-350 adds the Settings switch; AIT-351 adds documentation and installed-artifact
+verification. The isolated consumer installs shipped tarballs offline, imports
+all exports and runs a joined synthetic STT → admitted reasoning → TTS call with
+durable child accounting. Missing helpers/worklets, source-tree escapes and
+excluded prototype dependencies fail the consumer gates. These fixtures do not
+qualify German speech quality or a private xAI account.
+
+Keep **not yet qualified in live use** in the manifest and notes until Markus has
+used it; fixture qualification never changes the label. Tick's morning QA of
+packages 5–7 and LEAD's RC decision gate merge. The next RC builder uses
+`release/next-notes.md`; publication needs a later Markus Desk go. No tag, release,
+live xAI call or publication is authorized by this package.

@@ -132,7 +132,7 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-ui'));
   assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-plugin-elevenlabs'));
   verifyRelease(a.directory);
-  assert.equal(a.manifest.artifacts.filter(artifact => artifact.kind === 'module').length, 15);
+  assert.equal(a.manifest.artifacts.filter(artifact => artifact.kind === 'module').length, 16);
   // Inspect actual packed bytes, including unexported files, for dangling imports.
   for (const artifact of a.manifest.artifacts.filter(artifact => artifact.kind === 'module')) {
     const archive = join(a.directory, artifact.path);

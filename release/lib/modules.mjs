@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 
-// Composed voice coordinators/adapters are retained only in the source archive.
+// Keep the legacy prototype entrypoint excluded. Supported coordinators and
+// composed helpers ship from server/src/voice-coordinator.js and src/composed/.
 const excluded = new Set(['packages/server/src/local-voice.js', 'packages/server/src/composed-voice.js',
   // The unexported ElevenLabs component adapter remains a source-only proof.
   'plugins/elevenlabs/src/components.js']);
@@ -17,15 +18,21 @@ export function moduleFiles(files, pkg) {
     if (/\.(?:js|ts)$/u.test(local)) {
       content = Buffer.from(bytes.toString().replace(/(\b(?:from\s*|import\s*(?:\(\s*)?))(['"`])(\.{1,2}\/[^'"`\n]+)\2/gu, (match, introducer, quote, specifier) => {
         const target = posix.normalize(posix.join(posix.dirname(path), specifier));
-        if (excluded.has(target)) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
+        const declaration = path.endsWith('.d.ts') && files.has(target.replace(/\.js$/u, '.d.ts'));
+        if (excluded.has(target) || !files.has(target) && !declaration) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         if (target.startsWith(prefix)) return match;
         const metadataPath = target.replace(/\/src\/.+$/u, '/package.json');
         const targetBytes = files.get(metadataPath);
         if (!targetBytes) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         const metadata = JSON.parse(targetBytes);
+        if (metadata.private === true) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
         const subpath = './' + target.split('/src/')[1].replace(/\.(?:d\.ts|js)$/u, '');
         if (!metadata.exports?.[subpath]) throw new Error(`Missing package export: ${metadata.name}/${subpath}`);
         return introducer + quote + metadata.name + '/' + subpath.slice(2) + quote;
+      }).replace(/new\s+URL\(\s*(['"])(\.{1,2}\/[^'"\n]+\.js)\1\s*,\s*import\.meta\.url\s*\)/gu, (match, _quote, specifier) => {
+        const target = posix.normalize(posix.join(posix.dirname(path), specifier));
+        if (excluded.has(target) || !target.startsWith(prefix) || !files.has(target)) throw new Error(`Unpackaged dependency: ${path} -> ${specifier}`);
+        return match;
       }));
     }
     members.set(local, content);
