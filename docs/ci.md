@@ -515,7 +515,7 @@ been published before merging.
 ## AIT-321 consent revision workload (2026-10-18)
 
 The existing `test/browser/consent-lines.test.js` owns the two-page stale-image
-regression and the six DE/EN × 320/390/1440 reload/evidence states. No browser
+regression and the eight DE/EN × 320/352/390/1440 reload/evidence states. No browser
 file or shard is added. Keep **7 shards**, the **400 s projected headroom guard**,
 the 420 s hard ceiling, and all existing shard/check names.
 
@@ -527,10 +527,19 @@ work was **126.270045745 s**. Applying the 25% warmup margin gives
 `ceil(126.270045745 × 1.25) = 158`. This supersedes the provisional 137 s
 incremental estimate from old rolling-main history plus new-test measurements.
 
-The six DE/EN × 320/390/1440 states pass the exact copy, single POST, focus,
-busy/live, inert items, icon clearance, two-line 320 DE case, and strict 0 px
-checks. Final remote run `64239bad97-37546` passed **163/163** Settings and
-consent-browser tests. The diagnostic PR/remote evidence does not enter trusted
+Round 2 removes both phone font overrides. All eight DE/EN ×
+320/352/390/1440 states use the normal **11.52 px** editor message size and pass
+exact copy, single POST, focus, busy/live, inert items, icon clearance and strict
+0 px checks. Every reserved consent/settings message, including failure with
+Retry visible, retains the same slot height at each width. On mbp2606 the DE
+notice is three lines at 320/352 (48.328125 px slot) and two at 390/1440
+(44 px slot); EN slots are 44 px at all four widths. These platform-specific
+pixel measurements are evidence, while CI independently checks constant height
+and the font size against its own 1440 baseline. Round-2 remote run
+`96d78f0efd-33554` passed **173/173** server, session-element and complete
+consent-browser tests in 73.970 s, including both two-tab regressions and all
+new withdrawal/legacy-confirmation cases. The 158 s floor remains conservative
+pending the complete round-2 CI measurement. The diagnostic PR/remote evidence does not enter trusted
 rolling-main p95 history. Keep the measured floor until matching main samples
 mature. Final PR CI and its viewport artifact are linked from PR #290; the
 unchanged 400 s guard must pass before handoff.
