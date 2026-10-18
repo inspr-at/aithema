@@ -155,6 +155,19 @@ test('AIT-348 round 2: concurrent in-flight duplicates share hand-off and an acc
     'a hold still fences late publication after the receipt has succeeded');
 });
 
+test('AIT-348 round 2: a hold racing the executor hand-off cannot release an accepted delivery id', async t => {
+  let executions = 0;
+  const h = fixture(t, { replyExecutor: { execute() {
+    executions++; void h.coordinator.pause();
+    return (async function* () { yield { type: 'operation', replyId: 'held-reply' }; })();
+  } } });
+  const id = receipt('handoff-hold'), first = await h.coordinator.sendText('Ja', id);
+  assert.equal(first.acknowledged, true);
+  await h.coordinator.idle(); await h.coordinator.resume();
+  assert.deepEqual(await h.coordinator.sendText('Ja', id), first);
+  assert.equal(executions, 1);
+});
+
 function mediaFixture(t, { command, capture, player, recover } = {}) {
   const until = Date.now() + 60_000;
   const relay = createComposedRelay({ callId: 'call', providerSessionId: 'generation', epoch: 2, expiresAt: until });

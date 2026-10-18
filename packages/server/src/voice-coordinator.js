@@ -194,11 +194,12 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     }
     if (textDeliveries.size >= 4096 || jobs.size + typedPending >= maxPendingTurns) throw new PluginError('limit');
     typedPending++;
-    const receipt = Promise.withResolvers(), entry = { text, receipt: receipt.promise };
+    const receipt = Promise.withResolvers(), entry = { text, receipt: receipt.promise, accepted: false };
     // This is an in-flight reservation, not a delivered id. Concurrent retries
     // share it; a refusal releases it before the caller observes the rejection.
     textDeliveries.set(opts.deliveryId, entry);
     const reject = error => {
+      if (entry.accepted) return;
       if (textDeliveries.get(opts.deliveryId) === entry) textDeliveries.delete(opts.deliveryId);
       receipt.reject(error);
     };
@@ -214,8 +215,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         // signal independently for the remainder of reply playback.
         const turnSignal = AbortSignal.any([signal, admissionSignal]), admitted = Promise.withResolvers();
         const delivery = { accepted: false, accept() {
-          delivery.accepted = true;
-          admitted.resolve({ acknowledged: true, turnId: turn.id });
+          delivery.accepted = entry.accepted = true;
+          const value = { acknowledged: true, turnId: turn.id };
+          // Commit the receipt at the same synchronous boundary as the hand-off;
+          // an abort in a later microtask must not release an accepted id.
+          receipt.resolve(value); admitted.resolve(value);
         } };
         const job = acceptTurn(turn, text, turnSignal, committed, delivery);
         track(jobs, job.catch(error => {
