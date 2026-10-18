@@ -13,8 +13,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, consent, context, lastReply, replyVisible, replyTarget, onPartial, onFinal, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, endReason, nextTier, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -199,7 +199,10 @@ export class AudioRail {
     if (low) setText(this.root.querySelector('.voice-state'), c.voiceStates.low);
     const status = this.root.querySelector('.voice-state');
     const sentence = status.dataset.consentFeature ? featureConsentText(c, 'voice') : status.textContent;
-    if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, narrowVoiceStatus(c, sentence));
+    if (sentence && !status.dataset.consentFeature) paintNarrowText(status, sentence, narrowVoiceStatus(c, sentence, {
+      reason: this.usedUp?.() ? this.endReason?.() : this.allowanceDenied ? this.errorReason : available.rawReason,
+      nextTier: this.nextTier?.(),
+    }));
     if (status.getAttribute('aria-label') !== sentence) status.setAttribute('aria-label', sentence);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,

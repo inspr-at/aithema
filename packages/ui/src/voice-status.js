@@ -21,7 +21,8 @@ const reasonMessages = { 'recovery-failed': 'voiceRecoveryFailed', 'start-failed
   'closure-uncertain': 'voiceClosureUncertain' };
 
 /** All header copy sources get a bounded visual label, including host-defined refusals. */
-export function narrowVoiceStatus(copy, sentence) {
+export function narrowVoiceStatus(copy, sentence, { reason: rawReason, nextTier } = {}) {
+  if (rawReason === 'host-limit' && nextTier == null && sentence === copy.voiceStates.usedUp) return copy.voiceReasonsNarrow.hostBudget;
   if (sentence === copy.notConfigured) return copy.voiceReasonsNarrow.setup;
   if (sentence === copy.featureConsent.voice) return copy.featureConsent.textNarrow;
   const state = Object.keys(copy.voiceStates).find(key => copy.voiceStates[key] === sentence);
