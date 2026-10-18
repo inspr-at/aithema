@@ -133,6 +133,14 @@ browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
 browserTestWeights['test/browser/footer-width-sweep.test.js'] = Math.max(
   browserTestWeights['test/browser/footer-width-sweep.test.js'], 46);
 
+// AIT-301 round 3: PR #275 CI 39115517388, head bbd812c93d, shard 2/6.
+// All six geometry tests passed with AIT-309's complete four-fit matrix and
+// AIT-301's legal-present held states: 156.453579210s total top-level work.
+// ceil(total * 1.25) = 196s. Keep this provisional floor until trusted main
+// covers the combined workload; PR samples remain diagnostic only.
+browserTestWeights['test/browser/start2-display-geometry.test.js'] = Math.max(
+  browserTestWeights['test/browser/start2-display-geometry.test.js'], 196);
+
 // Six bins and the seven-minute file-work budget are capacity policy.
 export const browserShardCount = 6;
 export const browserShardBudget = 420;
