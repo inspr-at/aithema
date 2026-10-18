@@ -1314,7 +1314,7 @@ It carries no provider URL, secret, binding or raw prompt. Types live in
 the shared plugin contract. `isUIArtifact` checks shape and exact metadata keys;
 the async conformance kit additionally checks the content against those fields.
 
-`createOpenAIImages({binding, resolveSecret, fetchImpl, baseUrl})` comes from
+`createOpenAIImages({binding, resolveSecret, fetchImpl, baseUrl, spendCap})` comes from
 `@inspr/aithema-plugin-openai-images`. It requires an explicit private binding
 for `openai-images` with effort `none`. Direct mode (`gpt-image-2`) admits only
 `https://api.openai.com/v1`; OpenRouter mode (`openai/gpt-image-2`) admits only
@@ -1329,6 +1329,16 @@ endpoint must switch to the admitted OpenRouter mode or a loopback fixture.
 The server resolves `binding.secretRef` at runtime (the default resolver reads the named
 environment variable); the host owns account qualification and consent.
 Local health checks configuration without contacting a provider.
+The optional `spendCap` port is retained by `bind()` and applies to OpenRouter
+mode only. Share the same `createSpendCap` instance with reasoning to count both
+against one account cap. Each image generate/edit wire call reserves the admitted
+`binding.maxMicro` before dispatch, records generation/cost evidence, and settles
+reported `usage.cost` rounded upward to microUSD. Missing or invalid costs keep
+an uncertain hold; a fully received 4xx without usage releases it at zero, except
+408/499. Pre-dispatch failures release at zero. Exhaustion or a latched ceiling
+breach refuses with `not-admitted` before fetch. No image price is inferred.
+Omitting `spendCap` preserves existing behavior; direct mode keeps its existing
+token-based accounting even when the port is supplied.
 
 In direct mode, the adapter posts JSON to `/images/generations` without
 references. With references it posts private multipart `image[]` bytes to `/images/edits`, as
@@ -2975,10 +2985,15 @@ This host makes no EU residency, no-training or zero-retention claim. START's
 self-serve Agents path is US-based; copied privacy flags are not entitlement proof.
 
 `createSpendCap({storage, account, capMicro})`, exported by the server package,
-provides the port `{reserve(ceilingMicro) → handle, settle(handle, actualMicro),
-snapshot()}`. A second plugin can inject the same port, or share account
-`start2-openrouter` and the same database. `snapshot()` returns
-`{spentMicro, reservedMicro, capMicro, breached}`. Reservations and settlements
+provides the port `{reserve(ceilingMicro, {attemptId, provider}) → handle,
+dispatch(handle), record(handle, {generationId, chargedMicro}),
+settle(handle, actualMicro), uncertain(handle), snapshot()}`.
+Inject one instance as `spendCap` into both `createOpenRouterReasoning` and
+`createOpenAIImages` (OpenRouter mode) to share the account, such as
+`start-openrouter`, across reasoning and images. Image calls reserve the host's
+admitted `binding.maxMicro`; they do not infer prices. Separate instances can
+also share the same account and database. `snapshot()` returns
+`{spentMicro, reservedMicro, uncertainMicro, capMicro, breached}`. Reservations and settlements
 run under SQLite transactions. Every OpenRouter request sends the binding's
 `max_tokens` (default 1200 for reaction, 8000 for understanding),
 `provider.require_parameters: true`, and `provider.max_price` derived from the

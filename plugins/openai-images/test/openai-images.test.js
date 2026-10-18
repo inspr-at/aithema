@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { createOpenAIImages, manifest } from '../src/index.js';
 import { imageArtifact } from '../src/image-artifact.js';
 import { jumbf, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
-import { PluginError, PluginRegistry, validateManifest, isUIArtifact, uiGenerationConformance, IPTC_DIGITAL_SOURCE, imageInfo } from '@inspr/aithema-core';
+import { PluginError, PluginRegistry, validateManifest, isUIArtifact, uiGenerationConformance, IPTC_DIGITAL_SOURCE, imageInfo, usdCostMicro } from '@inspr/aithema-core';
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=', 'base64');
 const webp = Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64');
 const spec = { prompt: 'A calm dispatch workspace', format: 'webp' }, feedback = 'Make the action button blue';
@@ -390,4 +390,97 @@ test('AIT-306: exhausted image spend cap refuses with not-admitted and zero fetc
   const [result] = await Promise.allSettled([plugin.generate(spec, '', options())]);
   assert.equal(fetches, 0, 'exhausted cap must refuse before fetch');
   assert.equal(result.status, 'rejected'); assert.equal(result.reason.code, 'not-admitted');
+});
+
+const cappedBinding = () => ({ plugin: manifest.id, model: 'openai/gpt-image-2', effort: 'none', endpoint: 'https://openrouter.ai/api/v1',
+  accountRef: 'fixture-account', secretRef: 'fixture-secret-ref', maxMicro: 100, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } });
+function cappedFixture({ payload = { id: 'gen-image-receipt', data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.0000101 } },
+  status = 200, reserve, respond, binding = cappedBinding(), resolveSecret = () => 'local-fixture', spendCap: suppliedCap } = {}) {
+  const calls = [], requests = [], handle = Symbol('opaque image reservation');
+  const spendCap = suppliedCap ?? {
+    reserve(ceiling, metadata) { calls.push(['reserve', ceiling, metadata]); reserve?.(); return handle; },
+    dispatch(received) { assert.equal(received, handle); calls.push(['dispatch']); },
+    record(received, evidence) { assert.equal(received, handle); calls.push(['record', evidence]); },
+    settle(received, actual) { assert.equal(received, handle); calls.push(['settle', actual]); },
+    uncertain(received) { assert.equal(received, handle); calls.push(['uncertain']); },
+  };
+  const plugin = createOpenAIImages({ binding, spendCap, resolveSecret, fetchImpl: async (url, init) => {
+    requests.push({ url, ...init }); calls.push(['fetch']); return respond ? respond() : Response.json(payload, { status });
+  } });
+  return { plugin, calls, requests };
+}
+test('AIT-306: generate and edit reserve the admitted ceiling, record before settlement, and retain the port on bind', async () => {
+  const f = cappedFixture(), plugin = f.plugin.bind({ ...f.plugin.binding, maxMicro: 80 });
+  for (const operation of ['generate', 'edit']) {
+    f.calls.length = 0;
+    const o = options(), evidence = [];
+    o.attempt.dispatchCost = () => evidence.push('dispatch'); o.attempt.observeCost = receipt => evidence.push(receipt);
+    if (operation === 'generate') await plugin.generate(spec, '', o);
+    else await plugin.edit(artifact(), spec, feedback, o);
+    assert.deepEqual(f.calls, [['reserve', 80, { attemptId: o.attempt.attemptId, provider: 'openrouter' }], ['dispatch'], ['fetch'],
+      ['record', { generationId: 'gen-image-receipt', chargedMicro: 11 }], ['settle', 11]]);
+    assert.deepEqual(evidence, ['dispatch', { generationId: 'gen-image-receipt', chargedMicro: 11 }]);
+    assert.equal(o.reports[0].chargedMicro, 11); assert.equal(o.reports[0].generationId, 'gen-image-receipt');
+  }
+});
+test('AIT-306: missing and unparsable dispatched costs retain an uncertain ceiling, explicit zero settles', async () => {
+  for (const cost of [undefined, null, '0.001', -1, Infinity, 0]) {
+    const f = cappedFixture({ payload: { id: 'gen-unknown-cost', data: [{ b64_json: png.toString('base64') }], usage: { cost } } });
+    await f.plugin.generate(spec, '', options());
+    assert.deepEqual(f.calls.at(-1), cost === 0 ? ['settle', 0] : ['uncertain']);
+    assert.deepEqual(f.calls.at(-2), ['record', { generationId: 'gen-unknown-cost', ...(cost === 0 ? { chargedMicro: 0 } : {}) }]);
+  }
+});
+test('AIT-306: abort and deadline after reservation release without dispatch or fetch', async () => {
+  for (const mode of ['abort', 'deadline']) {
+    const controller = new AbortController(), o = options({ signal: controller.signal });
+    const f = cappedFixture({ reserve() { if (mode === 'abort') controller.abort(); else o.deadlineAt = Date.now() - 1; } });
+    await assert.rejects(f.plugin.generate(spec, '', o), { code: mode === 'abort' ? 'cancelled' : 'deadline' });
+    assert.deepEqual(f.calls, [['reserve', 100, { attemptId: o.attempt.attemptId, provider: 'openrouter' }], ['settle', 0]]);
+    assert.equal(f.requests.length, 0);
+  }
+});
+test('AIT-306: auth, invalid spec, pre-abort and expired deadline create no reservation', async () => {
+  for (const mode of ['auth', 'spec', 'abort', 'deadline']) {
+    const f = cappedFixture({ ...(mode === 'auth' ? { resolveSecret: () => '' } : {}) }), controller = new AbortController();
+    if (mode === 'abort') controller.abort();
+    await assert.rejects(f.plugin.generate(mode === 'spec' ? {} : spec, '', options({ signal: controller.signal,
+      deadlineAt: Date.now() + (mode === 'deadline' ? -1 : 2000) })),
+    { code: { auth: 'auth', spec: 'invalid-output', abort: 'cancelled', deadline: 'deadline' }[mode] });
+    assert.deepEqual(f.calls, []);
+  }
+});
+test('AIT-306: HTTP errors follow reasoning receipt and unbilled rejection rules', async () => {
+  for (const status of [400, 401, 403, 408, 422, 429, 499, 500, 503]) {
+    for (const usage of [undefined, { input_tokens: 1, output_tokens: 1 }, { cost: 0 }, { cost: 0.00002 }]) {
+      const f = cappedFixture({ status, payload: { error: { message: 'fixture rejection' }, ...(usage ? { usage } : {}) } });
+      await assert.rejects(f.plugin.generate(spec, '', options()), { code: [401, 403].includes(status) ? 'auth' : status === 429 ? 'rate-limit' : 'provider' });
+      const actual = usage?.cost !== undefined ? usdCostMicro(usage.cost) : !usage && status < 500 && ![408, 499].includes(status) ? 0 : null;
+      assert.deepEqual(f.calls.at(-1), actual === null ? ['uncertain'] : ['settle', actual], `status ${status}, usage ${JSON.stringify(usage)}`);
+    }
+  }
+  const plain = cappedFixture({ respond: () => new Response('rejected', { status: 400 }) });
+  await assert.rejects(plain.plugin.generate(spec, '', options()), { code: 'provider' });
+  assert.deepEqual(plain.calls.at(-1), ['settle', 0]);
+});
+test('AIT-306: interrupted rejection bodies and failed transports remain uncertain', async () => {
+  for (const respond of [() => { throw new Error('fixture network failure'); },
+    () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('{')); c.error(new Error('fixture truncated')); } }), { status: 400 })]) {
+    const f = cappedFixture({ respond });
+    await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'provider' });
+    assert.deepEqual(f.calls.at(-1), ['uncertain']);
+  }
+});
+test('AIT-306: charged invalid image output settles its receipt before reporting failure', async () => {
+  const f = cappedFixture({ payload: { id: 'gen-invalid-image', data: [], usage: { cost: 0.00002 } } });
+  await assert.rejects(f.plugin.generate(spec, '', options()), { code: 'invalid-output' });
+  assert.deepEqual(f.calls.slice(-2), [['record', { generationId: 'gen-invalid-image', chargedMicro: 20 }], ['settle', 20]]);
+});
+test('AIT-306: direct mode leaves the spend port unused and preserves token-based reports', async () => {
+  const f = cappedFixture({ binding: { ...cappedBinding(), model: 'gpt-image-2', endpoint: 'https://api.openai.com/v1' },
+    payload: { data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 11, output_tokens: 23, cost: 0.00001 } },
+    spendCap: { reserve() { assert.fail('direct mode must retain existing behavior'); } } });
+  const o = options(); await f.plugin.generate(spec, '', o);
+  assert.deepEqual(f.calls, [['fetch']]);
+  assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 11, outputTokens: 23 } }]);
 });
