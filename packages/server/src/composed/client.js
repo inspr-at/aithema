@@ -17,7 +17,7 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
   async function connect(grant, options = {}) {
     assertVoiceMediaGrant(grant, now());
     const events = voiceEvents(); let transport, recording, input = true, output = true, stopped = false,
-      playbackRevision = 0, holdRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0, speechActive = false, speechSilenceMs = 0, lastSpeechAt = 0, captureController, playbackBlocked = false, blockedFrame;
+      playbackRevision = 0, holdRevision = 0, hold = false, session, closing, pendingPlaybackBytes = 0, speechActive = false, speechSilenceMs = 0, lastSpeechAt = 0, captureController, playbackBlocked = false, blockedFrame, terminalEventSent = false;
     const owner = Symbol('composed-media'), pendingPlayback = new Set();
     const stopPlayback = (origin = 'interrupt') => {
       if (mediaOwner === owner) player.stop({ origin });
@@ -89,7 +89,8 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
           } else if (frame.type === 'event') {
             if (frame.event.type === 'waiting') { hold = true; holdRevision++; localStop(); lifecycle.wait(frame.event.reason); }
             else if (frame.event.type === 'ended') {
-              stop(); lifecycle.end(frame.event.reason); events.push(frame.event);
+              stop(); lifecycle.end(frame.event.reason);
+              if (!terminalEventSent) { terminalEventSent = true; events.push(frame.event); }
               await session.close({ reason: frame.event.reason }); return;
             }
             events.push(frame.event);
@@ -153,8 +154,10 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
         },
         async close(opts) {
           if (closing) return closing;
-          if (lifecycle.state.state !== 'ended') events.push({ type: 'ended', reason: opts?.reason ?? 'closed',
-            callId: grant.callId, providerSessionId: grant.providerSessionId });
+          if (!terminalEventSent) {
+            terminalEventSent = true; events.push({ type: 'ended', reason: opts?.reason ?? 'closed',
+              callId: grant.callId, providerSessionId: grant.providerSessionId });
+          }
           stop(); lifecycle.end(opts?.reason ?? 'closed'); options.holdSignal?.removeEventListener('abort', retainHold);
           options.signal?.removeEventListener('abort', cancel);
           if (mediaOwner === owner) { mediaOwner = undefined; stopOwner = undefined; }

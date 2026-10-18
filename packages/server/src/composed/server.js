@@ -18,7 +18,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     if (!enabled || !bound || bound.owner !== owner) return false;
     try {
       await storage.authorize(bound.sessionId, owner);
-      const allowed = await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId },
+      const allowed = await authorize({ sessionId: bound.sessionId, callId: grant.callId, providerSessionId: grant.providerSessionId, connectingRelay: true },
         { deadlineAt: now() + 5000 });
       await storage.authorize(bound.sessionId, owner); return allowed === true;
     } catch { return false; }

@@ -327,7 +327,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const session = sessionFor(entry);
       // A trusted explicit Resume may establish its replacement transport while
       // the durable pause remains held. Input/reasoning still wait for Resume ack.
-      const resuming = !entry.call && entry.explicitCompositionResume === true;
+      const resuming = entry.explicitCompositionResume === true && (!entry.call || request.connectingRelay === true);
       await runtime.checkVoice(session, { ...options, existingCall: true, allowPaused: resuming });
       const fresh = sessionFor(entry);
       return !entry.closing && (!fresh.paused || resuming) && !fresh.consentWithdrawn &&
