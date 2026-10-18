@@ -92,14 +92,14 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 41);
 
-// AIT-348: physical Grok media plus the light/DE lifecycle/composer matrix.
-// mbp2606 committed-head run 0491ecdb8f-42210: 3.959652083s, 2/2 PASS.
-// PR #312 CI 39164323171, shard 1/7: complete file 2/2 PASS, top-level work
-// 1.132739243s + 3.052219941s = 4.184959184s; ceil(*1.25) = 6s. That run
-// was superseded after this file completed. Keep this diagnostic floor outside
-// trusted rolling-main history; no shard count, ceiling or check-name change.
+// AIT-350: complete physical media/lifecycle/Settings file on mbp2606,
+// committed-head run acce029110-91876: 2.060126125s + 1.811317792s +
+// 5.065053709s = 8.936497626s, 3/3 PASS; ceil(*1.25) = 12s.
+// Includes all DE 1440/390 and EN 1440 viewport captures. Keep this diagnostic
+// floor outside trusted rolling-main history; replace from successful PR CI.
+// No shard count, ceiling, check-name or existing weight is reduced.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 6);
+  browserTestWeights['test/browser/composed-media.test.js'], 12);
 
 // AIT-312: seven bins restore headroom beneath the unchanged hard ceiling.
 export const browserShardCount = 7;
