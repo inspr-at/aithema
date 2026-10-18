@@ -126,6 +126,32 @@ for (const refusal of ['pause', 'withdrawal', 'cancel', 'deadline']) test(`AIT-3
   assert.deepEqual(h.roles, ['tts']);
 });
 
+test('AIT-348 round 2: concurrent in-flight duplicates share hand-off and an accepted id survives a later hold', async t => {
+  const entered = Promise.withResolvers(), handoff = Promise.withResolvers(), finish = Promise.withResolvers();
+  let executions = 0;
+  const h = fixture(t, { replyExecutor: { async *execute() {
+    executions++; entered.resolve(); await handoff.promise;
+    yield { type: 'operation', replyId: 'delayed-reply' };
+    await finish.promise;
+    yield { type: 'delta', text: 'Late reply.' };
+    yield { type: 'completion', replyId: 'delayed-reply', text: 'Late reply.' };
+  } } });
+  t.after(() => { handoff.resolve(); finish.resolve(); });
+  const id = receipt('held-success'), pending = h.coordinator.sendText('Ja', id);
+  await entered.promise;
+  const duplicate = h.coordinator.sendText('Ja', id);
+  handoff.resolve();
+  const [first, second] = await Promise.all([pending, duplicate]);
+  assert.deepEqual(second, first); assert.equal(first.acknowledged, true);
+  await h.coordinator.pause(); await h.coordinator.resume();
+  finish.resolve(); await h.coordinator.idle();
+  assert.deepEqual(await h.coordinator.sendText('Ja', id), first);
+  assert.equal(executions, 1);
+  assert.deepEqual(h.roles, []);
+  assert.equal(h.events.filter(event => event.type === 'final' && event.role === 'assistant').length, 0,
+    'a hold still fences late publication after the receipt has succeeded');
+});
+
 function mediaFixture(t, { command, capture, player, recover } = {}) {
   const until = Date.now() + 60_000;
   const relay = createComposedRelay({ callId: 'call', providerSessionId: 'generation', epoch: 2, expiresAt: until });

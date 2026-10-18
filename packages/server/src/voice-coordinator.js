@@ -205,20 +205,22 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     // Reserve ingress order now, before any further await or competing PCM authorization.
     const pending = inputFlight.catch(() => {}).then(async () => {
       await permitted(bounded);
-      const turn = { id: `${providerSessionId}-${++sequence}`, sequence, beforeCommit: commitTail, playbackRevision };
-      const committed = Promise.withResolvers(); commitTail = committed.promise;
       // Bound admission through executor hand-off, without making PCM ingress
       // wait for a prior spoken turn to finish or extending the caller deadline.
-      const handoff = voiceOperation(bounded, async ({ signal }) => {
-        const admitted = Promise.withResolvers();
+      const handoff = voiceOperation(bounded, async ({ signal: admissionSignal }) => {
+        const turn = { id: `${providerSessionId}-${++sequence}`, sequence, beforeCommit: commitTail, playbackRevision };
+        const committed = Promise.withResolvers(); commitTail = committed.promise;
+        // The admission scope is disposed at hand-off; retain the call/hold
+        // signal independently for the remainder of reply playback.
+        const turnSignal = AbortSignal.any([signal, admissionSignal]), admitted = Promise.withResolvers();
         const delivery = { accepted: false, accept() {
           delivery.accepted = true;
           admitted.resolve({ acknowledged: true, turnId: turn.id });
         } };
-        const job = acceptTurn(turn, text, signal, committed, delivery);
+        const job = acceptTurn(turn, text, turnSignal, committed, delivery);
         track(jobs, job.catch(error => {
           admitted.reject(error);
-          if (delivery.accepted || !['not-admitted', 'cancelled', 'deadline'].includes(error?.code)) failTurn(error, signal);
+          if (delivery.accepted || !['not-admitted', 'cancelled', 'deadline'].includes(error?.code)) failTurn(error, turnSignal);
         }).finally(committed.resolve));
         return admitted.promise;
       });
