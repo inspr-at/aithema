@@ -25,7 +25,26 @@ const settle = page => shadow(page, async c => {
   for (const root of [document, c.shadowRoot]) for (const animation of root.getAnimations()) {
     if (animation.effect?.getTiming().iterations !== Infinity) await animation.finished.catch(() => {});
   }
-  await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+  // host-ready precedes the initial credits receipt. Fonts and two frames alone
+  // can still leave the loading ellipsis in the width reserved by host-credits.
+  const root = c.shadowRoot, footer = root.querySelector('.display-foot');
+  const deadline = performance.now() + 10_000;
+  let previous, stableFrames = 0;
+  while (true) {
+    await new Promise(requestAnimationFrame);
+    const credits = root.querySelector('.host-credits__amount').getAttribute('data-credit-measure');
+    const geometry = JSON.stringify([footer.dataset.fit,
+      ...[footer, ...root.querySelectorAll('.display-foot__row, .display-foot__row > *, .footer-right > *'),
+        ...c.querySelectorAll('#demo-legal a')].map(node => {
+        const b = node.getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+      })]);
+    const ready = document.fonts.status === 'loaded' && footer.dataset.fit && credits && credits !== '…';
+    stableFrames = ready && geometry === previous ? stableFrames + 1 : 0;
+    if (stableFrames >= 2) return;
+    if (performance.now() > deadline) throw new Error(`Footer did not become ready: ${JSON.stringify({
+      fonts: document.fonts.status, fit: footer.dataset.fit, credits, geometry })}`);
+    previous = geometry;
+  }
 });
 const measure = page => shadow(page, c => {
   const root = c.shadowRoot, links = [...c.querySelectorAll('#demo-legal a')];
@@ -39,6 +58,11 @@ const measure = page => shadow(page, c => {
   const row = box(root.querySelector('.display-foot__row')), footer = box(root.querySelector('.display-foot'));
   const flagBounds = box(root.querySelector('.engine__flag'));
   return {
+    readiness: { at: performance.now(), fonts: document.fonts.status, fit: root.querySelector('.display-foot').dataset.fit,
+      credits: root.querySelector('.host-credits__value').textContent,
+      creditMeasure: root.querySelector('.host-credits__amount').getAttribute('data-credit-measure'),
+      creditFont: getComputedStyle(root.querySelector('.host-credits')).font,
+      creditWidth: box(root.querySelector('.host-credits')).width },
     flagBounds,
     flagLegalGap: box(links[0]).x - (flagBounds.x + flagBounds.width),
     fixed: ['.display-foot', '.display-foot__row', '.footer-info', '.host-credits', '.footer-right', '.host-legal', '.engine__flag', '.status__dot'].map(s => box(root.querySelector(s))),
@@ -86,6 +110,16 @@ export async function demoLegalPhoneCheck(t) {
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.evaluateOnNewDocument(() => localStorage.setItem('aithema-demo-locale', 'de'));
   await page.setViewport({ width: 390, height: 844 });
+  // Hold the initial local receipt to prove readiness waits for data, even
+  // after fonts/animations/frames settle. No wall-clock delay or provider call.
+  let releaseCredits;
+  const creditsGate = new Promise(resolve => { releaseCredits = resolve; });
+  const isCredits = request => /\/api\/sessions\/[^/]+\/credits$/u.test(new URL(request.url()).pathname);
+  const initialCredits = page.waitForRequest(isCredits);
+  await page.setRequestInterception(true);
+  const intercept = request => { void (isCredits(request) ? creditsGate.then(() => request.continue()) : request.continue()); };
+  page.on('request', intercept);
+  t.after(() => releaseCredits());
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.documentElement.hasAttribute('data-host-ready'));
   await shadow(page, c => {
@@ -93,7 +127,20 @@ export async function demoLegalPhoneCheck(t) {
     c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
     c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
   });
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, pass = [], shots = [], checks = [];
+  await initialCredits;
+  let ready = false;
+  const readiness = settle(page).then(() => { ready = true; });
+  try {
+    await shadow(page, async () => {
+      await document.fonts.ready;
+      for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+    });
+    t.diagnostic(`AIT-355 held receipt: ${JSON.stringify((await measure(page)).readiness)}`);
+    assert.equal(ready, false, 'AIT-355: footer readiness waits for the initial credits receipt');
+  } finally { releaseCredits(); }
+  await readiness;
+  await page.setRequestInterception(false); page.off('request', intercept);
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, pass = [], shots = [], checks = [], samples = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const capture = async (width, theme, locale) => {
     const file = `ait304-${width}-${theme}-${locale}-footer.png`;
@@ -153,6 +200,9 @@ export async function demoLegalPhoneCheck(t) {
         await page.select('#theme', theme === 'light' ? 'dark' : 'light');
         await page.focus(i === 0 ? '#demo-license' : '#demo-legal-source'); await settle(page);
         const held = await measure(page);
+        const sample = { label, link: i, baseline: state.readiness, held: held.readiness };
+        samples.push(sample);
+        if (width === 390 && theme === 'light' && locale === 'de') t.diagnostic(`AIT-355 samples: ${JSON.stringify(sample)}`);
         assert.deepEqual(held.fixed, state.fixed, `${label}: module footer movement exactly 0px under resting pointer`);
         assert.deepEqual(held.links.map(a => a.bounds), state.links.map(a => a.bounds), `${label}: legal movement exactly 0px under resting pointer`);
         assert.equal(held.links[i].unobscured, true);
@@ -163,5 +213,5 @@ export async function demoLegalPhoneCheck(t) {
     }
   }
   assert.deepEqual(errors, []);
-  if (evidence) await writeFile(join(evidence, 'ait304-checks.json'), JSON.stringify({ head, base: 'beb35ba2', fonts: 'Chrome baseline UI/display stacks pinned', pass, checks, shots, errors }, null, 2) + '\n');
+  if (evidence) await writeFile(join(evidence, 'ait304-checks.json'), JSON.stringify({ head, base: 'beb35ba2', fonts: 'Chrome baseline UI/display stacks pinned', pass, checks, samples, shots, errors }, null, 2) + '\n');
 }
