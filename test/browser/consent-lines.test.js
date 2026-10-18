@@ -1150,7 +1150,19 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
     assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
-    t.diagnostic(JSON.stringify({ locale, width, state }));
+    t.diagnostic(JSON.stringify({ locale, width, state, textMetrics: await shadow(page, c => {
+      const n = c.shadowRoot.querySelector('.save-status'), css = getComputedStyle(n), ctx = document.createElement('canvas').getContext('2d');
+      const available = n.getBoundingClientRect().width, indent = parseFloat(css.textIndent);
+      return { font: css.font, available, indent, candidates: [11.52, 10.88, 10.56, 10.24, 10].map(size => {
+        ctx.font = `${size}px ${css.fontFamily}`;
+        let row = '', lines = 1;
+        for (const word of n.textContent.split(' ')) {
+          const next = row ? `${row} ${word}` : word;
+          if (ctx.measureText(next).width > available - (lines === 1 ? indent : 0)) { lines++; row = word; } else row = next;
+        }
+        return { size, width: ctx.measureText(n.textContent).width, lines };
+      }) };
+    }) }));
     if (locale === 'de' && width === 320) assert.equal(state.lines, 2, 'binding 320 DE two-line notice');
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
