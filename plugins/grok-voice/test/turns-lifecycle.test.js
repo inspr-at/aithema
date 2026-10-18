@@ -119,3 +119,54 @@ test('AIT-348: recovery is bounded to three attempts; a hidden-page hold never r
   hidden.abort(); for (let i = 0; i < 4; i++) await tick();
   assert.equal(captures, 1); assert.deepEqual(session.audioLevels(), { input: 0, output: 0 });
 });
+
+for (const name of ['NotAllowedError', 'NotFoundError']) test(`AIT-348: microphone ${name} keeps its existing rail failure identity`, async t => {
+  const h = mediaFixture(t, { capture: async () => { throw new DOMException('fixture microphone failure', name); } });
+  await assert.rejects(h.media.connect(h.relay.grant), { name });
+});
+
+test('AIT-348: failed durable pause acknowledgement retains silence', async t => {
+  const h = mediaFixture(t, { command: { pause: async () => ({ acknowledged: false, paused: true }) } });
+  const session = await h.media.connect(h.relay.grant); t.after(() => session.close());
+  await assert.rejects(session.pause(), { code: 'invalid-output' });
+  assert.deepEqual(session.audioLevels(), { input: 0, output: 0 });
+});
+
+for (const code of ['auth', 'deadline', 'rate-limit']) test(`AIT-348: relay ${code} retains existing lifecycle failure policy`, async t => {
+  let recoveries = 0; const events = [], until = Date.now() + 60_000;
+  const media = createComposedBrowserMedia({ capture: async () => ({ stop() {} }), player: { stop() {}, play() {} },
+    control: { recover() { recoveries++; throw new Error('offline'); } },
+    openRelay: async () => ({ command: async () => {}, disconnect() {}, frames: { async *[Symbol.asyncIterator]() {
+      await tick(); throw Object.assign(new Error('fixture transport'), { code });
+    } } }) });
+  const session = await media.connect({ callId: 'call', providerSessionId: 'generation', expiresAt: until, opaque: { epoch: 1 } });
+  t.after(() => session.close());
+  void (async () => { for await (const event of session.events) events.push(event); })();
+  for (let i = 0; i < 12; i++) await tick();
+  if (code === 'rate-limit') {
+    assert.equal(recoveries, 3); assert.ok(events.some(x => x.type === 'waiting' && x.reason === 'recovery-failed'));
+  } else {
+    assert.equal(recoveries, 0);
+    assert.ok(events.some(x => x.type === 'ended' && x.reason === (code === 'auth' ? 'call-authorization-lost' : 'spend-deadline')));
+  }
+});
+
+test('AIT-348: output meter samples the playback graph and stops at physical silence', async () => {
+  const { createPCMPlayer } = await import('@inspr/aithema-server/composed-voice/browser-audio');
+  let sampled = 0, value = 0.3, destination;
+  const analyser = { connect() {}, disconnect() {}, getFloatTimeDomainData(data) { sampled++; data.fill(value); } };
+  class Context {
+    currentTime = 0; state = 'running'; destination = {};
+    createAnalyser() { return analyser; }
+    createBuffer(_channels, length) { return { getChannelData: () => new Float32Array(length) }; }
+    createBufferSource() { return { connect(node) { destination = node; }, disconnect() {}, start() {}, stop() {} }; }
+    resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
+  }
+  const player = createPCMPlayer({ AudioContext: Context });
+  const playing = player.play(new Uint8Array(48000), { format: 'pcm_s16le', sampleRateHz: 24000, channels: 1 });
+  try {
+    assert.equal(destination, analyser); assert.ok(Math.abs(player.audioLevel() - 0.3) < 0.00001);
+    value = 0; assert.equal(player.audioLevel(), 0); assert.equal(sampled, 2);
+    player.stop(); await playing; assert.equal(player.audioLevel(), 0);
+  } finally { await player.close(); }
+});
