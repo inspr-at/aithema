@@ -1288,8 +1288,8 @@ for (const copy of [de, en]) test(`AIT-310: ${copy.display.locale} credit owners
     let full = sample.full;
     if (source !== 'end') {
       rail.usedUp = () => false; rail.endReason = () => null;
-      rail.feature = () => ({ available: false, rawReason: 'host-limit', reason: copy.reasons['host-limit'] });
-      full = source === 'admission' ? copy.voiceStates.usedUp : copy.reasons['host-limit'];
+      rail.feature = () => ({ available: false, rawReason: 'host-limit', reason: copy.voiceStates.usedUp });
+      full = copy.voiceStates.usedUp;
       if (source === 'admission') rail.failure({ code: 'not-admitted', reason: 'host-limit' });
     }
     rail.render();
