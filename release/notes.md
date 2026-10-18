@@ -1,74 +1,66 @@
 # Aithema 2026.10
 
-Version **261018142833.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261018162546.0.0**. Licensed under **AGPL-3.0-only**.
 
-Fifth October release: withdrawn consent stays withdrawn, and HTML drafts can think deeper.
+Sixth October release: interrupted HTML drafts keep their spending hold, and the groundwork for a second voice provider.
 
 ## What START and visitors notice
 
-- **Withdrawn consent stays withdrawn (AIT-321):** an old tab or an open
-  editor cannot restore consent the visitor withdrew. The editor explains
-  when a choice is out of date and loads the current state for a fresh decision.
-- **Deeper HTML drafts (AIT-324):** hosts can use Claude Opus with deeper
-  reasoning for HTML drafts, within the spending cap.
-- **Legal links on phones (AIT-304):** the demo's shorter legal labels fit
-  on small screens.
+- **Timeouts keep the spending hold (AIT-340):** when a provider times out,
+  an HTML draft keeps its reserved budget until the charge is known, so two
+  drafts cannot use the same room and exceed the cap.
+- **A clearer save note (AIT-327):** on wide screens, the consent editor's
+  save note uses the full width and stays on one clear line.
+- **Voice groundwork (AIT-323/328):** component declarations and an offline
+  setup check prepare for a second voice provider; a second live pipeline
+  remains unproven.
+- **Regression coverage (AIT-343, PR #300):** tests now cover HTML previews under strict host security rules; this adds no runtime change.
 
 ## For hosts
 
-- **Consent revisions (AIT-321):** consent documents include `consentRevision`.
-  Send it as the expected `processing.revision` on every decision, including
-  withdrawal. An already stale decision returns HTTP 409 `consent-stale`
-  without consent side effects; reload the document and require a new visitor
-  action. Withdrawals bypass pending host ports, and the server's atomic
-  revision check prevents a late grant from restoring withdrawn consent.
-  `consent.grant({ sessionId, consentRevision, decision, scopes })` receives
-  the expected revision in `decision.revision`; the outer `consentRevision`
-  is the next revision being granted. Shared host ledgers must enforce that
-  expected revision atomically too. Decisions without a revision remain
-  compatible but are deprecated and lack stale-tab protection. Settings confirms
-  successful choices by revision and exact items, allowing versioned contracts;
-  older backends retain contract-and-items confirmation.
-- **Claude HTML reasoning (AIT-324):** set `binding.effort` to a value supported
-  by the selected model: `none`, `low`, `medium`, `high`, `xhigh` or `max`,
-  including Opus 5.5 `high`. `none` preserves the existing request bytes.
-  `binding.maxTokens` is sent unchanged as `max_tokens` and covers reasoning
-  plus visible output together. The reservation includes the input-byte ceiling
-  and the full token allowance at the output rate; the adapter never increases
-  the limit for deeper reasoning. Pass the shared `createSpendCap` through
-  `spend`; insufficient room refuses with `not-admitted` before dispatch.
-  Reported `usage.cost` settles the charge; missing cost after dispatch retains
-  the reservation as uncertain spend.
-- **STT/TTS component API (AIT-316):** implement speech-to-text and
-  text-to-speech through `@inspr/aithema-core/voice-components`, also exported
-  from core. The supported contract covers format negotiation, capability
-  declarations, bounded streams, cancellation and separate claim accounting.
-  Each request, retry or speech fragment needs a fresh admitted claim;
-  uncertain costs retain at least its admitted maximum. Aligned speech only
-  establishes a heard prefix after trusted playback confirms the bytes.
-  Installed ElevenLabs live voice is unchanged; provider prototypes remain
-  source-only.
-- **Typing note (AIT-316):** the public `plugin-contract` types re-export the
-  stricter component shapes. STT/TTS `capabilities`,
-  `ComponentOperationOptions.attempt.maxMicro`, and `chargedMicro` on an
-  uncertain `ComponentTerminal` are now required. Code typed against the old
-  shapes stops compiling until those fields are supplied. This is a source
-  typing change; it does not change the existing installed voice runtime.
-- **Offline voice checks (AIT-319):** run `sttConformance` and `ttsConformance`
-  from `@inspr/aithema-core` against local provider fixtures. They check fresh
-  claims, terminal accounting, cancellation, bounds and playback-confirmed
-  aligned prefixes. Passing them does not qualify live billing or latency.
-- **Visitor tiers and erasure (AIT-320/322):** the embedding guide now shows
-  a host-owned integration using public ports for revisioned tier settings,
-  trusted administrator identity, atomic audit and shared owner admission.
-  The host must delete a session's admission holds on erasure or retirement;
-  visitor deletion must atomically remove that visitor's tier and all their
-  active or released holds across conversations. Session retirement alone
-  retains the visitor tier, and expiry alone does not erase host tier data.
-  Wire the host cleanup hooks and retirement sweep; direct storage erasure
-  does not invoke them. Global settings and administrator audit remain, but
-  retained visitor audit counts must contain no identifying data.
-- **Maintenance (AIT-314/318):** refreshed CI timing floors and clearer release status.
+- **Claude HTML settlement (AIT-340):** HTTP 408/499 without a cost receipt,
+  and any 4xx response carrying usage but no cost, retain the dispatched
+  reservation until a receipt resolves it, as reasoning and images do. A
+  reported `usage.cost` settles the charge. Other fully received 4xx responses
+  without usage still release the hold as unbilled; incomplete responses and
+  5xx without a receipt retain it.
+- **Image audit records (AIT-326):** the OpenRouter image adapter validates
+  `X-Generation-Id` and records it on the invocation and spend reservation.
+  A valid header takes precedence over the JSON `id` fallback. Header presence
+  on `/images` is inferred from the provider documentation and has not been
+  live-verified. Missing or invalid IDs do not affect admission or settlement;
+  local attempt and reservation IDs remain available.
+- **Component declarations (AIT-323):** ElevenLabs and Voxtral STT/TTS helpers
+  declare streaming and languages, STT partial transcripts, and TTS heard-prefix
+  support (`unavailable`). The helpers pass the offline conformance kits;
+  admitted TTS tariff refusals now settle their claims before dispatch.
+  These helper prototypes remain source-only and do not qualify live service.
+- **Composition preflight (AIT-328):** import `preflightVoiceComposition` and
+  `VoiceCompositionError` from `@inspr/aithema-core/voice-components` (also
+  exported from core). Supply STT/TTS components, actual capture/playback
+  formats, requested languages, a saved voice and optional capabilities.
+  The promise returns checked formats, voice and effective capabilities. The
+  check requires a shared requested language, validates offline voice policy,
+  negotiates the exact runtime formats and refuses capabilities above the
+  component ceiling. It consumes no claims, resolves no credentials and opens
+  no transports. Negotiation has a one-second default deadline; callers may
+  supply cancellation and an absolute deadline.
+  Errors use `composition-stt-invalid`, `composition-tts-invalid`,
+  `composition-capture-format`, `composition-playback-format`,
+  `composition-languages-invalid`, `composition-languages-empty`,
+  `composition-voice-invalid` or `composition-capabilities-exceeded`;
+  cancellation and deadlines retain `cancelled` and `deadline`.
+  The opt-in source-only composed-voice factory exposes a `preflight` promise;
+  authorization, guarded operations and start await it before dispatch or
+  parent admission. The installed live-voice factory stays unchanged.
+
+## Breaking for hosts
+
+**More conservative HTML timeout settlement (AIT-340):** hosts that relied on
+HTTP 408/499 releasing an HTML draft's reservation can no longer reuse that
+budget immediately. Keep the uncertain hold until a cost receipt resolves it;
+allow for a later draft to be refused while the hold remains. This changes
+runtime budget availability to protect the shared cap; no API signature changes.
 
 ## What is included
 
@@ -92,10 +84,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261018142833.0.0` into a clean directory:
+Download the assets for `v261018162546.0.0` into a clean directory:
 
 ```sh
-gh release download v261018142833.0.0 --repo inspr-at/aithema
+gh release download v261018162546.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -118,7 +110,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261018142833.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261018162546.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -148,6 +140,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261018142833.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261018162546.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.

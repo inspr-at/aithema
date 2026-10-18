@@ -2,9 +2,9 @@
   "schema": "aithema-version/1",
   "status": "reserved",
   "version_scheme": "inspr-calver-3",
-  "version": "261018142833.0.0",
+  "version": "261018162546.0.0",
   "release_channel": "stable",
-  "release_sequence": 16,
+  "release_sequence": 17,
   "migration": {
     "ticket": "AIT-32",
     "target_scheme": "inspr-calver-3",
@@ -15,5 +15,5 @@
     "first_calendar_sequence": 12
   },
   "dry_run_version": "261014000000.0.0",
-  "reservation_purpose": "AIT-325 fifth October candidate preparation; AEON-LEAD 2026-10-18 ~15:45 Europe/Vienna authorizes preparation once AIT-321 and AIT-322 are merged, on the AIT-315 route: candidate, coordinator release gate, then one Desk question for Markus; prepare only; OPS publishes only on Markus's separate Desk go; no tag, tag push, GitHub release or publication authorization"
+  "reservation_purpose": "AIT-356 sixth October candidate preparation; AEON-LEAD 2026-10-18 ~18:15 Europe/Vienna option (b) authorizes cutting now for the merged value and to exercise the publish route, following AIT-325: candidate, coordinator release gate, then one Desk question for Markus; prepare only; OPS publishes only on Markus's Desk go; no tag, tag push, GitHub release or publication authorization"
 }
