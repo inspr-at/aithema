@@ -1227,10 +1227,12 @@ test('AIT-321 round 3: failed autosave yields Retry and its padding to consent a
   page.failSettingsSave = true;
   await shadow(page, c => c.shadowRoot.querySelector('.settings-open').click());
   t.diagnostic('round 3: Settings opened');
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-select="model"] [data-value="mock/deep"]'));
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('[data-select="model"] [role=option]').length > 1);
   await shadow(page, c => {
     const r = c.shadowRoot; r.querySelector('[data-select="model"] .select__button').click();
-    r.querySelector('[data-select="model"] [data-value="mock/deep"]').click();
+    const option = r.querySelector('[data-select="model"] [role=option][aria-selected="false"]:not([aria-disabled="true"])');
+    if (!option) throw new Error('Fixture needs an offered alternative model');
+    option.click();
   });
   t.diagnostic('round 3: model changed');
   await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').dataset.saveState === 'failed');
