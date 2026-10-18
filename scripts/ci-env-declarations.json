@@ -112,9 +112,11 @@
   },
   "test/browser/start-look.test.js": {
     "reads": [
-      "CI"
+      "CI",
+      "GITHUB_EVENT_PATH",
+      "GITHUB_EVENT_PATH"
     ],
-    "reason": "Linux headless Chrome sandbox selection"
+    "reason": "Linux headless Chrome sandbox selection; evidence binds PR branch head from the GitHub event payload"
   },
   "test/browser/start2-display-helpers.js": {
     "reads": [
