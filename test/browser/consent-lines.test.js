@@ -1141,15 +1141,17 @@ test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/
       const r = c.shadowRoot, status = r.querySelector('.save-status'), form = r.querySelector('.consent-editor'), button = r.querySelector('.done');
       const range = document.createRange(); range.selectNodeContents(status);
       const lines = new Set([...range.getClientRects()].map(rect => rect.y));
-      const css = getComputedStyle(status), info = r.querySelector('.save-info');
+      const css = getComputedStyle(status), info = r.querySelector('.save-info'), infoBox = info.querySelector('svg').getBoundingClientRect();
       return { notices: [...r.querySelectorAll('[role=status]')].filter(n => n.textContent === text).length,
         live: status.getAttribute('aria-live'), busy: form.getAttribute('aria-busy'), inert: r.querySelector('.consent-items').inert,
         focus: r.activeElement === button, selected: r.querySelector('.consent-items input').checked,
         disabled: button.getAttribute('aria-disabled'), info: info.checkVisibility(), ink2: css.color === getComputedStyle(info).color,
+        iconOverlap: [...range.getClientRects()].some(rect => rect.left < infoBox.right && rect.right > infoBox.left && rect.top < infoBox.bottom && rect.bottom > infoBox.top),
         lines: lines.size, fits: status.scrollHeight <= status.clientHeight, dialogOpen: r.querySelector('dialog.settings').open };
     }, notice[locale]);
     assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
     assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
+    assert.equal(state.iconOverlap, false);
     assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
     assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
     assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');
