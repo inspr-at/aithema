@@ -24,10 +24,14 @@ function transcript(event, config) {
   if (event.text.length > config.maxTranscriptCharacters) throw new PluginError('limit');
   return event.text;
 }
+function stitch(parts) {
+  return parts.reduce((text, part) => text + (text && part && !/\s$/u.test(text) && !/^[\s.,!?;:…)}\]]/u.test(part) ? ' ' : '') + part, '');
+}
 function usage(event, invocation, config, batch) {
   if (!Number.isFinite(event.duration) || event.duration < 0) throw new PluginError('invalid-output', 'Provider duration required');
-  invocation.usage(event.duration, cost(event.duration, batch ? config.restMicroPerHour : config.streamingMicroPerHour),
-    `xai-provider-duration:configured-${batch ? 'rest' : 'streaming'}-usd-per-hour:${EVIDENCE_DATE}`, true);
+  const rate = batch ? config.restMicroPerHour : config.streamingMicroPerHour;
+  invocation.usage(event.duration, cost(event.duration, rate),
+    `xai-provider-duration:usd-micro-per-hour:${rate}:ceil-per-attempt:${EVIDENCE_DATE}`, true);
 }
 function audioChunk(chunk, config) {
   if (!(chunk instanceof Uint8Array) || !chunk.byteLength || chunk.byteLength % 2) throw new PluginError('invalid-output');
@@ -86,11 +90,12 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
       const url = new URL('/v1/stt', config.endpoint); url.protocol = 'wss:';
       url.search = new URLSearchParams({ model: config.model, sample_rate: String(STT_FORMAT.sampleRateHz), encoding: 'pcm',
         channels: '1', interim_results: 'true', endpointing: String(config.endpointingMs), language }).toString();
-      invocation.dispatch();
+      validateGrokConfiguration(config); invocation.dispatch();
       try { socket = await openSocket(connect, { url: url.href, headers: auth, signal: opts.signal }, opts); }
       catch (error) { if (error?.usage == null) invocation.rejectWithoutUsage(error?.status); if (error?.status) throw failure(error.status); throw error; }
+      if (typeof socket?.close === 'function') stop = closer(socket);
       if (typeof socket?.send !== 'function' || typeof socket.close !== 'function' || !socket.events?.[Symbol.asyncIterator]) throw new PluginError('invalid-output');
-      stop = closer(socket); opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
+      opts.signal.addEventListener('abort', stop, { once: true }); opts.signal.throwIfAborted();
       for await (const wire of boundedEvents(socket.events, opts)) {
         if (++count > config.maxEvents) throw new PluginError('limit');
         const event = decode(wire, config);
@@ -121,11 +126,11 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
           if (event.speech_final) {
             // Utterance-final text already stitches the locked chunks. It is still
             // only a hypothesis for Aithema until its own queue has endpointed.
-            hypothesis = prefix + text; prefix = hypothesis; locked = new Map();
+            hypothesis = stitch([prefix, text]); prefix = hypothesis; locked = new Map();
             utteranceStart = event.start + event.duration;
           } else {
-            const preceding = [...locked].filter(([start]) => start < event.start).sort(([a], [b]) => a - b).map(([, value]) => value).join('');
-            hypothesis = prefix + preceding + text;
+            const preceding = [...locked].filter(([start]) => start < event.start).sort(([a], [b]) => a - b).map(([, value]) => value);
+            hypothesis = stitch([prefix, ...preceding, text]);
             if (event.is_final) locked.set(event.start, text);
           }
           if (hypothesis.length > config.maxTranscriptCharacters || locked.size > config.maxEvents) throw new PluginError('limit');
@@ -149,7 +154,7 @@ export function createGrokSTT({ enabled = false, config: raw, resolveSecret, con
     }
   };
   return Object.freeze({ ...metadata(config, true), stream,
-    health: async () => ({ available: enabled && typeof connect === 'function', reason: 'not yet qualified in live use' }),
+    health: async () => ({ available: enabled && typeof resolveSecret === 'function' && typeof connect === 'function', reason: 'not yet qualified in live use' }),
     async transcribe(request, options) {
       let text;
       for await (const event of stream({ ...request, audio: (async function* () { yield request.audio; })() }, options)) if (event.final) text = event.text;
@@ -164,7 +169,7 @@ export const createGrokStreamingSTT = createGrokSTT;
 export function createGrokBatchSTT({ enabled = false, config: raw, resolveSecret, fetchImpl } = {}) {
   const config = validateGrokConfiguration(raw);
   return Object.freeze({ ...metadata(config, false),
-    health: async () => ({ available: enabled && typeof fetchImpl === 'function', reason: 'not yet qualified in live use' }),
+    health: async () => ({ available: enabled && typeof resolveSecret === 'function' && typeof fetchImpl === 'function', reason: 'not yet qualified in live use' }),
     async transcribe(request, options) {
       if (!enabled || typeof fetchImpl !== 'function') throw new PluginError('unavailable');
       const language = languageFor(request, config);
@@ -177,7 +182,7 @@ export function createGrokBatchSTT({ enabled = false, config: raw, resolveSecret
         const body = new FormData();
         body.append('model', config.model); body.append('audio_format', 'pcm'); body.append('sample_rate', '16000'); body.append('language', language);
         body.append('file', new Blob([request.audio], { type: 'application/octet-stream' }), 'speech.pcm'); // file last
-        invocation.dispatch();
+        validateGrokConfiguration(config); invocation.dispatch();
         let accepted = false;
         const pending = Promise.resolve().then(() => fetchImpl(`${config.endpoint}/v1/stt`, {
           method: 'POST', redirect: 'error', headers: auth, signal: opts.signal, body }));
