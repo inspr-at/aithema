@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startChild } from '../helpers.js';
 import { browserForFile } from './shared-browser.js';
 import { evidenceBrowserArgs, evidenceCommit, settleEvidenceFrame, shadow } from './start2-display-helpers.js';
 import { measureFooterGeometry, assertFits } from './footer-geometry.js';
-import { readFile } from 'node:fs/promises';
 
 async function footerFixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-footer-'));
@@ -302,7 +301,7 @@ export async function legalFooterFitCheck(t) {
       assert.equal(state.fit, fit, `${name}: real long-copy fit loop reaches ${fit}; ${JSON.stringify(state)}`);
       assert.equal(state.creditsHidden, true, `${name}: host has no credits`);
       assert.equal(state.label, fit === 'full', `${name}: AI label yields in every compact fit`);
-      assert.equal(state.voice, fit === 'full', `${name}: voice yields in every compact fit`);
+      assert.equal(state.voice, fit === 'full' && width >= 1100, `${name}: voice keeps its full-fit breakpoint and yields in every compact fit`);
       assert.equal(state.timer, ['full', 'identity'].includes(fit), `${name}: timer yields in timer/role`);
       assert.equal(state.statusColumns, ['full', 'identity'].includes(fit) ? 3 : 2, `${name}: status grid follows the fit`);
       assert.equal(state.statusFont, '12.5px', `${name}: approved legal-host type size`);
