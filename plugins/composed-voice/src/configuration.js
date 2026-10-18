@@ -39,7 +39,9 @@ export function configureComposedComponents({ enabled, config, componentOptions 
   void preflight.catch(() => {});
   const guarded = {};
   for (const role of ['stt', 'tts']) {
-    const port = ports[role]; guarded[role] = { ...port };
+    const port = ports[role];
+    guarded[role] = { ...port, capabilities: port?.capabilities,
+      ...(typeof port?.negotiateAudioFormat === 'function' ? { negotiateAudioFormat: port.negotiateAudioFormat.bind(port) } : {}) };
     for (const method of ['transcribe', 'stream', 'speak', 'speakAligned']) {
       if (typeof port?.[method] !== 'function') continue;
       guarded[role][method] = method === 'transcribe' ? async (...args) => {

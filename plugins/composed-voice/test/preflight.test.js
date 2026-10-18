@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { configureComposedComponents } from '../src/configuration.js';
 import { createComposedVoice } from '../src/server.js';
+import { assertSTTComponent, assertTTSComponent } from '../../../packages/core/src/voice-components.js';
 import { compositionFixture, invalidCompositions } from '../../../packages/core/test/voice-composition-fixtures.js';
 import { fixtureBinding, fixtureConsent } from '../../elevenlabs/test/component-fixtures.js';
 
@@ -44,4 +45,14 @@ test('AIT-328: start waits for negotiation before consuming the parent claim', a
   await assert.rejects(starting, { code: 'composition-capture-format' });
   assert.deepEqual({ claims: f.counters.claims, secrets: f.counters.secrets, transport: f.counters.transport },
     { claims: 0, secrets: 0, transport: 0 });
+});
+
+
+test('AIT-328: guarding preserves inherited component contract methods and declarations', async () => {
+  const f = compositionFixture(); f.stt = Object.create(f.stt); f.tts = Object.create(f.tts);
+  const ports = configureComposedComponents(configured(f));
+  await ports.preflight;
+  assertSTTComponent(ports.stt); assertTTSComponent(ports.tts);
+  assert.deepEqual(await ports.stt.negotiateAudioFormat([f.capture], {}), f.capture);
+  assert.deepEqual(await ports.tts.negotiateAudioFormat([f.playback], {}), f.playback);
 });

@@ -39,4 +39,3 @@ export const invalidCompositions = [
   ['overstated language', 'composition-capabilities-exceeded', f => { f.capabilities = { ...components.voiceCompositionCapabilities(f.stt, f.tts), languages: ['fr'] }; }],
   ['unknown capability', 'composition-capabilities-exceeded', f => { f.capabilities = { ...components.voiceCompositionCapabilities(f.stt, f.tts), unsupported: true }; }],
 ];
-
