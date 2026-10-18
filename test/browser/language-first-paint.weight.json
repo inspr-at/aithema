@@ -1,20 +1,44 @@
 {
-  "seconds": 108.227,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 115.584,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "b7a28e084b0e879bbf356195a354a1ec38a400763d01cdef8ab6a83deca20ac2",
+    "workload": "1dcfad6d7149bf2927cb8207ee1a6f5ce7b2572ca9dca163ad344009cf7d5fee",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:49.554Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:24.279Z",
         "tests": [
           {
             "name": "AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
-            "seconds": 86.58069742100001
+            "seconds": 86.05323841799999
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:52.992Z",
+        "tests": [
+          {
+            "name": "AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
+            "seconds": 77.01177047099999
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:40.037Z",
+        "tests": [
+          {
+            "name": "AIT-206: fresh en-US → DE, fresh de-AT → DE, and stored en/de choices never paint the wrong language; stored light/dark/system and all painted utility frames move 0 px",
+            "seconds": 92.466996825
           }
         ]
       }

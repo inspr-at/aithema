@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runSoak } from './soak.js';
 
-// Explicit remote invocation only; excluded from npm test and CI's four shards.
+// Explicit remote invocation only; excluded from npm test and CI's seven shards.
 test('AIT-139: five-minute fake voice soak, actual WAV capture, CDP disruption and zero spend', { timeout: 390_000 }, async t => {
   const { report, output } = await runSoak({ mode: 'fake', minutes: 5, maxDuration: 5,
     output: process.env.AITHEMA_EVIDENCE_DIR });

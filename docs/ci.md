@@ -2,7 +2,7 @@
 
 Aithema runs on the organization's hosted runners. The organization is on GitHub
 Enterprise (about 500 concurrent hosted jobs), and Aithema uses about 2 % of its
-CI hours (measured baseline AEON-1407, 2026-10-15). All six browser shards run
+CI hours (measured baseline AEON-1407, 2026-10-15). All seven browser shards run
 at once for every event. Per-PR cancellation and the docs-only light path stay
 because they save runner minutes.
 
@@ -27,7 +27,7 @@ Detection errors fail the changes job and run all heavy checks. The heavy jobs
 use `!cancelled()` so a failed dependency cannot silently skip required checks;
 only successful PR detection with an explicit `true` output can skip heavy steps.
 
-Six worker shards report `browser (1/6)` through `browser (6/6)`. The ruleset
+Seven worker shards report `browser (1/7)` through `browser (7/7)`. The ruleset
 keeps its existing `browser (1/4)` through `browser (4/4)` required checks; each
 is a summary that passes only when every worker shard succeeds. A failed or
 skipped shard fails the summaries. PR and merge-group events use the same jobs.
@@ -39,6 +39,35 @@ path filter leaves required checks pending. The separate `dco` and `dco-tests`
 jobs still run normally, so docs contributions also need commit signoffs.
 Merge queue and main push runs always take the full path, even for docs.
 Repository rulesets and required-check settings are unchanged.
+
+## AIT-312 capacity calibration (2026-10-18)
+
+At the supplied base `24047f9f`, six projected totals were
+`405.227 / 402.583 / 402.739 / 402.660 / 405.979 / 401.163` s.
+Regenerating sibling weights with the AIT-251 importer from the latest 20
+successful main runs admitted 19 first-attempt runs. Run `39040473267`
+(attempt 2) was excluded after strict header/attempt provenance rejection;
+no provenance checks were relaxed. Each sibling records its contributing
+runs, hashes, per-test samples and rolling p95. Lower generated values are
+supported by those main observations (including retirement of the warmup
+margin where applicable); every provisional floor in the packer is retained.
+
+Main advanced to `c5d6aa28` (AIT-309) during PR creation. Its new geometry
+and footer floors are retained in the signed merge. With those floors and the
+base weights, the six-bin plan matches LEAD's decision:
+`411.191 / 412.845 / 412.618 / 413.178 / 415.380 / 411.078` s.
+
+With refreshed weights and both incoming floors, the old six-bin greedy plan would be
+`438.036 / 442.292 / 443.210 / 439.969 / 436.426 / 437.999` s, exceeding the 420 s ceiling.
+Seven bins plus deterministic whole-file refinement produce
+`377.070 / 377.456 / 376.192 / 375.703 / 377.409 / 377.769 / 376.333` s.
+The maximum is **377.769 s**, leaving **42.231 s** below the hard ceiling.
+
+The base main CI run `39114014147` measured summed top-level file work of
+`351.270 / 348.941 / 303.716 / 335.940 / 342.441 / 367.104` s in its six
+`browser-timings-N-of-6` artifacts. The AIT-312 PR handoff reports the matching
+seven-shard CI measurements and artifact names. File work excludes runner
+setup and artifact upload, so it differs from whole-job elapsed time.
 
 ## Retry failed jobs
 
@@ -71,12 +100,23 @@ Every `test/browser/<name>.test.js` owns a sibling `<name>.weight.json`.
 The `seconds` value is the sum of **measured per-test rolling p95** durations,
 with a **25% safety margin while a workload has fewer than five samples**.
 At five or more samples the planner uses the measured sum directly. Packing remains
-deterministic LPT across **six** bins. `npm run test:browser-shards` checks
-complete, exactly-once coverage and the **420 s per-bin ceiling**; this leaves
+deterministic LPT across **seven** bins, followed by whole-file moves/swaps
+that reduce the maximum load, then squared load, without worsening LPT's
+makespan bound. Equal candidates keep stable iteration order. If local
+refinement still exceeds 380 s, a deterministic whole-file placement search
+tries at most 100,000 nodes to meet that target. On failure it retains the
+original plan for the guard's diagnostics. `npm run test:browser-shards` checks
+complete, exactly-once coverage, a separate **380 s headroom target**, and the
+unchanged **420 s per-bin ceiling**; this leaves
 headroom for installation, Chrome startup, process cleanup and artifact upload
 within the unchanged ten-minute job timeout. Required check names stay unchanged.
 
-Each CI shard writes `browser-timings-N-of-6` artifacts (14-day retention).
+When the headroom guard trips, the shard command and unit test fail with each
+overloaded shard's total, file paths, and individual weights. Review the measured
+workloads and repack; retain measured floors and never lower weights without
+evidence. This planning target does not change the 420 s hard ceiling.
+
+Each CI shard writes `browser-timings-N-of-7` artifacts (14-day retention).
 `scripts/browser-timing-reporter.js` records passing top-level `node:test`
 durations in seconds alongside the run ID, attempt, commit and workload hash.
 Nested subtests are excluded because their parent's duration already includes
@@ -91,6 +131,12 @@ npm run update:browser-timings
 npm run update:browser-timings -- --run RUN_ID --run ANOTHER_RUN_ID
 npm run test:browser-shards
 ```
+
+The importer accepts complete historical six-shard and current seven-shard runs;
+it rejects mixed counts, missing indices, duplicates, and expired artifacts.
+CI screenshots use `browser-evidence-N-of-7`; the full nightly matrix uses
+`full-browser-evidence-N-of-7`. All seven workers run concurrently, so this adds
+runner minutes while keeping wall-clock time comparable.
 
 The script downloads only the small timing artifacts through the selected `gh`
 account, pinned to `inspr-at/aithema`. Both automatic selection and explicit
@@ -135,8 +181,9 @@ rebasing. The one-time migration extraction read that revision's
 `scripts/browser-shards.js` literal and generated every sibling JSON from each
 entry's numeric seconds and measurement-evidence comment, including
 `upload-capacity`, `composed-media` and `language-first-paint`. No weights were
-hand-merged. The inline table was then replaced by the per-file reader;
-main's six-shard packing code and required summary workflow stayed unchanged.
+hand-merged. The inline table was then replaced by the per-file reader.
+At that calibration, main's six-shard packing code and required summary
+workflow stayed unchanged; AIT-312 later expands worker capacity to seven.
 
 The one-time proof ran on mbp2606 against the committed merge
 `32ba251765b78a5940ce228236550f2c388ed4e3`, run `32ba251765-68752`:
@@ -197,7 +244,8 @@ suite at a time, starting below load 10. Full browser validation is PR CI's job.
 The committed siblings retain each source observation, SHA and workload hash.
 The first plan has one sample per file (explicit warmup); subsequent refreshes
 extend the rolling series rather than treating this first run as a permanent
-floor. Six shards, the 420s ceiling and all required check names are unchanged.
+floor. At that calibration there were six shards; AIT-312 later adds the
+seventh while preserving the 420s ceiling and four required alias names.
 
 
 Final calibration includes all three overlapping PRs (#216, #217, #218), merged
@@ -226,7 +274,8 @@ retry using the same client event. No browser page or case is added.
 After the margin, `npm run test:browser-shards` reports **2265.000s** total,
 with bins `378.124 / 375.219 / 376.201 / 377.131 / 380.676 / 377.649` seconds.
 The largest bin is **380.676s**, leaving **39.324s** under the unchanged 420s
-ceiling. The six shards and all check names remain unchanged.
+ceiling. Those historical six-shard totals precede AIT-312; the hard ceiling
+and four required alias names remain unchanged.
 
 The remote targeted timing, shard and server upload suite passed **78/78** on
 mbp2606. Coverage includes canonical push selection, explicit PR/fork rejection,

@@ -1,20 +1,44 @@
 {
-  "seconds": 97.235,
-  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39009665180-1. Source: browser-timings-*-of-6 artifacts; npm run update:browser-timings.",
+  "seconds": 108.095,
+  "evidence": "Sum of top-level test rolling p95 (nearest rank, latest 20 successful CI executions per workload); 25% warmup margin until 5 samples; runs 39112261287-1, 39113978451-1, 39114014147-1. Source: browser-timings-N-of-M artifacts; npm run update:browser-timings.",
   "timing": {
     "schema": 1,
     "window": 20,
-    "workload": "366a0d0f6d06e89c0f4d8ab28fc15395a8893b2bd7cc53a2e83456100d156396",
+    "workload": "9898ca04fa5895e82ae18a935bc1f8dcd61c8d1da093a934307a74932acb7b8e",
     "samples": [
       {
-        "runId": "39009665180",
+        "runId": "39112261287",
         "attempt": 1,
-        "sha": "986f291fd6c1a67195b29511280fa5e6705c1a82",
-        "observedAt": "2026-10-17T06:22:46.081Z",
+        "sha": "b6a88ab1f6d06cb6061e2f9817f4c72369a50149",
+        "observedAt": "2026-10-18T08:39:22.258Z",
         "tests": [
           {
             "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
-            "seconds": 77.787673459
+            "seconds": 82.661818167
+          }
+        ]
+      },
+      {
+        "runId": "39113978451",
+        "attempt": 1,
+        "sha": "a6f0843fda8f45cdd5598fe495dd839ea5cff738",
+        "observedAt": "2026-10-18T09:05:54.259Z",
+        "tests": [
+          {
+            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
+            "seconds": 86.475647185
+          }
+        ]
+      },
+      {
+        "runId": "39114014147",
+        "attempt": 1,
+        "sha": "24047f9f15750ee6d215335f58712140d2c5c649",
+        "observedAt": "2026-10-18T09:12:33.922Z",
+        "tests": [
+          {
+            "name": "AIT-135 A2 D: every visitor state, DE/EN, light/dark, rotating widths (full evidence matrix)",
+            "seconds": 81.18435530500001
           }
         ]
       }
