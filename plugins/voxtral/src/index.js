@@ -112,7 +112,9 @@ export function createVoxtralSTT({ enabled = false, config: raw, resolveSecret, 
       await invocation.finish(completed);
     }
   };
-  return Object.freeze({ manifest, model: STT_MODEL, negotiateAudioFormat: negotiate(STT_FORMAT), stream,
+  return Object.freeze({ manifest, model: STT_MODEL,
+    capabilities: deepFreeze({ streaming: true, languages: manifest.models[0].languages, partialTranscripts: true }),
+    negotiateAudioFormat: negotiate(STT_FORMAT), stream,
     health: async () => ({ available: enabled && typeof connect === 'function', reason: 'offline-unqualified' }),
     async transcribe({ audio, format }, options) {
       let text;
@@ -148,16 +150,19 @@ async function* speechEvents(body, options) {
 
 export function createVoxtralTTS({ enabled = false, config: raw, resolveSecret, fetchImpl } = {}) {
   const config = configuration(raw);
-  return Object.freeze({ manifest, model: TTS_MODEL, negotiateAudioFormat: negotiate(TTS_FORMAT),
+  return Object.freeze({ manifest, model: TTS_MODEL,
+    capabilities: deepFreeze({ streaming: true, languages: manifest.models[1].languages, heardPrefix: 'unavailable' }),
+    negotiateAudioFormat: negotiate(TTS_FORMAT),
     health: async () => ({ available: enabled && typeof fetchImpl === 'function', reason: 'offline-unqualified' }),
     async *speak({ text, voice = config.voiceId, format }, options) {
       if (!enabled || typeof fetchImpl !== 'function') throw new PluginError('unavailable');
       if (typeof text !== 'string' || !text.trim() || text.length > 1000 || typeof voice !== 'string' || !voice || format !== TTS_FORMAT.encoding) throw new TypeError('Bounded text, saved voice and float32 PCM required');
       const characters = [...text].length, cost = characters * config.ttsMicroPerCharacter;
-      if (!Number.isSafeInteger(cost) || cost > options?.attempt?.maxMicro) throw new PluginError('not-admitted');
       const invocation = await componentInvocation(options, { role: 'tts', unit: 'characters', model: TTS_MODEL });
       const opts = { ...options, signal: invocation.signal }; let completed = false, totalBytes = 0;
       try {
+        // Settle an admitted claim even when the tariff refuses dispatch.
+        if (!Number.isSafeInteger(cost) || cost > options.attempt.maxMicro) throw new PluginError('not-admitted');
         const headers = await authorization(config, resolveSecret, opts);
         invocation.dispatch();
         const response = await voiceOperation(opts, () => fetchImpl(`${config.endpoint}/v1/audio/speech`, {
