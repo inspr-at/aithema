@@ -14,7 +14,7 @@ for (const [role, kit] of [['stt', sttConformance], ['tts', ttsConformance]]) {
     ['uncertain', 'uncertain >= max(maxMicro, observed)'], ['observed', 'uncertain >= max(maxMicro, observed)'],
     ['usage', 'terminal accounting: usage'], ['cleanup', 'cancellation cleanup'], ['bounds', 'stream bounds'],
     ...(role === 'stt' ? [['finality', 'transcript finality'], ['after-final', 'event after final'], ['replacement', 'replacement hypotheses']]
-      : [['alignment', 'aligned offsets'], ['heard', 'playback-confirmed heard prefixes']]),
+      : [['alignment', 'aligned offsets'], ['alignment-backwards', 'aligned offsets'], ['alignment-range', 'aligned offsets'], ['alignment-fraction', 'aligned offsets'], ['heard', 'playback-confirmed heard prefixes']]),
   ]) test(`${role} broken fake names ${rule} (${fault})`, async () => {
     const { component, fixtures } = speechFixture(role, fault);
     const result = await kit(component, request(role), fixtures);

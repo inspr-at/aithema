@@ -9,6 +9,8 @@ const text = 'A😀 B';
 function local(provider, role) {
   let mode, requests = 0, active = 0;
   const stalled = () => new Promise(() => {});
+  const stalledEvents = () => ({ [Symbol.asyncIterator]() { return this; }, next: stalled,
+    async return() { return { done: true }; } });
   const connect = async () => {
     requests++; active++;
     let closed = false;
@@ -27,9 +29,10 @@ function local(provider, role) {
           yield wire;
         }
       })();
+      if (mode.startsWith('active-')) socket.events = stalledEvents();
       return socket;
     }
-    return { send() {}, close, events: (async function* () {
+    return { send() {}, close, events: mode.startsWith('active-') ? stalledEvents() : (async function* () {
       if (mode.startsWith('active-')) { await stalled(); return; }
       yield JSON.stringify({ type: 'session.created' });
       if (mode === 'provider-error') { yield JSON.stringify({ type: 'error', status: 429 }); return; }
@@ -67,7 +70,7 @@ for (const provider of ['voxtral', 'elevenlabs']) for (const role of ['stt', 'tt
   test(`${provider} ${role} helper offline conformance diagnostic`, async t => {
     const { component, fixtures } = local(provider, role);
     const result = await (role === 'stt' ? sttConformance : ttsConformance)(component,
-      role === 'stt' ? { audio: new Uint8Array(3200), language: 'en' } : { text, voice: 'fixture-voice' }, fixtures);
+      role === 'stt' ? { audio: new Uint8Array(64000), language: 'en' } : { text, voice: 'fixture-voice' }, fixtures);
     t.diagnostic(JSON.stringify({ provider, role, ...result }));
     assert.equal(result.ok, false);
     assert.ok(result.failures.includes(`${role}: capability declarations/operations`));

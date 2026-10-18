@@ -58,6 +58,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
       ...(operation !== 'transcribe' ? ['return'] : []), 'missing-final', 'overflow', 'over-ceiling', 'report-rejected'];
     for (const mode of modes) {
       const label = `${operation}/${mode}`, abort = new AbortController(), reports = [];
+      const reportError = new Error('Synthetic report rejection');
       let consumed = 0, settledConsume = false, iterator, sourceReturned = false, sourceOpened = false, bytes = 0, finalCount = 0, previousEnd = 0;
       let error, cancelTimer, reportCalls = 0, textEvents = [], successful = false;
       const input = { ...request, format: selected.encoding };
@@ -85,7 +86,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
           settledConsume = true;
         } }, async report(terminal) {
           reportCalls++; reports.push(structuredClone(terminal));
-          if (mode === 'report-rejected') throw new PluginError('storage', 'Synthetic report rejection');
+          if (mode === 'report-rejected') throw reportError;
         } };
       const consume = async () => {
         if (operation === 'transcribe') {
@@ -109,6 +110,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
             } else {
               const audio = operation === 'speakAligned' ? item.value?.audio : item.value;
               check(audio instanceof Uint8Array && audio.byteLength > 0, `${label} audio chunk type`);
+              if (!(audio instanceof Uint8Array) || !audio.byteLength) throw new PluginError('invalid-output');
               bytes += audio?.byteLength ?? 0;
               check(audio?.byteLength <= maxChunkBytes && bytes <= maxAudioBytes, `${label} stream bounds: audio bytes`);
               const frameBytes = selected.encoding === 'pcm_f32le' ? 4 : selected.encoding === 'pcm_s16le' ? 2 : 1;
@@ -130,7 +132,7 @@ async function speechConformance(role, component, request, { formats, prepare, r
               }
             }
             // Stop a malicious infinite producer as soon as it violates the bound.
-            if (bytes > maxAudioBytes || textEvents.length > maxTranscriptCharacters || textEvents.some(event => event?.text?.length > maxTranscriptCharacters)) {
+            if (bytes > maxAudioBytes || textEvents.length > maxTranscriptCharacters || textEvents.at(-1)?.text?.length > maxTranscriptCharacters) {
               check(false, `${label} stream bounds`); await iterator.return?.(); break;
             }
             if (mode === 'return') { await iterator.return?.(); break; }
@@ -168,8 +170,8 @@ async function speechConformance(role, component, request, { formats, prepare, r
         check(Boolean(error), `${label} ignored ${mode === 'missing-final' ? 'transcript/synthesis finality' : mode === 'overflow' ? 'stream bounds' : mode}`);
         if (error) {
           const code = ['cancelled', 'active-cancelled', 'pending-consume'].includes(mode) ? 'cancelled'
-            : ['deadline', 'active-deadline'].includes(mode) ? 'deadline' : mode === 'consume-refused' ? 'not-admitted' : mode === 'report-rejected' ? 'storage' : undefined;
-          check(code ? error.code === code : PLUGIN_ERROR_CODES.includes(error.code), `${label} typed ${code ?? 'provider'} error`);
+            : ['deadline', 'active-deadline'].includes(mode) ? 'deadline' : mode === 'consume-refused' ? 'not-admitted' : undefined;
+          check(mode === 'report-rejected' ? error === reportError : code ? error.code === code : PLUGIN_ERROR_CODES.includes(error.code), `${label} ${mode === 'report-rejected' ? 'report rejection propagates' : `typed ${code ?? 'provider'} error`}`);
           if (mode === 'over-ceiling') check(['limit', 'not-admitted'].includes(error.code), `${label} terminal accounting: over-ceiling usage rejected`);
         }
       }

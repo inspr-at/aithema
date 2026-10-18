@@ -54,7 +54,7 @@ export function speechFixture(role, fault) {
       } else {
         for (const end of [1, input.text.length]) {
           const audio = new Uint8Array(mode === 'overflow' ? 34 : 4);
-          yield operation === 'speakAligned' ? { audio, textEnd: fault === 'alignment' ? 2 : end } : audio;
+          yield operation === 'speakAligned' ? { audio, textEnd: fault === 'alignment' ? 2 : fault === 'alignment-backwards' ? input.text.length + 1 - end : fault === 'alignment-range' ? input.text.length + 1 : fault === 'alignment-fraction' ? 1.5 : end } : audio;
         }
       }
       invocation.usage(1, 1, 'fixture', false); completed = true;
