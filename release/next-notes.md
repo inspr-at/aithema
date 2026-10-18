@@ -1,8 +1,1 @@
 # Next release — unreleased
-
-- **For hosts:** consent documents now include `consentRevision`; send it as `processing.revision` for grants and withdrawals. Decisions already stale at admission return 409 `consent-stale` without consent side effects. Withdrawals bypass pending host ports; an atomic storage revision check prevents a late grant from restoring server consent. The grant port receives `decision.revision`; enforce it in shared ledgers too. Omitting the revision remains compatible but is deprecated and offers no stale-tab protection. Settings reloads a refused choice for visitor review and confirms successful choices by revision and items, allowing versioned contracts. Older backends retain contract-and-items confirmation (AIT-321).
-- Hosts can implement STT/TTS providers with the supported `@inspr/aithema-core/voice-components` contract: typed ports, capability declarations and separate claim accounting with uncertain costs retained at the admitted maximum. Provider prototypes remain source-only; installed ElevenLabs live voice is unchanged.
-
-- For hosts: run `sttConformance` and `ttsConformance` from `@inspr/aithema-core` against offline provider fixtures to check the voice-component contract, including fresh claims, terminal accounting, cancellation, bounds and playback-confirmed aligned prefixes. See `docs/embedding.md`.
-
-- For hosts: Claude HTML bindings now accept OpenRouter reasoning efforts (`none`, `low`, `medium`, `high`, `xhigh`, `max`), including Opus 5.5 `high`. `maxTokens` covers reasoning plus visible output, the full allowance is reserved at the output rate, and shared-cap exhaustion refuses before dispatch; `none` preserves the existing request bytes.

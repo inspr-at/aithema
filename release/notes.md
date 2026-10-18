@@ -1,46 +1,74 @@
 # Aithema 2026.10
 
-Version **261018104037.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261018142833.0.0**. Licensed under **AGPL-3.0-only**.
 
-Fourth October release: concept images now stay within your spending cap.
+Fifth October release: withdrawn consent stays withdrawn, and HTML drafts can think deeper.
 
-## What START notices
+## What START and visitors notice
 
-- **Concept images through the spending cap (AIT-306/308 / START-549):** image
-  generation and edits reserve room in the host's shared OpenRouter cap before
-  being sent, refuse when the cap is reached, and charge what the provider
-  reports. This unblocks START-549. Direct OpenAI images can share the cap too,
-  using the host's admitted image price or the reserved ceiling.
-- **Phone voice status (AIT-302):** shorter status lines keep their meaning and
-  leave room for the header controls.
-- **Budget and credits (AIT-310):** phones distinguish the host's budget from
-  your credits, including when the host offers no upgrade action.
-- **Readiness (AIT-307):** when only text input is available, the card shows
-  “Input: Text” instead of a half-empty switch.
-- **Footer fit (AIT-309):** controls fit more reliably on sites with legal links.
+- **Withdrawn consent stays withdrawn (AIT-321):** an old tab or an open
+  editor cannot restore consent the visitor withdrew. The editor explains
+  when a choice is out of date and loads the current state for a fresh decision.
+- **Deeper HTML drafts (AIT-324):** hosts can use Claude Opus with deeper
+  reasoning for HTML drafts, within the spending cap.
+- **Legal links on phones (AIT-304):** the demo's shorter legal labels fit
+  on small screens.
 
 ## For hosts
 
-- **Shared image spending cap:** pass the same `createSpendCap` instance as
-  optional `spendCap` to `createOpenAIImages` and reasoning. It works in
-  OpenRouter gateway and direct OpenAI modes, including after `bind()`.
-  Each generate/edit request reserves `binding.maxMicro` before dispatch;
-  exhaustion or a latched ceiling breach refuses with `not-admitted`.
-- **Image charges:** OpenRouter settles reported `usage.cost`, rounded upward
-  to microUSD. Direct mode uses the host's admitted per-call `imageCost` with
-  response usage tokens; without that price, it charges `binding.maxMicro`.
-  The server passes the private price from `createImageBinding` to generation
-  and edits. Common `binding.rates`, including zero placeholders, never price
-  capped images. Unknown dispatched outcomes retain uncertain holds; failures
-  before dispatch release at zero. Omitting `spendCap` preserves existing behavior.
-- **Cap bookkeeping:** the README now documents `dispatch`, `record` and
-  `uncertain` on the existing `createSpendCap` port, attempt/provider metadata
-  on `reserve`, and `uncertainMicro` in `snapshot()`. Separate instances may
-  share the same account and database. The routing allow-lists and analysis
-  exclusion documented for reasoning do not apply to image requests.
-- **Public packages:** the fifteen package export maps and subpaths, and plugin
-  protocol `apiVersion`, are unchanged since `v261017195050.0.0`.
-- **Maintenance (AIT-301/311/312/313):** stronger regression checks and steadier CI.
+- **Consent revisions (AIT-321):** consent documents include `consentRevision`.
+  Send it as the expected `processing.revision` on every decision, including
+  withdrawal. An already stale decision returns HTTP 409 `consent-stale`
+  without consent side effects; reload the document and require a new visitor
+  action. Withdrawals bypass pending host ports, and the server's atomic
+  revision check prevents a late grant from restoring withdrawn consent.
+  `consent.grant({ sessionId, consentRevision, decision, scopes })` receives
+  the expected revision in `decision.revision`; the outer `consentRevision`
+  is the next revision being granted. Shared host ledgers must enforce that
+  expected revision atomically too. Decisions without a revision remain
+  compatible but are deprecated and lack stale-tab protection. Settings confirms
+  successful choices by revision and exact items, allowing versioned contracts;
+  older backends retain contract-and-items confirmation.
+- **Claude HTML reasoning (AIT-324):** set `binding.effort` to a value supported
+  by the selected model: `none`, `low`, `medium`, `high`, `xhigh` or `max`,
+  including Opus 5.5 `high`. `none` preserves the existing request bytes.
+  `binding.maxTokens` is sent unchanged as `max_tokens` and covers reasoning
+  plus visible output together. The reservation includes the input-byte ceiling
+  and the full token allowance at the output rate; the adapter never increases
+  the limit for deeper reasoning. Pass the shared `createSpendCap` through
+  `spend`; insufficient room refuses with `not-admitted` before dispatch.
+  Reported `usage.cost` settles the charge; missing cost after dispatch retains
+  the reservation as uncertain spend.
+- **STT/TTS component API (AIT-316):** implement speech-to-text and
+  text-to-speech through `@inspr/aithema-core/voice-components`, also exported
+  from core. The supported contract covers format negotiation, capability
+  declarations, bounded streams, cancellation and separate claim accounting.
+  Each request, retry or speech fragment needs a fresh admitted claim;
+  uncertain costs retain at least its admitted maximum. Aligned speech only
+  establishes a heard prefix after trusted playback confirms the bytes.
+  Installed ElevenLabs live voice is unchanged; provider prototypes remain
+  source-only.
+- **Typing note (AIT-316):** the public `plugin-contract` types re-export the
+  stricter component shapes. STT/TTS `capabilities`,
+  `ComponentOperationOptions.attempt.maxMicro`, and `chargedMicro` on an
+  uncertain `ComponentTerminal` are now required. Code typed against the old
+  shapes stops compiling until those fields are supplied. This is a source
+  typing change; it does not change the existing installed voice runtime.
+- **Offline voice checks (AIT-319):** run `sttConformance` and `ttsConformance`
+  from `@inspr/aithema-core` against local provider fixtures. They check fresh
+  claims, terminal accounting, cancellation, bounds and playback-confirmed
+  aligned prefixes. Passing them does not qualify live billing or latency.
+- **Visitor tiers and erasure (AIT-320/322):** the embedding guide now shows
+  a host-owned integration using public ports for revisioned tier settings,
+  trusted administrator identity, atomic audit and shared owner admission.
+  The host must delete a session's admission holds on erasure or retirement;
+  visitor deletion must atomically remove that visitor's tier and all their
+  active or released holds across conversations. Session retirement alone
+  retains the visitor tier, and expiry alone does not erase host tier data.
+  Wire the host cleanup hooks and retirement sweep; direct storage erasure
+  does not invoke them. Global settings and administrator audit remain, but
+  retained visitor audit counts must contain no identifying data.
+- **Maintenance (AIT-314/318):** refreshed CI timing floors and clearer release status.
 
 ## What is included
 
@@ -64,10 +92,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261018104037.0.0` into a clean directory:
+Download the assets for `v261018142833.0.0` into a clean directory:
 
 ```sh
-gh release download v261018104037.0.0 --repo inspr-at/aithema
+gh release download v261018142833.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -90,7 +118,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261018104037.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261018142833.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -112,14 +140,14 @@ the product version.
 
 - A 60-minute German/English live voice soak has not been measured. Offline
   qualification does not establish live latency or disruption recovery.
-- A second independent voice pipeline remains unproven. Source-only composed
-  voice prototypes are not supported package APIs.
+- A second independent voice pipeline remains unproven. The new component API and offline
+  kits do not qualify a second live pipeline; provider prototypes remain source-only.
 - Browser consumers need a bundler or import map and module JSON support.
   Consumer smoke checks do not establish host-specific layout, CSP enforcement
   or live provider quality.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261018104037.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261018142833.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.
