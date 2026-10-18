@@ -66,10 +66,17 @@ Authorization and guarded component operations await that same promise, and
 `createComposedVoice.start` awaits it before consuming the parent claim. Factory
 construction itself must remain offline. The host may inject a `componentFactories`
 registry and an explicit `composition` object with all the preflight settings above
-(except the ports, which always come from the selected factories). Without that
-object, settings use the current host's PCM16 mono 16 kHz capture, existing selected
+(except the ports, which always come from the selected factories). Explicit capture
+must match the coordinator/browser's PCM16 mono 16 kHz format, and explicit playback
+must match the selected runtime output format. A mismatch rejects before negotiation
+with `composition-capture-format` or `composition-playback-format`; the check always
+negotiates the runtime formats. Without that object, settings use the current host's
+PCM16 mono 16 kHz capture, existing selected
 playback format, current host languages, and the selected saved voice. The installed
-live-voice agent and its factory are outside this path.
+live-voice agent and its factory are outside this path. Guarded ports inherit the full
+component surface and remain frozen when the component is frozen. A caller's abort
+or deadline while awaiting readiness rejects that operation without dispatching it
+or cancelling the shared preflight.
 
 ### AIT-258: eager provider reader and bounded reply playback
 
