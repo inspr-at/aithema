@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalImages, localImageBinding,
-  createMemoryConsentLedger, createImageBinding, SQLiteBudgetLedger, createFacadeSecrets } from '../src/index.js';
+  createMemoryConsentLedger, createImageBinding, imagePluginBinding, createSpendCap, SQLiteBudgetLedger, createFacadeSecrets } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding, beginInvocation } from '@inspr/aithema-core';
 import { ownedRequest, testToken, temporaryDb, unzip } from '../../../test/helpers.js';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/dev/local-voice.js';
+import { createOpenAIImages } from '../../../plugins/openai-images/src/index.js';
 import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
 import { png, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -283,6 +284,22 @@ test('image usage settles through the ledger with private image rates, and featu
   assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'completed'); assert.equal(row.max_micro, 400300); assert.equal(row.settled_micro, 5);
   const snapshot = await (await h.call()).json(); assert.deepEqual(snapshot.conceptCost, { maxMicro: 400300 });
   assert.equal(JSON.stringify(snapshot).includes('inputMicro'), false); assert.equal(JSON.stringify(snapshot).includes('secretRef'), false);
+});
+test('AIT-308 round 2: runtime admitted imageCost reaches direct image cap settlement', async t => {
+  const binding = paidBinding(); let plugin;
+  const h = await setup(t, { imageBinding: binding, consent: exactConsent,
+    intercept: (spec, feedback, options) => plugin.generate(spec, feedback, options) });
+  const cap = createSpendCap({ storage: h.storage, account: 'fixture-image-cost', capMicro: 500000 });
+  plugin = createOpenAIImages({ binding: imagePluginBinding(createImageBinding({ ...binding,
+    plugin: 'openai-images', model: 'gpt-image-2', endpoint: 'https://api.openai.com/v1' })),
+    spendCap: cap, resolveSecret: () => 'fixture-only', fetchImpl: async () => Response.json({
+      data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 1, output_tokens: 2 } }) });
+  await h.turn('first'); await rendered(h);
+  assert.deepEqual(h.records[0].options.imageCost, binding.imageCost);
+  assert.ok(Object.isFrozen(h.records[0].options.imageCost));
+  assert.deepEqual(plugin.binding.rates, { inputMicro: 0, outputMicro: 0 });
+  assert.equal(cap.snapshot().spentMicro, 8);
+  assert.equal(h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='concept'").get().settled_micro, 8);
 });
 test('the image budget denies underfunded work before claim consumption or private byte dispatch', async t => {
   const h = await setup(t, { imageBinding: paidBinding(), consent: exactConsent, budgetOptions: { sessionCapMicro: 400299 } });

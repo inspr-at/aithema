@@ -50,7 +50,11 @@ function fieldsFor(spec, feedback) {
   return fields;
 }
 export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch, spendCap } = {}) {
-  binding = createBinding(binding);
+  // Common rates are required by createBinding, but never price capped images.
+  // Accept their omission for direct capped hosts and preserve it across bind().
+  const unpriced = Boolean(spendCap) && binding?.model === 'gpt-image-2' && binding.rates === undefined;
+  binding = createBinding(unpriced ? { ...binding, rates: { inputMicro: 0, outputMicro: 0 } } : binding);
+  if (unpriced) { const { rates, ...rest } = binding; binding = deepFreeze(rest); }
   if (binding.plugin !== manifest.id || !['gpt-image-2', 'openai/gpt-image-2'].includes(binding.model) || binding.effort !== 'none') throw new TypeError('OpenAI Images binding requires gpt-image-2 or openai/gpt-image-2 and effort none');
   const base = new URL(baseUrl ?? binding.endpoint);
   if (base.href !== new URL(binding.endpoint).href) throw new TypeError('Image base URL must match the admitted binding');
@@ -70,14 +74,24 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
   const configured = () => { const key = resolveSecret(binding.secretRef); return typeof key === 'string' && key.length > 0 && !/[\r\n]/u.test(key) ? key : null; };
   async function run(operation, spec, feedback, options, artifact) {
     const scope = operationScope(options); let invocation, completed = false, reporting;
-    const cap = gateway ? spendCap : undefined;
+    const cap = spendCap;
     let reservation, dispatched = false, chargedMicro = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
-    const observe = payload => {
+    const directCost = usage => {
+      // Common binding rates are required placeholders, not admitted image prices.
+      // The runtime passes its private imageCost on each admitted invocation.
+      const price = options.imageCost;
+      if (!price || !['inputMicro', 'outputMicro'].every(k => Number.isSafeInteger(price[k]) && price[k] >= 0)) return binding.maxMicro;
+      if (!usage) return null;
+      const cost = BigInt(usage.inputTokens) * BigInt(price.inputMicro) +
+        BigInt(usage.outputTokens) * BigInt(price.outputMicro);
+      return cost <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cost) : null;
+    };
+    const observe = (payload, cost = gateway ? usdCostMicro(payload?.usage?.cost) : directCost(usageOf(payload?.usage))) => {
       const id = generationId(payload?.id);
-      chargedMicro = usdCostMicro(payload?.usage?.cost);
-      invocation.usage(usageOf(payload?.usage) ?? providerUsage(payload?.usage));
+      chargedMicro = cost;
+      invocation.usage(usageOf(payload?.usage) ?? (gateway ? providerUsage(payload?.usage) : null));
       invocation.cost(chargedMicro); invocation.generationId(id);
       const evidence = { ...(id ? { generationId: id } : {}), ...(chargedMicro !== null ? { chargedMicro } : {}) };
       if (id || chargedMicro !== null) {
@@ -86,7 +100,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       }
     };
     try {
-      invocation = await beginInvocation(scoped, { authoritativeCost: gateway, retainUncertainUsage: gateway });
+      invocation = await beginInvocation(scoped, { authoritativeCost: gateway || Boolean(cap), retainUncertainUsage: gateway || Boolean(cap) });
       checkLifetime();
       const key = configured(); if (!key) throw new PluginError('auth');
       const references = [...validateUIReferences(spec?.references)];
@@ -114,7 +128,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       } else { headers['content-type'] = 'application/json'; body = JSON.stringify(fields); }
       checkLifetime();
       if (cap) {
-        reservation = cap.reserve(binding.maxMicro, { attemptId: options.attempt?.attemptId, provider: 'openrouter' });
+        reservation = cap.reserve(binding.maxMicro, { attemptId: options.attempt?.attemptId, provider: gateway ? 'openrouter' : 'openai' });
         checkLifetime();
       }
       invocation.dispatch();
@@ -130,9 +144,10 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
           try {
             const text = response.body ? (await readBytes(response, scope.signal, 18 * 1024 * 1024)).toString('utf8') : '';
             let payload; try { payload = JSON.parse(text); } catch { /* Plain-text rejections are allowed. */ }
-            observe(payload);
+            // A direct error without usable tokens does not prove billed work.
+            observe(payload, gateway ? usdCostMicro(payload?.usage?.cost) : usageOf(payload?.usage) ? directCost(usageOf(payload.usage)) : null);
             if (response.status >= 400 && response.status < 500 && ![408, 499].includes(response.status) && payload?.usage == null) {
-              invocation.usage({ inputTokens: 0, outputTokens: 0 }); observe({ usage: { cost: 0 } });
+              invocation.usage({ inputTokens: 0, outputTokens: 0 }); observe({ usage: { cost: 0 } }, 0);
             }
           } catch { /* Unknown dispatched cost retains the ceiling. */ }
         } else void response.body?.cancel().catch(() => {});
