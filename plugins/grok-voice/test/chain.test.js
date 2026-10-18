@@ -178,4 +178,5 @@ test('AIT-349: an authenticated browser cannot invent a Grok heard prefix or tru
   assert.equal(response.status, 403);
   assert.equal(h.storage.get(h.session.id).transcript.find(turn => turn.id === reply.id).content, 'Which company?');
   assert.equal(h.storage.read(h.session.id).some(event => event.type === 'turn.corrected'), false);
+  await session.close();
 });
