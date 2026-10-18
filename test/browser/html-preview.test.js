@@ -591,6 +591,117 @@ test('AIT-341: HTML preview under START strict host script policy', { timeout: 3
       assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
     });
   }
+  await t.test('AIT-358: dialog Reload is reachable in both tab directions and activates with Enter and Space', async () => {
+    await page.goto(`http://127.0.0.1:${server.address().port}/strict-header-only`);
+    await page.waitForFunction(() => window.ready === true);
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    await page.evaluate(async () => {
+      await import('/packages/ui/src/session-element.js');
+      const { createSession } = await import('/packages/core/src/session.js');
+      const { en } = await import('/packages/ui/src/i18n/en.js');
+      const c = document.createElement('aithema-session'), session = createSession({ demo: true });
+      session.transcript = [{ id: 'source', role: 'user', content: 'A keyboard-accessible draft' }];
+      session.inputRevision = 1;
+      session.concepts = [{ id: 'keyboard-draft', mediaType: 'text/html', turnIds: ['source'], referenceIds: [], archived: false,
+        feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } }];
+      session.conceptCost = { maxMicro: 0 };
+      session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, html: { available: true } } };
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (url, options = {}) => {
+        const path = new URL(url, location.href).pathname;
+        if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+          options.signal?.addEventListener('abort', () => controller.close(), { once: true });
+        } }));
+        if (path.endsWith('/preview')) {
+          window.keyboardMints++;
+          if (window.keyboardMints === 1) return new Response('Unavailable', { status: 503 });
+          return new Promise(resolve => { window.finishKeyboardMint = resolve; });
+        }
+        if (path.startsWith('/api/')) return Response.json(c.session);
+        return nativeFetch(url, options);
+      };
+      c.setAttribute('motion', 'off');
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.configure({ session, copy: en, sessionToken: 'fixture-owner', concepts: { previewURL: location.origin + '/_aithema/html-preview' } });
+      document.body.append(c);
+      window.keyboardSession = c;
+    });
+    const focusAt = () => page.evaluate(() => {
+      const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html');
+      return root.activeElement === preview ? preview.shadowRoot.activeElement?.className || preview.shadowRoot.activeElement?.dataset.width || preview.shadowRoot.activeElement?.tagName : root.activeElement?.className;
+    });
+    const geometry = () => page.evaluate(() => {
+      const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html').shadowRoot;
+      return [...['.concept-viewer', '.concept-stage', '.concept-viewer-controls'].map(s => root.querySelector(s)),
+        ...['.bar', '.stage', '.seg', '.state-content', '.reload'].map(s => preview.querySelector(s))].map(n => {
+        const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+      });
+    });
+    let previousSource;
+    for (const key of ['Enter', 'Space']) {
+      await page.evaluate(() => {
+        window.keyboardMints = 0;
+        window.keyboardSession.shadowRoot.querySelector('.concept-tab').focus();
+      });
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'failure');
+      assert.equal(await focusAt(), 'concept-close', 'opening by keyboard focuses Close');
+      const baseline = await geometry();
+      await page.keyboard.press('Tab');
+      assert.equal(await focusAt(), 'wide', 'Tab enters the selected width control');
+      await page.keyboard.press('Tab');
+      assert.equal(await focusAt(), 'reload', 'Tab reaches Reload inside the failure-state preview');
+      const ring = await page.evaluate(() => {
+        const button = window.keyboardSession.shadowRoot.querySelector('.concept-html').shadowRoot.querySelector('.reload');
+        const style = getComputedStyle(button);
+        return { visible: button.matches(':focus-visible'), outline: style.outlineStyle, width: style.outlineWidth };
+      });
+      assert.equal(ring.visible, true); assert.equal(ring.outline, 'solid'); assert.equal(ring.width, '2px');
+      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'wide', 'Shift+Tab returns to width');
+      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'concept-close', 'Shift+Tab leaves the preview for Close');
+      await page.keyboard.press('Tab'); await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      assert.equal(await focusAt(), 'concept-download', 'Tab leaves Reload for the next enabled dialog action');
+      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'reload', 'backwards entry reaches Reload before width');
+      await page.keyboard.press(key);
+      await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'loading');
+      assert.equal(await focusAt(), 'state', `${key}: focus stays on the pending status`);
+      assert.deepEqual(await geometry(), baseline, `${key}: failure to loading moves 0 px`);
+      assert.deepEqual(await page.evaluate(() => {
+        const root = window.keyboardSession.shadowRoot.querySelector('.concept-html').shadowRoot;
+        return { calls: window.keyboardMints, disabled: root.querySelector('.reload').disabled, live: root.querySelector('.state').getAttribute('aria-live') };
+      }), { calls: 2, disabled: true, live: 'polite' });
+      await page.keyboard.press('Enter'); await page.keyboard.press('Space');
+      assert.equal(await page.evaluate(() => window.keyboardMints), 2, 'keys on pending status cannot mint again');
+      await page.evaluate(async html => window.finishKeyboardMint(await fetch('/fixture/mint', { method: 'POST', body: html })), dummy);
+      await page.waitForFunction(() => window.keyboardSession.shadowRoot.querySelector('.concept-html').state === 'ready');
+      const handle = await page.$('aithema-session >>> .concept-html >>> iframe'), frame = await handle.contentFrame();
+      await frame.waitForSelector('#new');
+      assert.equal(await focusAt(), 'IFRAME', `${key}: fresh frame retains focus`);
+      const source = await handle.evaluate(n => n.src);
+      assert.notEqual(source, previousSource, `${key}: remount uses a fresh single-use capability`); previousSource = source;
+      assert.equal(await page.evaluate(() => window.keyboardMints), 2, `${key}: exactly one reload mint`);
+      assert.deepEqual(await geometry(), baseline, `${key}: loading to ready moves 0 px`);
+      await handle.dispose();
+      // Policy refusal still has just the width stop and cannot offer Reload.
+      await page.evaluate(() => {
+        const root = window.keyboardSession.shadowRoot, preview = root.querySelector('.concept-html');
+        preview.artifact = { ...preview.artifact, previewURL: undefined };
+        root.querySelector('.concept-close').focus();
+      });
+      assert.deepEqual(await page.evaluate(() => {
+        const preview = window.keyboardSession.shadowRoot.querySelector('.concept-html'), button = preview.shadowRoot.querySelector('.reload');
+        return { state: preview.state, hidden: button.getAttribute('aria-hidden'), disabled: button.disabled };
+      }), { state: 'policy', hidden: 'true', disabled: true });
+      await page.keyboard.press('Tab'); assert.equal(await focusAt(), 'wide');
+      await page.keyboard.press('Tab'); assert.equal(await focusAt(), 'concept-download', 'policy Tab skips the unavailable Reload');
+      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'wide', 'policy backwards entry returns to width');
+      await page.keyboard.press('Shift+Tab'); assert.equal(await focusAt(), 'concept-close');
+      assert.equal(await page.evaluate(() => window.keyboardMints), 2, 'policy navigation never mints');
+      await page.keyboard.press('Escape');
+    }
+    await page.evaluate(() => window.keyboardSession.remove());
+  });
   // Reuse one page for Tick checks. Viewport-only shots, reduced
   // motion and the baseline system font keep evidence deterministic and cheap.
   await page.goto(`http://127.0.0.1:${server.address().port}/strict-header-only`);
