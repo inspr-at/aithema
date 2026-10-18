@@ -281,6 +281,6 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings[data-consent-stale=true] .save-state { color:var(--aithema-muted); }
 .done[aria-disabled=true] { opacity:.55; cursor:default; }
 @media(max-width:40rem) {
-  .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); }
+  .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); font-size:.68rem; }
 }
 `;
