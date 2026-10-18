@@ -23,15 +23,16 @@ export const wire = {
   rest: { text, language: 'en', duration: 3.45, words: [] },
 };
 export function harness({ mode: initial = 'completed', onConnect, onSend, duration = 3.45 } = {}) {
-  let mode = initial, requests = 0, active = 0;
+  let mode = initial, requests = 0, active = 0, observed = 0;
   const sent = [], urls = [], bodies = [];
   const stalled = () => new Promise(() => {});
   const resource = () => { requests++; active++; let closed = false;
     return () => { if (!closed) { closed = true; active--; } }; };
   const connect = async ({ url }) => {
-    const close = resource(); urls.push(url); onConnect?.();
+    let doneAudio;
+    const release = resource(), close = () => { release(); doneAudio?.(); }; urls.push(url); onConnect?.();
     if (mode === 'late-open') { await new Promise(resolve => setTimeout(resolve, 80)); }
-    let doneAudio; const endpoint = new Promise(resolve => { doneAudio = resolve; });
+    const endpoint = new Promise(resolve => { doneAudio = resolve; });
     return { close, send(value) { sent.push(value); onSend?.(value);
       if (typeof value === 'string' && JSON.parse(value).type === 'audio.done') doneAudio(); },
     events: mode.startsWith('active-') ? { [Symbol.asyncIterator]() { return this; }, next: stalled, async return() { return { done: true }; } }
@@ -47,6 +48,7 @@ export function harness({ mode: initial = 'completed', onConnect, onSend, durati
         yield JSON.stringify(wire.partial(text, 0, true, true));
         await endpoint;
         if (mode !== 'missing-final') {
+          if (mode !== 'bad-duration') observed = Math.ceil(duration * 200000 / 3600);
           yield JSON.stringify({ ...wire.done, duration: mode === 'bad-duration' ? -1 : duration });
           yield JSON.stringify(wire.done); // duplicate terminal must not leak a second final
         }
@@ -66,8 +68,8 @@ export function harness({ mode: initial = 'completed', onConnect, onSend, durati
   return { connect, fetchImpl, sent, urls, bodies,
     fixtures: { formats: [{ encoding: 'pcm_s16le', sampleRateHz: 16000, channels: 1 }],
       incompatibleFormats: [[{ encoding: 'pcm_f32le', sampleRateHz: 16000, channels: 1 }]],
-      prepare(value) { mode = value.mode; }, requestCount: () => requests, activeCount: () => active,
-      observedMicro: () => Math.ceil(duration * 200000 / 3600), expectedText: text, expectedTranscripts },
+      prepare(value) { mode = value.mode; observed = 0; }, requestCount: () => requests, activeCount: () => active,
+      observedMicro: () => observed, expectedText: text, expectedTranscripts },
   };
 }
 export function operation(extra = {}) {
