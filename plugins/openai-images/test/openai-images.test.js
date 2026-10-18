@@ -484,3 +484,16 @@ test('AIT-306: direct mode leaves the spend port unused and preserves token-base
   assert.deepEqual(f.calls, [['fetch']]);
   assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 11, outputTokens: 23 } }]);
 });
+
+test('AIT-308: exhausted direct image spend cap refuses with not-admitted and zero fetch calls', async () => {
+  let fetches = 0;
+  const spendCap = { reserve() { throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted'); } };
+  const binding = { plugin: manifest.id, model: 'gpt-image-2', effort: 'none', endpoint: 'https://api.openai.com/v1',
+    accountRef: 'fixture-account', secretRef: 'fixture-secret-ref', maxMicro: 100, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } };
+  const plugin = createOpenAIImages({ binding, spendCap, resolveSecret: () => 'local-fixture', fetchImpl: async () => {
+    fetches++; return Response.json({ data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.00001 } });
+  } });
+  const [result] = await Promise.allSettled([plugin.generate(spec, '', options())]);
+  assert.equal(fetches, 0, 'exhausted cap must refuse before fetch');
+  assert.equal(result.status, 'rejected'); assert.equal(result.reason.code, 'not-admitted');
+});
