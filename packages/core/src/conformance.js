@@ -1,3 +1,4 @@
+export { sttConformance, ttsConformance } from './speech-conformance.js';
 import { validateManifest } from './plugins.js';
 export { extractorConformance } from './extractor-conformance.js';
 export { assertExtractor, createExtractor, isExtraction, sniffDocument, sniffUploadMime, EXTRACTOR_LIMITS, UPLOAD_LIMITS, EXTRACTOR_MEDIA_TYPES, TEXT_MEDIA_TYPES } from './extractor.js';

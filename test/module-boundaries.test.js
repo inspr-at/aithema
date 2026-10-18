@@ -213,3 +213,13 @@ test('supported component exports open while source-only composition proof edges
   put('plugins/composed-voice/src/server.js', "import '../../../packages/server/src/new.js';");
   assert.ok(checkBoundaries(dir).some(error => error.includes('Unexported')));
 });
+
+test('speech conformance kits share the supported core root export', async () => {
+  const core = await import('@inspr/aithema-core');
+  const kits = await import('../packages/core/src/conformance.js');
+  for (const name of ['sttConformance', 'ttsConformance']) {
+    assert.equal(typeof core[name], 'function');
+    assert.equal(core[name], kits[name]);
+  }
+  await assert.rejects(import('@inspr/aithema-core/speech-conformance'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+});
