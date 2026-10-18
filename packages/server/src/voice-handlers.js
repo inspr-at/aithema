@@ -698,6 +698,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
           if (body.event?.type === 'interrupted') throw new PluginError('not-admitted', 'Coordinator interruption authority required');
+          if (body.event?.type === 'heard' && entry.admission.plugin.manifest.liveVoice?.capabilities.heard === 'unavailable') {
+            throw new PluginError('not-admitted', 'Provider heard position unavailable');
+          }
           if (playbackActivity) {
             if (body.event.callId !== callId || body.event.providerSessionId !== entry.call.providerSessionId) throw new TypeError('Invalid voice activity');
             entry.playback = body.event.type;
