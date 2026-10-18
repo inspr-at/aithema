@@ -144,8 +144,13 @@ export class ConceptView {
         const draft = root.querySelector('.concept-html');
         // From the draft's width switch, Tab continues into the draft itself.
         if (root.activeElement === draft && !e.shiftKey && draft.state === 'ready') return;
-        const stops = [...dialog.querySelectorAll('button, aithema-html-preview')].filter(b => !b.disabled && !b.hidden);
-        const index = stops.indexOf(root.activeElement); e.preventDefault(); stops[(index + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]?.focus();
+        // A failed preview has two shadow controls: the selected width and Reload.
+        // Include both in the trap so backwards entry reaches Reload too.
+        const failedDraft = draft.state === 'failure';
+        const stops = [...dialog.querySelectorAll('button, aithema-html-preview')].filter(b => !b.disabled && !b.hidden)
+          .flatMap(b => b === draft && failedDraft ? [...draft.shadowRoot.querySelectorAll('button')].filter(b => !b.disabled && b.tabIndex >= 0) : [b]);
+        const active = root.activeElement === draft && failedDraft ? draft.shadowRoot.activeElement : root.activeElement;
+        const index = stops.indexOf(active); e.preventDefault(); stops[(index + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]?.focus();
       }
     });
     const controls = root.querySelector('.concept-viewer-controls');
