@@ -2,7 +2,7 @@
  * authentication; grants and connection capabilities never appear in URLs. */
 export function createNetworkRelayClient({ url = '/composed/relay', fetch: request = globalThis.fetch, headers = {} } = {}) {
   return async function openRelay(grant) {
-    const lifetime = new AbortController(); let connectionId, closed = false, commands = 0;
+    const lifetime = new AbortController(); let connectionId, closed = false, commands = 0, retirementRevision = 0;
     async function post(action, body, binary = false, signal = lifetime.signal) {
       const response = await request(url, { method: 'POST', credentials: 'same-origin', signal,
         headers: { ...headers, 'content-type': binary ? 'application/octet-stream' : 'application/json',
@@ -27,8 +27,15 @@ export function createNetworkRelayClient({ url = '/composed/relay', fetch: reque
         // Pause revokes the relay before its durable save acknowledges. Do not
         // send a competing heartbeat to that retired connection while awaiting the save.
         if (name === 'heartbeat' && commands) return { acknowledged: true, deferred: true };
+        const revision = retirementRevision;
+        if (name === 'pause' || name === 'close') retirementRevision++;
         if (name !== 'heartbeat') commands++;
         try { return (await post('command', { name, args })).result; }
+        catch (error) {
+          // A heartbeat already on the wire may arrive after pause retires its connection.
+          if (name === 'heartbeat' && revision !== retirementRevision) return { acknowledged: true, deferred: true };
+          throw error;
+        }
         finally { if (name !== 'heartbeat') commands--; }
       },
       async disconnect() {
