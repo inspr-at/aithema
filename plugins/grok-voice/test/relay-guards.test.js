@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComposedRelayRoute } from '../../composed-voice/src/network-relay.js';
 import { createComposedBrowserMedia } from '../../composed-voice/src/client.js';
+import { createComposedRelay } from '../../composed-voice/src/relay.js';
+import { createNetworkRelayClient } from '../../composed-voice/src/network-client.js';
+import { createGrokVoiceClient } from '../src/client.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const grant = { callId: 'call', providerSessionId: 'generation', expiresAt: Date.now() + 60000,
   opaque: { epoch: 2, spendDeadlineAt: Date.now() + 60000, browserLivenessDeadlineAt: Date.now() + 30000 } };
@@ -38,4 +41,37 @@ test('AIT-346: cancelled browser start disconnects a relay which ignores cancell
   await tick(); controller.abort(); await assert.rejects(starting, { code: 'cancelled' });
   pending.resolve({ disconnect() { disconnected++; } }); await tick();
   assert.equal(disconnected, 1); assert.equal(captured, 0);
+});
+
+for (const name of ['pause', 'interrupt']) test(`AIT-346: Grok heartbeat uses control during pending ${name}`, async t => {
+  const entered = Promise.withResolvers(), saved = Promise.withResolvers();
+  const until = Date.now() + 60_000;
+  const relay = createComposedRelay({ callId: 'grok-call', providerSessionId: 'grok-segment', epoch: 2, expiresAt: until });
+  let relayHeartbeats = 0, controlHeartbeats = 0, recoveries = 0;
+  relay.attach({
+    async interrupt() { entered.resolve(); await saved.promise; return { acknowledged: true }; },
+    heartbeat() { relayHeartbeats++; throw new Error('Heartbeat belongs on control'); },
+    close() { relay.close(); },
+  });
+  const route = createComposedRelayRoute({ authenticate: () => 'owner', authorize: () => true,
+    connect: candidate => relay.connect(candidate) });
+  const control = {
+    start: async () => ({ callId: relay.grant.callId, providerSessionId: relay.grant.providerSessionId, epoch: 2, mediaGrant: relay.grant }),
+    async pause() { entered.resolve(); await saved.promise; return { acknowledged: true, paused: true }; },
+    resume: async () => ({ acknowledged: true, paused: false }), close: async () => { relay.close(); },
+    async heartbeat(identity) {
+      assert.deepEqual(identity, { callId: 'grok-call', providerSessionId: 'grok-segment', epoch: 2 });
+      controlHeartbeats++; return { acknowledged: true, browserLivenessDeadlineAt: until };
+    },
+    recover() { recoveries++; throw new Error('Unexpected recovery'); },
+  };
+  const client = createGrokVoiceClient({ control,
+    openRelay: createNetworkRelayClient({ url: 'http://localhost/composed/relay', fetch: (url, init) => route.handle(new Request(url, init)) }),
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() {} } });
+  const session = await client.start({ callId: 'grok-call' });
+  t.after(async () => { saved.resolve(); await session.close(); route.close(); });
+  const pending = session[name](); await entered.promise;
+  assert.equal((await session.heartbeat()).browserLivenessDeadlineAt, until);
+  assert.equal(controlHeartbeats, 1); assert.equal(relayHeartbeats, 0); assert.equal(recoveries, 0);
+  saved.resolve(); await pending;
 });

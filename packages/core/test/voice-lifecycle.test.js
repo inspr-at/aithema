@@ -10,6 +10,31 @@ const connected = () => step(step(createVoiceLifecycle('logical-call'), 'start')
   providerSessionId: 'generation-1', authorizationRevision: 'auth-1', spendDeadlineAt: 5000, browserLivenessDeadlineAt: 3000,
 });
 
+for (const response of ['deferred', 'limit', 'http-429']) test(`AIT-346: ${response} heartbeat preserves the lease and does not recover`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  let renewals = 0, replacements = 0, stops = 0, terminals = 0;
+  const controller = createVoiceLifecycleController({ callId: 'busy-call',
+    stopMedia() { stops++; }, terminal() { terminals++; },
+    replace() { replacements++; throw new Error('Unexpected replacement'); },
+    async renew() {
+      if (++renewals > 1) return { acknowledged: true, browserLivenessDeadlineAt: 140_000 };
+      if (response === 'limit') throw new PluginError('limit');
+      if (response === 'http-429') throw Object.assign(new Error('Too many requests'), { status: 429 });
+      return { acknowledged: true, deferred: true };
+    } });
+  t.after(() => controller.end('closed'));
+  controller.connected({ providerSessionId: 'old', spendDeadlineAt: 160_000, browserLivenessDeadlineAt: 130_000 });
+  const ack = await controller.heartbeat();
+  assert.equal(ack.acknowledged, true); assert.equal(ack.deferred, true);
+  assert.equal(controller.state.state, 'active'); assert.equal(controller.state.needsRecovery, false);
+  assert.equal(controller.state.browserLivenessDeadlineAt, 130_000, 'deferral cannot extend the unrenewed lease');
+  assert.equal(replacements, 0); assert.equal(stops, 0); assert.equal(terminals, 0);
+  await controller.heartbeat(); assert.equal(controller.state.browserLivenessDeadlineAt, 140_000);
+  t.mock.timers.tick(40_000);
+  assert.equal(controller.state.needsRecovery, true, 'the actual lease deadline still stops media');
+  assert.equal(stops, 1); assert.equal(replacements, 0); assert.equal(terminals, 0);
+});
+
 test('AIT-138 d: clock gap holds media synchronously and wake waits for explicit Resume', async t => {
   let clock = 100_000, stops = 0, replacements = 0;
   const controller = createVoiceLifecycleController({ callId: 'sleep-call', now: () => clock,
