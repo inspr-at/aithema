@@ -262,3 +262,21 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 }
 @media(prefers-reduced-motion:reduce) { .select__spinner { animation:none; } .gauge__level, .gauge__wave { transition:none !important; } }
 `;
+
+/* AIT-321: reserve the tallest consent status in the existing footer cell at
+   every width, including before the refusal. Measurements never announce. */
+.consent-state-measure { display:none; }
+.settings[data-consent-editor=true] .save-state { width:26rem; max-width:100%; }
+.settings[data-consent-editor=true] .save-status,
+.settings[data-consent-editor=true] .consent-state-measure { grid-area:1/2; min-height:2.2em; display:flex; align-items:center; overflow-wrap:anywhere; }
+.settings[data-consent-editor=true] .consent-state-measure { visibility:hidden; pointer-events:none; user-select:none; }
+.settings[data-consent-editor=true] .save-state-measure { display:none; }
+.settings[data-consent-editor=true] .save-retry { display:none; }
+.save-info { display:none; grid-area:1/1; color:var(--aithema-muted); }
+.settings[data-consent-stale=true] .save-info { display:flex; }
+.settings[data-consent-stale=true] .save-check { visibility:hidden; }
+.settings[data-consent-stale=true] .save-state { color:var(--aithema-muted); }
+.done[aria-disabled=true] { opacity:.55; cursor:default; }
+@media(max-width:40rem) {
+  .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); }
+}

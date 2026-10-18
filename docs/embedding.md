@@ -635,6 +635,43 @@ recipients and purposes; the default withdrawal explains how to withdraw and
 that past transfers cannot be undone. Neither states where consent is stored
 or how long it applies.
 
+Consent decisions bind to the revision shown to the visitor (AIT-321). The
+server adds `consentRevision` (a non-negative safe integer) to
+`GET /api/sessions/:id/consent`. Send that value as `processing.revision` on
+**every** decision, including withdrawal:
+
+```js
+const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+await postJson(`/api/sessions/${id}/consent`, {
+  granted: true,
+  processing: { contract: doc.contract, items: selectedItems, revision: doc.consentRevision },
+});
+```
+
+A mismatched revision returns HTTP **409**
+`{ error: 'consent-stale', consentRevision: <current> }` before calling the host
+ledger, revising consent, invalidating work or broadcasting. An explicitly
+invalid revision returns HTTP **400** `{ error: 'invalid-consent-revision' }`.
+Reload the consent document, show the current selection, and require a new
+visitor action; never automatically retry the refused decision.
+
+`consent.grant({ sessionId, consentRevision, decision, scopes })` receives the
+expected revision in `decision.revision`; the outer `consentRevision` remains
+the **next** revision being granted. An authoritative host ledger should also
+compare the expected revision atomically before writing. The server serializes
+consent reads and decisions around asynchronous host ports within this handler
+instance; shared ledgers across processes must enforce their own atomic check.
+A successful POST returns the committed `consentRevision`. The reference editor
+confirms it against the current document and the exact selected item IDs, so
+hosts may version their contract string on every grant or withdrawal.
+
+**Deprecated compatibility:** decisions that omit `processing.revision` retain
+the previous unconditional behavior for existing hosts. They do not protect
+against stale tabs. Migrate host decision writers to the document revision now;
+removal of this compatibility path requires a separately announced breaking
+host release. The reference Settings editor sends revisions whenever the server
+supplies them.
+
 A mock consent document uses `copy.host.*`; override it to match your ledger.
 In particular, override `consentTitle`, `consentUse` (`off`, `html`, `images`)
 and `consentPage.mockRecipients`, `mockConsequence`, `mockTerms`;

@@ -185,7 +185,7 @@ export class SettingsDialog {
       <footer class="settings__footer"><div class="footer-links"><details class="disclosure"><summary data-help="providers" data-text="providers"></summary>
           <div class="disclosure__body"><p class="disclosure-processing"></p><p data-text="gaugeNote"></p><p data-text="history"></p></div></details>
           <button type="button" class="link footer-consent" data-help="consent" data-text="manageConsent"></button></div>
-        <div class="save-state"><span class="save-check">${ICONS.check}</span><p class="save-status" role="status" aria-live="polite"></p>
+        <div class="save-state"><span class="save-check">${ICONS.check}</span><span class="save-info" aria-hidden="true">${icon('info')}</span><p class="save-status" role="status" aria-live="polite"></p>
           <button type="button" class="save-retry" data-text="retry" data-visible="false"></button></div>
         <button type="button" class="done">${ICONS.check}<span class="done-label"></span><span class="consent-save-sizer" aria-hidden="true"></span></button></footer></div>`;
     this.#dialog.setAttribute('aria-labelledby', 'settings-title');
@@ -196,6 +196,7 @@ export class SettingsDialog {
     }));
     measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
     measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
+    measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
     const tallest = document.createElement('p'); tallest.className = 'notice-text';
@@ -211,6 +212,7 @@ export class SettingsDialog {
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
     this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
+    this.#all('.consent-state-measure').forEach((n, i) => { n.textContent = [copy.host.consentStale, copy.host.consentPage.loading, copy.host.consentPage.saving, copy.host.consentFailed][i]; });
     const measurements = helpMeasurements(copy);
     this.#all('.context-measure').forEach((n, i) => { n.textContent = measurements[i] ?? ''; });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
@@ -724,7 +726,10 @@ export class SettingsDialog {
     const consent = state.consent;
     this.#q('.general-consent').textContent = c.consentStates[consent] ?? '';
     this.#q('.general-recommended').disabled = device || !info?.defaults;
-    this.#q('.save-status').textContent = this.#consentEditor?.active ? this.#copy.host.consentPage.legend : this.#status || c.autosave;
+    const consentActive = this.#consentEditor?.active;
+    this.#dialog.dataset.consentEditor = String(Boolean(consentActive));
+    this.#dialog.dataset.consentStale = String(Boolean(consentActive && this.#consentEditor.stale));
+    this.#q('.save-status').textContent = consentActive ? this.#consentEditor.status : this.#status || c.autosave;
     this.#q('.save-retry').dataset.visible = String(this.#failed && !this.#saving);
     this.#q('.done-label').textContent = this.#consentEditor?.active ? this.#consentEditor.saveLabel : this.#continue ? c.continue : c.done;
     this.#q('.done').dataset.withdraw = String(Boolean(this.#consentEditor?.active && this.#consentEditor.saveLabel === this.#copy.featureConsent.withdraw));
@@ -732,10 +737,10 @@ export class SettingsDialog {
     const done = this.#q('.done');
     // ConsentSettings owns the shared button while its editor is active.
     if (!this.#consentEditor?.active) done.disabled = Boolean(this.#pendingPreset);
-    done.setAttribute('aria-disabled', String(done.disabled));
+    done.setAttribute('aria-disabled', String(done.disabled || consentActive && this.#consentEditor.busy));
     if (this.#pendingPreset) done.setAttribute('aria-describedby', 'settings-notice');
     else done.removeAttribute('aria-describedby');
-    this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset)));
+    this.#dialog.setAttribute('aria-busy', String(this.#busy || Boolean(this.#pendingPreset) || consentActive && this.#consentEditor.busy));
     this.#dialog.dataset.saveState = this.#failed ? 'failed' : this.#busy ? 'saving' : this.#status === c.saved ? 'saved' : 'idle';
     this.#showHelp();
   }

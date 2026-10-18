@@ -121,3 +121,47 @@ test('AIT-321: a stale tab cannot restore images withdrawn in another tab, with 
   assert.equal(tabA.consentRevision, 1, 'the server document carries the revision seen by this tab');
   assert.equal(initialCalls.find(([kind]) => kind === 'grant')[1].decision.revision, 0, 'host receives the expected revision');
 });
+
+for (const revision of [null, -1, 0.5, '0', Number.MAX_SAFE_INTEGER + 1]) test(`AIT-321: invalid expected revision ${JSON.stringify(revision)} has no host effects`, async t => {
+  const storage = new SQLiteStorage(), calls = [];
+  const handlers = createHandlers({ storage, consent: { coverage: () => ({ covered: false }),
+    grant: () => calls.push('grant'), withdraw: () => calls.push('withdraw') } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true, processing: { revision } }),
+  }));
+  assert.equal(response.status, 400); assert.deepEqual(await response.json(), { error: 'invalid-consent-revision' });
+  assert.deepEqual(calls, []); assert.equal(storage.get(session.id).consentRevision, 0);
+});
+
+test('AIT-321: simultaneous decisions serialize around an async host grant', async t => {
+  const storage = new SQLiteStorage(), entered = Promise.withResolvers(), release = Promise.withResolvers(), grants = [];
+  const handlers = createHandlers({ storage, consent: { coverage: () => ({ covered: false }),
+    grant: async args => { grants.push(args); entered.resolve(); await release.promise; return true; } } });
+  t.after(async () => { release.resolve(); await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  const save = () => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true, processing: { revision: 0, items: ['images'] } }),
+  }));
+  const first = save(); await entered.promise;
+  const second = save(); release.resolve();
+  assert.equal((await first).status, 200);
+  const stale = await second;
+  assert.equal(stale.status, 409); assert.deepEqual(await stale.json(), { error: 'consent-stale', consentRevision: 1 });
+  assert.equal(grants.length, 1); assert.equal(storage.get(session.id).consentRevision, 1);
+});
+
+test('AIT-321: omitting the revision retains deprecated host compatibility', async t => {
+  const storage = new SQLiteStorage(), grants = [];
+  const handlers = createHandlers({ storage, consent: { coverage: () => ({ covered: false }), grant: args => grants.push(args) } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const session = storage.create({ ownerToken: testToken });
+  for (let i = 0; i < 2; i++) {
+    const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/consent`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ granted: true }),
+    }));
+    assert.equal(response.status, 200);
+  }
+  assert.equal(grants.length, 2); assert.equal(grants[1].consentRevision, 2);
+});

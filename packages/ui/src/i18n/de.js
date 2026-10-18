@@ -620,6 +620,7 @@ export const de = {
     processingTitle: 'Einwilligung zur Datenverarbeitung', processingGrant: 'Einwilligung erteilen',
     processingWaiting: 'Die Verarbeitung wartet auf die ausgewählten Einwilligungen.', processingSaved: 'Ihre Einwilligung wurde gespeichert.',
     voiceUnavailable: 'Sprache nicht verfügbar: {reason}',
+    consentStale: 'Nicht gespeichert: Ihre Einwilligung wurde inzwischen in einem anderen Fenster geändert. Der aktuelle Stand ist geladen.',
     consentFailed: 'Die Einwilligung konnte nicht gespeichert werden. Versuchen Sie es erneut.', restoreFailed: 'Die Demo konnte nicht wiederhergestellt werden. Laden Sie die Seite neu.',
     visualsOff: 'Keine visuellen Entwürfe',
     labels: { 'Mock reasoning — deterministic demo': 'Lokale Demo, ohne KI-Anbieter',

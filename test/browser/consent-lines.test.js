@@ -41,18 +41,20 @@ async function fixture(t, real = false, purpose = false, revision = false) {
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
     const json = body => request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (page.holdConsentReload && request.method() === 'GET' && path.endsWith('/consent')) { page.heldConsentReload = request; page.holdConsentReload = false; return; }
     if (page.consentCatalog && request.method() === 'GET' && path.endsWith('/settings')) return json(page.consentCatalog);
     if (page.forceSnapshot && request.method() === 'GET' && path === `/api/sessions/${page.forceSnapshot.id}`) return json(page.forceSnapshot);
     // Keep the intentionally held consent verdict coherent with its snapshot.
     if (page.forceSnapshot && request.method() === 'GET' && path.endsWith('/features')) return json({ featureMatrix: page.forceSnapshot.featureMatrix });
     if (page.state && path.endsWith('/consent')) {
-      if (request.method() === 'GET') return json(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected });
+      if (request.method() === 'GET') return json({ ...(page.state.document ?? { contract: 'fixture-contract', items: CONSENT_ITEMS, features, selected: page.state.selected }), consentRevision: page.state.consentRevision ?? 1 });
       const body = JSON.parse(request.postData()); page.posts.push(body);
       assert.equal(body.processing.contract, 'fixture-contract');
       page.state.selected = body.processing.items;
       if (page.state.document) page.state.document = { ...page.state.document, selected: page.state.selected };
       for (const [feature, ids] of Object.entries(page.state.document?.features ?? features)) if (ids.every(id => page.state.selected.includes(id))) page.state.matrix.best[feature] = { available: true, reason: null };
-      return json({ granted: true, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: 2, conversationUnchanged: true } } });
+      page.state.consentRevision = (page.state.consentRevision ?? 1) + 1;
+      return json({ granted: true, consentRevision: page.state.consentRevision, event: { seq: ++page.state.seq, type: 'consent.revised', data: { granted: true, consentRevision: page.state.consentRevision, conversationUnchanged: true } } });
     }
     if (page.state?.snapshot && request.method() === 'GET' && path === `/api/sessions/${page.state.snapshot.id}`) return json({ ...page.state.snapshot, seq: page.state.seq, featureMatrix: page.state.matrix });
     if (path.endsWith('/features') && !real) return json(page.state ? { featureMatrix: page.state.matrix } : {});
@@ -1081,4 +1083,100 @@ test('AIT-321: two pages on one session refuse a stale image grant', { timeout: 
   assert.deepEqual(response.body, { error: 'consent-stale', consentRevision: 2 });
   assert.deepEqual(current.selected, []);
   assert.deepEqual(await other.evaluate(() => fetch('/fixture/consent-stats').then(r => r.json())), before, 'no grant reaches host ledger');
+});
+
+
+test('AIT-321: stale editor reload, exact DE/EN notice and zero movement at 320/390/1440', { timeout: 90_000 }, async t => {
+  const page = await fixture(t, true, false, true), passes = [];
+  const other = await page.fixtureBrowser.newPage(); await other.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  const id = await shadow(page, c => c.session.id), posts = [];
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/consent')) posts.push(JSON.parse(request.postData())); });
+  const otherDecision = granted => other.evaluate(async ({ id, granted }) => {
+    const { postJson } = await import('/packages/ui/src/post-json.js');
+    const doc = await fetch(`/api/sessions/${id}/consent`).then(r => r.json());
+    const result = await postJson(`/api/sessions/${id}/consent`, { granted, processing: { contract: doc.contract, revision: doc.consentRevision, items: granted ? ['images'] : [] } });
+    if (!result.ok) throw new Error('Other tab decision failed');
+  }, { id, granted });
+  const notice = {
+    de: 'Nicht gespeichert: Ihre Einwilligung wurde inzwischen in einem anderen Fenster geändert. Der aktuelle Stand ist geladen.',
+    en: 'Not saved: your consent was changed in another window. The current state is loaded.',
+  };
+  const geometry = ['.done', '.consent-items', '.consent-item input', '.save-state'];
+  for (const locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
+    await otherDecision(true);
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', 'light');
+    await shadow(page, async (c, locale) => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const session = structuredClone(c.session); session.locale = locale;
+      session.transcript = [{ id: 'local-user', role: 'user', content: 'We need a website.' }];
+      c.configure({ session, copy }); document.documentElement.lang = locale;
+      c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
+      c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
+      document.documentElement.style.setProperty('--ui', 'ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif');
+      c.shadowRoot.querySelector('.notice .consent-action').click();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input')?.checked);
+    await shadow(page, c => { const pane = c.shadowRoot.querySelector('.settings__body'); pane.scrollTop = pane.scrollHeight; });
+    await frame(page);
+    const before = await boxes(page, geometry), label = await shadow(page, c => c.shadowRoot.querySelector('.done-label').textContent);
+    await otherDecision(false);
+    const count = posts.length;
+    page.heldConsentReload = null; page.holdConsentReload = true;
+    await page.locator('aithema-session >>> .done').click();
+    for (let attempt = 0; !page.heldConsentReload && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.ok(page.heldConsentReload, 'reload request is held while the visitor sees their current items');
+    const busy = await shadow(page, c => {
+      const r = c.shadowRoot, button = r.querySelector('.done'), form = r.querySelector('.consent-editor'), items = r.querySelector('.consent-items');
+      button.click(); // A second activation while busy must never send another POST.
+      return { disabled: button.getAttribute('aria-disabled'), label: r.querySelector('.done-label').textContent,
+        busy: form.getAttribute('aria-busy'), form: form.getAttribute('role'), inert: items.inert, fieldsetDisabled: items.disabled,
+        visible: items.checkVisibility(), selected: items.querySelector('input').checked, focus: r.activeElement === button };
+    });
+    assert.deepEqual(busy, { disabled: 'true', label, busy: 'true', form: 'form', inert: true, fieldsetDisabled: true, visible: true, selected: true, focus: true });
+    assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px during reload`);
+    await page.heldConsentReload.continue();
+    await until(page, text => document.querySelector('aithema-session').shadowRoot.querySelector('.save-status').textContent === text, notice[locale]);
+    await frame(page);
+    const state = await shadow(page, (c, text) => {
+      const r = c.shadowRoot, status = r.querySelector('.save-status'), form = r.querySelector('.consent-editor'), button = r.querySelector('.done');
+      const range = document.createRange(); range.selectNodeContents(status);
+      const lines = new Set([...range.getClientRects()].map(rect => rect.y));
+      const css = getComputedStyle(status), info = r.querySelector('.save-info');
+      return { notices: [...r.querySelectorAll('[role=status]')].filter(n => n.textContent === text).length,
+        live: status.getAttribute('aria-live'), busy: form.getAttribute('aria-busy'), inert: r.querySelector('.consent-items').inert,
+        focus: r.activeElement === button, selected: r.querySelector('.consent-items input').checked,
+        disabled: button.getAttribute('aria-disabled'), info: info.checkVisibility(), ink2: css.color === getComputedStyle(info).color,
+        lines: lines.size, fits: status.scrollHeight <= status.clientHeight, dialogOpen: r.querySelector('dialog.settings').open };
+    }, notice[locale]);
+    assert.equal(state.notices, 1); assert.equal(state.live, 'polite'); assert.equal(state.busy, 'false'); assert.equal(state.inert, false);
+    assert.equal(state.focus, true); assert.equal(state.selected, false); assert.equal(state.disabled, 'false'); assert.equal(state.info, true);
+    assert.equal(state.ink2, true); assert.equal(state.fits, true); assert.equal(state.dialogOpen, true);
+    assert.deepEqual(await boxes(page, geometry), before, `${locale}/${width}: 0 px after reload`);
+    assert.equal(posts.length - count, 1, 'exactly one POST; no silent re-save');
+    const pass = { head: evidenceCommit, locale, width, ...state, viewportOnly: true, reducedMotion: true, baselineFonts: true, layoutShiftPx: 0, posts: 1, pass: true };
+    passes.push(pass); t.diagnostic(`PASS AIT-321 ${JSON.stringify(pass)}`);
+    if (process.env.AITHEMA_EVIDENCE_DIR) {
+      const dir = join(process.env.AITHEMA_EVIDENCE_DIR, 'AIT-321'); await mkdir(dir, { recursive: true });
+      await shadow(page, async c => {
+        await document.fonts.ready;
+        await Promise.all(c.shadowRoot.getAnimations({ subtree: true }).filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+        c.shadowRoot.activeElement?.blur(); document.activeElement?.blur();
+      });
+      await page.mouse.move(-10, -10); await frame(page);
+      await page.screenshot({ path: join(dir, `ait321-${width}-light-${locale}-stale.png`), fullPage: false, captureBeyondViewport: false });
+      await writeFile(join(dir, 'ait321-checks.json'), JSON.stringify({ head: evidenceCommit, passes }, null, 2));
+    }
+    // The next visitor change removes the notice and is the only way to save again.
+    await shadow(page, c => c.shadowRoot.querySelector('.consent-items input').click());
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.save-status').textContent), '');
+    assert.equal(posts.length - count, 1);
+    await page.locator('aithema-session >>> .done').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+    // Confirmation accepts the host's revision-versioned contract for grants and withdrawals.
+    await shadow(page, c => c.shadowRoot.querySelector('.notice .consent-action').click());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.consent-items input')?.checked);
+    await shadow(page, c => c.shadowRoot.querySelector('.consent-items input').click());
+    await page.locator('aithema-session >>> .done').click();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  }
 });
