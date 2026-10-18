@@ -110,9 +110,10 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       let payload;
       try { payload = JSON.parse(text); } catch { /* Plain-text/empty rejections have no usage. */ }
       observe(payload);
-      // Match reasoning settlement: received 4xx without usage is unbilled;
-      // 5xx, usage without cost and incomplete responses keep the ceiling.
-      if (response.status >= 400 && response.status < 500 && payload?.usage == null) {
+      // Match reasoning settlement: fully received 4xx without usage is unbilled,
+      // except timeouts (408/499). Those, usage without cost, 5xx and incomplete
+      // responses keep the ceiling until a cost receipt is available.
+      if (response.status >= 400 && response.status < 500 && ![408, 499].includes(response.status) && payload?.usage == null) {
         invocation.usage({ inputTokens: 0, outputTokens: 0 });
         observe({ usage: { cost: 0 } });
       }
