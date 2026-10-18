@@ -223,14 +223,14 @@ test('AIT-307: readiness has a static text input line without voice; binding and
       await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
         .filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {})));
     });
-    const configure = async (locale, voice) => {
-      await inShadow(page, async (c, { locale, voice }) => {
+    const configure = async (locale, voice, available = true) => {
+      await inShadow(page, async (c, { locale, voice, available }) => {
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
         const session = structuredClone(window.readySeed); session.locale = locale;
         session.settings.origin = 'chosen'; session.settings.voice = 'offered';
         session.engine.voice = { id: 'offered', offered: true, label: 'Local evidence' };
-        session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available: true } };
+        session.featureMatrix.best = { text: { available: true }, analysis: { available: true }, voice: { available, reason: available ? null : 'voice off' } };
         c.style.setProperty('--aithema-font', 'ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif');
         c.style.setProperty('--aithema-display', 'Georgia,"Iowan Old Style","Palatino Linotype",serif');
         c.setAttribute('motion', 'off');
@@ -238,7 +238,7 @@ test('AIT-307: readiness has a static text input line without voice; binding and
           copyForLocale: code => window.readyCopies[code], host: { library: true } });
         window.readyCopies = { de: (await import('/packages/ui/src/i18n/de.js')).de, en: (await import('/packages/ui/src/i18n/en.js')).en };
         document.documentElement.lang = locale; scrollTo(0, 0);
-      }, { locale, voice });
+      }, { locale, voice, available });
       await settleReady();
     };
     const snapshot = () => inShadow(page, c => {
@@ -251,7 +251,7 @@ test('AIT-307: readiness has a static text input line without voice; binding and
           color: getComputedStyle(line).color, rowColor: getComputedStyle(r.querySelector('.ready__route')).color,
           font: getComputedStyle(line).fontSize, rowX: r.querySelector('dt').getBoundingClientRect().x, x: line.getBoundingClientRect().x,
           background: getComputedStyle(line).backgroundColor, border: getComputedStyle(line).borderTopWidth },
-        slotHeight: (line ?? r.querySelector('.ready__modes')).getBoundingClientRect().height };
+        slotHeight: r.querySelector('.ready__input-slot').getBoundingClientRect().height };
     });
     const oneMode = (state, locale) => {
       assert.equal(state.switch, false, 'AIT-307: one mode has no two-column track');
@@ -287,10 +287,13 @@ test('AIT-307: readiness has a static text input line without voice; binding and
       await configure(locale, true); const two = await snapshot();
       assert.equal(two.switch, true); assert.equal(two.buttons, 2); assert.equal(two.groups, 1); assert.equal(two.line, null);
       still(one, two, `${width}/${theme}/${locale}: bind`); await shot(width, theme, locale, 'two');
-      await inShadow(page, c => {
-        c.session; // Read through the public snapshot; configure below tests unbinding the shown card.
-        c.receive({ seq: c.session.seq + 1, type: 'features.changed', data: { featureMatrix: { best: { text: { available: true }, voice: { available: false, reason: 'voice off' } } } } });
-      });
+      await configure(locale, true, false); const disabled = await snapshot();
+      assert.equal(disabled.switch, true); assert.equal(disabled.buttons, 2); assert.equal(disabled.line, null);
+      assert.deepEqual(await inShadow(page, c => {
+        const r = c.shadowRoot, voice = r.querySelector('.ready__mode[data-mode="voice"]'); voice.click();
+        return [voice.getAttribute('aria-disabled'), r.querySelector('.ready__mode[data-mode="type"]').getAttribute('aria-pressed')];
+      }), ['true', 'true'], 'unavailable bound voice keeps the switch with text selected');
+      still(two, disabled, `${width}/${theme}/${locale}: unavailable voice`);
       await configure(locale, false); const unbound = await snapshot(); oneMode(unbound, locale); still(two, unbound, `${width}/${theme}/${locale}: unbind`);
       checks.push({ width, theme, locale, one, two, unbound, pass: 'static copy/icon/nonfocusable; input slot/card/Start 0 px across bind/unbind' });
     }

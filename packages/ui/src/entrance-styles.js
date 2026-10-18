@@ -84,6 +84,15 @@ export const entranceStyles = `
   text-decoration-color:color-mix(in srgb,currentColor 30%,transparent); text-underline-offset:.2em; }
 .ready__actions button:hover:not(:disabled) { background:none; color:var(--aithema-ink); }
 .ready__route { margin:0; font-size:.76rem; line-height:1.42; color:color-mix(in srgb,var(--aithema-muted) 90%,var(--aithema-ink)); text-wrap:pretty; }
+/* Keep the shown card and Start still when a host binds/unbinds voice: reserve
+   the two voice rows and the host's shared header rail reservation. */
+.workspace[data-stage="ready"] .band:not(:has(> .audio-rail)) { margin-bottom:calc(var(--aithema-header-rail-height,90px) - 90px); }
+@media(max-width:599px) { .workspace[data-stage="ready"] .band:not(:has(> .audio-rail)) { margin-bottom:56px; } }
+.ready:has(.ready__input) dl { padding-bottom:calc(2 * (1.5rem + .55rem)); }
+.ready__input-slot { display:grid; }
+/* The switch has 44px controls, .2rem padding and a 1px edge per side. */
+.ready__input { box-sizing:content-box; display:flex; align-items:center; gap:.5rem; min-height:44px; padding-block:calc(.2rem + 1px); margin:0;
+  font-size:.78rem; color:color-mix(in srgb,var(--aithema-muted) 90%,var(--aithema-ink)); }
 .ready__modes { display:inline-grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-self:center; gap:.2rem; padding:.2rem;
   border:1px solid color-mix(in srgb,var(--aithema-line) 88%,transparent); border-radius:999px; background:color-mix(in srgb,var(--aithema-paper) 48%,transparent); }
 .ready__mode { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; min-width:7rem; min-height:44px; padding:.35rem .75rem; border-radius:999px;

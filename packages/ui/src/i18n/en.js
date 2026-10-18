@@ -250,7 +250,7 @@ export const en = {
     granted: 'Granted', missing: 'Consent needed', notNeeded: 'Not needed on this device', off: 'Off', on: 'On',
     checkOnStart: 'Check when starting', onOnStart: 'On when starting', notConnected: 'Connect under Settings › Advanced',
     micGranted: `Allowed${reasonSeparator}not yet active`, micDenied: 'Blocked in browser', micPrompt: 'Allow when starting',
-    change: 'Change settings', inputMode: 'Input mode', voice: 'Voice input', type: 'Text input', start: 'Start conversation',
+    change: 'Change settings', inputMode: 'Input mode', textOnly: 'Input: Text', voice: 'Voice input', type: 'Text input', start: 'Start conversation',
   },
   local: {
     title: 'Local', intro: 'Connect an AI model running on the device you are using.', connection: 'Connection', textBadge: 'Text only',
