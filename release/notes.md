@@ -1,69 +1,46 @@
 # Aithema 2026.10
 
-Version **261017195050.0.0**. Licensed under **AGPL-3.0-only**.
+Version **261018104037.0.0**. Licensed under **AGPL-3.0-only**.
 
-Third October release: OpenRouter concept images, more accessible controls, complete retirement of erased conversations, and steadier limits and footer controls build on the second October release.
+Fourth October release: concept images now stay within your spending cap.
 
 ## What START notices
 
-- **Concept images through OpenRouter (AIT-300 / START-549):** hosts can route
-  image generation and edits through their existing OpenRouter account, with
-  inline image results and provider-reported spend.
-- **Accessibility (AIT-293):** consent labels now have accessible group names,
-  following the WCAG 2.2 AA axe sweep. The sweep covers the component shell and
-  isolated draft preview; generated content still needs its own checks.
-- **Erased conversations (AIT-295/297):** erased and library-deleted conversations
-  enter complete retirement without another idle window. Removal waits for
-  pending accounting, host cleanup and successful maintenance; content stays erased.
-- **Concept storage (AIT-296/299):** viewed-state storage is read only when visuals
-  are bound and a concept appears or opens. Concept controls recover on re-attach.
-- **Limits and settings (AIT-292):** the one-hour limit announces once, without a
-  duplicate toast. Unrated quality and cost vials stay neutral with a “–”.
-- **Stable footer and limit announcements (AIT-299):** safe label expansion waits
-  while a control is hovered or focused, keeping it under the pointer. Resizes
-  and growing labels refit immediately to avoid overlap. Late credit receipts
-  no longer clear an active host limit or repeat its announcement.
-- **Phone links (AIT-297):** host-limit actions fit at 390 px and reserve stacked
-  targets on narrower phones. Demo legal links keep usable targets across
-  languages and pointer modes.
+- **Concept images through the spending cap (AIT-306/308 / START-549):** image
+  generation and edits reserve room in the host's shared OpenRouter cap before
+  being sent, refuse when the cap is reached, and charge what the provider
+  reports. This unblocks START-549. Direct OpenAI images can share the cap too,
+  using the host's admitted image price or the reserved ceiling.
+- **Phone voice status (AIT-302):** shorter status lines keep their meaning and
+  leave room for the header controls.
+- **Budget and credits (AIT-310):** phones distinguish the host's budget from
+  your credits, including when the host offers no upgrade action.
+- **Readiness (AIT-307):** when only text input is available, the card shows
+  “Input: Text” instead of a half-empty switch.
+- **Footer fit (AIT-309):** controls fit more reliably on sites with legal links.
 
 ## For hosts
 
-- **OpenRouter image binding:** use `createOpenAIImages` with plugin
-  `openai-images`, model `openai/gpt-image-2`, effort `none` and endpoint
-  `https://openrouter.ai/api/v1`. Reuse the server-private key resolver via
-  `secretRef`; optional `routing.referer` and `routing.title` supply attribution.
-  Supply account-specific legal evidence and consent covering both OpenRouter
-  and OpenAI. Gateway results must contain inline PNG/WebP bytes; URL-only
-  results are refused. Provider `usage.cost` is authoritative; missing or invalid
-  cost remains uncertain rather than free. Qualification remains unverified.
-  See [OpenRouter image bindings](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md#openrouter-image-bindings).
-- **Retention:** keep `handlers.retire` on a maintenance schedule and run it at
-  startup, including when `more` is false. Existing databases backfill erased
-  tombstones in bounded batches. Cleanup hooks must be idempotent. Privacy copy
-  must describe accounting deferrals, retries, host cleanup and separate
-  host/provider retention; complete deletion has no unconditional time guarantee.
-  See the [host retention contract](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md#host-retention-contract).
-- **Legal-slot targets (AIT-297):** direct `<a slot="legal">` anchors receive the
-  module's 44 px targets. Nested anchors in a slotted wrapper remain host-owned:
-  give each at least 24×24 CSS px, and 44×44 px on touch. The
-  [embedding example](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md#web-components)
-  shows the required host CSS.
-- **Public packages:** the fifteen package export maps and subpaths are unchanged
-  since `v261017133413.0.0`. The shared `Terminal` type now permits optional
-  token `usage` on an `uncertain` result, preserving known usage without claiming
-  a settled cost. Plugin protocol `apiVersion` is unchanged.
-- **Maintenance (AIT-298/299):** steadier CI cleanup and diagnostics, with detailed
-  unit handle tracing available on request.
-
-## Breaking for hosts
-
-- **Image endpoint admission (AIT-300):** direct `gpt-image-2` bindings now accept
-  only `https://api.openai.com/v1` on non-loopback hosts. Previously accepted
-  custom proxy hosts are refused. Use the admitted direct endpoint or the OpenRouter
-  binding above. An explicit `baseUrl` must match the binding; endpoint queries,
-  fragments and credentials are refused. Loopback endpoints remain available
-  for offline fixtures.
+- **Shared image spending cap:** pass the same `createSpendCap` instance as
+  optional `spendCap` to `createOpenAIImages` and reasoning. It works in
+  OpenRouter gateway and direct OpenAI modes, including after `bind()`.
+  Each generate/edit request reserves `binding.maxMicro` before dispatch;
+  exhaustion or a latched ceiling breach refuses with `not-admitted`.
+- **Image charges:** OpenRouter settles reported `usage.cost`, rounded upward
+  to microUSD. Direct mode uses the host's admitted per-call `imageCost` with
+  response usage tokens; without that price, it charges `binding.maxMicro`.
+  The server passes the private price from `createImageBinding` to generation
+  and edits. Common `binding.rates`, including zero placeholders, never price
+  capped images. Unknown dispatched outcomes retain uncertain holds; failures
+  before dispatch release at zero. Omitting `spendCap` preserves existing behavior.
+- **Cap bookkeeping:** the README now documents `dispatch`, `record` and
+  `uncertain` on the existing `createSpendCap` port, attempt/provider metadata
+  on `reserve`, and `uncertainMicro` in `snapshot()`. Separate instances may
+  share the same account and database. The routing allow-lists and analysis
+  exclusion documented for reasoning do not apply to image requests.
+- **Public packages:** the fifteen package export maps and subpaths, and plugin
+  protocol `apiVersion`, are unchanged since `v261017195050.0.0`.
+- **Maintenance (AIT-301/311/312/313):** stronger regression checks and steadier CI.
 
 ## What is included
 
@@ -87,10 +64,10 @@ source provenance and artifact digests. The workspace root is not installable.
 
 ## Verify and install
 
-Download the assets for `v261017195050.0.0` into a clean directory:
+Download the assets for `v261018104037.0.0` into a clean directory:
 
 ```sh
-gh release download v261017195050.0.0 --repo inspr-at/aithema
+gh release download v261018104037.0.0 --repo inspr-at/aithema
 for asset in SHA256SUMS release-set.json consumer-evidence.json \
   consumer-package-lock.json deployment-pin.json *.tgz; do
   gh attestation verify "$asset" --repo inspr-at/aithema
@@ -113,7 +90,7 @@ node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const manifest = JSON.parse(readFileSync('./release-set.json', 'utf8'));
-const base = 'https://github.com/inspr-at/aithema/releases/download/v261017195050.0.0/';
+const base = 'https://github.com/inspr-at/aithema/releases/download/v261018104037.0.0/';
 const urls = manifest.artifacts.filter(a => a.kind === 'module').map(a => base + a.path);
 execFileSync('npm', ['install', '--save-exact', ...urls], { stdio: 'inherit' });
 NODE
@@ -143,6 +120,6 @@ the product version.
 - Further legal formalisation remains follow-up work; this release grants no
   rights beyond its included licence and rights/provenance notices.
 
-See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261017195050.0.0/docs/embedding.md)
+See the [embedding guide](https://github.com/inspr-at/aithema/blob/v261018104037.0.0/docs/embedding.md)
 for host integration and supported exports, and the published `SHA256SUMS`,
 attestations and `consumer-evidence.json` for verification of this release.
