@@ -536,7 +536,7 @@ export class AithemaSession extends HTMLElement {
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
-      consentPresentation: this.#options.voicePresentation,
+      consentPresentation: this.#options.consentPresentation ?? this.#options.voicePresentation,
       consentDocument: async () => {
         const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/consent`, { headers: this.#headers() });
         if (!response.ok) throw new Error('Consent document unavailable');
@@ -2472,6 +2472,7 @@ export class AithemaSession extends HTMLElement {
         // A changed model, effort or preset supersedes the running reply on the server:
         // its partial text goes, and late fragments tagged with an older revision are ignored.
         const after = this.#session.settings;
+        if (settingsBefore?.voice !== after.voice) void this.#rail?.close('provider-changed');
         if (presetBefore !== this.#session.processingPreset || settingsBefore?.model !== after.model || settingsBefore?.effort !== after.effort) {
           this.#partials.clear(); this.#reasoningRevision = after.revision ?? 0;
         }

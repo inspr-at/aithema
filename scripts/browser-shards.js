@@ -92,14 +92,15 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
   browserTestWeights['test/browser/html-preview.test.js'], 41);
 
-// AIT-348: physical Grok media plus the light/DE lifecycle/composer matrix.
-// mbp2606 committed-head run 0491ecdb8f-42210: 3.959652083s, 2/2 PASS.
-// PR #312 CI 39164323171, shard 1/7: complete file 2/2 PASS, top-level work
-// 1.132739243s + 3.052219941s = 4.184959184s; ceil(*1.25) = 6s. That run
-// was superseded after this file completed. Keep this diagnostic floor outside
-// trusted rolling-main history; no shard count, ceiling or check-name change.
+// AIT-350: PR #315 CI 39172190539, e81e2241, shard 2/7: complete
+// physical media/lifecycle/Settings file 3/3 PASS. Top-level work:
+// 1.176675600s + 3.073272393s + 7.819170062s = 12.069118055s;
+// ceil(*1.25) = 16s, superseding the 12s mbp2606 floor (8.9365s).
+// Source: browser-timings-2-of-7/batch-0.jsonl. The run was superseded
+// after this file completed. Keep the diagnostic floor outside trusted
+// rolling-main history; no shard count, ceiling or check-name changes.
 browserTestWeights['test/browser/composed-media.test.js'] = Math.max(
-  browserTestWeights['test/browser/composed-media.test.js'], 6);
+  browserTestWeights['test/browser/composed-media.test.js'], 16);
 
 // AIT-349: mbp2606 run 01b1dfa8e0-87584 passed 3/3 in 5.277133585s.
 // Successful PR #314 CI shard 2/7 measured 7.092059901s at 41ca2db7

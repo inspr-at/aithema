@@ -35,13 +35,14 @@ export const proofEdges = [
 // Explicit host-supplied entrypoints; pin the complete expressions, not all import().
 export const hostImports = [...['VOICE', 'IMAGE'].map(kind =>
   `(await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_${kind}_HOST_MODULE)).href`),
-  'pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href'];
+  'pathToFileURL(resolve(process.env.AITHEMA_COMPOSED_QUALIFICATION_MODULE)).href',
+  'pathToFileURL(resolve(process.env.AITHEMA_GROK_VOICE_HOST_MODULE)).href'];
 export const browserSources = ['demo/host.js', 'demo/consent-page.js', 'demo/admin-view.js', 'demo/admin-copy.js', 'demo/fake-voice.js'];
 export function renderExceptionTable() {
   return ['| Source | Exact exception | Owner / reason |', '| --- | --- | --- |',
     ...edgeExceptions.map(row => `| \`${row.from}\` | \`${row.targets.join('`, `')}\` | ${row.reason} |`),
     ...proofEdges.map(row => `| \`${row.from}\` | \`${row.target}\` | ${row.reason ?? '#173: unpublished composition proof'} |`),
-    '| `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION host-module expressions | #173 / AIT-160: injected host entrypoints |',
+    '| `demo/server.js` | Exact VOICE/IMAGE/COMPOSED_QUALIFICATION/GROK_VOICE host-module expressions | #173 / AIT-160 / AIT-350: injected host entrypoints |',
     ...browserSources.map(path => `| \`${path}\` | Relative public source URLs | AIT-205: native browser loading |`),
     '| `packages/server/src/voice-provider.js` | `packages/server/src/dev/local-voice-manifest.js` | AIT-218: private simulator manifest |',
     '| `plugins/fake-voice/src/manifest.js` | `packages/server/src/dev/local-voice-manifest.js` | Test-only manifest forwarder |',
