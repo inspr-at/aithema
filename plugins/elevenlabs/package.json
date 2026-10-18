@@ -2,7 +2,7 @@
   "name": "@inspr/aithema-plugin-elevenlabs",
   "private": false,
   "type": "module",
-  "version": "261018104037.0.0",
+  "version": "261018142833.0.0",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=24"
@@ -17,9 +17,9 @@
     "./voice-host": "./src/voice-host.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261018104037.0.0",
+    "@inspr/aithema-core": "261018142833.0.0",
     "@elevenlabs/client": "1.17.0",
-    "@inspr/aithema-ui": "261018104037.0.0"
+    "@inspr/aithema-ui": "261018142833.0.0"
   },
   "files": [
     "src/"
