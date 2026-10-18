@@ -6,6 +6,8 @@ import { createComposedRelayRoute } from '@inspr/aithema-server/composed-voice/n
 import { createNetworkRelayClient } from '@inspr/aithema-server/composed-voice/network-client';
 import { createComposedBrowserMedia } from '@inspr/aithema-server/composed-voice/client';
 import { manifest } from '../src/manifest.js';
+import { SQLiteStorage } from '../../../packages/server/src/storage.js';
+import { temporaryDb } from '../../../test/helpers.js';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, overrides = {}) {
@@ -167,6 +169,58 @@ test('AIT-348 round 2: a hold racing the executor hand-off cannot release an acc
   assert.deepEqual(await h.coordinator.sendText('Ja', id), first);
   assert.equal(executions, 1);
 });
+
+// Exercise the host's durable receipt, including consumption of an existing
+// typed final. Array-only commit fixtures cannot detect a duplicated transcript.
+for (const boundary of ['permitted', 'accepted']) for (const restart of [false, true]) for (const echo of [false, true]) {
+  test(`AIT-348 round 3: late ${boundary} refusal keeps one stored final (${restart ? 'restart' : 'retry'}, ${echo ? 'typed echo' : 'host final'})`, async t => {
+    const path = await temporaryDb();
+    let storage = new SQLiteStorage(path), refused = false, written = false;
+    const session = storage.create(), text = 'Noch einmal', writes = [];
+    if (echo) storage.postTurn(session.id, 'typed-final', Buffer.from(text), text, { voiceCallId: 'call', voiceProviderId: 'generation' });
+    const open = () => fixture(t, {
+      authorize: () => {
+        if (boundary === 'permitted' && written && !refused) { refused = true; return false; }
+        return true;
+      },
+      commitUtterance(envelope) {
+        const turnId = `generation:${envelope.payload.callbackBody.metadata.utteranceId}`;
+        writes.push(turnId);
+        const result = storage.postVoiceEvent(session.id, 'call', 'generation', {
+          type: 'final', role: 'user', callId: 'call', providerSessionId: 'generation', turnId, text,
+        });
+        written = true; return result;
+      },
+      relay: { audio() {}, silence() {}, event(value) {
+        if (boundary === 'accepted' && value.type === 'final' && value.role === 'user' && !refused) {
+          refused = true; throw Object.assign(new Error('fixture late refusal'), { code: 'not-admitted' });
+        }
+      } },
+    });
+    let h = open();
+    t.after(() => storage.close());
+    const id = receipt('late-refusal');
+    await assert.rejects(h.coordinator.sendText(text, id), { code: 'not-admitted' });
+    await h.coordinator.idle();
+    assert.equal(refused, true); assert.equal(writes.length, 1); assert.equal(h.executions.length, 0);
+    const finals = () => storage.get(session.id).transcript.filter(turn => turn.role === 'user');
+    assert.equal(finals().length, 1, 'the first attempt already wrote or consumed the user final');
+    const storedId = finals()[0].id;
+    if (restart) {
+      await h.coordinator.close(); await h.coordinator.idle(); storage.close();
+      storage = new SQLiteStorage(path); h = open();
+    }
+    const retried = await Promise.all(Array.from({ length: 4 }, () => h.coordinator.sendText(text, id)));
+    await h.coordinator.idle();
+    assert.ok(retried.every(value => value.acknowledged && value.turnId === retried[0].turnId));
+    assert.deepEqual(await h.coordinator.sendText(text, id), retried[0]);
+    assert.equal(h.executions.length, 1);
+    assert.deepEqual(h.executions[0].payload.callbackBody.messages, [{ role: 'user', content: text }]);
+    assert.equal(finals().length, 1, 'a late refusal and retry must never append a second user final');
+    assert.equal(finals()[0].id, storedId);
+    assert.equal(writes.length, 2); assert.equal(writes[1], writes[0], 'retry reuses the durable receipt identity');
+  });
+}
 
 function mediaFixture(t, { command, capture, player, recover } = {}) {
   const until = Date.now() + 60_000;
