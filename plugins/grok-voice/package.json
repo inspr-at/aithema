@@ -2,7 +2,7 @@
   "name": "@inspr/aithema-plugin-grok-voice",
   "private": true,
   "type": "module",
-  "version": "261018142833.0.0",
+  "version": "261018162546.0.0",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=24"
@@ -15,7 +15,7 @@
     "./manifest": "./src/manifest.js"
   },
   "dependencies": {
-    "@inspr/aithema-core": "261018142833.0.0"
+    "@inspr/aithema-core": "261018162546.0.0"
   },
   "files": [
     "src/"
