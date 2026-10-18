@@ -1008,7 +1008,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const described = runtime.describe(session);
       return { plugin, consentScope: result.scope ? structuredClone(result.scope) : null,
         ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
-        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false, error } = {}) {
+        label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report,
+          ...(lane === 'concept' && !html ? { imageCost: binding.imageCost } : {}) }, finish({ failed = false, error } = {}) {
         try {
           if (!reported) {
             report({ attemptId, outcome: 'uncertain' });

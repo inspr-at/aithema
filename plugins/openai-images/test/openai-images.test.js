@@ -500,6 +500,7 @@ test('AIT-308: exhausted direct image spend cap refuses with not-admitted and ze
 
 const directBinding = () => ({ ...cappedBinding(), model: 'gpt-image-2', endpoint: 'https://api.openai.com/v1',
   rates: { inputMicro: 2, outputMicro: 3 } });
+const directOptions = (extra = {}) => options({ imageCost: { inputMicro: 2, outputMicro: 3 }, ...extra });
 const directPayload = (usage = { input_tokens: 11, output_tokens: 23 }) => ({
   id: 'gen-direct-image', data: [{ b64_json: png.toString('base64') }], usage });
 const directFixture = (settings = {}) => cappedFixture({ binding: directBinding(), payload: directPayload(), ...settings });
@@ -507,7 +508,7 @@ test('AIT-308: direct generate and edit reserve before fetch, price private toke
   const f = directFixture(), plugin = f.plugin.bind({ ...f.plugin.binding, maxMicro: 95 });
   for (const operation of ['generate', 'edit']) {
     f.calls.length = 0;
-    const o = options(), evidence = [];
+    const o = directOptions(), evidence = [];
     o.attempt.dispatchCost = () => evidence.push('dispatch'); o.attempt.observeCost = receipt => evidence.push(receipt);
     if (operation === 'generate') await plugin.generate(spec, '', o);
     else await plugin.edit(artifact(), spec, feedback, o);
@@ -533,7 +534,7 @@ test('AIT-308: direct missing or invalid tokens and overflowing private charges 
   for (const usage of [undefined, {}, { input_tokens: 1 }, { input_tokens: -1, output_tokens: 2 },
     { input_tokens: '1', output_tokens: 2 }, { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 0 },
     { input_tokens: 0, output_tokens: 0 }]) {
-    const f = directFixture({ payload: { ...directPayload(), usage } }), o = options();
+    const f = directFixture({ payload: { ...directPayload(), usage } }), o = directOptions();
     await f.plugin.generate(spec, '', o);
     const zero = usage?.input_tokens === 0 && usage?.output_tokens === 0;
     assert.deepEqual(f.calls.at(-1), zero ? ['settle', 0] : ['uncertain']);
@@ -543,7 +544,7 @@ test('AIT-308: direct missing or invalid tokens and overflowing private charges 
 test('AIT-308: direct cost fields cannot replace private rates or unpriced ceiling charging', async () => {
   for (const cost of [undefined, null, '0.001', -1, Infinity, 0, 1]) {
     const f = directFixture({ payload: directPayload({ input_tokens: 1, output_tokens: 2, cost }) });
-    await f.plugin.generate(spec, '', options());
+    await f.plugin.generate(spec, '', directOptions());
     assert.deepEqual(f.calls.at(-1), ['settle', 8]);
   }
 });
@@ -580,7 +581,8 @@ test('AIT-308: direct HTTP errors price usable tokens, release unbilled rejectio
     const { rates, ...unpriced } = directBinding();
     for (const usage of [undefined, {}, { input_tokens: 1, output_tokens: 2 }, { input_tokens: 0, output_tokens: 0 }, { cost: 0 }]) {
       const f = directFixture({ binding: priced ? directBinding() : unpriced,
-        status, payload: { error: { message: 'fixture rejection' }, usage } }), o = options();
+        status, payload: { error: { message: 'fixture rejection' }, usage } }), o = options({
+          ...(priced ? { imageCost: { inputMicro: 2, outputMicro: 3 } } : {}) });
       await assert.rejects(f.plugin.generate(spec, '', o), { code: [401, 403].includes(status) ? 'auth' : status === 429 ? 'rate-limit' : 'provider' });
       const actual = usage?.input_tokens !== undefined ? priced ? usage.input_tokens * 2 + usage.output_tokens * 3 : 100 :
         !usage && status < 500 && ![408, 499].includes(status) ? 0 : null;
@@ -594,7 +596,8 @@ test('AIT-308: direct HTTP errors price usable tokens, release unbilled rejectio
 test('AIT-308: direct charged invalid output retains the private token charge or unpriced ceiling', async () => {
   const { rates, ...unpriced } = directBinding();
   for (const binding of [directBinding(), unpriced]) {
-    const f = directFixture({ binding, payload: { ...directPayload(), data: [] } }), o = options();
+    const f = directFixture({ binding, payload: { ...directPayload(), data: [] } }), o = options({
+      ...(binding.rates ? { imageCost: { inputMicro: 2, outputMicro: 3 } } : {}) });
     await assert.rejects(f.plugin.generate(spec, '', o), { code: 'invalid-output' });
     const actual = binding.rates ? 91 : 100;
     assert.deepEqual(f.calls.slice(-2), [['record', { generationId: 'gen-direct-image', chargedMicro: actual }], ['settle', actual]]);
@@ -618,5 +621,16 @@ test('AIT-308: direct malformed successful response bodies retain an uncertain c
     const f = directFixture({ binding, respond });
     await assert.rejects(f.plugin.generate(spec, '', options()));
     assert.deepEqual(f.calls.at(-1), ['uncertain']);
+  }
+});
+
+test('AIT-308 round 2: common rates never price capped direct images, including nonzero rates', async () => {
+  for (const rates of [undefined, { inputMicro: 0, outputMicro: 0 }, { inputMicro: 2, outputMicro: 3 }]) {
+    for (const imageCost of [undefined, {}, { inputMicro: -1, outputMicro: 3 }, { inputMicro: 2, outputMicro: '3' }]) {
+      const f = directFixture({ binding: { ...directBinding(), rates } }), o = options({ imageCost });
+      await f.plugin.generate(spec, '', o);
+      assert.deepEqual(f.calls.at(-1), ['settle', 100]);
+      assert.equal(o.reports[0].chargedMicro, 100);
+    }
   }
 });

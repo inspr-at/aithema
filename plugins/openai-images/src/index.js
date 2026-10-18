@@ -50,8 +50,8 @@ function fieldsFor(spec, feedback) {
   return fields;
 }
 export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch, spendCap } = {}) {
-  // Direct capped hosts may omit private prices; validate the remaining binding
-  // with zero placeholders, then preserve the absence for ceiling settlement/bind.
+  // Common rates are required by createBinding, but never price capped images.
+  // Accept their omission for direct capped hosts and preserve it across bind().
   const unpriced = Boolean(spendCap) && binding?.model === 'gpt-image-2' && binding.rates === undefined;
   binding = createBinding(unpriced ? { ...binding, rates: { inputMicro: 0, outputMicro: 0 } } : binding);
   if (unpriced) { const { rates, ...rest } = binding; binding = deepFreeze(rest); }
@@ -79,10 +79,13 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
     const directCost = usage => {
-      if (!binding.rates) return binding.maxMicro;
+      // Common binding rates are required placeholders, not admitted image prices.
+      // The runtime passes its private imageCost on each admitted invocation.
+      const price = options.imageCost;
+      if (!price || !['inputMicro', 'outputMicro'].every(k => Number.isSafeInteger(price[k]) && price[k] >= 0)) return binding.maxMicro;
       if (!usage) return null;
-      const cost = BigInt(usage.inputTokens) * BigInt(binding.rates.inputMicro) +
-        BigInt(usage.outputTokens) * BigInt(binding.rates.outputMicro);
+      const cost = BigInt(usage.inputTokens) * BigInt(price.inputMicro) +
+        BigInt(usage.outputTokens) * BigInt(price.outputMicro);
       return cost <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(cost) : null;
     };
     const observe = (payload, cost = gateway ? usdCostMicro(payload?.usage?.cost) : directCost(usageOf(payload?.usage))) => {

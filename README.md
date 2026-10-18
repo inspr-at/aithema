@@ -1330,15 +1330,17 @@ The server resolves `binding.secretRef` at runtime (the default resolver reads t
 environment variable); the host owns account qualification and consent.
 Local health checks configuration without contacting a provider.
 The optional `spendCap` port is retained by `bind()` and applies to OpenRouter
-mode only. Share the same `createSpendCap` instance with reasoning to count both
-against one account cap. Each image generate/edit wire call reserves the admitted
-`binding.maxMicro` before dispatch, records generation/cost evidence, and settles
-reported `usage.cost` rounded upward to microUSD. Missing or invalid costs keep
-an uncertain hold; a fully received 4xx without usage releases it at zero, except
-408/499. Pre-dispatch failures release at zero. Exhaustion or a latched ceiling
+and direct modes. Share the same `createSpendCap` instance with reasoning to
+count both against one account cap. Each image generate/edit wire call reserves the admitted
+`binding.maxMicro` before dispatch and records generation/cost evidence.
+OpenRouter mode settles reported `usage.cost` rounded upward to microUSD;
+missing or invalid costs keep an uncertain hold. A fully received 4xx without
+usage releases it at zero, except 408/499. Pre-dispatch failures release at zero. Exhaustion or a latched ceiling
 breach refuses with `not-admitted` before fetch. No image price is inferred.
-Omitting `spendCap` preserves existing behavior; direct mode keeps its existing
-token-based accounting even when the port is supplied.
+Direct mode uses the admitted per-call `options.imageCost` with usable usage
+tokens, or charges `binding.maxMicro` when that price is absent. Common
+`binding.rates` never price capped images. Omitting `spendCap` preserves existing
+token-based accounting in direct mode.
 
 In direct mode, the adapter posts JSON to `/images/generations` without
 references. With references it posts private multipart `image[]` bytes to `/images/edits`, as
@@ -2994,10 +2996,15 @@ Inject one instance as `spendCap` into both `createOpenRouterReasoning` and
 and OpenRouter modes reserve the host's admitted `binding.maxMicro` before any
 fetch and refuse with `not-admitted` when the cap is exhausted. OpenRouter images
 settle from `usage.cost`. Direct images charge response input/output tokens at
-host-supplied private `binding.rates` (microdollars per token); without those
-rates, a completed response charges the admitted `binding.maxMicro` ceiling.
-Missing or invalid tokens with private rates, and unknown outcomes after
-dispatch, retain uncertain holds. Failures before dispatch release at zero.
+the host's admitted per-call `options.imageCost` (microdollars per token). The
+server runtime passes this private price from `createImageBinding` through
+admission to both generate and edit invocation options; `imagePluginBinding`
+keeps it out of the common binding. Without a usable `imageCost`, a completed
+response charges the admitted `binding.maxMicro` ceiling, including absent usage.
+Common `binding.rates`, including all-zero placeholders, never price capped
+images. Charges above the reservation remain visible and latch the existing
+breach refusal. Missing or invalid tokens with `imageCost`, and unknown outcomes
+after dispatch, retain uncertain holds. Failures before dispatch release at zero.
 Public image rates remain unset; no price is inferred. Omitting `spendCap`
 preserves existing behavior. Separate instances can
 also share the same account and database. `snapshot()` returns

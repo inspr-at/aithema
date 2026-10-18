@@ -151,7 +151,7 @@ test('AIT-308: concurrent direct and gateway images hold the same SQLite cap bef
     directStarted.resolve(); await gate.promise;
     return Response.json({ data: [{ b64_json: png.toString('base64') }], usage: { input_tokens: 1, output_tokens: 2 } });
   }, imageFetch: async () => { gatewayStarted.resolve(); await gate.promise; return Response.json(imagePayload(0.00001)); } });
-  const directCall = h.direct.generate(spec, '', options()); await directStarted.promise;
+  const directCall = h.direct.generate(spec, '', { ...options(), imageCost: { inputMicro: 2, outputMicro: 3 } }); await directStarted.promise;
   const gatewayCall = h.images.generate(spec, '', options()); await gatewayStarted.promise;
   try {
     assert.equal(h.cap.snapshot().reservedMicro, 100);
@@ -163,7 +163,7 @@ test('AIT-308: concurrent direct and gateway images hold the same SQLite cap bef
   assert.deepEqual(h.cap.snapshot(), { spentMicro: 18, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
 });
 test('AIT-308: direct private token charge above its ceiling latches a SQLite breach for both gateways', async t => {
-  const h = directFixture(t, { rates: { inputMicro: 10, outputMicro: 20 } }), o = options();
+  const h = directFixture(t, { rates: { inputMicro: 10, outputMicro: 20 } }), o = { ...options(), imageCost: { inputMicro: 10, outputMicro: 20 } };
   await h.direct.generate(spec, '', o);
   assert.deepEqual(h.cap.evidence(o.attempt.attemptId), { generationId: 'gen-direct-shared', chargedMicro: 50 });
   assert.deepEqual(h.cap.snapshot(), { spentMicro: 50, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: true });
@@ -187,7 +187,7 @@ test('AIT-308: missing direct tokens with private rates stay uncertain while unp
   for (const priced of [true, false]) {
     const h = directFixture(t, { capMicro: 40, rates: priced ? { inputMicro: 2, outputMicro: 3 } : undefined,
       directFetch: () => Response.json({ data: [{ b64_json: png.toString('base64') }] }) });
-    await h.direct.generate(spec, '', options());
+    await h.direct.generate(spec, '', { ...options(), ...(priced ? { imageCost: { inputMicro: 2, outputMicro: 3 } } : {}) });
     assert.deepEqual(h.cap.snapshot(), { spentMicro: priced ? 0 : 40, reservedMicro: 0, uncertainMicro: priced ? 40 : 0, capMicro: 40, breached: false });
     await assert.rejects(h.images.generate(spec, '', options()), { code: 'not-admitted' });
   }
