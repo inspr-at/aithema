@@ -83,8 +83,14 @@ browserTestWeights['test/browser/consent-lines.test.js'] = Math.max(
 // 19.367865619s backdrop + 9.704025264s strict host/evidence = 37.072932445s.
 // ceil(observed * 1.25) = 47s, superseding the 41s AIT-341 floor.
 // PR diagnostics stay outside trusted rolling-main timing history.
+// Round 2: PR #307 CI 39153361261 at 7c637507, shard 4/7, passed
+// the delayed-response workload: 11.590730748 + 19.419751455 +
+// 9.769507956 = 40.779990159s. The added over-budget response case
+// measured 3.830614792s on mbp2606 at f4011c13 (run -31156).
+// ceil((CI work + measured added case) * 1.25) = 56s; final CI must
+// confirm this diagnostic floor. No rolling-main history is rewritten.
 browserTestWeights['test/browser/html-preview.test.js'] = Math.max(
-  browserTestWeights['test/browser/html-preview.test.js'], 47);
+  browserTestWeights['test/browser/html-preview.test.js'], 56);
 // The same CI run, shard 5/7, passed all ten demo top-level tests in
 // 56.218506283s; ceil(*1.25) = 71s for the changed served-frame workload.
 // Shard 1/7 display work was 204.323290747s; its existing 257s floor remains.
