@@ -195,8 +195,8 @@ export class SettingsDialog {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
     }));
     measure(this.#q('.context-text'), helpMeasurements(this.#copy), 'context-measure');
-    measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     measure(this.#q('.save-state'), [this.#copy.host.consentStale, this.#copy.host.consentPage.loading, this.#copy.host.consentPage.saving, this.#copy.host.consentFailed], 'consent-state-measure');
+    measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
     const tallest = document.createElement('p'); tallest.className = 'notice-text';

@@ -20,7 +20,7 @@ export class ConsentSettings {
     root.addEventListener('change', () => { this.#stale = false; this.#status(''); this.#paintBusy(); });
     this.setCopy(copy);
   }
-  setCopy(copy) { this.#copy = copy; if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
+  setCopy(copy) { this.#copy = copy; if (this.#stale) this.#status(copy.host.consentStale); if (!this.#ports.saveButton) setText(this.#button, copy.featureConsent.save); this.#root.setAttribute('aria-label', copy.host.consentPage.legend); this.#root.querySelector('fieldset').setAttribute('aria-label', copy.host.consentPage.legend); }
   get busy() { return this.#busy; }
   get status() { return this.#statusText; }
   get stale() { return this.#stale; }
