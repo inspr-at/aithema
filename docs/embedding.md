@@ -1153,6 +1153,19 @@ host's reservation rather than implying a free image. Provenance identifies
 provider `openrouter`, model `openai/gpt-image-2`; the label identifies the route.
 No paid qualification call is part of this adapter's offline tests.
 
+For audit and reconciliation, the gateway adapter validates OpenRouter's
+[`X-Generation-Id` response header](https://openrouter.ai/docs/api_reference/streaming#additional-information)
+with the core `generationId()` helper and records it on the invocation and spend
+reservation, alongside any `chargedMicro` receipt. OpenRouter documents this header
+for all endpoints; its presence on `/images` responses is inferred from that
+documentation and has not been live-verified. A valid header takes precedence
+over the existing top-level JSON `id` fallback. The public
+[image response model](https://github.com/OpenRouterTeam/typescript-sdk/blob/d937c4e63256004b2b4bc5a8de7753256ad4bb4f/src/models/imagegenerationresponse.ts)
+defines `created`, `data` and optional `usage`, with no generation ID field.
+If neither source supplies a valid ID, the reservation has no provider generation
+ID; its `attemptId` and reservation id identify it locally. Settlement and
+admission do not depend on a generation ID.
+
 ### Mail copy and privacy links
 
 The SMTP plugin accepts `copy: { en: { ... }, de: { ... } }`. Each supplied

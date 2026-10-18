@@ -423,6 +423,78 @@ test('AIT-306: generate and edit reserve the admitted ceiling, record before set
     assert.equal(o.reports[0].chargedMicro, 11); assert.equal(o.reports[0].generationId, 'gen-image-receipt');
   }
 });
+test('AIT-326: gateway header and body generation IDs reach invocation and reservation receipts', async () => {
+  const cases = [
+    { header: 'gen-header-image', expected: 'gen-header-image' },
+    { id: 'gen-body-image', expected: 'gen-body-image' },
+    { header: 'gen-header-image', id: 'gen-body-image', expected: 'gen-header-image' },
+    { header: 'request-not-generation', id: 'gen-body-image', expected: 'gen-body-image' },
+    {},
+  ];
+  for (const operation of ['generate', 'edit']) for (const { header, id, expected } of cases) {
+    const f = cappedFixture({ respond: () => Response.json({ ...(id ? { id } : {}),
+      data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.0000101 } },
+    { headers: header ? { 'X-Generation-Id': header } : {} }) });
+    const o = options(), observed = [];
+    o.attempt.observeCost = receipt => observed.push(receipt);
+    if (operation === 'generate') await f.plugin.generate(spec, '', o);
+    else await f.plugin.edit(artifact(), spec, feedback, o);
+    const evidence = { ...(expected ? { generationId: expected } : {}), chargedMicro: 11 };
+    assert.deepEqual(f.calls.slice(-2), [['record', evidence], ['settle', 11]]);
+    assert.deepEqual(observed, [evidence]);
+    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed',
+      usage: { inputTokens: 0, outputTokens: 0 }, ...evidence }]);
+  }
+});
+test('AIT-326: invalid or unreadable generation headers leave cost settlement intact', async () => {
+  for (const header of ['', 'req-image', 'gen-bad_id', 'gen-one, gen-two', `gen-${'a'.repeat(125)}`, null, 7, 'gen-bad\nvalue']) {
+    const f = cappedFixture({ respond: () => {
+      const response = Response.json({ id: 'invalid-body-id', data: [{ b64_json: png.toString('base64') }], usage: { cost: 0.00002 } });
+      const headers = response.headers;
+      Object.defineProperty(response, 'headers', { value: { get: name => name === 'x-generation-id' ? header : headers.get(name) } });
+      return response;
+    } }), o = options();
+    await f.plugin.generate(spec, '', o);
+    assert.deepEqual(f.calls.slice(-2), [['record', { chargedMicro: 20 }], ['settle', 20]]);
+    assert.equal(Object.hasOwn(o.reports[0], 'generationId'), false);
+  }
+  const f = cappedFixture({ respond: () => {
+    const response = Response.json({ id: 'gen-body-fallback', data: [{ b64_json: png.toString('base64') }], usage: { cost: 0 } });
+    const headers = response.headers;
+    Object.defineProperty(response, 'headers', { value: { get(name) {
+      if (name === 'x-generation-id') throw new Error('fixture header access');
+      return headers.get(name);
+    } } });
+    return response;
+  } }), o = options();
+  await f.plugin.generate(spec, '', o);
+  assert.deepEqual(f.calls.slice(-2), [['record', { generationId: 'gen-body-fallback', chargedMicro: 0 }], ['settle', 0]]);
+  assert.equal(o.reports[0].generationId, 'gen-body-fallback');
+});
+test('AIT-326: header ID is retained with unknown spend, HTTP errors and invalid image output', async () => {
+  for (const mode of ['unknown-cost', 'http-error', 'invalid-image']) {
+    const f = cappedFixture({ respond: () => Response.json({ data: mode === 'invalid-image' ? [] : [{ b64_json: png.toString('base64') }],
+      usage: mode === 'unknown-cost' ? {} : { cost: 0.00002 } },
+    { status: mode === 'http-error' ? 500 : 200, headers: { 'x-generation-id': 'gen-image-error' } }) }), o = options();
+    if (mode === 'unknown-cost') await f.plugin.generate(spec, '', o);
+    else await assert.rejects(f.plugin.generate(spec, '', o), { code: mode === 'http-error' ? 'provider' : 'invalid-output' });
+    assert.deepEqual(f.calls.slice(-2), [['record', { generationId: 'gen-image-error',
+      ...(mode === 'unknown-cost' ? {} : { chargedMicro: 20 }) }], mode === 'unknown-cost' ? ['uncertain'] : ['settle', 20]]);
+    assert.equal(o.reports[0].generationId, 'gen-image-error');
+  }
+});
+test('AIT-326: uncapped gateway reports IDs while direct mode ignores the gateway header', async () => {
+  for (const gateway of [false, true]) for (const id of [undefined, 'gen-body-uncapped']) {
+    const f = cappedFixture({ spendCap: false,
+      ...(gateway ? {} : { binding: { ...cappedBinding(), model: 'gpt-image-2', endpoint: 'https://api.openai.com/v1' } }),
+      respond: () => Response.json({ ...(id ? { id } : {}), data: [{ b64_json: png.toString('base64') }],
+        usage: { input_tokens: 1, output_tokens: 2, cost: 0.00002 } }, { headers: { 'X-Generation-Id': 'gen-header-uncapped' } }) }), o = options();
+    await f.plugin.generate(spec, '', o);
+    assert.deepEqual(f.calls, [['fetch']]);
+    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 2 },
+      ...(gateway ? { generationId: 'gen-header-uncapped', chargedMicro: 20 } : {}) }]);
+  }
+});
 test('AIT-306: missing and unparsable dispatched costs retain an uncertain ceiling, explicit zero settles', async () => {
   for (const cost of [undefined, null, '0.001', -1, Infinity, 0]) {
     const f = cappedFixture({ payload: { id: 'gen-unknown-cost', data: [{ b64_json: png.toString('base64') }], usage: { cost } } });
