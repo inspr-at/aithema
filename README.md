@@ -12,13 +12,16 @@ belong to the previous generation, preserved at the signed tag
 `archive/gen2-2026-10-01` (`b73faac`). Main carries only the reset generation;
 later slices port what they need with `git show archive/gen2-2026-10-01:<path>`.
 
-The reset line is **unreleased work in progress**. The first text vertical supplies
-conversation, live understanding, durable events, restart/resume and session ZIP
+Aithema is published as **immutable GitHub releases** with signed, attested
+tarballs. Hosts pin a release with `deployment-pin.json` and `release-set.json`.
+See the [releases page](https://github.com/inspr-at/aithema/releases) and
+[release notes](release/notes.md) for published changes and limits.
+
+The text vertical supplies conversation, live understanding, durable events,
+restart/resume and session ZIP
 export. The first voice integration supplies a durable ElevenLabs call lifecycle, audio rail
 and local fake agent. Concept generation now supplies a spending-intent lane, durable byte history and
-a viewer with feedback. Requirement approval, files/uploads and host integration
-remain later work. START cutover and live provider/OIDC proof are also later work;
-handover to PAIMOS is planned. Sessions now have visitor ownership, authoritative
+a viewer with feedback. Sessions now have visitor ownership, authoritative
 consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
 Visitors choose the processing preset, model, response style, voice and visual
 concepts within the host's allowlist, enforced and acknowledged by the server.
@@ -28,10 +31,11 @@ shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
-**AIT-105/AIT-32** reserve the first reset candidate with INSPR-CalVer3
-(`inspr-calver-3`). Core, server, UI and twelve shipped plugin packages have exact
-versions and reproducible, independently installable tarballs; the root workspace
-stays private. No tag, GitHub release or registry publication is made here.
+Aithema uses INSPR-CalVer3 (`inspr-calver-3`). Core, server, UI and twelve
+shipped plugin packages have exact versions and reproducible, independently
+installable tarballs; the root workspace
+stays private. Packages are distributed through GitHub release assets rather
+than a package registry.
 Embedding hosts register their own HTML/image plugins and private bindings; the
 server does not select providers. Use `createClaudeHTML` from
 `@inspr/aithema-plugin-claude-html` and `createOpenAIImages` from
@@ -41,10 +45,11 @@ same authoritative consent port and qualified scope as for other paid plugins.
 The demo wiring is in `demo/visual-plugins.js` and `demo/server.js`; Claude retains
 its `estimateCost` port for exact admission pricing.
 
-See [the consumer guide](docs/embedding.md), [candidate notes](release/notes.md)
-and [registry recommendation](release/README.md). AIT-139's soak is not measured;
+See [the consumer guide](docs/embedding.md), [release notes](release/notes.md)
+and [release runbook](release/README.md). AIT-139's soak is not measured;
 AIT-160's second voice pipeline is not yet proven. Both are disclosed limits,
-not release blockers; presentation pin review remains for the cross-family gate.
+not release blockers. Historical candidate qualification is recorded in the
+consumer guide.
 
 ## Tests and demo
 
