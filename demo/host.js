@@ -35,7 +35,9 @@ function paintDemoLegal() {
   if (binding.demoHost !== true) return;
   const slots = copy.host.slots;
   for (const [id, full, short] of [['demo-license', slots.license, slots.licenseShort], ['demo-legal-source', slots.legalSource, slots.legalSourceShort]]) {
-    const link = document.getElementById(id), visible = narrowLegal.matches ? short : full;
+    const link = document.getElementById(id);
+    if (!link) continue;
+    const visible = narrowLegal.matches ? short : full;
     link.setAttribute('aria-label', full); link.title = full;
     if (id === 'demo-license') paintLicenseLabel(link, visible, narrowLegal.matches ? short : undefined); else link.textContent = visible;
   }
