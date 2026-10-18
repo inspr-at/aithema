@@ -518,20 +518,23 @@ export class SettingsDialog {
     if (this.#switchBusy || value === this.#draft?.voice) return;
     const option = this.#presetInfo()?.voices?.find(o => o.id === value);
     if (option?.status === 'unavailable') return;
-    if (option?.facts?.consentItem && option.status === 'consent') {
-      this.#pendingVoice = value; this.#pendingConsentItem = option.facts.consentItem;
-      // Existing consent editor, targeting the separately versioned item before saving a provider.
-      if (!this.#consentEditor) { this.#pendingVoice = null; this.#ports.consent?.('settings', ['voice']); return; }
-      this.#setTab('general');
-      await this.#consentEditor.open('voice', { item: this.#pendingConsentItem }); this.#render(); return;
-    }
     this.#pendingVoice = null;
     if (this.#ports.state().voiceActive) {
       this.#draft = { ...this.#draft, voice: value }; this.#revision++; this.#failed = false;
       this.#voiceConfirm = true; this.#render(); return;
     }
+    if (option?.facts?.consentItem && option.status === 'consent') {
+      await this.#requireVoiceConsent(value, option.facts.consentItem); return;
+    }
     this.#voiceConfirm = false; this.#change({ voice: value });
     await this.#saving; this.#focusVoice();
+  }
+  async #requireVoiceConsent(value, item) {
+    this.#pendingVoice = value; this.#pendingConsentItem = item;
+    // Existing consent editor; the provider stays acknowledged until the exact grant returns.
+    if (!this.#consentEditor) { this.#pendingVoice = null; this.#ports.consent?.('settings', ['voice']); return; }
+    this.#setTab('general');
+    await this.#consentEditor.open('voice', { item }); this.#render();
   }
   async #finishVoiceConsent() {
     const value = this.#pendingVoice, item = this.#pendingConsentItem;
@@ -553,9 +556,14 @@ export class SettingsDialog {
       await this.#ports.endCall();
       if (!this.#dialog.open) return;
       if (this.#ports.state().voiceActive) throw new Error('Call still active');
-      this.#voiceConfirm = false; await this.#save();
+      this.#voiceConfirm = false;
+      const value = this.#draft.voice, option = this.#presetInfo()?.voices?.find(o => o.id === value);
+      if (option?.facts?.consentItem && option.status === 'consent') {
+        this.#draft = { ...this.#draft, voice: this.#active.voice };
+        await this.#requireVoiceConsent(value, option.facts.consentItem);
+      } else await this.#save();
     } catch { this.#failed = true; this.#status = this.#copy.settings.failed; }
-    finally { this.#switchBusy = false; this.#render(); if (this.#dialog.open) this.#focusVoice(); }
+    finally { this.#switchBusy = false; this.#render(); if (this.#dialog.open && !this.#pendingVoice) this.#focusVoice(); }
   }
   #change(patch, debounce = false) {
     if (!this.#draft) return;
