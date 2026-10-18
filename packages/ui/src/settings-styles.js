@@ -261,7 +261,6 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .select:is([data-select=voice],[data-select=visuals]) .select__menu { top:auto; bottom:calc(100% + .25rem); }
 }
 @media(prefers-reduced-motion:reduce) { .select__spinner { animation:none; } .gauge__level, .gauge__wave { transition:none !important; } }
-`;
 
 /* AIT-321: reserve the tallest consent status in the existing footer cell at
    every width, including before the refusal. Measurements never announce. */
@@ -280,3 +279,4 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 @media(max-width:40rem) {
   .settings[data-consent-editor=true] .save-state { width:100%; grid-template-columns:1rem minmax(0,1fr); }
 }
+`;
