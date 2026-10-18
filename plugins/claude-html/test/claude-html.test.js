@@ -86,6 +86,42 @@ test('generate posts one chat completion with usage accounting and returns a ver
     totalMicro: 72_800, costCeilingBreached: false });
   assert.equal(JSON.stringify(result).includes('local-fixture'), false);
 });
+test('efforts mirror the OpenRouter adapter; none preserves the exact request bytes', async t => {
+  const f = await fake(t);
+  assert.deepEqual(manifest.models[0].efforts, ['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+  await f.plugin.generate(spec, '', options());
+  const expected = JSON.stringify({ model: f.binding.model, messages: buildMessages(spec, '').messages,
+    max_tokens: f.binding.maxTokens, stream: false, usage: { include: true },
+    provider: { require_parameters: true, allow_fallbacks: false,
+      max_price: { prompt: 1, completion: 28.125 } }, reasoning: { enabled: false } });
+  assert.equal(f.requests[0].init.body, expected, 'none keeps the pre-AIT-324 request byte-identical');
+  for (const effort of manifest.models[0].efforts.filter(effort => effort !== 'none')) {
+    const plugin = f.plugin.bind({ ...f.binding, effort });
+    await plugin.generate(spec, '', options());
+    assert.equal(f.requests.at(-1).init.body, expected.replace('"reasoning":{"enabled":false}',
+      `"reasoning":{"effort":"${effort}"}`));
+  }
+});
+test('high reserves the total reasoning and output allowance and settles inclusive reasoning usage once', async t => {
+  const f = await fake(t), binding = { ...f.binding, effort: 'high' }, plugin = f.plugin.bind(binding), o = options();
+  const inputBytes = Buffer.byteLength(JSON.stringify(buildMessages(spec, '').messages), 'utf8');
+  const ceiling = inputBytes + 900_000; // 32,000 total tokens * 28.125 micro, including reasoning.
+  assert.equal(callCeilingMicro(buildMessages(spec, '').messages, binding), ceiling);
+  assert.equal(plugin.estimateCost(spec), ceiling, 'conversation admission reserves the same total ceiling');
+  f.respond((record, res) => {
+    assert.deepEqual(record.body.reasoning, { effort: 'high' });
+    assert.equal(record.body.max_tokens, 32_000, 'effort must not raise the admitted total token allowance');
+    assert.equal(plugin.spend.snapshot().reservedMicro, ceiling);
+    // OpenRouter completion_tokens already includes the separately detailed reasoning tokens.
+    res.end(completion(dummy, { prompt_tokens: 1200, completion_tokens: 3400,
+      completion_tokens_details: { reasoning_tokens: 3000 }, cost: 0.0728 }));
+  });
+  await plugin.generate(spec, '', o);
+  assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed',
+    usage: { inputTokens: 1200, outputTokens: 3400 }, chargedMicro: 72_800 }]);
+  assert.deepEqual(plugin.spend.snapshot(), { spentMicro: 72_800, reservedMicro: 0, uncertainMicro: 0,
+    totalMicro: 72_800, costCeilingBreached: false });
+});
 test('edit sends the previous dummy without its provenance record, requires feedback and bumps the revision', async t => {
   const previous = await editSource(t), f = await fake(t), o = options();
   f.respond((_req, res) => res.end(completion(dummy.replace('Revision 1:', 'Revision 2: the flat comes first. Revision 1:'))));
@@ -250,7 +286,7 @@ test('bindings stay Claude-only, HTTP stays loopback, secrets resolve per call a
   writeFileSync(f.spendPath, '{broken');
   assert.deepEqual(await plugin.health(options()), { available: false, reason: 'spend ledger unreadable' });
   await assert.rejects(plugin.generate(spec, '', options()), { code: 'unavailable' }); assert.equal(f.requests.length, 1);
-  assert.throws(() => f.make({ binding: { ...f.binding, effort: 'high' } }), /effort none/u);
+  assert.throws(() => f.make({ binding: { ...f.binding, effort: 'minimal' } }), /effort none, low, medium, high, xhigh, max/u);
   for (const rates of [{ inputMicro: 1, outputMicro: 1 }, { ...f.binding.rates, inputUSD: 0 }, { ...f.binding.rates, outputUSD: NaN }]) {
     assert.throws(() => f.make({ binding: { ...f.binding, rates } }), /per-token USD/u);
   }

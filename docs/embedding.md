@@ -1015,6 +1015,35 @@ not conversation processing policy. Never infer legal qualification from a
 technical plugin manifest. Plugin contract `apiVersion` ranges describe a
 protocol, not the CalVer3 package compatibility promise.
 
+### Claude HTML bindings
+
+`createClaudeHTML` accepts an `anthropic/claude-*` model (including
+`anthropic/claude-opus-5.5`) or its supported `~anthropic/claude-*-latest` alias.
+Its effort values are `none`, `low`, `medium`, `high`, `xhigh` and `max`, matching
+our OpenRouter adapter's START 2026-09-13 `reasoning.supported_efforts` check.
+The host allowlist must select an effort supported by the chosen model;
+`require_parameters: true` prevents a silent provider fallback. See OpenRouter's
+[per-model reasoning options](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#discovering-per-model-reasoning-options).
+`none` keeps the existing `reasoning: { enabled: false }` request; other values
+send `reasoning: { effort }`, for example `{ effort: 'high' }`.
+
+The binding's `maxTokens` is sent unchanged as `max_tokens`: with reasoning on,
+it is the **total reasoning plus visible output** allowance. Hosts must budget
+for both; the adapter never raises that limit. Explicit positive `rates.inputUSD`
+and `rates.outputUSD` are per-token USD prices. The preflight ceiling is
+`ceil(serializedMessageUTF8Bytes * inputUSD * 1e6) + ceil(maxTokens * outputUSD * 1e6)`.
+All reasoning and visible output tokens are reserved at the output rate in both
+the spend ledger and the conversation admission estimate. Supply the same
+`createSpendCap` instance through `spend` to share an account cap with other
+plugins. A request exceeding the remaining shared cap fails with `not-admitted`
+before fetch; a standalone ledger retains its `limit` refusal.
+
+Settlement still uses the reported `usage.cost`, rounded up to micro-dollars.
+OpenRouter's `completion_tokens` includes tokens itemized separately under
+`completion_tokens_details.reasoning_tokens`; those tokens count once in output
+usage and are billed at the output rate. A missing cost after dispatch retains
+the full reservation as uncertain spend.
+
 ### OpenRouter image bindings
 
 `createOpenAIImages` also accepts the `openai/gpt-image-2` model on
