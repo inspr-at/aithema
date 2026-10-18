@@ -138,3 +138,38 @@ test('AIT-347 P8: zero upstream parent charges active visitor duration and exclu
   assert.equal(terminal.usage.visitorMicro, 400); assert.equal(reports.length, 1);
   assert.equal(h.budget.visitorUsed(h.session.id), 400);
 });
+
+async function durationFixture(t, { request = {}, save } = {}) {
+  const h = fixture(t); let at = Date.now();
+  const startedAt = at, reports = [], originalSave = h.storage.saveVoiceCall.bind(h.storage);
+  if (save) h.storage.saveVoiceCall = (...args) => save(originalSave, ...args);
+  const plugin = createComposedVoice({ enabled: true, storage: h.storage, config: { maxDurationSeconds: 120 },
+    binding: { visitorMicroPerMinute: 601 }, stt: { stream() {} }, tts: { speak() {} },
+    replyExecutor: { execute() {} }, authorize: async () => true, commitUtterance() {}, admitComponent() {}, now: () => at });
+  const call = await plugin.start({ sessionId: h.session.id, callId: 'server-duration', ownerToken: 'owner', ...request }, {
+    deadlineAt: at + 5000, spendDeadlineAt: at + 120000, browserLivenessDeadlineAt: at + 120000,
+    attempt: { ...h.claim, maxMicro: 0, consume() {} },
+    report: terminal => { reports.push(terminal); h.budget.settleVoice(h.claim.claimId, terminal); } });
+  t.after(() => call.close());
+  return { ...h, call, startedAt, reports, advance(ms) { at += ms; } };
+}
+
+test('AIT-347 b2: client duration and timing fields cannot override server coordinator timestamps or lifetime', async t => {
+  const h = await durationFixture(t, { request: {
+    maxDurationSeconds: 1, startedAt: 0, endedAt: Number.MAX_SAFE_INTEGER,
+    providerSeconds: 0, visitorSeconds: 0, pausedSeconds: 9999, duration: 0, durationMs: 0,
+    pauses: [{ from: 0, to: Number.MAX_SAFE_INTEGER }], paused: true,
+    spendDeadlineAt: 0, browserLivenessDeadlineAt: 0, now: () => 0,
+    context: { startedAt: 0, duration: 0, pausedSeconds: 9999 },
+  } });
+  assert.equal(h.call.snapshot().startedAt, h.startedAt);
+  assert.equal(h.call.snapshot().spendDeadlineAt, h.startedAt + 120000, 'client timing must not shorten the server lifetime');
+  h.advance(60001);
+  const terminal = await h.call.close({ duration: 0, durationMs: 0, visitorSeconds: 0, endedAt: 0 });
+  assert.equal(terminal.usage.providerSeconds, 60.001);
+  assert.equal(terminal.usage.visitorSeconds, 60.001);
+  assert.equal(terminal.usage.pausedSeconds, 0);
+  assert.equal(terminal.usage.visitorMicro, 602, 'ceil the tariff from server elapsed time only');
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.costEstimated, false);
+});
