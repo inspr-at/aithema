@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
-import { inputRevision } from '@inspr/aithema-core';
+import { inputRevision, htmlPreviewHostPolicy } from '@inspr/aithema-core';
 function rawStatus(url, options) {
   return new Promise((resolve, reject) => {
     const outgoing = request(url, options, response => { response.resume(); resolve(response.statusCode); });
@@ -16,14 +16,16 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
   assert.match(html, /<title>Aithema<\/title>/u);
   assert.match(html, /<html lang="de">/u);
   assert.match(html, /<aside class="demo-strip" data-demo-only hidden/u);
-  assert.equal(page.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
-  assert.match(html, /<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">/u);
+  const previewURL = running.url + '/_aithema/html-preview', expectedPolicy = htmlPreviewHostPolicy(previewURL);
+  assert.equal(page.headers.get('content-security-policy'), expectedPolicy);
+  assert.ok(html.includes(`<meta http-equiv="Content-Security-Policy" content="${expectedPolicy}">`));
   for (const method of ['GET', 'HEAD']) {
     const response = await fetch(running.url + '/demo/index.html', { method });
-    assert.equal(response.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
+    assert.equal(response.headers.get('content-security-policy'), expectedPolicy);
     await response.body?.cancel();
   }
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.equal(config.previewURL, previewURL);
   assert.match(config.label, /Mock reasoning/); assert.equal(config.verificationRequired, false);
   for (const path of ['/demo/host.js', '/packages/ui/src/session-element.js', '/packages/ui/src/post-json.js', '/packages/ui/src/i18n/en.js', '/packages/core/src/readiness.js', '/plugins/device/src/index.js', '/packages/core/src/chat-completions.js', '/packages/core/src/plugins.js', '/packages/core/src/invocation.js', '/packages/core/src/presets.js']) {
     const r = await fetch(running.url + path); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /javascript/);
