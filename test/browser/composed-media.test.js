@@ -289,3 +289,70 @@ test('AIT-348: Grok DE light lifecycle viewports and typed composer keep control
   assert.deepEqual(problems, []);
   await page.evaluate(() => window.ait348Session.close());
 });
+
+// One browser/page serves all eight states; metadata is measured in-place.
+test('AIT-349: interrupted bubble viewport matrix and metadata stays at 0 px', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'grok-interrupted-ui-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: chromeSandboxArgs });
+  t.after(async () => { await browser.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  const page = await browser.newPage(), checks = [], problems = [];
+  page.on('pageerror', error => problems.push(error.message));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await page.setRequestInterception(true);
+  page.on('request', request => new URL(request.url()).pathname.endsWith('/features')
+    ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue());
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
+  await page.evaluate(() => { window.ait349Seed = structuredClone(document.querySelector('aithema-session').session); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  for (const width of [1440, 390]) for (const theme of ['light', 'dark']) for (const locale of ['de', 'en']) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    const result = await page.evaluate(async locale => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const c = document.querySelector('aithema-session'), session = structuredClone(window.ait349Seed);
+      session.locale = locale;
+      const content = locale === 'de' ? 'Die vollständige Antwort bleibt im Protokoll. Die Wiedergabe wurde unterbrochen, und auch dieser letzte Satz bleibt erhalten.'
+        : 'The complete generated reply stays in the transcript. Playback was interrupted, and this final sentence remains in full.';
+      session.transcript = [{ id: 'marker-person', role: 'user', content: locale === 'de' ? 'Bitte erklären Sie das.' : 'Please explain.' },
+        { id: 'marker-reply', role: 'assistant', content }];
+      c.configure({ copy, session }); document.documentElement.lang = locale;
+      const root = c.shadowRoot, row = root.querySelector('[data-id="marker-reply"]'), meta = row.querySelector('strong');
+      const selectors = ['.band', '.composer', '.send', 'textarea'];
+      const boxes = () => [row, meta, row.querySelector('.turn-text'), ...selectors.map(s => root.querySelector(s))].map(node => {
+        const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+      });
+      await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const before = boxes();
+      c.receive({ seq: c.session.seq + 1, type: 'voice.interrupted', data: { id: 'marker-reply', interruption: { heardLength: 'unknown' } } });
+      const marker = row.querySelector('.voice-interruption');
+      root.activeElement?.blur(); document.activeElement?.blur();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await Promise.all(root.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+      const after = boxes(), tip = marker?.querySelector('[role="tooltip"]');
+      return { before, after, sameNode: row === root.querySelector('[data-id="marker-reply"]'),
+        fullText: row.querySelector('.turn-text').textContent === content, label: marker?.getAttribute('aria-label'),
+        description: tip?.textContent, expectedLabel: copy.voiceInterrupted, expectedDescription: copy.voiceInterruptedDescription,
+        describedBy: marker?.getAttribute('aria-describedby') === tip?.id, icon: Boolean(marker?.querySelector('svg')), font: getComputedStyle(meta).fontFamily };
+    }, locale);
+    assert.equal(result.fullText, true); assert.equal(result.sameNode, true); assert.equal(result.icon, true);
+    assert.equal(result.label, locale === 'de' ? 'Unterbrochen' : 'Interrupted');
+    assert.equal(result.description, result.expectedDescription); assert.equal(result.describedBy, true);
+    assert.deepEqual(result.after, result.before, `${width}/${theme}/${locale}: metadata, bubble and controls shift 0 px`);
+    // Blur and put the pointer outside the viewport before every capture.
+    await page.mouse.move(-10, -10);
+    const tooltip = width === 1440 && theme === 'light' && locale === 'en';
+    if (tooltip) {
+      // Keep pointer outside; open the exact hover style without a focus ring.
+      await page.evaluate(() => { document.querySelector('aithema-session').shadowRoot.querySelector('.voice-interruption-tooltip').style.display = 'block'; });
+    }
+    if (evidence) await page.screenshot({ path: join(evidence, `ait349-${width}-${theme}-${locale}-interrupted.png`), fullPage: false, captureBeyondViewport: false });
+    checks.push({ width, theme, locale, movementPx: 0, tooltip, ...result });
+  }
+  assert.deepEqual(problems, []);
+  if (evidence) await writeFile(join(evidence, 'ait349-checks.json'), JSON.stringify({ ticket: 'AIT-349', capture: 'viewport',
+    reducedMotion: true, qualification: 'not yet qualified in live use', providerCalls: 0, checks, problems }, null, 2));
+});

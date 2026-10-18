@@ -43,6 +43,10 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     if (componentsReady) await voiceOperation(options, () => componentsReady);
     if (!storage?.saveVoiceCall || typeof authorize !== 'function' || typeof commitUtterance !== 'function' || options.attempt?.maxMicro !== 0) throw new PluginError('not-admitted', 'Parent claim must carry zero component cost');
     const invocation = await beginVoiceInvocation(options, request.callId);
+    if (options.signal?.aborted || options.deadlineAt <= now()) {
+      await invocation.finish({ outcome: 'cancelled' });
+      throw new PluginError(options.signal?.aborted ? 'cancelled' : 'deadline');
+    }
     const providerSessionId = `composed-${randomUUID()}`, epoch = request.epoch ?? 0;
     const end = Math.min(options.spendDeadlineAt, now() + callDurationSeconds(config) * 1000);
     const relay = createComposedRelay({ callId: request.callId, providerSessionId, epoch,

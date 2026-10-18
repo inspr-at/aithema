@@ -3,12 +3,13 @@ import { PluginError, PLUGIN_ERROR_CODES } from './invocation.js';
 import { LIVE_VOICE_COMMANDS, assertVoiceSession, assertVoiceEvent, voiceOperation } from './live-voice.js';
 
 /** Local joined fixture. probe/providerOpen independently observe closure; drive supplies fixture events. */
-export async function liveVoiceConformance(plugin, request, { requestCount, probe, providerOpen, drive, persistedEvents, timeoutMs = 1000 } = {}) {
+export async function liveVoiceConformance(plugin, request, { requestCount, probe, providerOpen, drive, persistedEvents, parentMaxMicro = 1_000_000, timeoutMs = 1000 } = {}) {
   const failures = [], check = (condition, message) => { if (!condition) failures.push(message); };
   const valid = validateManifest(plugin?.manifest).ok && plugin?.manifest?.kinds?.includes('live-voice');
   check(valid, 'manifest validity');
   if (!valid) return { ok: false, failures };
   if (!plugin?.start || !plugin?.health || !requestCount || !probe || !drive) return { ok: false, failures: [...failures, 'live voice fixtures missing'] };
+  if (!Number.isSafeInteger(parentMaxMicro) || parentMaxMicro < 0) throw new TypeError('Invalid fixture parent maximum');
   const contract = plugin.manifest.liveVoice;
   check(contract.transcript.persistence !== 'durable' || typeof persistedEvents === 'function', 'durable transcript observation missing');
   try { check((await voiceOperation({ deadlineAt: Date.now() + timeoutMs }, opts => plugin.health(opts)))?.available === true, 'health unavailable'); }
@@ -21,7 +22,7 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
     const options = { signal: controller.signal, deadlineAt: Date.now() + (mode === 'deadline' ? -1 : timeoutMs),
       spendDeadlineAt: Date.now() + (mode === 'spend-deadline' ? 40 : timeoutMs),
       browserLivenessDeadlineAt: Date.now() + (mode === 'browser-liveness-deadline' ? 40 : timeoutMs),
-      attempt: { attemptId, claimId, maxMicro: 1_000_000, async consume() {
+      attempt: { attemptId, claimId, maxMicro: parentMaxMicro, async consume() {
         check(requestCount() === before, 'dispatched before consume');
         await Promise.resolve();
         check(requestCount() === before, 'dispatched while consume pending');

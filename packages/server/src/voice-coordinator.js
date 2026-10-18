@@ -54,6 +54,16 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     sequence = 0, playbackRevision = 0, holdRevision = 0, timer, closing, ingressPending = false, pauseController = new AbortController(), inputFlight = Promise.resolve(), typedPending = 0;
   const cancellation = new AbortController(), revocation = new AbortController(), jobs = new Set(), speechJobs = new Set(), playbacks = new Set(), commits = new Map(), textDeliveries = new Map();
   let history = [], historyBytes = 0, commitTail = Promise.resolve();
+  const replies = new Set();
+  let interruptionTail = Promise.resolve();
+  function persistInterruption(reply) {
+    if (!reply.interrupted || !reply.id || reply.persisted) return;
+    reply.persisted = true;
+    const saved = Promise.resolve(commitUtterance(reply.envelope, { ...options(revocation.signal),
+      role: 'interrupted', replyId: reply.id, heardLength: 'unknown' }));
+    interruptionTail = Promise.all([interruptionTail, saved]).then(() => {});
+    interruptionTail.catch(error => failTurn(error, revocation.signal));
+  }
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); };
   dispatch({ type: 'start' });
   dispatch({ type: 'connected', providerSessionId, spendDeadlineAt, browserLivenessDeadlineAt });
@@ -80,6 +90,9 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     // This effect is synchronous; neither remote acknowledgement nor accounting can delay silence.
     relay.silence({ ...stamp(), playbackRevision, reason });
     for (const job of speechJobs) job.controller.abort();
+    if (tts.capabilities?.heardPrefix === 'unavailable') for (const reply of replies) {
+      reply.interrupted = true; persistInterruption(reply);
+    }
   }
   function discardInput() {
     clearTimeout(timer);
@@ -150,6 +163,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     const opts = options(signal);
     // Both input paths reserve this slot before asynchronous finalization.
     await voiceOperation(opts, () => turn.beforeCommit);
+    await voiceOperation(opts, () => interruptionTail);
     await permitted(opts);
     const message = appendHistory('user', text);
     try {
@@ -252,6 +266,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     signal.addEventListener('abort', clear, { once: true });
     const playback = {
       signal,
+      get endAt() { return endAt; },
       throwIfFailed() { if (failure) throw failure; },
       stop() { controller.abort(); clear(); },
       async beginSpeak() {
@@ -337,6 +352,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     // admitted reasoning finish; keep the turn signal live for error recovery.
     const controller = new AbortController(), signal = AbortSignal.any([turnSignal, controller.signal]);
     let pending = '', full = '', replyId, complete = false, playback;
+    const delivery = { envelope, interrupted: revision !== playbackRevision, persisted: false };
+    replies.add(delivery);
     try {
       const source = replyExecutor.execute(envelope, options(signal));
       if (typeof source?.[Symbol.asyncIterator] !== 'function') throw new PluginError('invalid-output');
@@ -347,7 +364,8 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
         if (complete) throw new PluginError('invalid-output');
         if (item.type === 'operation') {
           if (replyId || typeof item.replyId !== 'string') throw new PluginError('invalid-output');
-          replyId = item.replyId;
+          replyId = delivery.id = item.replyId;
+          persistInterruption(delivery);
           playback = createPlayback(revision, signal, replyId, error => controller.abort(error));
         } else if (item.type === 'delta' && replyId && typeof item.text === 'string') {
           full += item.text; pending += item.text;
@@ -381,7 +399,12 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       playback?.throwIfFailed();
       throw error;
     } finally {
+      const remaining = (playback?.endAt ?? 0) - now();
+      if (!delivery.interrupted && remaining > 0) {
+        const cleanup = setTimeout(() => replies.delete(delivery), remaining); cleanup.unref?.();
+      } else replies.delete(delivery);
       if (playback) { playback.stop(); await playback.finish().catch(() => {}); }
+      await interruptionTail;
     }
   }
   function receiveAudio(bytes, receipt = {}) {

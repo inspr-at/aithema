@@ -335,6 +335,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const { sessionId, callId, providerSessionId, callbackBody } = envelope.payload;
       const entry = calls.get(callId), fresh = sessionFor(entry);
       if (entry.closing || entry.sessionId !== sessionId || entry.call?.providerSessionId !== providerSessionId || fresh.paused) throw new PluginError('not-admitted');
+      if (options.role === 'interrupted') {
+        const result = storage.postVoiceEvent(sessionId, callId, providerSessionId, { type: 'interrupted', callId,
+          providerSessionId, turnId: `${providerSessionId}:${options.replyId}`, heardLength: 'unknown' },
+        { ownerToken: entry.ownerToken });
+        if (!result.replayed) publish(sessionId, result.event);
+        return result;
+      }
       const role = options.role ?? 'user', text = role === 'assistant' ? options.text : callbackBody.messages.at(-1)?.content;
       const turnId = `${providerSessionId}:${role === 'assistant' ? options.replyId : callbackBody.metadata?.utteranceId}`;
       const result = storage.postVoiceEvent(sessionId, callId, providerSessionId,
@@ -686,6 +693,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
+          if (body.event?.type === 'interrupted') throw new PluginError('not-admitted', 'Coordinator interruption authority required');
           if (playbackActivity) {
             if (body.event.callId !== callId || body.event.providerSessionId !== entry.call.providerSessionId) throw new TypeError('Invalid voice activity');
             entry.playback = body.event.type;

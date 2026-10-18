@@ -1448,3 +1448,19 @@ for (const mode of ['grant', 'withdraw', 'wrong-contract', 'wrong-items']) test(
   assert.equal(root.querySelector('dialog.settings').open, refused);
   if (refused) assert.equal(root.querySelector('.save-status').textContent, en.host.consentFailed);
 });
+
+for (const copy of [de, en]) test(`AIT-349: ${copy.display.locale} interruption retains full text and row identity through duplicate/reloaded events`, () => {
+  const c = setup({ copy }), root = c.shadowRoot, content = 'Die vollständige Antwort bleibt im Protokoll. The full text stays.';
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'truthful', role: 'assistant', content } });
+  const row = root.querySelector('[data-id="truthful"]'), text = row.querySelector('.turn-text');
+  const event = { type: 'voice.interrupted', data: { id: 'truthful', interruption: { heardLength: 'unknown' } } };
+  for (let i = 0; i < 2; i++) c.receive({ ...event, seq: c.session.seq + 1 });
+  assert.equal(root.querySelector('[data-id="truthful"]'), row);
+  assert.equal(row.querySelector('.turn-text'), text); assert.equal(text.textContent, content);
+  assert.equal(row.querySelectorAll('.voice-interruption').length, 1);
+  assert.equal(row.querySelector('.voice-interruption').getAttribute('aria-label'), copy.voiceInterrupted);
+  assert.equal(row.querySelector('[role="tooltip"]').textContent, copy.voiceInterruptedDescription);
+  const snapshot = structuredClone(c.session); c.configure({ copy, session: snapshot });
+  assert.equal(root.querySelector('.voice-interruption-label').textContent, copy.voiceInterrupted);
+  assert.equal(root.querySelector('.turn-text').textContent, content);
+});
