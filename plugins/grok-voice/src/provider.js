@@ -45,7 +45,7 @@ export function createGrokVoiceProvider({ enabled = false, config: raw, binding:
       typeof storage?.saveVoiceCall === 'function';
     return { available, reason: available ? 'not yet qualified in live use' : 'Grok components unavailable' };
   }
-  const composed = createComposedVoice({ enabled, config: binding?.adapterConfig ?? {}, binding, storage,
+  const composed = createComposedVoice({ enabled, interruptionAwareness: true, config: binding?.adapterConfig ?? {}, binding, storage,
     manifest: liveManifest, stt: components?.stt, tts: components?.tts,
     componentsReady: components?.preflight, authenticateRelay, relayOrigin, now,
     authorize: (request, options) => authority?.authorize(request, options) ?? false,

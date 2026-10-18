@@ -252,7 +252,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (!continuation) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'start', tabId });
     const logical = storage.voiceLifecycle(sessionId, callId);
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
-      tabId: logical.controllingTabId, epoch: logical.epoch,
+      tabId: logical.controllingTabId, epoch: logical.epoch, explicitCompositionResume: continuation && explicitResume,
       conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
       settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening', authority };
     sessions.set(sessionId, entry); calls.set(callId, entry);
@@ -325,9 +325,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (!entry || entry.closing || request.sessionId !== entry.sessionId ||
         request.providerSessionId && request.providerSessionId !== entry.call?.providerSessionId) return false;
       const session = sessionFor(entry);
-      await runtime.checkVoice(session, { ...options, existingCall: true });
+      // A trusted explicit Resume may establish its replacement transport while
+      // the durable pause remains held. Input/reasoning still wait for Resume ack.
+      const resuming = !entry.call && entry.explicitCompositionResume === true;
+      await runtime.checkVoice(session, { ...options, existingCall: true, allowPaused: resuming });
       const fresh = sessionFor(entry);
-      return !entry.closing && !fresh.paused && !fresh.consentWithdrawn &&
+      return !entry.closing && (!fresh.paused || resuming) && !fresh.consentWithdrawn &&
         voiceAuthorizationRevision(fresh) === voiceAuthorizationRevision(session);
     },
     async commitCoordinator(envelope, options = {}) {

@@ -363,6 +363,7 @@ for (const boundary of ['before-operation', 'before-final', 'after-final']) test
   const entered = Promise.withResolvers(), release = Promise.withResolvers(), facts = [], audio = [], silences = [];
   const text = 'Die vollständige Antwort. Auch dieser Satz bleibt im Protokoll.';
   const h = fixture(t, {
+    interruptionAwareness: true,
     tts: { capabilities: { heardPrefix: 'unavailable' }, async *speak() { yield new Uint8Array(48000); } },
     commitUtterance(envelope, options) { if (options?.role === 'interrupted') facts.push({ envelope, options }); },
     relay: { audio: frame => audio.push(frame), silence: frame => silences.push(frame), event() {} },

@@ -10,7 +10,7 @@ import { createComposedRelayRoute } from './network-relay.js';
 /** Explicit opt-in factory. Inject separately admitted components and the existing
  * Rule C reply executor; default hosts continue to construct ElevenLabs. */
 export function createComposedVoice({ enabled = false, config = {}, binding, storage, stt, tts, replyExecutor,
-  admitComponent, authorize, commitUtterance, componentsReady, authenticateRelay, relayOrigin, manifest: publicManifest = manifest, now = Date.now } = {}) {
+  admitComponent, authorize, commitUtterance, interruptionAwareness = false, componentsReady, authenticateRelay, relayOrigin, manifest: publicManifest = manifest, now = Date.now } = {}) {
   const relays = new Map();
   const relayOwners = new Map();
   const ownerAllowed = async (grant, owner) => {
@@ -54,7 +54,7 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt, now });
     // Browser request fields never configure the coordinator clock or duration limits.
     const coordinator = createComposedVoiceCoordinator({ ...config, sessionId: request.sessionId, callId: request.callId,
-      context: request.context, providerSessionId, epoch,
+      context: request.context, providerSessionId, epoch, interruptionAwareness,
       spendDeadlineAt: end, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
       stt, tts, ...(tts?.format ? { outputFormat: tts.format.encoding, outputAudioFormat: tts.format } : {}), replyExecutor, admitComponent, authorize, commitUtterance, relay, now });
     let record = { ...coordinator.snapshot(), attemptId: options.attempt.attemptId, claimId: options.attempt.claimId,

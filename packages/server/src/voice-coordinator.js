@@ -26,7 +26,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   stt, tts, replyExecutor, admitComponent, authorize, commitUtterance, relay, now = Date.now,
   spendDeadlineAt, browserLivenessDeadlineAt, maxDurationSeconds, endpointMs = 500,
   maxUtteranceMs = 30_000, maxPendingTurns = 4, maxTextCharacters = 32_768, fragmentCharacters = 240,
-  inputFormat = 'pcm_s16le', outputFormat = 'pcm_f32le', outputAudioFormat = { encoding: outputFormat, sampleRateHz: 24000, channels: 1 }, voice, context = {} } = {}) {
+  interruptionAwareness = false, inputFormat = 'pcm_s16le', outputFormat = 'pcm_f32le', outputAudioFormat = { encoding: outputFormat, sampleRateHz: 24000, channels: 1 }, voice, context = {} } = {}) {
   if (!sessionId || !callId || !providerSessionId || !stt?.stream || !tts?.speak || !replyExecutor?.execute ||
     [admitComponent, authorize, commitUtterance, relay?.audio, relay?.silence, relay?.event].some(fn => typeof fn !== 'function') ||
     !Number.isSafeInteger(epoch) || epoch < 0 || inputFormat !== 'pcm_s16le' ||
@@ -57,7 +57,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
   const replies = new Set();
   let interruptionTail = Promise.resolve();
   function persistInterruption(reply) {
-    if (tts.capabilities?.heardPrefix !== 'unavailable' || !reply.interrupted || !reply.id || reply.persisted) return;
+    if (!interruptionAwareness || tts.capabilities?.heardPrefix !== 'unavailable' || !reply.interrupted || !reply.id || reply.persisted) return;
     reply.persisted = true;
     let saved;
     try { saved = Promise.resolve(commitUtterance(reply.envelope, { ...options(revocation.signal),
@@ -92,7 +92,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     // This effect is synchronous; neither remote acknowledgement nor accounting can delay silence.
     relay.silence({ ...stamp(), playbackRevision, reason });
     for (const job of speechJobs) job.controller.abort();
-    if (tts.capabilities?.heardPrefix === 'unavailable') for (const reply of replies) {
+    if (interruptionAwareness && tts.capabilities?.heardPrefix === 'unavailable') for (const reply of replies) {
       reply.interrupted = true; persistInterruption(reply);
     }
   }

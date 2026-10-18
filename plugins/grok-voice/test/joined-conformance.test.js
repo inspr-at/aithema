@@ -21,7 +21,7 @@ for (const locale of ['de', 'en']) test(`AIT-349: ${locale} joined public sessio
   let relayClosed = true;
   let starts = 0, segment, inputOn = true, captureStops = 0, stops = 0, plays = 0, replyNo = 0;
   const liveManifest = { ...manifest, kinds: ['live-voice'], models: manifest.models.filter(m => m.operations.includes('start')) };
-  const server = createComposedVoice({ enabled: true, storage, stt, tts, manifest: liveManifest, authorize: () => true,
+  const server = createComposedVoice({ enabled: true, interruptionAwareness: true, storage, stt, tts, manifest: liveManifest, authorize: () => true,
     binding: binding(),
     admitComponent: request => accounting.admit({ ...request, binding: binding(request.role === 'stt' ? 'grok-voice-transcribe-2.0' : 'grok-voice-tts'), maxMicro: 100000 }),
     commitUtterance(envelope, options = {}) {
