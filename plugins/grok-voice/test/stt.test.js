@@ -64,3 +64,54 @@ test('terminal before endpoint is refused even if audio iterator never finishes'
     audio: { [Symbol.asyncIterator]() { return this; }, next() { return new Promise(() => {}); }, async return() { return { done: true }; } } }, op.options)), { code: 'invalid-output' });
   assert.equal(op.reports[0].outcome, 'uncertain');
 });
+
+for (const batch of [false, true]) for (const mode of ['active-cancelled', 'active-deadline']) {
+  test(`${mode} closes resource and settles once, batch=${batch} (${STREAM_DOC})`, async () => {
+    const h = harness({ mode }), abort = new AbortController();
+    const op = operation({ signal: abort.signal, deadlineAt: Date.now() + (mode === 'active-deadline' ? 50 : 2000) });
+    const timer = mode === 'active-cancelled' ? setTimeout(() => abort.abort(), 30) : undefined;
+    try { await assert.rejects(component(h, batch).transcribe(request(), op.options), { code: mode === 'active-deadline' ? 'deadline' : 'cancelled' }); }
+    finally { clearTimeout(timer); }
+    assert.equal(h.fixtures.activeCount(), 0); assert.equal(op.reports.length, 1);
+    assert.equal(op.reports[0].outcome, 'uncertain'); assert.equal(op.reports[0].chargedMicro, 1000000);
+  });
+}
+test('REST oversized file settles undispatched without secrets or transport', async () => {
+  const h = harness(), op = operation(); let secrets = 0;
+  const stt = createGrokBatchSTT({ enabled: true, config, fetchImpl: h.fetchImpl, resolveSecret() { secrets++; return 'synthetic-only'; } });
+  await assert.rejects(stt.transcribe({ ...request(), audio: new Uint8Array(1920002) }, op.options), { code: 'limit' });
+  assert.equal(secrets, 0); assert.equal(h.fixtures.requestCount(), 0);
+  assert.equal(op.reports.length, 1); assert.equal(op.reports[0].outcome, 'cancelled'); assert.equal(op.reports[0].chargedMicro, 0);
+});
+for (const batch of [false, true]) test(`pre-cancel/expired deadline/refused consume dispatches nothing batch=${batch}`, async () => {
+  for (const mode of ['cancelled', 'deadline', 'refused']) {
+    const h = harness(), abort = new AbortController(); if (mode === 'cancelled') abort.abort();
+    const op = operation({ signal: abort.signal, deadlineAt: Date.now() + (mode === 'deadline' ? -1 : 1000) });
+    if (mode === 'refused') op.options.attempt.consume = () => { throw Object.assign(new Error('Synthetic refusal'), { code: 'not-admitted' }); };
+    await assert.rejects(component(h, batch).transcribe(request(), op.options));
+    assert.equal(h.fixtures.requestCount(), 0); assert.equal(op.reports.length, 1); assert.equal(op.reports[0].chargedMicro, 0);
+  }
+});
+test('late socket is closed after deadline, retaining the reservation once', async () => {
+  const h = harness({ mode: 'late-open' }), op = operation({ deadlineAt: Date.now() + 20 });
+  await assert.rejects(component(h).transcribe(request(), op.options), { code: 'deadline' });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(h.fixtures.activeCount(), 0); assert.equal(op.reports.length, 1); assert.equal(op.reports[0].chargedMicro, 1000000);
+});
+for (const batch of [false, true]) test(`report failure propagates and is called once batch=${batch}`, async () => {
+  const h = harness(), error = new Error('Synthetic report failure'); let calls = 0;
+  const op = operation({ report() { calls++; throw error; } });
+  await assert.rejects(component(h, batch).transcribe(request(), op.options), caught => caught === error);
+  assert.equal(calls, 1); assert.equal(h.fixtures.activeCount(), 0);
+});
+test('imports, construction, negotiation and health perform no transport or secret work', async () => {
+  let secrets = 0, transports = 0;
+  const ports = { config, enabled: true, resolveSecret() { secrets++; }, connect() { transports++; }, fetchImpl() { transports++; } };
+  for (const factory of [createGrokSTT, createGrokBatchSTT]) {
+    const stt = factory(ports); await stt.health();
+    assert.deepEqual(await stt.negotiateAudioFormat([STT_FORMAT], {}), STT_FORMAT);
+    assert.deepEqual(stt.capabilities.languages, ['de', 'en']); assert.deepEqual(stt.formats, [STT_FORMAT]);
+    assert.equal(stt.manifest.qualificationNote, 'not yet qualified in live use');
+  }
+  assert.equal(secrets, 0); assert.equal(transports, 0);
+});
