@@ -119,6 +119,7 @@ try {
       const reloadFrame = await show('reload', dummy); await reloadFrame.waitForSelector('#new'); await quiet(); singleLoad();
       const source = await page.evaluate(() => window.lastSource);
       const reloaded = page.waitForResponse(r => r.url() === source.url);
+      host.allowReload();
       await reloadFrame.evaluate(() => location.reload());
       const refused = await reloaded; assert.equal(refused.status(), 403);
       assert.equal(await refused.text(), 'Forbidden');
@@ -139,6 +140,10 @@ try {
       await quiet(); assert.equal(await page.evaluate(() => window.demoInlineRan), undefined);
       result.checks.strictDemo = 'PASS';
     } catch (error) {
+      if (host.duplicateInitialLoad) {
+        doubleFetch = true;
+        error = Error(`STOP: ${name} double-fetched a frame load; report to LEAD; capability must remain single-use`);
+      }
       failed = true; result.error = String(error.message).replace(/cap=[A-Za-z0-9_-]+/gu, 'cap=REDACTED');
       console.error(`${name}: ${result.error}`);
     } finally {

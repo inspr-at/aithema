@@ -16,7 +16,7 @@ export async function qualificationHost() {
   const hash = createHash('sha256').update(/<script type="importmap">([^<]+)<\/script>/u.exec(template)[1]).digest('base64');
   const artifacts = new Map(), hits = [], redemptions = [], mints = [];
   const session = { id: 'qualification', ownerHash: 'fixture-owner-hash', consentRevision: 1, concepts: [] };
-  let publicationAllowed = true, handlers, origin, silent = false;
+  let publicationAllowed = true, handlers, origin, silent = false, allowedReload = 0;
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, origin).pathname;
     hits.push(path); // Count at the socket, before dispatch, independently of browser events/console.
@@ -70,9 +70,14 @@ window.show=id=>{document.querySelector('aithema-html-preview').artifact={mediaT
     }, runtime: { publicationAllowed: async () => publicationAllowed },
   });
   return { origin, policy, hits, redemptions, mints, session,
+    allowReload() { allowedReload = mints.length; },
+    get duplicateInitialLoad() {
+      return mints.some((_, i) => i + 1 !== allowedReload && redemptions.filter(r => r.mint === i + 1).length > 1);
+    },
     add(id, html) {
       const bytes = new TextEncoder().encode(html);
-      assert.equal(inspectHTML(bytes).ok, true, `${id} passes static admission; the browser must enforce containment`);
+      const admission = inspectHTML(bytes);
+      assert.equal(admission.ok, true, `${id} passes static admission (${admission.problems}); the browser must enforce containment`);
       artifacts.set(id, { bytes, mediaType: 'text/html', provenance: { subject: { contentDigest: digest(bytes) } } });
       session.concepts.push({ id });
     },
@@ -89,7 +94,7 @@ blocked('parentDom',()=>w['par'+'ent'].document.body.textContent);
 blocked('parentCookie',()=>w['par'+'ent'].document['coo'+'kie']);
 blocked('cookie',()=>document['coo'+'kie']);
 blocked('storage',()=>w['local'+'Storage'].getItem('host-storage'));
-blocked('sessionStorage',()=>w['session'+'Storage'].getItem('host-storage'));
+blocked('session'+'Storage',()=>w['session'+'Storage'].getItem('host-storage'));
 blocked('parentStorage',()=>w['par'+'ent']['local'+'Storage'].getItem('host-storage'));
 try{await w['fe'+'tch'](base+'/beacon/fetch');r.fetch='reached';}catch(e){r.fetch='blocked '+e.name;}
 r.image=await new Promise(resolve=>{const i=new Image();i.onload=()=>resolve('reached');i.onerror=()=>resolve('blocked');i['sr'+'c']=base+'/beacon/image';});
