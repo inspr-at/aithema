@@ -179,6 +179,7 @@ for (const boundary of ['permitted', 'accepted']) for (const restart of [false, 
     const session = storage.create(), text = 'Noch einmal', writes = [];
     if (echo) storage.postTurn(session.id, 'typed-final', Buffer.from(text), text, { voiceCallId: 'call', voiceProviderId: 'generation' });
     const open = () => fixture(t, {
+      stt: { async *stream({ audio }) { for await (const _ of audio) {} yield { text: '', final: true }; } },
       authorize: () => {
         if (boundary === 'permitted' && written && !refused) { refused = true; return false; }
         return true;
@@ -209,6 +210,10 @@ for (const boundary of ['permitted', 'accepted']) for (const restart of [false, 
     if (restart) {
       await h.coordinator.close(); await h.coordinator.idle(); storage.close();
       storage = new SQLiteStorage(path); h = open();
+      // Move the new segment's sequence counter without publishing a turn.
+      // A restart must not pass just because both attempts happen to be first.
+      await h.coordinator.receiveAudio(Buffer.alloc(3200, 32));
+      await h.coordinator.receiveAudio(Buffer.alloc(16000)); await h.coordinator.idle();
     }
     const retried = await Promise.all(Array.from({ length: 4 }, () => h.coordinator.sendText(text, id)));
     await h.coordinator.idle();
