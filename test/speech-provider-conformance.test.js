@@ -74,11 +74,11 @@ test('provider diagnostic timeout guard detects a stalled component', async () =
   const { component, fixtures } = local('voxtral', 'stt');
   const transcribe = component.transcribe.bind(component);
   let first = true;
-  component.transcribe = (...args) => {
+  const stalledComponent = { ...component, transcribe(...args) {
     if (first) { first = false; return new Promise(() => {}); }
     return transcribe(...args);
-  };
-  const result = await sttConformance(component, { audio: new Uint8Array(64000), language: 'en' }, fixtures);
+  } };
+  const result = await sttConformance(stalledComponent, { audio: new Uint8Array(64000), language: 'en' }, fixtures);
   assert.ok(result.failures.some(failure => /conformance timeout/u.test(failure)), JSON.stringify(result));
 });
 
