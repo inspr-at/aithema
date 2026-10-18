@@ -1732,11 +1732,11 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.setViewport({ width: 1440, height: 1000 });
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
-      const readyLayout = () => inShadow(page, c => Object.fromEntries(
-        ['.ready', '.ready dl', '.ready__actions', '.ready__route', '.ready__input-slot', '.ready__modes'].map(selector => {
+      const readyLayout = () => inShadow(page, c => ({ scrollY, layout: Object.fromEntries(
+        ['.workspace', '.band', '.conversation', '.intro', '.intro__prompt', '.intro__card', '.ready', '.ready dl', '.ready__actions', '.ready__route', '.ready__input-slot', '.ready__modes'].map(selector => {
           const node = c.shadowRoot.querySelector(selector), rect = node.getBoundingClientRect(), style = getComputedStyle(node);
-          return [selector, { y: rect.y, height: rect.height, width: rect.width, rows: style.gridTemplateRows, text: node.textContent }];
-        })));
+          return [selector, { y: rect.y, height: rect.height, width: rect.width, rows: style.gridTemplateRows, padding: style.padding, margin: style.margin, text: node.textContent.slice(0, 80) }];
+        })) }));
       const beforeReadyLayout = await readyLayout();
       const footerState = () => inShadow(page, c => {
         const r = c.shadowRoot, row = r.querySelector('.display-foot__row');
